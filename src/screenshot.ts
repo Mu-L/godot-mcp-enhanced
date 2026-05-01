@@ -116,7 +116,7 @@ export async function captureScreenshot(
     projectPath,
     scene = '',
     outputPath,
-    frameDelay = 10,
+    frameDelay = 15,
     viewportSize = { width: 1280, height: 720 },
     timeout = 30,
   } = options;
@@ -168,6 +168,30 @@ export async function captureScreenshot(
       height: dims?.height,
       godotOutput: result1.output,
     };
+  }
+
+  // --- Retry: if primary mode failed but process succeeded, retry with doubled frame delay ---
+  if (!existsSync(outputPath) && result1.code === 0) {
+    const retryArgs = [...args];
+    // Update frame delay in args (it's the second-to-last positional arg before viewport size)
+    const vpSizeArg = `${viewportSize.width}x${viewportSize.height}`;
+    const vpIdx = retryArgs.indexOf(vpSizeArg);
+    if (vpIdx > 0) {
+      retryArgs[vpIdx - 1] = String(frameDelay * 2);
+    }
+    const retryResult = await runScreenshot(godotPath, retryArgs, timeout);
+    if (existsSync(outputPath)) {
+      const stat = statSync(outputPath);
+      const dims = parseDimensions(retryResult.output);
+      return {
+        success: true,
+        imagePath: outputPath,
+        fileSize: stat.size,
+        width: dims?.width,
+        height: dims?.height,
+        godotOutput: retryResult.output,
+      };
+    }
   }
 
   // --- Attempt 2: if headless failed, try windowed (and vice versa) ---

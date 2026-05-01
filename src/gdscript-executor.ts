@@ -96,12 +96,65 @@ function isFullClass(code: string): boolean {
 
 /**
  * Wrap a snippet into a valid `extends SceneTree` script with helper functions.
- * Uses `_initialize()` which runs after the SceneTree is fully set up.
- * Uses Variant types to avoid strict type inference issues with load().new() etc.
+ * Splits user code into declarations (class-level) and statements (inside _initialize).
+ * This allows func/var/const definitions to work correctly at class scope.
  */
 function wrapSnippet(code: string): string {
   const lines = code.split('\n');
-  const indented = lines.map(l => '\t' + l).join('\n');
+  const declarationLines: string[] = [];
+  const statementLines: string[] = [];
+
+  let inFuncBody = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Empty lines go to statement group
+    if (trimmed === '') {
+      if (inFuncBody) {
+        declarationLines.push(line);
+      }
+      continue;
+    }
+
+    // Comment-only lines at top level go to declarations
+    if (trimmed.startsWith('#') && !inFuncBody) {
+      declarationLines.push(line);
+      continue;
+    }
+
+    // Top-level declarations: func, var, const, signal, enum, class_name, annotations
+    if (/^(func |static func |var |const |signal |enum |class_name |@export|@onready|@icon|@warning)/.test(trimmed)) {
+      declarationLines.push(line);
+      // Track func bodies: if line starts with 'func' or 'static func' and doesn't end with pass/return on same line
+      if (/^(static )?func /.test(trimmed)) {
+        inFuncBody = true;
+      }
+      continue;
+    }
+
+    // Lines indented under a func declaration are part of that func body
+    if (inFuncBody) {
+      // Check if this un-indented line ends the func body
+      if (/^[^\t ]/.test(line) && !trimmed.startsWith('#')) {
+        inFuncBody = false;
+        // Fall through to statement classification below
+      } else {
+        declarationLines.push(line);
+        continue;
+      }
+    }
+
+    // Everything else is a statement
+    statementLines.push(line);
+  }
+
+  const classBody = declarationLines.length > 0
+    ? '\n' + declarationLines.join('\n') + '\n'
+    : '';
+
+  const initBody = statementLines.length > 0
+    ? '\n' + statementLines.map(l => '\t' + l).join('\n')
+    : '';
 
   return `extends SceneTree
 ## MCP snippet mode — autoloads are NOT available unless load_autoloads=true
@@ -111,11 +164,10 @@ var _mcp_outputs: Array = []
 
 func _mcp_output(key: String, value: Variant) -> void:
 \t_mcp_outputs.append({"key": key, "value": str(value)})
-
+${classBody}
 func _initialize():
 \tvar _mcp_success: bool = true
-\tvar _mcp_error: String = ""
-${indented}
+\tvar _mcp_error: String = ""${initBody}
 \tif _mcp_success:
 \t\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))
 \tquit()

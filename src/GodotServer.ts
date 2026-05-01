@@ -147,6 +147,66 @@ async function findGodot(): Promise<string> {
   );
 }
 
+// ─── Version mismatch detection ───────────────────────────────────────────────
+
+async function checkVersionMismatch(projectPath: string, godotBin: string): Promise<string | null> {
+  try {
+    // Read project.godot to extract expected version
+    const configPath = join(projectPath, 'project.godot');
+    if (!existsSync(configPath)) return null;
+    const config = readFileSync(configPath, 'utf-8');
+    const featuresMatch = config.match(/config\/features=PackedStringArray\("([^"]+)"\)/);
+    if (!featuresMatch) return null;
+    const projectVersion = featuresMatch[1]; // e.g. "4.6"
+
+    // Get binary version
+    const { stdout, stderr } = await execFileAsync(godotBin, ['--version'], { timeout: 5000 });
+    const binVersion = (stdout || stderr || '').trim();
+    // Extract major.minor from binary version (e.g. "4.6.2.stable.official" → "4.6")
+    const binMatch = binVersion.match(/^(\d+\.\d+)/);
+    if (!binMatch) return null;
+    const binMajorMinor = binMatch[1];
+
+    if (projectVersion !== binMajorMinor) {
+      return `⚠ Version mismatch: project.godot expects Godot ${projectVersion}, but binary is ${binVersion} (${binMajorMinor}). Errors may be inaccurate.`;
+    }
+    return null;
+  } catch {
+    return null; // Non-critical, don't block on failure
+  }
+}
+
+// ─── Script file collection ───────────────────────────────────────────────────
+
+function collectScriptFiles(projectPath: string, excludeDirs: string[] = ['.godot', '.import', 'addons', 'tools']): string[] {
+  const results: string[] = [];
+  function scan(dir: string, depth: number): void {
+    if (depth > 15) return;
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name.startsWith('.')) continue;
+        if (excludeDirs.includes(entry.name)) continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(full, depth + 1);
+        } else if (entry.name.endsWith('.gd')) {
+          results.push(full);
+        }
+      }
+    } catch { /* skip */ }
+  }
+  scan(projectPath, 0);
+  return results;
+}
+
+// ─── Shared error extraction ──────────────────────────────────────────────────
+
+function extractScriptErrors(output: string): string[] {
+  return output.split('\n').filter(l =>
+    l.includes('Parse Error:') || l.includes('SCRIPT ERROR:')
+  );
+}
+
 // ─── Debug output state ──────────────────────────────────────────────────────
 
 let runningProcess: ChildProcess | null = null;
@@ -236,7 +296,7 @@ export class GodotServer {
               project_path: { type: 'string', description: 'Path to Godot project directory' },
               scene: { type: 'string', description: 'Scene file path relative to project (res://scenes/main.tscn). If omitted, captures the default scene or an empty viewport.' },
               output_path: { type: 'string', description: 'Output PNG path (absolute). Defaults to <project_path>/screenshot.png' },
-              frame_delay: { type: 'number', description: 'Frames to wait before capture (default: 10)', default: 10 },
+              frame_delay: { type: 'number', description: 'Frames to wait before capture (default: 15)', default: 15 },
               viewport_width: { type: 'number', description: 'Viewport width in pixels (default: 1280)', default: 1280 },
               viewport_height: { type: 'number', description: 'Viewport height in pixels (default: 720)', default: 720 },
             },
@@ -462,7 +522,9 @@ export class GodotServer {
           name: 'edit_script',
           description: 'Edit an existing GDScript file by replacing a range of lines. '
             + 'Preserves CRLF line endings. By default inserts content as-is (raw mode). '
-            + 'Safer than write_script for incremental edits.',
+            + 'Safer than write_script for incremental edits. '
+            + 'IMPORTANT: Prefer this tool over Claude\'s built-in Edit for .gd files to preserve line endings. '
+            + 'Use search_and_replace mode for content-based editing that is resilient to line number shifts.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -477,6 +539,17 @@ export class GodotServer {
                 default: 'raw',
               },
               verify_content: { type: 'string', description: 'Optional: expected content at the replacement range. Edit is aborted if it does not match, preventing stale line-number edits.' },
+              search_and_replace: {
+                type: 'object',
+                description: 'Content-based editing mode: search for a string and replace it. More resilient than line-number editing. '
+                  + 'When provided, start_line/end_line are ignored.',
+                properties: {
+                  search: { type: 'string', description: 'The exact text to search for (CRLF is normalized to LF for matching)' },
+                  replace: { type: 'string', description: 'The replacement text' },
+                  occurrence: { type: 'number', description: 'Which occurrence to replace (1-based, default: 1). Use 0 to replace all.' },
+                },
+                required: ['search', 'replace'],
+              },
             },
             required: ['script_path', 'start_line', 'end_line', 'new_content'],
           },
@@ -491,7 +564,7 @@ export class GodotServer {
             properties: {
               project_path: { type: 'string', description: 'Path to Godot project directory' },
               scene: { type: 'string', description: 'Optional scene file to run (e.g. res://scenes/main.tscn)' },
-              timeout: { type: 'number', description: 'Auto-stop after N seconds (default: 15)', default: 15 },
+              timeout: { type: 'number', description: 'Auto-stop after N seconds (default: 20)', default: 20 },
               capture_tree: { type: 'boolean', description: 'Also capture a scene tree snapshot (default: false)', default: false },
             },
             required: ['project_path'],
@@ -645,6 +718,25 @@ export class GodotServer {
           },
         },
         {
+          name: 'validate_scripts',
+          description: 'Validate GDScript files by running each through the Godot parser. '
+            + 'Detects parse errors, indentation issues, and type mismatches that headless run may miss. '
+            + 'Returns per-file error details with fix suggestions.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              project_path: { type: 'string', description: 'Path to Godot project directory' },
+              scripts: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional array of script paths (relative to project) to validate. If omitted, scans all .gd files.',
+              },
+              timeout: { type: 'number', description: 'Timeout per script in seconds (default: 10)', default: 10 },
+            },
+            required: ['project_path'],
+          },
+        },
+        {
           name: 'import_resources',
           description: 'Scan a directory for assets and register them with the Godot project. Generates .import stubs '
             + 'so Godot recognizes the files. Supports images, audio, fonts, and other common asset types.',
@@ -739,6 +831,10 @@ export class GodotServer {
         const timeout = (args.timeout as number) || 30;
         const godot = await findGodot();
 
+        // Version mismatch warning
+        const versionWarning = await checkVersionMismatch(p, godot);
+        const warnPrefix = versionWarning ? versionWarning + '\n' : '';
+
         // Stop existing
         if (runningProcess) {
           runningProcess.kill('SIGTERM');
@@ -781,7 +877,7 @@ export class GodotServer {
           }, timeout * 1000);
         }
 
-        return text(`Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
+        return text(warnPrefix + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
       }
 
       case 'stop_project': {
@@ -826,7 +922,7 @@ export class GodotServer {
         const outputPath = args.output_path
           ? validatePath(args.output_path as string)
           : join(projectPath, 'screenshot.png');
-        const frameDelay = (args.frame_delay as number) || 10;
+        const frameDelay = (args.frame_delay as number) || 15;
         const viewportW = (args.viewport_width as number) || 1280;
         const viewportH = (args.viewport_height as number) || 720;
         const godot = await findGodot();
@@ -1262,22 +1358,77 @@ export class GodotServer {
         const fullPath = isAbsolute(scriptPath)
           ? scriptPath
           : join(validatePath(args.project_path as string), scriptPath);
+
+        if (!existsSync(fullPath)) {
+          return text(`Error: File not found: ${fullPath}`);
+        }
+
+        const rawFile = readFileSync(fullPath, 'utf-8');
+        const hasCRLF = rawFile.includes('\r\n');
+        const lines = rawFile.split(/\r?\n/);
+
+        // ── search_and_replace mode ──
+        if (args.search_and_replace && typeof args.search_and_replace === 'object') {
+          const sr = args.search_and_replace as { search: string; replace: string; occurrence?: number };
+          if (!sr.search) {
+            return text('Error: search_and_replace.search must be a non-empty string.');
+          }
+          // Normalize both to LF for matching
+          const normalizedContent = rawFile.replace(/\r\n/g, '\n');
+          const normalizedSearch = sr.search.replace(/\r\n/g, '\n');
+          const normalizedReplace = sr.replace.replace(/\r\n/g, '\n');
+
+          const occurrence = sr.occurrence ?? 1;
+          let searchIndex = -1;
+          let foundCount = 0;
+
+          if (occurrence === 0) {
+            // Replace all occurrences
+            if (!normalizedContent.includes(normalizedSearch)) {
+              return text(`Error: search_and_replace: search text not found in ${fullPath}`);
+            }
+            const newFileContent = normalizedContent.split(normalizedSearch).join(normalizedReplace);
+            const finalContent = hasCRLF ? newFileContent.replace(/\n/g, '\r\n') : newFileContent;
+            writeFileSync(fullPath, finalContent, 'utf-8');
+            const count = normalizedContent.split(normalizedSearch).length - 1;
+            return text(`Edited ${fullPath}: replaced all ${count} occurrences of search text.`);
+          }
+
+          // Replace Nth occurrence
+          let pos = 0;
+          while (pos < normalizedContent.length) {
+            const idx = normalizedContent.indexOf(normalizedSearch, pos);
+            if (idx === -1) break;
+            foundCount++;
+            if (foundCount === occurrence) {
+              searchIndex = idx;
+              break;
+            }
+            pos = idx + 1;
+          }
+
+          if (searchIndex === -1) {
+            return text(`Error: search_and_replace: occurrence ${occurrence} not found (found ${foundCount} total matches in ${fullPath})`);
+          }
+
+          const before = normalizedContent.substring(0, searchIndex);
+          const after = normalizedContent.substring(searchIndex + normalizedSearch.length);
+          const newFileContent = before + normalizedReplace + after;
+          const finalContent = hasCRLF ? newFileContent.replace(/\n/g, '\r\n') : newFileContent;
+          writeFileSync(fullPath, finalContent, 'utf-8');
+          return text(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).`);
+        }
+
+        // ── Line-number mode (original behavior) ──
         const startLine = args.start_line as number;
         const endLine = args.end_line as number;
         const newContent = args.new_content as string;
         const indentMode = (args.indent_mode as string) || 'raw';
         const verifyContent = args.verify_content as string | undefined;
 
-        if (!existsSync(fullPath)) {
-          return text(`Error: File not found: ${fullPath}`);
-        }
         if (startLine < 1 || endLine < startLine) {
           return text(`Error: Invalid line range: start_line=${startLine}, end_line=${endLine}`);
         }
-
-        const rawFile = readFileSync(fullPath, 'utf-8');
-        const hasCRLF = rawFile.includes('\r\n');
-        const lines = rawFile.split(/\r?\n/);
 
         if (endLine > lines.length) {
           return text(`Error: end_line ${endLine} exceeds file length ${lines.length}`);
@@ -1349,7 +1500,7 @@ export class GodotServer {
 
       case 'run_and_verify': {
         const projectPath = validatePath(args.project_path as string);
-        const timeout = (args.timeout as number) || 15;
+        const timeout = (args.timeout as number) || 20;
         const scene = args.scene as string | undefined;
         const captureTree = args.capture_tree === true;
 
@@ -1357,10 +1508,40 @@ export class GodotServer {
         const cmdArgs = ['--headless', '--path', projectPath];
         if (scene) cmdArgs.push(scene);
 
+        // Version mismatch check
+        const versionWarning = await checkVersionMismatch(projectPath, godot);
+
+        // Pre-check script syntax (parallel, up to 10 scripts, 15s global timeout)
+        const precheckErrors: Array<{ file: string; errors: string[] }> = [];
+        try {
+          const allScripts = collectScriptFiles(projectPath);
+          const scriptsToCheck = allScripts.slice(0, 10);
+          const relOf = (f: string) => f.replace(projectPath + (process.platform === 'win32' ? '\\' : '/'), '');
+          const precheckResults = await Promise.allSettled(scriptsToCheck.map(async (scriptFile) => {
+            try {
+              const { stdout, stderr } = await execFileAsync(godot, ['--headless', '--path', projectPath, '--script', scriptFile], { timeout: 8000 });
+              return { file: relOf(scriptFile), output: (stdout || '') + (stderr || '') };
+            } catch (e: any) {
+              return { file: relOf(scriptFile), output: ((e.stdout || '') + (e.stderr || '')) };
+            }
+          }));
+          for (const r of precheckResults) {
+            if (r.status === 'fulfilled') {
+              const errorLines = extractScriptErrors(r.value.output);
+              if (errorLines.length > 0) {
+                precheckErrors.push({ file: r.value.file, errors: errorLines });
+              }
+            }
+          }
+        } catch { /* precheck is optional */ }
+
         try {
           const { stdout, stderr } = await execFileAsync(godot, cmdArgs, { timeout: timeout * 1000 });
           const allOutput = [...(stdout || '').split('\n'), ...(stderr || '').split('\n')];
           const analysis = analyzeOutput(allOutput);
+
+          if (versionWarning) (analysis as any).version_warning = versionWarning;
+          if (precheckErrors.length > 0) (analysis as any).precheck_errors = precheckErrors;
 
           // Optionally capture scene tree
           if (captureTree && scene) {
@@ -1391,6 +1572,8 @@ export class GodotServer {
         } catch (e: any) {
           const allOutput = [...(e.stdout || '').split('\n'), ...(e.stderr || '').split('\n')];
           const analysis = analyzeOutput(allOutput);
+          if (versionWarning) (analysis as any).version_warning = versionWarning;
+          if (precheckErrors.length > 0) (analysis as any).precheck_errors = precheckErrors;
           if (e.killed) {
             (analysis as any).summary += '\nNote: Process timed out after ' + timeout + 's (this is normal for interactive projects)';
           } else {
@@ -1613,6 +1796,8 @@ export class GodotServer {
         const loadAutoloads = (args.load_autoloads as boolean) || false;
         const godot = await findGodot();
 
+        const versionWarning = await checkVersionMismatch(projectPath, godot);
+
         const result = await executeGdscript({
           godotPath: godot,
           projectPath,
@@ -1620,6 +1805,10 @@ export class GodotServer {
           timeout,
           loadAutoloads,
         });
+
+        if (versionWarning && typeof result === 'object') {
+          (result as any).version_warning = versionWarning;
+        }
 
         return text(JSON.stringify(result, null, 2));
       }
@@ -1918,6 +2107,67 @@ export class GodotServer {
         };
 
         return text(JSON.stringify(summary, null, 2));
+      }
+
+      case 'validate_scripts': {
+        const p = validatePath(args.project_path as string);
+        const perScriptTimeout = (args.timeout as number) || 10;
+        const godot = await findGodot();
+
+        // Collect scripts to validate
+        let scriptsToValidate: string[];
+        if (args.scripts && Array.isArray(args.scripts) && args.scripts.length > 0) {
+          scriptsToValidate = (args.scripts as string[]).map(s => join(p, s));
+        } else {
+          scriptsToValidate = collectScriptFiles(p);
+        }
+
+        // Cap at 50 scripts to avoid excessive runtime
+        const totalFound = scriptsToValidate.length;
+        if (scriptsToValidate.length > 50) {
+          scriptsToValidate = scriptsToValidate.slice(0, 50);
+        }
+
+        const relOf = (f: string) => f.replace(p + (process.platform === 'win32' ? '\\' : '/'), '');
+
+        // Parallel validation with Promise.allSettled
+        const validateResults = await Promise.allSettled(scriptsToValidate.map(async (scriptFile) => {
+          try {
+            const { stdout, stderr } = await execFileAsync(godot, ['--headless', '--path', p, '--script', scriptFile], { timeout: perScriptTimeout * 1000 });
+            return { file: relOf(scriptFile), output: (stdout || '') + (stderr || '') };
+          } catch (e: any) {
+            return { file: relOf(scriptFile), output: ((e.stdout || '') + (e.stderr || '')) };
+          }
+        }));
+
+        const results: Array<{ file: string; has_errors: boolean; errors: string[] }> = [];
+        let totalErrors = 0;
+        for (const r of validateResults) {
+          if (r.status !== 'fulfilled') continue;
+          const errorLines = extractScriptErrors(r.value.output);
+          totalErrors += errorLines.length;
+          results.push({ file: r.value.file, has_errors: errorLines.length > 0, errors: errorLines });
+        }
+
+        let summaryMsg = `Validated ${scriptsToValidate.length} scripts, found ${totalErrors} errors in ${results.filter(r => r.has_errors).length} files.`;
+        if (totalFound > 50) {
+          summaryMsg += ` (${totalFound - 50} scripts skipped — specify scripts parameter to validate more)`;
+        }
+
+        const scriptsSummary = {
+          validated: scriptsToValidate.length,
+          total_scanned: totalFound,
+          total_errors: totalErrors,
+          scripts_with_errors: results.filter(r => r.has_errors).length,
+          scripts: results,
+          summary: summaryMsg,
+        };
+
+        // Version warning
+        const vWarn = await checkVersionMismatch(p, godot);
+        if (vWarn) (scriptsSummary as any).version_warning = vWarn;
+
+        return text(JSON.stringify(scriptsSummary, null, 2));
       }
 
       case 'import_resources': {
