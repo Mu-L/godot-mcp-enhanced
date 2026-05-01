@@ -39,6 +39,10 @@
 | **Autoload 上下文执行** | **不支持** | **支持** |
 | **结构化错误分析** | **不支持** | **支持** |
 | **MCP 资源（godot://）** | **不支持** | **支持** |
+| **脚本语法验证** | **不支持** | **支持**（逐文件 Godot 解析器检查） |
+| **版本不一致检测** | **不支持** | **支持**（project.godot vs 二进制版本） |
+| **搜索替换编辑** | **不支持** | **支持**（search_and_replace，CRLF 安全） |
+| **截图自动重试** | **不支持** | **支持**（失败后 2x frameDelay 重试） |
 
 ## 核心亮点
 
@@ -46,7 +50,7 @@
 
 `execute_gdscript` 工具让 AI 可以在 headless 模式下执行任意 GDScript 代码：
 
-- **代码片段模式**：无需写 `extends`，输入的代码会被自动包装为完整的 `extends SceneTree` 脚本
+- **代码片段模式**：无需写 `extends`，输入的代码会被自动包装为完整的 `extends SceneTree` 脚本。支持 `func`/`var`/`const` 等声明（自动放在类级别）和语句行（放在 `_initialize()` 体内）
 - **结构化输出**：通过 `_mcp_output(key, value)` 返回键值对结果
 - **超时控制**：防止代码死循环卡住
 - **Autoload 上下文**：设置 `load_autoloads=true` 可在完整项目环境中运行，访问 DataRegistry、PlayerData 等全局单例
@@ -140,7 +144,7 @@ npm install
 | `GODOT_PATH` | Godot 可执行文件路径 | 自动检测 |
 | `DEBUG` | 启用详细日志 | `false` |
 
-## 工具列表（共 34 个）
+## 工具列表（共 35 个）
 
 ### 执行工具
 
@@ -158,8 +162,9 @@ npm install
 
 | 工具 | 说明 |
 |------|------|
-| `run_and_verify` | 一键 headless 运行并返回结构化错误/警告分析。支持 `capture_tree` 选项同时获取场景树快照。 |
+| `run_and_verify` | 一键 headless 运行并返回结构化错误/警告分析。支持 `capture_tree` 选项同时获取场景树快照。自动检测版本不一致和脚本语法错误。 |
 | `analyze_error` | 重新分析 Godot 输出文本，提供修复建议 |
+| `validate_scripts` | 逐文件运行 Godot 解析器验证 GDScript 语法，检测 headless 运行可能遗漏的 Parse Error |
 
 ### 动态执行工具
 
@@ -246,7 +251,9 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 
 ### `edit_script`
 
-按行范围编辑现有 GDScript 文件。自动保留 CRLF/LF 换行。
+按行范围或搜索替换编辑现有 GDScript 文件。自动保留 CRLF/LF 换行。
+
+> **推荐**：优先使用此工具（而非 Claude 内置 Edit）编辑 .gd 文件以保留行尾格式。使用 `search_and_replace` 模式可避免行号偏移问题。
 
 **参数：**
 
@@ -258,6 +265,7 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 | `new_content` | 是 | 替换内容 |
 | `indent_mode` | 否 | `"raw"`（默认）— 原样插入。`"smart"` — 自动调整缩进匹配 `start_line`。 |
 | `verify_content` | 否 | 预期内容，不匹配时中止编辑，防止过期行号误改。 |
+| `search_and_replace` | 否 | 搜索替换模式（提供后忽略 start_line/end_line）。详见下方。 |
 
 ```json
 {
@@ -269,6 +277,24 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
   "verify_content": "func get_hp():\n\treturn 0"
 }
 ```
+
+**search_and_replace 模式：**
+
+```json
+{
+  "script_path": "scripts/player.gd",
+  "search_and_replace": {
+    "search": "func get_hp():\n\treturn 0",
+    "replace": "func get_health() -> int:\n\treturn hp"
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `search` | 要搜索的文本（CRLF 会被规范化为 LF 匹配） |
+| `replace` | 替换文本 |
+| `occurrence` | 替换第几次出现（默认 1，设为 0 替换全部） |
 
 响应包含变更前后的 diff 对比。
 
@@ -368,3 +394,22 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 ## 许可证
 
 MIT
+
+## 更新日志
+
+### v0.4.0（2026-05-01）
+
+8 项增强 + 审查修复：
+
+| 功能 | 说明 |
+|------|------|
+| 版本不一致检测 | project.godot 与 Godot 二进制版本不匹配时自动警告，注入 run_and_verify / execute_gdscript / run_project 响应 |
+| 脚本预检查 | run_and_verify 运行前并行扫描前 10 个 .gd 文件语法，捕获 Parse Error |
+| `validate_scripts` 新工具 | 独立的脚本语法验证，并行执行，上限 50 文件 |
+| snippet 支持 func | execute_gdscript 自动将 func/var/const 声明放在类级别，语句放在 _initialize() |
+| search_and_replace | edit_script 新增内容搜索替换模式，支持指定第 N 次出现，CRLF 安全 |
+| 超时 15→20 | run_and_verify 默认超时增加 |
+| 截图稳定性 | frameDelay 10→15，失败后自动以 2x frameDelay 重试一次 |
+| CRLF 保护提示 | edit_script 描述提示优先使用此工具保护行尾格式 |
+
+审查修复：wrapSnippet func body 分类 bug、提取 extractScriptErrors() 消除重复、脚本验证并行化。
