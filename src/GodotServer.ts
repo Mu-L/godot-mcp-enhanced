@@ -201,22 +201,15 @@ function collectScriptFiles(projectPath: string, excludeDirs: string[] = ['.godo
 
 // ─── Shared error extraction ──────────────────────────────────────────────────
 
-function extractScriptErrors(output: string): string[] {
-  return output.split('\n').filter(l =>
-    l.includes('Parse Error:') ||
-    l.includes('SCRIPT ERROR:') ||
-    l.includes('MCP_VALIDATE_ERROR:') ||
-    (l.includes('at:') && l.includes('res://'))
-  );
-}
-
 /**
  * Batch-validate scripts using a single Godot process with a SceneTree-based validator.
  * Avoids popup dialogs caused by running each script individually with --script
  * (which requires scripts to extend SceneTree/MainLoop).
  *
  * The validator script extends SceneTree and uses load() to compile each script.
- * Autoload context is available because the project is loaded before the script runs.
+ * Godot outputs Parse Error to stderr for scripts with real syntax errors.
+ * We do NOT use Script.reload() because it falsely reports errors for valid scripts
+ * that reference autoload classes (which aren't loaded in --script headless mode).
  */
 async function batchValidateScripts(
   godotPath: string,
@@ -250,14 +243,11 @@ async function batchValidateScripts(
   // Escape path for GDScript string literal
   const gdSafePath = listPath.replace(/"/g, '\\"');
 
-  // Create validator GDScript that extends SceneTree (no popup dialogs)
-  // Uses load() + Script.reload() to detect parse errors.
+  // Create validator GDScript that extends SceneTree (no popup dialogs).
   // Note: Do NOT use OS.flush_stdout() — it is not a static method in Godot 4.6
   // and will cause the validator itself to fail to parse.
-  // Validator loads each script via load(). Godot outputs Parse Error to stderr
-  // for scripts with real syntax errors. We do NOT use reload() because it
-  // falsely reports errors for valid scripts that reference autoload classes
-  // (which aren't loaded in --script headless mode).
+  // load() triggers Godot's parser which outputs Parse Error to stderr for broken scripts.
+  // load() returning null means the script failed to load entirely (e.g. file not found).
   const validatorCode = [
     'extends SceneTree',
     '',
@@ -279,7 +269,6 @@ async function batchValidateScripts(
     '\t\tvar script_path: String = scripts[i]',
     '\t\tvar res = load(script_path)',
     '\t\tif res == null:',
-    '\t\t\tprint("MCP_VALIDATE_LOAD_FAIL " + script_path)',
     '\t\t\tcontinue',
     '\tprint("MCP_VALIDATE_DONE")',
     '\tquit()',
@@ -288,68 +277,18 @@ async function batchValidateScripts(
   const validatorPath = join(tmpDir, `validate-${listId}.gd`);
   writeFileSync(validatorPath, validatorCode, 'utf-8');
 
-  const results: Array<{ file: string; errors: string[] }> = [];
+  const results = new Map<string, string[]>();
 
-  // Match errors to script files using Godot's error format.
-  // Two sources: (1) Godot's stderr SCRIPT ERROR/at: pairs, (2) MCP_VALIDATE_ERROR lines from stdout
-  // Filter out false positives from reload() checking references in isolation (autoloads not loaded)
+  // Filter out false positives from load() in isolated --script mode
   const isErrorFalsePositive = (line: string): boolean => {
-    // reload() reports "Identifier not found" for autoload classes that aren't loaded in --script mode
+    // "Identifier not found" for autoload classes not loaded in --script mode
     if (line.includes('Identifier not found')) return true;
     // "Condition '...' is true" warnings are not real errors
     if (line.includes('Condition') && line.includes('is true')) return true;
     return false;
   };
 
-  const matchErrorsToFile = (allLines: string[], rels: string[]): Array<{ file: string; errors: string[] }> => {
-    const fileErrors = new Map<string, string[]>();
-    let lastErrorLine = '';
-
-    for (const line of allLines) {
-      const trimmed = line.trim();
-
-      // Source 1: MCP_VALIDATE_ERROR from our validator — contains res:// path directly
-      if (trimmed.includes('MCP_VALIDATE_ERROR:') && trimmed.includes('res://')) {
-        for (const rel of rels) {
-          const normalizedRel = rel.replace(/\\/g, '/');
-          const resPath = 'res://' + normalizedRel;
-          if (trimmed.includes(resPath)) {
-            if (!fileErrors.has(rel)) fileErrors.set(rel, []);
-            fileErrors.get(rel)!.push('Script failed to load (parse error)');
-            break;
-          }
-        }
-        continue;
-      }
-
-      // Source 2: Godot's native error format (stderr — only works on some platforms)
-      if (trimmed.includes('Parse Error:') || trimmed.includes('SCRIPT ERROR:') || trimmed.startsWith('ERROR:')) {
-        lastErrorLine = trimmed;
-      } else if (trimmed.startsWith('at:') && trimmed.includes('res://') && lastErrorLine) {
-        for (const rel of rels) {
-          const normalizedRel = rel.replace(/\\/g, '/');
-          const pattern = 'res://' + normalizedRel + ':';
-          if (trimmed.includes(pattern)) {
-            if (!fileErrors.has(rel)) fileErrors.set(rel, []);
-            fileErrors.get(rel)!.push(lastErrorLine);
-            fileErrors.get(rel)!.push(trimmed);
-            break;
-          }
-        }
-        lastErrorLine = '';
-      }
-    }
-
-    const out: Array<{ file: string; errors: string[] }> = [];
-    for (const [file, errors] of fileErrors) {
-      out.push({ file, errors });
-    }
-    return out;
-  };
-
   // Use spawn with event-based output capture (like executeGdscript).
-  // execFileAsync loses output on Windows because Godot's --script mode
-  // may crash during load() and the buffered output is never returned.
   const output = await new Promise<string>((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -367,6 +306,11 @@ async function batchValidateScripts(
       if (!proc.killed) proc.kill('SIGTERM');
     }, globalTimeoutMs);
 
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      resolve('SPAWN_ERROR: ' + err.message);
+    });
+
     proc.on('close', () => {
       clearTimeout(timer);
       resolve(stdout + stderr);
@@ -374,10 +318,24 @@ async function batchValidateScripts(
   });
 
   try {
+    const outputLines = output.split('\n');
+
+    // Check for validator infrastructure errors first
+    const infraErrors = outputLines.filter(l => l.includes('MCP_VALIDATE_ERROR:'));
+    if (infraErrors.length > 0) {
+      results.set('<validator>', infraErrors.map(l => l.trim()));
+    }
+
+    // Check if validator completed normally — if MCP_VALIDATE_DONE is missing,
+    // the process was likely killed by timeout, so results may be incomplete
+    const validatorCompleted = outputLines.some(l => l.includes('MCP_VALIDATE_DONE'));
+    if (!validatorCompleted && infraErrors.length === 0) {
+      results.set('<validator>', ['Validator process did not complete (likely timed out). Results may be incomplete.']);
+    }
+
     // Parse stderr for "Parse Error" lines and match them to scripts via "at:" lines.
     // Only "Parse Error" indicates real syntax errors. "Compile Error: Identifier not found"
     // is a false positive caused by autoload classes not being loaded in --script mode.
-    const outputLines = output.split('\n');
     let lastParseError = '';
     for (const line of outputLines) {
       const trimmed = line.trim();
@@ -387,12 +345,10 @@ async function batchValidateScripts(
         for (const rel of scriptRels) {
           const normalizedRel = rel.replace(/\\/g, '/');
           if (trimmed.includes('res://' + normalizedRel + ':')) {
-            if (!results.some(r => r.file === rel)) {
-              results.push({ file: rel, errors: [] });
-            }
-            const existing = results.find(r => r.file === rel)!;
-            if (!existing.errors.includes(lastParseError)) {
-              existing.errors.push(lastParseError);
+            if (!results.has(rel)) results.set(rel, []);
+            const errors = results.get(rel)!;
+            if (!errors.includes(lastParseError)) {
+              errors.push(lastParseError);
             }
             break;
           }
@@ -400,20 +356,12 @@ async function batchValidateScripts(
         lastParseError = '';
       }
     }
-
-    // Check for validator infrastructure errors
-    const infraErrors = outputLines.filter(l =>
-      l.includes('MCP_VALIDATE_ERROR:') && !l.includes('load_failed')
-    );
-    if (infraErrors.length > 0) {
-      results.push({ file: '<validator>', errors: infraErrors.map(l => l.trim()) });
-    }
   } finally {
     try { rmSync(listPath, { force: true }); } catch {}
     try { rmSync(validatorPath, { force: true }); } catch {}
   }
 
-  return results;
+  return Array.from(results.entries()).map(([file, errors]) => ({ file, errors }));
 }
 
 // ─── Debug output state ──────────────────────────────────────────────────────
