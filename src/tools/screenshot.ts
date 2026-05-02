@@ -54,10 +54,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const projectPath = validatePath(args.project_path as string);
       const scene = args.scene as string | undefined;
       const outputPathRaw = args.output_path as string | undefined;
-      const outputPath = outputPathRaw
+      const normalizedOutput = normalizeUserProjectPath(outputPathRaw ?? '');
+      const outputPath = outputPathRaw?.trim()
         ? (allowOutsideProjectPaths()
             ? validatePath(outputPathRaw)
-            : resolveWithinRoot(projectPath, normalizeUserProjectPath(outputPathRaw)))
+            : resolveWithinRoot(projectPath, normalizedOutput))
         : join(projectPath, 'screenshot.png');
       const frameDelay = (args.frame_delay as number) || 15;
       const viewportW = (args.viewport_width as number) || 1280;
@@ -94,7 +95,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     case 'analyze_screenshot': {
       let imagePath = args.image_path as string | undefined;
       const projectPathRaw = args.project_path as string | undefined;
-      const projectPath = projectPathRaw ? validatePath(projectPathRaw) : undefined;
+      const projectPath = projectPathRaw?.trim() ? validatePath(projectPathRaw) : undefined;
       const question = (args.question as string) ||
         'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.';
 

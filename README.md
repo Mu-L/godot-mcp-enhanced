@@ -143,6 +143,7 @@ npm install
 |------|------|--------|
 | `GODOT_PATH` | Godot 可执行文件路径 | 自动检测 |
 | `DEBUG` | 启用详细日志 | `false` |
+| `ALLOW_OUTSIDE_PROJECT_PATHS` | 允许工具访问项目目录外的文件（如截图输出路径） | `false` |
 
 ## 工具列表（共 35 个）
 

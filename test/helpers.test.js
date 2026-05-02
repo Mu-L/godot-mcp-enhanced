@@ -97,13 +97,41 @@ describe('normalizeUserProjectPath', () => {
     assert.strictEqual(normalizeUserProjectPath(undefined), '');
   });
 
+  it('returns empty string for null', () => {
+    assert.strictEqual(normalizeUserProjectPath(null), '');
+  });
+
+  it('returns empty string for whitespace-only input', () => {
+    assert.strictEqual(normalizeUserProjectPath('   '), '');
+  });
+
   it('trims whitespace', () => {
     assert.strictEqual(normalizeUserProjectPath('  res://foo  '), 'foo');
+  });
+
+  it('does not strip nested res:// in path body', () => {
+    assert.strictEqual(normalizeUserProjectPath('res://res://foo'), 'res://foo');
   });
 });
 
 describe('allowOutsideProjectPaths', () => {
   it('returns false by default', () => {
     assert.strictEqual(allowOutsideProjectPaths(), false);
+  });
+
+  it('returns true when env var is exactly "true"', () => {
+    const orig = process.env.ALLOW_OUTSIDE_PROJECT_PATHS;
+    process.env.ALLOW_OUTSIDE_PROJECT_PATHS = 'true';
+    assert.strictEqual(allowOutsideProjectPaths(), true);
+    process.env.ALLOW_OUTSIDE_PROJECT_PATHS = orig;
+  });
+
+  it('returns false for case-insensitive variants', () => {
+    const orig = process.env.ALLOW_OUTSIDE_PROJECT_PATHS;
+    for (const val of ['TRUE', 'True', '1', 'yes']) {
+      process.env.ALLOW_OUTSIDE_PROJECT_PATHS = val;
+      assert.strictEqual(allowOutsideProjectPaths(), false, `should reject "${val}"`);
+    }
+    process.env.ALLOW_OUTSIDE_PROJECT_PATHS = orig;
   });
 });
