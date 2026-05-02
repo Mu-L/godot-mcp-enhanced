@@ -199,7 +199,7 @@ function collectScriptFiles(projectPath: string, excludeDirs: string[] = ['.godo
   return results;
 }
 
-// ─── Shared error extraction ──────────────────────────────────────────────────
+// ─── Script Validation ────────────────────────────────────────────────────────
 
 /**
  * Batch-validate scripts using a single Godot process with a SceneTree-based validator.
@@ -319,6 +319,13 @@ async function batchValidateScripts(
       resolve(stdout + stderr);
     });
   });
+
+  // Early return if spawn itself failed (bad executable path, etc.)
+  if (output.startsWith('SPAWN_ERROR:')) {
+    try { rmSync(listPath, { force: true }); } catch {}
+    try { rmSync(validatorPath, { force: true }); } catch {}
+    return [{ file: '<validator>', errors: [output] }];
+  }
 
   try {
     const outputLines = output.split('\n');
