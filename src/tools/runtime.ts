@@ -2,10 +2,11 @@ import { spawn } from 'child_process';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
-import { isAbsolute, resolve, join } from 'path';
+import { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { validatePath } from '../helpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,10 +42,6 @@ function classifyOutput(lines: string[]): {
   }
 
   return { errors, warnings, prints };
-}
-
-function validatePath(p: string): string {
-  return isAbsolute(p) ? p : resolve(p);
 }
 
 async function checkVersionMismatch(projectPath: string, godotBin: string): Promise<string | null> {

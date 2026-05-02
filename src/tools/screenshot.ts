@@ -4,12 +4,9 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { captureScreenshot } from '../screenshot.js';
+import { validatePath } from '../helpers.js';
 
 const TOOL_NAMES = ['capture_screenshot', 'analyze_screenshot'] as const;
-
-function validatePath(p: string): string {
-  return isAbsolute(p) ? p : resolve(p);
-}
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 

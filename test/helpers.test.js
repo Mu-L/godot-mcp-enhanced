@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
-import { validatePath, resolveWithinRoot } from '../build/helpers.js';
+import { validatePath, resolveWithinRoot, ensureDir } from '../build/helpers.js';
 
 describe('validatePath', () => {
   it('resolves relative paths to absolute', () => {
@@ -46,5 +47,38 @@ describe('resolveWithinRoot', () => {
   it('handles deep relative paths within root', () => {
     const result = resolveWithinRoot(root, 'a/b/c/d/file.gd');
     assert.ok(result.startsWith(root + sep));
+  });
+
+  it('rejects path with .. on Windows-style traversal', () => {
+    assert.throws(
+      () => resolveWithinRoot(root, '..\\..\\etc\\passwd'),
+      { message: /Path traversal detected/ }
+    );
+  });
+
+  it('rejects mixed slash traversal', () => {
+    assert.throws(
+      () => resolveWithinRoot(root, 'valid/../../etc/passwd'),
+      { message: /Path traversal detected/ }
+    );
+  });
+});
+
+describe('ensureDir', () => {
+  const testBase = resolve('/tmp/godot-mcp-test-ensuredir');
+
+  it('creates parent directories if missing', () => {
+    const target = `${testBase}/a/b/c/file.gd`;
+    ensureDir(target);
+    assert.ok(existsSync(`${testBase}/a/b/c`));
+    // cleanup
+    rmSync(testBase, { recursive: true, force: true });
+  });
+
+  it('does not throw when directory already exists', () => {
+    mkdirSync(`${testBase}/existing`, { recursive: true });
+    writeFileSync(`${testBase}/existing/file.txt`, 'test');
+    assert.doesNotThrow(() => ensureDir(`${testBase}/existing/other.txt`));
+    rmSync(testBase, { recursive: true, force: true });
   });
 });

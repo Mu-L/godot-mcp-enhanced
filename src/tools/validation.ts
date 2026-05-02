@@ -7,7 +7,7 @@ import { promisify } from 'util';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
-import { validatePath, resolveWithinRoot } from '../helpers.js';
+import { validatePath, resolveWithinRoot, parseMcpScriptOutput } from '../helpers.js';
 import { analyzeOutput } from '../error-analyzer.js';
 
 const execFileAsync = promisify(execFile);
@@ -19,42 +19,6 @@ const TOOL_NAMES = [
   'validate_scripts',
   'import_resources',
 ] as const;
-
-const MCP_MARKER_RESULT = '___MCP_RESULT___';
-const MCP_MARKER_ERROR = '___MCP_ERROR___';
-
-function parseMcpScriptOutput(rawOutput: string, exitCode: number | null): unknown {
-  const lines = rawOutput.split('\n');
-  const logLines: string[] = [];
-  let parsed: unknown = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(MCP_MARKER_RESULT)) {
-      try {
-        parsed = JSON.parse(trimmed.substring(MCP_MARKER_RESULT.length));
-      } catch {
-        parsed = { success: false, error: 'Failed to parse result JSON', raw: trimmed };
-      }
-    } else if (trimmed.startsWith(MCP_MARKER_ERROR)) {
-      try {
-        parsed = JSON.parse(trimmed.substring(MCP_MARKER_ERROR.length));
-      } catch {
-        parsed = { success: false, error: 'Failed to parse error JSON', raw: trimmed };
-      }
-    } else {
-      logLines.push(trimmed);
-    }
-  }
-
-  if (parsed) return parsed;
-
-  return {
-    success: false,
-    error: exitCode !== 0 ? `Process exited with code ${exitCode}` : 'No structured output found',
-    raw_output: logLines.join('\n'),
-  };
-}
 
 // ─── Version mismatch detection ────────────────────────────────────────────
 

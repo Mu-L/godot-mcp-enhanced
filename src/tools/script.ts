@@ -299,7 +299,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult('Error: script_path is required (e.g. "scripts/player.gd")');
       }
 
-      const fullScriptPath = join(projectPath, scriptPath);
+      const fullScriptPath = resolveWithinRoot(projectPath, scriptPath);
       if (!existsSync(fullScriptPath)) {
         return textResult(`Error: Script not found: ${fullScriptPath}`);
       }
