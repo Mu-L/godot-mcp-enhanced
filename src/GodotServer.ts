@@ -1516,10 +1516,7 @@ export class GodotServer {
 
       case 'write_script': {
         const scriptPath = args.script_path as string;
-        // Support both absolute paths and relative-to-project paths
-        const sp = isAbsolute(scriptPath)
-          ? scriptPath
-          : resolveWithinRoot(validatePath(args.project_path as string), scriptPath);
+        const sp = resolveWithinRoot(validatePath(args.project_path as string), scriptPath);
         const content = args.content as string;
 
         ensureDir(sp);
@@ -1530,10 +1527,7 @@ export class GodotServer {
 
       case 'edit_script': {
         const scriptPath = args.script_path as string;
-        // Support both absolute paths and relative-to-project paths
-        const fullPath = isAbsolute(scriptPath)
-          ? scriptPath
-          : resolveWithinRoot(validatePath(args.project_path as string), scriptPath);
+        const fullPath = resolveWithinRoot(validatePath(args.project_path as string), scriptPath);
 
         if (!existsSync(fullPath)) {
           return text(`Error: File not found: ${fullPath}`);
