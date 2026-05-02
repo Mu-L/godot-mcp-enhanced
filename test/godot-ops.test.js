@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   normalizeNodePath, gdEscape, validateVector3,
   TYPE_WHITELIST, ERROR_CODES,
-  genSignalConnectScript, genSignalDisconnectScript, genSignalEmitScript, genSignalListScript
+  genSignalConnectScript, genSignalDisconnectScript, genSignalEmitScript, genSignalListScript,
+  genRaycastScript, genBodyInfoScript, genCreate3DScript, genNavQueryScript
 } from '../build/tools/godot-ops.js';
 
 describe('normalizeNodePath', () => {
@@ -131,5 +132,77 @@ describe('genSignalListScript', () => {
     const script = genSignalListScript('/root/Player');
     assert.ok(script.includes('get_signal_list()'));
     assert.ok(script.includes('_mcp_output'));
+  });
+});
+
+describe('genRaycastScript', () => {
+  it('contains PhysicsRayQueryParameters3D.create', () => {
+    const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0});
+    assert.ok(script.includes('PhysicsRayQueryParameters3D.create'));
+    assert.ok(script.includes('Vector3(0, 0, 0)'));
+    assert.ok(script.includes('Vector3(10, 0, 0)'));
+  });
+  it('includes collision_mask when provided', () => {
+    const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0}, 0b111);
+    assert.ok(script.includes('collision_mask = 7'));
+  });
+  it('includes exclude logic when paths provided', () => {
+    const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0}, undefined, ['/root/Wall', '/root/Floor']);
+    assert.ok(script.includes('exclude'));
+    assert.ok(script.includes('/root/Wall'));
+    assert.ok(script.includes('/root/Floor'));
+  });
+});
+
+describe('genBodyInfoScript', () => {
+  it('contains CollisionShape3D scan', () => {
+    const script = genBodyInfoScript('/root/Player');
+    assert.ok(script.includes('CollisionShape3D'));
+    assert.ok(script.includes('get_node("/root/Player")'));
+    assert.ok(script.includes('has_collision'));
+  });
+  it('contains collision_layer and collision_mask', () => {
+    const script = genBodyInfoScript('/root/Player');
+    assert.ok(script.includes('collision_layer'));
+    assert.ok(script.includes('collision_mask'));
+  });
+});
+
+describe('genCreate3DScript', () => {
+  it('creates node with position', () => {
+    const script = genCreate3DScript('MeshInstance3D', 'MyMesh', '/root/Scene', {x:1,y:2,z:3});
+    assert.ok(script.includes('MeshInstance3D.new()'));
+    assert.ok(script.includes('MyMesh'));
+    assert.ok(script.includes('position = Vector3(1, 2, 3)'));
+  });
+  it('creates node with scale', () => {
+    const script = genCreate3DScript('Camera3D', 'MainCam', '/root/Scene', undefined, undefined, {x:2,y:2,z:2});
+    assert.ok(script.includes('Camera3D.new()'));
+    assert.ok(script.includes('scale = Vector3(2, 2, 2)'));
+    assert.ok(!script.includes('position ='));
+  });
+  it('sets custom properties', () => {
+    const script = genCreate3DScript('OmniLight3D', 'Light1', '/root/Scene', undefined, undefined, undefined, { light_energy: 2.5, light_color: '"red"' });
+    assert.ok(script.includes('light_energy'));
+    assert.ok(script.includes('2.5'));
+  });
+});
+
+describe('genNavQueryScript', () => {
+  it('contains NavigationServer3D.map_get_path', () => {
+    const script = genNavQueryScript({x:0,y:0,z:0}, {x:10,y:0,z:10});
+    assert.ok(script.includes('NavigationServer3D.map_get_path'));
+    assert.ok(script.includes('Vector3(0, 0, 0)'));
+    assert.ok(script.includes('Vector3(10, 0, 10)'));
+  });
+  it('includes region lookup when provided', () => {
+    const script = genNavQueryScript({x:0,y:0,z:0}, {x:10,y:0,z:10}, '/root/NavRegion');
+    assert.ok(script.includes('NavigationRegion3D'));
+    assert.ok(script.includes('/root/NavRegion'));
+  });
+  it('includes fallback maps logic', () => {
+    const script = genNavQueryScript({x:0,y:0,z:0}, {x:10,y:0,z:10});
+    assert.ok(script.includes('get_maps'));
+    assert.ok(script.includes('warning'));
   });
 });
