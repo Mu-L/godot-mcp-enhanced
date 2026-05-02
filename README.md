@@ -130,7 +130,9 @@ npm install
         "read_script", "write_script",
         "execute_gdscript", "query_scene_tree", "inspect_node",
         "batch_add_nodes", "validate_project", "import_resources",
-        "run_and_verify", "analyze_error", "edit_script"
+        "run_and_verify", "analyze_error", "edit_script",
+        "signal_connect", "signal_disconnect", "signal_emit", "signal_list",
+        "physics_raycast", "physics_body_info", "node_create_3d", "nav_query_path"
       ]
     }
   }
@@ -145,7 +147,7 @@ npm install
 | `DEBUG` | 启用详细日志 | `false` |
 | `ALLOW_OUTSIDE_PROJECT_PATHS` | 允许工具访问项目目录外的文件（如截图输出路径） | `false` |
 
-## 工具列表（共 35 个）
+## 工具列表（共 43 个）
 
 ### 执行工具
 
@@ -204,6 +206,23 @@ npm install
 | `read_script` | 读取 .gd 文件（含元数据） |
 | `write_script` | 写入/覆盖 .gd 文件 |
 | `edit_script` | 按行范围编辑 .gd 文件。支持 `raw`/`smart` 缩进模式、内容验证、变更前后对比。 |
+
+### 运行时操作工具
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。如需持久化场景修改，请使用 `add_node` + `save_scene`。
+
+| 工具 | 说明 |
+|------|------|
+| `signal_connect` | 连接两个节点的信号。仅影响当前执行上下文。 |
+| `signal_disconnect` | 断开信号连接。仅影响当前执行上下文。 |
+| `signal_emit` | 发射节点信号，参数仅支持基础类型（string/number/bool/null）。仅影响当前执行上下文。 |
+| `signal_list` | 列出节点上可用的信号。 |
+| `physics_raycast` | 执行 3D 射线检测，返回碰撞点、法线、碰撞体信息。 |
+| `physics_body_info` | 获取物理体的碰撞形状、AABB、碰撞层/掩码信息。 |
+| `node_create_3d` | 运行时创建 3D 节点（支持 16 种白名单类型）。headless 创建不持久化。 |
+| `nav_query_path` | 查询 3D 导航路径，支持指定 NavigationRegion3D 或自动回退。 |
+
+所有运行时工具支持可选 `load_autoloads` 参数（默认 `true`），可在完整 Autoload 上下文中执行。
 
 ### API 文档工具
 
@@ -397,6 +416,23 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 MIT
 
 ## 更新日志
+
+### v0.5.0（2026-05-02）
+
+新增 8 个运行时操作工具（信号控制 + 物理查询 + 3D 创建 + 导航寻路）：
+
+| 工具 | 说明 |
+|------|------|
+| `signal_connect` | 运行时连接信号，支持 flags 参数 |
+| `signal_disconnect` | 断开信号连接 |
+| `signal_emit` | 发射信号（仅基础类型参数） |
+| `signal_list` | 列出节点可用信号 |
+| `physics_raycast` | 3D 射线检测（Godot 4 PhysicsRayQueryParameters3D） |
+| `physics_body_info` | 物理体碰撞信息查询 |
+| `node_create_3d` | 运行时创建 3D 节点（16 种白名单类型） |
+| `nav_query_path` | NavigationServer3D 寻路查询 |
+
+统一返回格式 `{success, data, error, error_code, warnings}`，6 种错误码。
 
 ### v0.4.0（2026-05-01）
 
