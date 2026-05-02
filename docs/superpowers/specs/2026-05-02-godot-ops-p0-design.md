@@ -1,7 +1,7 @@
 # P0 运行时操作工具 — 设计文档
 
 **日期:** 2026-05-02
-**状态:** v2（审查修订版）
+**状态:** v3（二次审查修订版）
 **范围:** 信号控制、3D 操作、物理查询、导航寻路
 
 ---
@@ -39,6 +39,8 @@ schema 定义示例：
 
 所有路径参数（source_path/target_path/node_path/body_path/parent）统一处理：
 - 空字符串拒绝
+- **仅接受 scene tree path**（`root/...` 或 `/root/...`），不接受 `res://...`
+- `res://...` 仅用于资源路径参数（如 texture_path），NodePath 参数遇到 `res://` 前缀直接拒绝
 - 支持 `root/...` 与 `/root/...` 两种格式，统一为 `/root/...`
 - 转义后再插入脚本（防止引号注入）
 
@@ -46,6 +48,7 @@ schema 定义示例：
 function normalizeNodePath(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error('NodePath cannot be empty');
+  if (trimmed.startsWith('res://')) throw new Error('NodePath must be a scene tree path (root/...), not a resource path (res://...)');
   return trimmed.startsWith('/') ? trimmed : '/' + trimmed;
 }
 ```
@@ -55,9 +58,17 @@ function normalizeNodePath(input: string): string {
 所有 string 参数（信号名、方法名、节点名）插入脚本前必须经过 escape：
 ```typescript
 function gdEscape(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  return s
+    .replace(/\r\n/g, '\\n')   // CRLF → \n (先于单独 \n 处理)
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\n')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\0/g, '');        // 禁止 null 字节
 }
 ```
+
+支持 Unicode 字符原样透传（GDScript 源文件为 UTF-8）。
 
 ### P1-1：physics_raycast 锁定 Godot 4 写法
 
@@ -78,8 +89,17 @@ var result = space_state.intersect_ray(query)
 
 8 个工具统一返回：
 ```json
-{ "success": true/false, "data": ..., "error": "...", "warnings": [] }
+{ "success": true/false, "data": ..., "error": "...", "error_code": "...", "warnings": [] }
 ```
+
+错误码枚举：
+- `INVALID_PATH` — NodePath 格式错误或使用了 res://
+- `NODE_NOT_FOUND` — get_node 找不到节点
+- `INVALID_VECTOR` — 向量参数缺字段或非数字
+- `INVALID_TYPE` — node_create_3d 的 type 不在白名单中
+- `INVALID_SIGNAL` — 信号名/方法名格式错误
+- `SCRIPT_EXEC_FAILED` — GDScript 执行出错
+
 handler 内解析 executeGdscript 的 outputs，映射到此结构。
 
 ### 架构接入说明
@@ -96,6 +116,9 @@ handler 内解析 executeGdscript 的 outputs，映射到此结构。
 | `signal_connect` | source_path (NodePath), signal_name (string), target_path (NodePath), method_name (string), flags? (int) | `get_node(src).connect(sig, Callable(get_node(tgt), method))` |
 | `signal_disconnect` | source_path (NodePath), signal_name (string), target_path (NodePath), method_name (string) | `get_node(src).disconnect(sig, Callable(get_node(tgt), method))` |
 | `signal_emit` | source_path (NodePath), signal_name (string), args? (any[]) | `get_node(src).emit_signal(sig, ...args)` |
+
+**signal_emit args 序列化边界：** 仅支持基础类型（string/number/bool/null）和一维数组。
+传入对象/嵌套数组/Resource 引用时返回 `INVALID_SIGNAL` 错误。
 | `signal_list` | node_path (NodePath) | `get_node(path).get_signal_list()` |
 
 **关键限制：** 信号操作是运行时操作，headless 执行后不持久化。description 中明确说明：
@@ -107,14 +130,19 @@ handler 内解析 executeGdscript 的 outputs，映射到此结构。
 
 | 工具 | 参数 | GDScript 逻辑 |
 |------|------|---------------|
-| `physics_raycast` | from (Vector3{x,y,z}), to (Vector3{x,y,z}), collision_mask? (int) | `PhysicsRayQueryParameters3D.create(from, to)` + `direct_space_state.intersect_ray()` |
-| `physics_body_info` | body_path (NodePath) | 读取 CollisionShape 类型/AABB/layer/mask |
+| `physics_raycast` | from (Vector3{x,y,z}), to (Vector3{x,y,z}), collision_mask? (int), exclude_paths? (NodePath[]) | `PhysicsRayQueryParameters3D.create(from, to)` + `query.exclude = [rids...]` + `direct_space_state.intersect_ray()` |
+| `physics_body_info` | body_path (NodePath) | 读取 CollisionShape 类型/AABB/layer/mask。无 CollisionShape3D 子节点时返回 `{success:true, data:{has_collision:false}}` |
 
 ### 3.3 3D 节点创建（1 个工具）
 
 | 工具 | 参数 | GDScript 逻辑 |
 |------|------|---------------|
-| `node_create_3d` | type (string), name (string), parent? (NodePath), position? (Vector3), rotation? (Vector3), scale? (Vector3), properties? (object) | `var node = Type.new(); node.name = ...; add_child()` |
+| `node_create_3d` | type (string 白名单), name (string), parent? (NodePath), position? (Vector3), rotation? (Vector3), scale? (Vector3), properties? (object) | `var node = Type.new(); node.name = ...; add_child()` |
+
+**node_create_3d.type 白名单：** Node3D, MeshInstance3D, StaticBody3D, RigidBody3D, CharacterBody3D,
+Camera3D, Light3D, DirectionalLight3D, OmniLight3D, SpotLight3D, CollisionShape3D,
+RayCast3D, Area3D, Marker3D, PathFollow3D, VisibleOnScreenNotifier3D。
+不在白名单中的 type 返回 `INVALID_TYPE` 错误。
 
 **关键限制：** headless 中创建的节点不持久化。用途：验证创建逻辑、配合 run_project 动态操作。
 持久化场景修改应走现有的 `add_node` + `save_scene`。
@@ -124,6 +152,9 @@ handler 内解析 executeGdscript 的 outputs，映射到此结构。
 | 工具 | 参数 | GDScript 逻辑 |
 |------|------|---------------|
 | `nav_query_path` | start_pos (Vector3{x,y,z}), end_pos (Vector3{x,y,z}), navigation_region? (NodePath) | `NavigationServer3D.query_path()` |
+
+**nav_query_path 无导航数据时：** 返回 `{success:true, data:{path:[], path_length:0, warning:"No navigation data available"}}`。
+不返回错误（空路径是合法结果），通过 warning 字段提示。
 
 不做 NavMesh 烘焙（需要编辑器 API）。
 
@@ -179,3 +210,4 @@ src/tools/godot-ops.ts (~450 行)
 - `npm run build` 通过
 - `test/godot-ops.test.js` 覆盖 8 个 gen*Script + 负例 + 转义 + 路径兼容
 - 工具总数从 35 增长到 43
+- README.md 同步更新：工具总数、新增工具列表、限制说明（非持久化）、示例调用
