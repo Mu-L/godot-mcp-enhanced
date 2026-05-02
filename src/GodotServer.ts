@@ -2178,7 +2178,7 @@ export class GodotServer {
               while ((match = extResRegex.exec(content)) !== null) {
                 const resPath = match[1];
                 if (!resPath.startsWith('res://')) continue;
-                const absPath = join(p, resPath.replace('res://', ''));
+                const absPath = resolveWithinRoot(p, resPath.replace('res://', ''));
                 if (!existsSync(absPath)) {
                   issues.push({
                     severity: 'error',
@@ -2211,7 +2211,7 @@ export class GodotServer {
               while ((match = preloadRegex.exec(content)) !== null) {
                 const resPath = match[1];
                 if (!resPath.startsWith('res://')) continue;
-                const absPath = join(p, resPath.replace('res://', ''));
+                const absPath = resolveWithinRoot(p, resPath.replace('res://', ''));
                 if (!existsSync(absPath)) {
                   issues.push({
                     severity: 'error',
@@ -2226,7 +2226,7 @@ export class GodotServer {
               while ((match = loadRegex.exec(content)) !== null) {
                 const resPath = match[1];
                 if (!resPath.startsWith('res://')) continue;
-                const absPath = join(p, resPath.replace('res://', ''));
+                const absPath = resolveWithinRoot(p, resPath.replace('res://', ''));
                 if (!existsSync(absPath)) {
                   issues.push({
                     severity: 'warning',
@@ -2280,7 +2280,7 @@ export class GodotServer {
         // Collect scripts to validate
         let scriptsToValidate: string[];
         if (args.scripts && Array.isArray(args.scripts) && args.scripts.length > 0) {
-          scriptsToValidate = (args.scripts as string[]).map(s => join(p, s));
+          scriptsToValidate = (args.scripts as string[]).map(s => resolveWithinRoot(p, s));
         } else {
           scriptsToValidate = collectScriptFiles(p);
         }
@@ -2342,7 +2342,7 @@ export class GodotServer {
         const extensions = (args.extensions as string[]) || defaultExts;
         const recursive = args.recursive !== false;
 
-        const targetDir = join(p, directory.replace(/^res:\/\//, ''));
+        const targetDir = resolveWithinRoot(p, directory.replace(/^res:\/\//, ''));
         if (!existsSync(targetDir)) {
           return text(`Error: Directory not found: ${targetDir}`);
         }
