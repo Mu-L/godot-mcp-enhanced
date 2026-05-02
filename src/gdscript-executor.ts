@@ -9,8 +9,8 @@
  */
 
 import { spawn } from 'child_process';
-import { writeFileSync, mkdirSync, rmSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, mkdirSync, rmSync, readdirSync, statSync, mkdtempSync } from 'fs';
+import { join, sep } from 'path';
 import { tmpdir } from 'os';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
 
@@ -51,35 +51,41 @@ const MARKER_ERROR = '___MCP_ERROR___';
 
 // ─── Temp file helpers ──────────────────────────────────────────────────────
 
-function getTempDir(): string {
-  const dir = join(tmpdir(), 'godot-mcp-exec');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+const BASE_TMP_DIR = join(tmpdir(), 'godot-mcp-exec');
+mkdirSync(BASE_TMP_DIR, { recursive: true });
+
+/** Create an isolated session directory for one execution */
+function createSessionDir(): string {
+  return mkdtempSync(join(BASE_TMP_DIR, `${TMP_PREFIX}`));
 }
 
-function cleanupOldTempFiles(): void {
-  const dir = getTempDir();
-  const maxAge = 60 * 60 * 1000; // 1 hour
+/** Background cleanup: remove session dirs older than 1 hour */
+function cleanupOldSessions(): void {
+  const maxAge = 60 * 60 * 1000;
   const now = Date.now();
   try {
-    for (const file of readdirSync(dir)) {
-      if (!file.startsWith(TMP_PREFIX)) continue;
-      const filePath = join(dir, file);
-      const stat = statSync(filePath);
-      if (now - stat.mtimeMs > maxAge) {
-        rmSync(filePath, { force: true });
+    for (const entry of readdirSync(BASE_TMP_DIR)) {
+      if (!entry.startsWith(TMP_PREFIX)) continue;
+      const dirPath = join(BASE_TMP_DIR, entry);
+      const stat = statSync(dirPath);
+      if (stat.isDirectory() && now - stat.mtimeMs > maxAge) {
+        rmSync(dirPath, { recursive: true, force: true });
       }
     }
-  } catch {
-    // ignore cleanup errors
-  }
+  } catch { /* ignore cleanup errors */ }
 }
 
-function writeTempScript(code: string): string {
-  cleanupOldTempFiles();
+function writeTempScript(code: string, sessionDir: string): string {
   const id = Math.random().toString(36).substring(2, 10);
-  const filePath = join(getTempDir(), `${TMP_PREFIX}${id}.gd`);
+  const filePath = join(sessionDir, `${id}.gd`);
   writeFileSync(filePath, code, 'utf-8');
+  return filePath;
+}
+
+function writeSessionFile(content: string, ext: string, sessionDir: string): string {
+  const id = Math.random().toString(36).substring(2, 10);
+  const filePath = join(sessionDir, `${id}${ext}`);
+  writeFileSync(filePath, content, 'utf-8');
   return filePath;
 }
 
@@ -243,11 +249,15 @@ export async function executeGdscript(
     scriptContent = wrapSnippet(code);
   }
 
+  // Create isolated session directory
+  cleanupOldSessions();
+  const sessionDir = createSessionDir();
+
   // Write temp file
   const tempFiles: string[] = [];
   let tempFile: string;
   try {
-    tempFile = writeTempScript(scriptContent);
+    tempFile = writeTempScript(scriptContent, sessionDir);
     tempFiles.push(tempFile);
   } catch (err) {
     return {
@@ -269,13 +279,13 @@ export async function executeGdscript(
     // Autoload mode: create a loader scene that initializes all autoloads first
     try {
       const loaderScene = createAutoloadLoaderScene(tempFile);
-      const loaderScenePath = writeTempFile(loaderScene, '.tscn');
+      const loaderScenePath = writeSessionFile(loaderScene, '.tscn', sessionDir);
       tempFiles.push(loaderScenePath);
-      const loaderScriptPath = writeTempFile(createAutoloadLoaderScript(tempFile), '.gd');
+      const loaderScriptPath = writeSessionFile(createAutoloadLoaderScript(tempFile), '.gd', sessionDir);
       tempFiles.push(loaderScriptPath);
       godotArgs.push('--scene', loaderScenePath);
     } catch (err) {
-      for (const f of tempFiles) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
+      try { rmSync(sessionDir, { recursive: true, force: true }); } catch { /* ignore */ }
       return {
         success: false,
         compile_success: false,
@@ -313,10 +323,8 @@ export async function executeGdscript(
 
     proc.on('close', (exitCode) => {
       clearTimeout(timer);
-      // Cleanup temp files
-      try {
-        for (const f of tempFiles) { rmSync(f, { force: true }); }
-      } catch { /* ignore */ }
+      // Cleanup session directory
+      try { rmSync(sessionDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
       const rawOutput = stdout + stderr;
       const duration = Date.now() - startTime;
@@ -359,7 +367,7 @@ export async function executeGdscript(
 
     proc.on('error', (err) => {
       clearTimeout(timer);
-      for (const f of tempFiles) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
+      try { rmSync(sessionDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
       resolve({
         success: false,
@@ -395,17 +403,6 @@ function extractCompileError(raw: string): string {
 }
 
 // ─── Autoload loader helpers ──────────────────────────────────────────────────
-
-/**
- * Write a temp file with custom extension (.tscn or .gd)
- */
-function writeTempFile(content: string, ext: string): string {
-  const dir = getTempDir();
-  const id = Math.random().toString(36).substring(2, 10);
-  const filePath = join(dir, `${TMP_PREFIX}loader-${id}${ext}`);
-  writeFileSync(filePath, content, 'utf-8');
-  return filePath;
-}
 
 /**
  * Create a minimal .tscn scene that loads with autoload context.
