@@ -373,14 +373,350 @@ func _initialize():
 `;
 }
 
-// ─── Tool Registration (placeholder — Task 5 will replace) ────────────────
+// ─── Tool Registration ──────────────────────────────────────────────────────
 
 export function getToolDefinitions(): Tool[] {
-  return [];
+  return [
+    {
+      name: 'tilemap_read',
+      description: `读取 TileMap/TileMapLayer 节点的图块数据。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径（scene tree path，如 root/Level/TileMap）' },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          region: {
+            type: 'object',
+            description: '读取区域 Rect2i（可选，不传则读取全部已用图块）',
+            properties: {
+              x: { type: 'number', description: '起始 X 坐标' },
+              y: { type: 'number', description: '起始 Y 坐标' },
+              w: { type: 'number', description: '宽度（必须 > 0）' },
+              h: { type: 'number', description: '高度（必须 > 0）' },
+            },
+            required: ['x', 'y', 'w', 'h'],
+          },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path'],
+      },
+    },
+    {
+      name: 'tilemap_set_cell',
+      description: `设置 TileMap/TileMapLayer 单个图块。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          coords: {
+            type: 'object',
+            description: '图块坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          source_id: { type: 'number', description: 'TileSet 源 ID' },
+          atlas_coords: {
+            type: 'object',
+            description: '图集坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          alternative_tile: { type: 'number', description: '替代图块索引（可选，默认 0）' },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'coords', 'source_id', 'atlas_coords'],
+      },
+    },
+    {
+      name: 'tilemap_erase_cell',
+      description: `擦除 TileMap/TileMapLayer 单个图块。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          coords: {
+            type: 'object',
+            description: '图块坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'coords'],
+      },
+    },
+    {
+      name: 'tilemap_fill_rect',
+      description: `用指定图块填充矩形区域。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          region: {
+            type: 'object',
+            description: '填充区域 Rect2i',
+            properties: {
+              x: { type: 'number', description: '起始 X 坐标' },
+              y: { type: 'number', description: '起始 Y 坐标' },
+              w: { type: 'number', description: '宽度（必须 > 0）' },
+              h: { type: 'number', description: '高度（必须 > 0）' },
+            },
+            required: ['x', 'y', 'w', 'h'],
+          },
+          source_id: { type: 'number', description: 'TileSet 源 ID' },
+          atlas_coords: {
+            type: 'object',
+            description: '图集坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          alternative_tile: { type: 'number', description: '替代图块索引（可选，默认 0）' },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'region', 'source_id', 'atlas_coords'],
+      },
+    },
+    {
+      name: 'tilemap_clear',
+      description: `清除 TileMap/TileMapLayer 所有图块。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path'],
+      },
+    },
+    {
+      name: 'tilemap_copy',
+      description: `复制 TileMap/TileMapLayer 矩形区域的图块数据。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          source_region: {
+            type: 'object',
+            description: '源区域 Rect2i',
+            properties: {
+              x: { type: 'number', description: '起始 X 坐标' },
+              y: { type: 'number', description: '起始 Y 坐标' },
+              w: { type: 'number', description: '宽度（必须 > 0）' },
+              h: { type: 'number', description: '高度（必须 > 0）' },
+            },
+            required: ['x', 'y', 'w', 'h'],
+          },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'source_region'],
+      },
+    },
+    {
+      name: 'tilemap_paste',
+      description: `将图块图案粘贴到 TileMap/TileMapLayer 指定位置。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          target: {
+            type: 'object',
+            description: '粘贴目标坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          pattern: {
+            type: 'object',
+            description: '图块图案（由 tilemap_copy 返回的 pattern 对象）',
+            properties: {
+              cells: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    coords: { type: 'array', items: { type: 'number' } },
+                    source_id: { type: 'number' },
+                    atlas_coords: { type: 'array', items: { type: 'number' } },
+                    alternative_tile: { type: 'number' },
+                  },
+                },
+              },
+              size: {
+                type: 'object',
+                properties: { w: { type: 'number' }, h: { type: 'number' } },
+              },
+            },
+          },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'target', 'pattern'],
+      },
+    },
+    {
+      name: 'tilemap_set_transform',
+      description: `设置图块的翻转/旋转变换。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
+          coords: {
+            type: 'object',
+            description: '图块坐标 Vector2i',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            required: ['x', 'y'],
+          },
+          flip_h: { type: 'boolean', description: '水平翻转（可选，默认 false）' },
+          flip_v: { type: 'boolean', description: '垂直翻转（可选，默认 false）' },
+          transpose: { type: 'boolean', description: '转置（可选，默认 false）' },
+          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'coords'],
+      },
+    },
+  ];
 }
 
+// ─── Tool Handler ───────────────────────────────────────────────────────────
+
+const TOOL_NAMES = [
+  'tilemap_read', 'tilemap_set_cell', 'tilemap_erase_cell', 'tilemap_fill_rect',
+  'tilemap_clear', 'tilemap_copy', 'tilemap_paste', 'tilemap_set_transform',
+] as const;
+
 export async function handleTool(
-  _name: string, _args: Record<string, unknown>, _ctx: ToolContext
+  name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
-  return null;
+  if (!(TOOL_NAMES as readonly string[]).includes(name)) return null;
+
+  try {
+    const projectPath = validatePath(args.project_path as string);
+    const godot = await ctx.findGodot();
+    const loadAutoloads = args.load_autoloads !== false;
+    let script: string;
+
+    switch (name) {
+      case 'tilemap_read': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const layer = args.layer as number | undefined;
+        const region = args.region ? validateRect2i(args.region) : undefined;
+        script = genTilemapReadScript(nodePath, region, layer ?? 0);
+        break;
+      }
+      case 'tilemap_set_cell': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const coords = validateCoords(args.coords);
+        const sourceId = args.source_id as number;
+        const atlasCoords = validateCoords(args.atlas_coords);
+        const alternativeTile = (args.alternative_tile as number) ?? 0;
+        const layer = args.layer as number | undefined;
+        script = genTilemapSetCellScript(nodePath, coords, sourceId, atlasCoords, alternativeTile, layer ?? 0);
+        break;
+      }
+      case 'tilemap_erase_cell': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const coords = validateCoords(args.coords);
+        const layer = args.layer as number | undefined;
+        script = genTilemapEraseCellScript(nodePath, coords, layer ?? 0);
+        break;
+      }
+      case 'tilemap_fill_rect': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const region = validateRect2i(args.region);
+        const sourceId = args.source_id as number;
+        const atlasCoords = validateCoords(args.atlas_coords);
+        const alternativeTile = (args.alternative_tile as number) ?? 0;
+        const layer = args.layer as number | undefined;
+        script = genTilemapFillRectScript(nodePath, region, sourceId, atlasCoords, alternativeTile, layer ?? 0);
+        break;
+      }
+      case 'tilemap_clear': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const layer = args.layer as number | undefined;
+        script = genTilemapClearScript(nodePath, layer ?? 0);
+        break;
+      }
+      case 'tilemap_copy': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const sourceRegion = validateRect2i(args.source_region);
+        const layer = args.layer as number | undefined;
+        script = genTilemapCopyScript(nodePath, sourceRegion, layer ?? 0);
+        break;
+      }
+      case 'tilemap_paste': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const target = validateCoords(args.target);
+        const pattern = args.pattern as { cells: Array<{ coords: [number, number]; source_id: number; atlas_coords: [number, number]; alternative_tile: number }>; size: { w: number; h: number } };
+        const layer = args.layer as number | undefined;
+        script = genTilemapPasteScript(nodePath, target, pattern, layer ?? 0);
+        break;
+      }
+      case 'tilemap_set_transform': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const coords = validateCoords(args.coords);
+        const flipH = (args.flip_h as boolean) ?? false;
+        const flipV = (args.flip_v as boolean) ?? false;
+        const transpose = (args.transpose as boolean) ?? false;
+        const layer = args.layer as number | undefined;
+        script = genTilemapSetTransformScript(nodePath, coords, flipH, flipV, transpose, layer ?? 0);
+        break;
+      }
+      default:
+        return null;
+    }
+
+    // Execute the generated GDScript
+    const result = await executeGdscript({
+      godotPath: godot,
+      projectPath,
+      code: script,
+      timeout: 30,
+      loadAutoloads,
+    });
+
+    if (!result.compile_success) {
+      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.compile_error)));
+    }
+    if (!result.run_success) {
+      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.run_error)));
+    }
+
+    // Parse outputs into unified result
+    const data: Record<string, unknown> = {};
+    const warnings: string[] = [];
+    for (const entry of result.outputs) {
+      if (entry.key === 'warning') {
+        warnings.push(String(entry.value));
+      } else if (entry.key === 'error') {
+        return textResult(JSON.stringify(opsError('TILEMAP_NOT_FOUND', String(entry.value))));
+      } else {
+        try {
+          data[entry.key] = JSON.parse(entry.value);
+        } catch {
+          data[entry.key] = entry.value;
+        }
+      }
+    }
+
+    return textResult(JSON.stringify(opsSuccess(data, warnings)));
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes('Coords') || msg.includes('integer')) return opsErrorResult('INVALID_TILE_COORDS', msg);
+    if (msg.includes('Rect2i') || msg.includes('must be > 0')) return opsErrorResult('INVALID_REGION', msg);
+    if (msg.includes('NodePath')) return opsErrorResult('INVALID_REGION', msg);
+    return opsErrorResult('TILEMAP_NOT_FOUND', msg);
+  }
 }
