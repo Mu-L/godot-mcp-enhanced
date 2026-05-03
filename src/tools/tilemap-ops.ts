@@ -278,7 +278,7 @@ func _initialize():
 \t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tvar pattern = JSON.parse("${gdEscape(patternJson)}")
+\tvar pattern = JSON.parse_string("${gdEscape(patternJson)}")
 \tvar tx = ${targetCoords.x}
 \tvar ty = ${targetCoords.y}
 \tif node.get_class() == "TileMap":
