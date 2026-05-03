@@ -3,8 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-
-const MARKER_RESULT = '___MCP_RESULT___';
+import { MARKER_RESULT, SCENE_TREE_HEADER, opsSuccess } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -58,10 +57,6 @@ function opsError(code: keyof typeof ERROR_CODES, message: string) {
   return { success: false, error: message, error_code: ERROR_CODES[code], warnings: [] };
 }
 
-function opsSuccess(data: unknown, warnings: string[] = []) {
-  return { success: true, data, warnings };
-}
-
 function mcpPrint(): string {
   return `\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))`;
 }
@@ -72,13 +67,6 @@ function clampParam(val: number | undefined, min: number, max: number, name: str
   if (val > max) { warnings.push(`${name} ${val} clamped to ${max}`); return max; }
   return val;
 }
-
-const SCENE_TREE_HEADER = `extends SceneTree
-
-func _mcp_done() -> void:
-\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))
-\tquit()
-`;
 
 // ─── GDScript Generators: Signals ──────────────────────────────────────────
 
@@ -397,7 +385,7 @@ func _initialize():
 }
 
 export function genAudioSetParamScript(
-  nodePath: string, param: string, value: number | string
+  nodePath: string, param: 'volume_db' | 'pitch_scale' | 'bus', value: number | string
 ): string {
   const valStr = typeof value === 'string' ? `"${gdEscape(value)}"` : String(value);
   return `${SCENE_TREE_HEADER}
@@ -411,8 +399,8 @@ func _initialize():
 \t\t_mcp_output("error", "Node is not an AudioStreamPlayer type")
 \t\t_mcp_done()
 \t\treturn
-\tnode.${gdEscape(param)} = ${valStr}
-\t_mcp_output("param_set", {"node": "${gdEscape(nodePath)}", "param": "${gdEscape(param)}", "value": ${valStr}})
+\tnode.${param} = ${valStr}
+\t_mcp_output("param_set", {"node": "${gdEscape(nodePath)}", "param": "${param}", "value": ${valStr}})
 \t_mcp_done()
 `;
 }
@@ -803,7 +791,7 @@ export async function handleTool(
         if (param !== 'bus' && typeof value !== 'number') {
           return opsErrorResult('INVALID_TYPE', `${param} param requires a number value`);
         }
-        script = genAudioSetParamScript(nodePath, param, value as number | string);
+        script = genAudioSetParamScript(nodePath, param as 'volume_db' | 'pitch_scale' | 'bus', value as number | string);
         break;
       }
       case 'audio_query': {

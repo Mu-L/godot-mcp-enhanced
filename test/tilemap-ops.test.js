@@ -129,4 +129,40 @@ describe('genTilemapSetTransformScript', () => {
     assert.ok(script.includes('flip_h'));
     assert.ok(script.includes('set_cell'));
   });
+  it('handles combined transforms (flip_h + flip_v + transpose)', () => {
+    const script = genTilemapSetTransformScript('/root/Map', { x: 2, y: 3 }, true, true, true, 0);
+    assert.ok(script.includes('new_alt = new_alt | 1'));
+    assert.ok(script.includes('new_alt = new_alt | 2'));
+    assert.ok(script.includes('new_alt = new_alt | 4'));
+  });
+  it('uses get_class for both node types', () => {
+    const script = genTilemapSetTransformScript('/root/Map', { x: 0, y: 0 }, false, false, false, 0);
+    assert.ok(script.includes('node.get_class() == "TileMap"'));
+    assert.ok(script.includes('node.get_class() == "TileMapLayer"'));
+  });
+});
+
+describe('genTilemapClearScript clearAll', () => {
+  it('uses clear() when clearAll is true', () => {
+    const script = genTilemapClearScript('/root/Map', undefined, true);
+    assert.ok(script.includes('node.clear()'));
+    assert.ok(!script.includes('clear_layer'));
+  });
+  it('uses clear_layer when clearAll is false', () => {
+    const script = genTilemapClearScript('/root/Map', 2, false);
+    assert.ok(script.includes('clear_layer(2)'));
+  });
+});
+
+describe('genTilemapReadScript empty region', () => {
+  it('reads used cells without region', () => {
+    const script = genTilemapReadScript('/root/Map');
+    assert.ok(script.includes('get_used_cells'));
+    assert.ok(!script.includes('range('));
+  });
+  it('uses get_class for node type checks', () => {
+    const script = genTilemapReadScript('/root/Map', { x: 0, y: 0, w: 3, h: 3 }, 0);
+    assert.ok(script.includes('node.get_class() == "TileMap"'));
+    assert.ok(script.includes('node.get_class() == "TileMapLayer"'));
+  });
 });

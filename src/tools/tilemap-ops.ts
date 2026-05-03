@@ -4,6 +4,7 @@ import { textResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape } from './godot-ops.js';
+import { SCENE_TREE_HEADER, opsSuccess } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -14,8 +15,6 @@ export const TILEMAP_ERROR_CODES = {
   TILE_SOURCE_NOT_FOUND: 'TILE_SOURCE_NOT_FOUND',
   SCRIPT_EXEC_FAILED: 'SCRIPT_EXEC_FAILED',
 } as const;
-
-const MARKER_RESULT = '___MCP_RESULT___';
 
 // ─── Helper Utilities ─────────────────────────────────────────────────────
 
@@ -50,20 +49,9 @@ function opsError(code: keyof typeof TILEMAP_ERROR_CODES, message: string) {
   return { success: false, error: message, error_code: TILEMAP_ERROR_CODES[code], warnings: [] };
 }
 
-function opsSuccess(data: unknown, warnings: string[] = []) {
-  return { success: true, data, warnings };
-}
-
 function opsErrorResult(code: keyof typeof TILEMAP_ERROR_CODES, message: string): ToolResult {
   return textResult(JSON.stringify(opsError(code, message)));
 }
-
-const SCENE_TREE_HEADER = `extends SceneTree
-
-func _mcp_done() -> void:
-\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))
-\tquit()
-`;
 
 const NON_PERSIST = '运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。';
 
@@ -80,7 +68,7 @@ func _initialize():
 \t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tvar cells = []
 \t\tfor cy in range(${region.y}, ${region.y + region.h}):
 \t\t\tfor cx in range(${region.x}, ${region.x + region.w}):
@@ -90,7 +78,7 @@ func _initialize():
 \t\t\t\t\tvar alt = node.get_cell_alternative_tile(${layer !== undefined ? layer : 0}, Vector2i(cx, cy))
 \t\t\t\t\tcells.append({"coords": [cx, cy], "source_id": sid, "atlas_coords": [ac.x, ac.y], "alternative_tile": alt})
 \t\t_mcp_output("cells", cells)
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tvar cells = []
 \t\tfor cy in range(${region.y}, ${region.y + region.h}):
 \t\t\tfor cx in range(${region.x}, ${region.x + region.w}):
@@ -113,7 +101,7 @@ func _initialize():
 \t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tvar used = node.get_used_cells(${layer !== undefined ? layer : 0})
 \t\tvar cells = []
 \t\tfor c in used:
@@ -122,7 +110,7 @@ func _initialize():
 \t\t\tvar alt = node.get_cell_alternative_tile(${layer !== undefined ? layer : 0}, c)
 \t\t\tcells.append({"coords": [c.x, c.y], "source_id": sid, "atlas_coords": [ac.x, ac.y], "alternative_tile": alt})
 \t\t_mcp_output("cells", cells)
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tvar used = node.get_used_cells()
 \t\tvar cells = []
 \t\tfor c in used:
@@ -151,9 +139,9 @@ func _initialize():
 \t\treturn
 \tvar coords = Vector2i(${coords.x}, ${coords.y})
 \tvar atlas = Vector2i(${atlasCoords.x}, ${atlasCoords.y})
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tnode.set_cell(${layer !== undefined ? layer : 0}, coords, ${sourceId}, atlas, ${alternativeTile})
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tnode.set_cell(coords, ${sourceId}, atlas, ${alternativeTile})
 \telse:
 \t\t_mcp_output("error", "Not a TileMap or TileMapLayer: " + node.get_class())
@@ -175,9 +163,9 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar coords = Vector2i(${coords.x}, ${coords.y})
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tnode.erase_cell(${layer !== undefined ? layer : 0}, coords)
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tnode.erase_cell(coords)
 \telse:
 \t\t_mcp_output("error", "Not a TileMap or TileMapLayer: " + node.get_class())
@@ -201,11 +189,11 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar atlas = Vector2i(${atlasCoords.x}, ${atlasCoords.y})
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tfor cy in range(${region.h}):
 \t\t\tfor cx in range(${region.w}):
 \t\t\t\tnode.set_cell(${layer !== undefined ? layer : 0}, Vector2i(${region.x} + cx, ${region.y} + cy), ${sourceId}, atlas, ${alternativeTile})
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tfor cy in range(${region.h}):
 \t\t\tfor cx in range(${region.w}):
 \t\t\t\tnode.set_cell(Vector2i(${region.x} + cx, ${region.y} + cy), ${sourceId}, atlas, ${alternativeTile})
@@ -229,9 +217,9 @@ func _initialize():
 \t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 ${tileMapClear}
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tnode.clear()
 \telse:
 \t\t_mcp_output("error", "Not a TileMap or TileMapLayer: " + node.get_class())
@@ -254,7 +242,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar cells = []
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tfor cy in range(${sourceRegion.h}):
 \t\t\tfor cx in range(${sourceRegion.w}):
 \t\t\t\tvar c = Vector2i(${sourceRegion.x} + cx, ${sourceRegion.y} + cy)
@@ -263,7 +251,7 @@ func _initialize():
 \t\t\t\t\tvar ac = node.get_cell_atlas_coords(${l}, c)
 \t\t\t\t\tvar alt = node.get_cell_alternative_tile(${l}, c)
 \t\t\t\t\tcells.append({"coords": [cx, cy], "source_id": sid, "atlas_coords": [ac.x, ac.y], "alternative_tile": alt})
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tfor cy in range(${sourceRegion.h}):
 \t\t\tfor cx in range(${sourceRegion.w}):
 \t\t\t\tvar c = Vector2i(${sourceRegion.x} + cx, ${sourceRegion.y} + cy)
@@ -297,12 +285,12 @@ func _initialize():
 \tvar pattern = JSON.parse("${gdEscape(patternJson)}")
 \tvar tx = ${targetCoords.x}
 \tvar ty = ${targetCoords.y}
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tfor cell in pattern["cells"]:
 \t\t\tvar cx = cell["coords"][0] + tx
 \t\t\tvar cy = cell["coords"][1] + ty
 \t\t\tnode.set_cell(${layer !== undefined ? layer : 0}, Vector2i(cx, cy), cell["source_id"], Vector2i(cell["atlas_coords"][0], cell["atlas_coords"][1]), cell["alternative_tile"])
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tfor cell in pattern["cells"]:
 \t\t\tvar cx = cell["coords"][0] + tx
 \t\t\tvar cy = cell["coords"][1] + ty
@@ -331,7 +319,7 @@ func _initialize():
 \tvar sid: int = -1
 \tvar ac: Vector2i = Vector2i(0, 0)
 \tvar alt: int = 0
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tsid = node.get_cell_source_id(${layer !== undefined ? layer : 0}, c)
 \t\tif sid < 0:
 \t\t\t_mcp_output("error", "No tile at coords")
@@ -339,7 +327,7 @@ func _initialize():
 \t\t\treturn
 \t\tac = node.get_cell_atlas_coords(${layer !== undefined ? layer : 0}, c)
 \t\talt = node.get_cell_alternative_tile(${layer !== undefined ? layer : 0}, c)
-\telif node is TileMapLayer:
+\telif node.get_class() == "TileMapLayer":
 \t\tsid = node.get_cell_source_id(c)
 \t\tif sid < 0:
 \t\t\t_mcp_output("error", "No tile at coords")
@@ -359,7 +347,7 @@ func _initialize():
 \t\tnew_alt = new_alt | 2
 \tif ${transpose}:
 \t\tnew_alt = new_alt | 4
-\tif node is TileMap:
+\tif node.get_class() == "TileMap":
 \t\tnode.set_cell(${layer !== undefined ? layer : 0}, c, sid, ac, new_alt)
 \telse:
 \t\tnode.set_cell(c, sid, ac, new_alt)
@@ -486,7 +474,7 @@ export function getToolDefinitions(): Tool[] {
         properties: {
           project_path: { type: 'string', description: 'Godot 项目目录路径' },
           node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径' },
-          layer: { type: 'number', description: '图层索引（可选，默认 0）' },
+          layer: { type: 'number', description: '图层索引。不传则清除所有图层；传值则仅清除指定图层' },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
         },
         required: ['project_path', 'node_path'],
@@ -656,6 +644,9 @@ export async function handleTool(
         const nodePath = normalizeNodePath(args.node_path as string);
         const target = validateCoords(args.target);
         const pattern = args.pattern as { cells: Array<{ coords: [number, number]; source_id: number; atlas_coords: [number, number]; alternative_tile: number }>; size: { w: number; h: number } };
+        if (!pattern || !Array.isArray(pattern.cells)) {
+          return opsErrorResult('INVALID_REGION', 'pattern must have a cells array');
+        }
         const layer = args.layer as number | undefined;
         script = genTilemapPasteScript(nodePath, target, pattern, layer ?? 0);
         break;
@@ -697,7 +688,7 @@ export async function handleTool(
       if (entry.key === 'warning') {
         warnings.push(String(entry.value));
       } else if (entry.key === 'error') {
-        return textResult(JSON.stringify(opsError('TILEMAP_NOT_FOUND', String(entry.value))));
+        return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', String(entry.value))));
       } else {
         try {
           data[entry.key] = JSON.parse(entry.value);
@@ -713,6 +704,6 @@ export async function handleTool(
     if (msg.includes('Coords') || msg.includes('integer')) return opsErrorResult('INVALID_TILE_COORDS', msg);
     if (msg.includes('Rect2i') || msg.includes('must be > 0')) return opsErrorResult('INVALID_REGION', msg);
     if (msg.includes('NodePath')) return opsErrorResult('TILEMAP_NOT_FOUND', msg);
-    return opsErrorResult('TILEMAP_NOT_FOUND', msg);
+    return opsErrorResult('SCRIPT_EXEC_FAILED', msg);
   }
 }
