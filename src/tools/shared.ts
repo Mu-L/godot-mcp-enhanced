@@ -8,10 +8,8 @@ export const SCENE_TREE_HEADER = `extends SceneTree
 
 func get_node(path: NodePath) -> Node:
 \tvar _p: String = str(path)
-\tif _p == "/root" or _p == "root":
-\t\treturn root
-\tif _p.begins_with("/root/"):
-\t\t_p = _p.substr(6)
+\tif _p.begins_with("/"):
+\t\t_p = _p.substr(1)
 \treturn root.get_node(_p)
 
 func _mcp_load_main_scene() -> void:
