@@ -22,6 +22,7 @@ export const ERROR_CODES = {
   INVALID_TYPE: 'INVALID_TYPE',
   INVALID_SIGNAL: 'INVALID_SIGNAL',
   SCRIPT_EXEC_FAILED: 'SCRIPT_EXEC_FAILED',
+  AUDIO_NOT_FOUND: 'AUDIO_NOT_FOUND',
 } as const;
 
 // ─── Helper Utilities ─────────────────────────────────────────────────────
@@ -63,6 +64,13 @@ function opsSuccess(data: unknown, warnings: string[] = []) {
 
 function mcpPrint(): string {
   return `\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))`;
+}
+
+function clampParam(val: number | undefined, min: number, max: number, name: string, warnings: string[]): number | undefined {
+  if (val === undefined) return undefined;
+  if (val < min) { warnings.push(`${name} ${val} clamped to ${min}`); return min; }
+  if (val > max) { warnings.push(`${name} ${val} clamped to ${max}`); return max; }
+  return val;
 }
 
 const SCENE_TREE_HEADER = `extends SceneTree
@@ -600,6 +608,65 @@ export function getToolDefinitions(): Tool[] {
         required: ['project_path', 'start_pos', 'end_pos'],
       },
     },
+    {
+      name: 'audio_play',
+      description: `播放音频。支持 AudioStreamPlayer/AudioStreamPlayer2D/AudioStreamPlayer3D 节点。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: '音频节点路径' },
+          stream_path: { type: 'string', description: '音频资源路径（res://...），不传则播放已配置的' },
+          volume_db: { type: 'number', description: '音量（dB，-80 到 24）' },
+          pitch_scale: { type: 'number', description: '音调缩放（0.01 到 100）' },
+          bus: { type: 'string', description: '音频总线名称' },
+          from_position: { type: 'number', description: '从指定位置开始播放（秒）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path'],
+      },
+    },
+    {
+      name: 'audio_stop',
+      description: `停止音频播放。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: '音频节点路径' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path'],
+      },
+    },
+    {
+      name: 'audio_set_param',
+      description: `设置音频参数（音量/音调/总线）。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: '音频节点路径' },
+          param: { type: 'string', enum: ['volume_db', 'pitch_scale', 'bus'], description: '参数名' },
+          value: { description: '参数值（number for volume_db/pitch_scale, string for bus）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'param', 'value'],
+      },
+    },
+    {
+      name: 'audio_query',
+      description: `查询音频播放状态。${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: '音频节点路径' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path'],
+      },
+    },
   ];
 }
 
@@ -608,6 +675,7 @@ export function getToolDefinitions(): Tool[] {
 const TOOL_NAMES = [
   'signal_connect', 'signal_disconnect', 'signal_emit', 'signal_list',
   'physics_raycast', 'physics_body_info', 'node_create_3d', 'nav_query_path',
+  'audio_play', 'audio_stop', 'audio_set_param', 'audio_query',
 ] as const;
 
 function opsErrorResult(code: keyof typeof ERROR_CODES, message: string): ToolResult {
@@ -702,6 +770,55 @@ export async function handleTool(
         const navRegion = args.navigation_region as string | undefined;
         const normalizedRegion = navRegion ? normalizeNodePath(navRegion) : undefined;
         script = genNavQueryScript(startPos, endPos, normalizedRegion);
+        break;
+      }
+      case 'audio_play': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const streamPath = args.stream_path as string | undefined;
+        const volumeDb = args.volume_db as number | undefined;
+        const pitchScale = args.pitch_scale as number | undefined;
+        const bus = args.bus as string | undefined;
+        const fromPosition = args.from_position as number | undefined;
+        const paramWarnings: string[] = [];
+        const clampVol = clampParam(volumeDb, -80, 24, 'volume_db', paramWarnings);
+        const clampPitch = clampParam(pitchScale, 0.01, 100, 'pitch_scale', paramWarnings);
+        script = genAudioPlayScript(nodePath, streamPath, clampVol, clampPitch, bus, fromPosition);
+        const audioResult = await executeGdscript({ godotPath: godot, projectPath, code: script, timeout: 30, loadAutoloads });
+        if (!audioResult.compile_success) return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', audioResult.compile_error)));
+        if (!audioResult.run_success) return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', audioResult.run_error)));
+        const aData: Record<string, unknown> = {};
+        const aWarnings = [...paramWarnings];
+        for (const entry of audioResult.outputs) {
+          if (entry.key === 'warning') { aWarnings.push(String(entry.value)); }
+          else if (entry.key === 'error') { return textResult(JSON.stringify(opsError('AUDIO_NOT_FOUND', String(entry.value)))); }
+          else { try { aData[entry.key] = JSON.parse(entry.value); } catch { aData[entry.key] = entry.value; } }
+        }
+        return textResult(JSON.stringify(opsSuccess(aData, aWarnings)));
+      }
+      case 'audio_stop': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        script = genAudioStopScript(nodePath);
+        break;
+      }
+      case 'audio_set_param': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const param = args.param as string;
+        const value = args.value;
+        if (!['volume_db', 'pitch_scale', 'bus'].includes(param)) {
+          return opsErrorResult('INVALID_SIGNAL', 'param must be volume_db, pitch_scale, or bus');
+        }
+        if (param === 'bus' && typeof value !== 'string') {
+          return opsErrorResult('INVALID_SIGNAL', 'bus param requires a string value');
+        }
+        if (param !== 'bus' && typeof value !== 'number') {
+          return opsErrorResult('INVALID_SIGNAL', `${param} param requires a number value`);
+        }
+        script = genAudioSetParamScript(nodePath, param, value as number | string);
+        break;
+      }
+      case 'audio_query': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        script = genAudioQueryScript(nodePath);
         break;
       }
       default:
