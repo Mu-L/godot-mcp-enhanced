@@ -43,6 +43,8 @@
 | **版本不一致检测** | **不支持** | **支持**（project.godot vs 二进制版本） |
 | **搜索替换编辑** | **不支持** | **支持**（search_and_replace，CRLF 安全） |
 | **截图自动重试** | **不支持** | **支持**（失败后 2x frameDelay 重试） |
+| **音频播放控制** | **不支持** | **支持**（播放/停止/参数/状态查询） |
+| **TileMap 编辑** | **不支持** | **支持**（读写/填充/复制粘贴/变换，兼容旧版 TileMap 与 TileMapLayer） |
 
 ## 核心亮点
 
@@ -132,7 +134,10 @@ npm install
         "batch_add_nodes", "validate_project", "import_resources",
         "run_and_verify", "analyze_error", "edit_script",
         "signal_connect", "signal_disconnect", "signal_emit", "signal_list",
-        "physics_raycast", "physics_body_info", "node_create_3d", "nav_query_path"
+        "physics_raycast", "physics_body_info", "node_create_3d", "nav_query_path",
+        "audio_play", "audio_stop", "audio_set_param", "audio_query",
+        "tilemap_read", "tilemap_set_cell", "tilemap_erase_cell", "tilemap_fill_rect",
+        "tilemap_clear", "tilemap_copy", "tilemap_paste", "tilemap_set_transform"
       ]
     }
   }
@@ -147,7 +152,7 @@ npm install
 | `DEBUG` | 启用详细日志 | `false` |
 | `ALLOW_OUTSIDE_PROJECT_PATHS` | 允许工具访问项目目录外的文件（如截图输出路径） | `false` |
 
-## 工具列表（共 43 个）
+## 工具列表（共 55 个）
 
 ### 执行工具
 
@@ -221,6 +226,32 @@ npm install
 | `physics_body_info` | 获取物理体的碰撞形状、AABB、碰撞层/掩码信息。 |
 | `node_create_3d` | 运行时创建 3D 节点（支持 16 种白名单类型）。headless 创建不持久化。 |
 | `nav_query_path` | 查询 3D 导航路径，支持指定 NavigationRegion3D 或自动回退。 |
+
+### 音频播放控制工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。
+
+| 工具 | 说明 |
+|------|------|
+| `audio_play` | 播放音频资源。支持 AudioStreamPlayer、AudioStreamPlayer2D、AudioStreamPlayer3D 三种节点类型。 |
+| `audio_stop` | 停止指定音频播放器的播放。 |
+| `audio_set_param` | 设置音频参数：音量 dB、音调缩放、总线路由。 |
+| `audio_query` | 查询播放状态（播放中/暂停/停止）、当前播放位置、总线信息。 |
+
+### TileMap 编辑工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。如需持久化 TileMap 修改，请使用 `execute_gdscript` 写入 .tscn 或在编辑器中操作。同时支持 TileMap（旧版）和 TileMapLayer（Godot 4.3+ 新版）两种节点类型。
+
+| 工具 | 说明 |
+|------|------|
+| `tilemap_read` | 读取 TileMap/TileMapLayer 的 cell 数据，返回指定区域内的 tile 坐标、source_id、atlas_coords、alternative_tile。 |
+| `tilemap_set_cell` | 设置单个 tile 的源图集和坐标。 |
+| `tilemap_erase_cell` | 擦除单个 tile（设为空）。 |
+| `tilemap_fill_rect` | 批量填充矩形区域内的所有 tile。 |
+| `tilemap_clear` | 清空 TileMap/TileMapLayer 的所有 tile。 |
+| `tilemap_copy` | 复制指定区域为模板（内部缓存），用于后续粘贴。 |
+| `tilemap_paste` | 将已复制的模板粘贴到目标位置。 |
+| `tilemap_set_transform` | 设置 tile 的翻转/旋转变换（水平翻转、垂直翻转、Transpose）。 |
 
 所有运行时工具支持可选 `load_autoloads` 参数（默认 `true`），可在完整 Autoload 上下文中执行。
 
@@ -416,6 +447,34 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 MIT
 
 ## 更新日志
+
+### v0.6.0（2026-05-03）
+
+新增 12 个运行时操作工具（4 个音频播放控制 + 8 个 TileMap 编辑）：
+
+**音频播放控制：**
+
+| 工具 | 说明 |
+|------|------|
+| `audio_play` | 播放音频，支持 AudioStreamPlayer / AudioStreamPlayer2D / AudioStreamPlayer3D |
+| `audio_stop` | 停止音频播放 |
+| `audio_set_param` | 设置音量（dB）、音调缩放、总线路由 |
+| `audio_query` | 查询播放状态、当前播放位置、总线信息 |
+
+**TileMap 编辑：**
+
+| 工具 | 说明 |
+|------|------|
+| `tilemap_read` | 读取 TileMap cell 数据 |
+| `tilemap_set_cell` | 设置单个 tile |
+| `tilemap_erase_cell` | 擦除单个 tile |
+| `tilemap_fill_rect` | 批量填充矩形区域 |
+| `tilemap_clear` | 清空 TileMap |
+| `tilemap_copy` | 复制区域为模板 |
+| `tilemap_paste` | 粘贴模板到目标位置 |
+| `tilemap_set_transform` | 设置 tile 翻转/旋转 |
+
+TileMap 工具同时支持 TileMap（旧版）和 TileMapLayer（Godot 4.3+ 新版）两种节点类型。所有 12 个新工具均为运行时操作（非持久化）。
 
 ### v0.5.0（2026-05-02）
 
