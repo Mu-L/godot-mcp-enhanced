@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { MARKER_RESULT, SCENE_TREE_HEADER, opsSuccess } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -53,13 +53,6 @@ export function validateVector3(v: unknown): { x: number; y: number; z: number }
 }
 
 // Internal helpers (not exported)
-function opsError(code: keyof typeof ERROR_CODES, message: string) {
-  return { success: false, error: message, error_code: ERROR_CODES[code], warnings: [] };
-}
-
-function mcpPrint(): string {
-  return `\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))`;
-}
 
 function clampParam(val: number | undefined, min: number, max: number, name: string, warnings: string[]): number | undefined {
   if (val === undefined) return undefined;
@@ -433,8 +426,6 @@ func _initialize():
 
 // ─── Tool Registration ──────────────────────────────────────────────────────
 
-const NON_PERSIST = '运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。';
-
 export function getToolDefinitions(): Tool[] {
   return [
     {
@@ -666,10 +657,6 @@ const TOOL_NAMES = [
   'audio_play', 'audio_stop', 'audio_set_param', 'audio_query',
 ] as const;
 
-function opsErrorResult(code: keyof typeof ERROR_CODES, message: string): ToolResult {
-  return textResult(JSON.stringify(opsError(code, message)));
-}
-
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
@@ -768,6 +755,9 @@ export async function handleTool(
         const pitchScale = args.pitch_scale as number | undefined;
         const bus = args.bus as string | undefined;
         const fromPosition = args.from_position as number | undefined;
+        if (fromPosition !== undefined && (typeof fromPosition !== 'number' || !Number.isFinite(fromPosition) || fromPosition < 0)) {
+          return opsErrorResult('INVALID_TYPE', 'from_position must be a non-negative finite number');
+        }
         const clampVol = clampParam(volumeDb, -80, 24, 'volume_db', paramWarnings);
         const clampPitch = clampParam(pitchScale, 0.01, 100, 'pitch_scale', paramWarnings);
         script = genAudioPlayScript(nodePath, streamPath, clampVol, clampPitch, bus, fromPosition);
@@ -812,32 +802,12 @@ export async function handleTool(
       loadAutoloads,
     });
 
-    // Check for execution failure
-    if (!result.compile_success) {
-      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.compile_error)));
-    }
-    if (!result.run_success) {
-      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.run_error)));
-    }
+    const isAudio = name.startsWith('audio_');
+    const errorMapper = isAudio
+      ? (msg: string) => (msg.includes('not found') || msg.includes('not an Audio') ? ERROR_CODES.AUDIO_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED)
+      : (msg: string) => (msg.includes('not found') ? ERROR_CODES.NODE_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED);
 
-    // Parse outputs into unified result
-    const data: Record<string, unknown> = {};
-    const warnings: string[] = [];
-    for (const entry of result.outputs) {
-      if (entry.key === 'warning') {
-        warnings.push(String(entry.value));
-      } else if (entry.key === 'error') {
-        return textResult(JSON.stringify(opsError('NODE_NOT_FOUND', String(entry.value))));
-      } else {
-        try {
-          data[entry.key] = JSON.parse(entry.value);
-        } catch {
-          data[entry.key] = entry.value;
-        }
-      }
-    }
-
-    return textResult(JSON.stringify(opsSuccess(data, [...paramWarnings, ...warnings])));
+    return parseGdscriptResult(result, paramWarnings, errorMapper);
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);

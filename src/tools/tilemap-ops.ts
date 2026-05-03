@@ -4,7 +4,7 @@ import { textResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape } from './godot-ops.js';
-import { SCENE_TREE_HEADER, opsSuccess } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -12,7 +12,6 @@ export const TILEMAP_ERROR_CODES = {
   TILEMAP_NOT_FOUND: 'TILEMAP_NOT_FOUND',
   INVALID_TILE_COORDS: 'INVALID_TILE_COORDS',
   INVALID_REGION: 'INVALID_REGION',
-  TILE_SOURCE_NOT_FOUND: 'TILE_SOURCE_NOT_FOUND',
   SCRIPT_EXEC_FAILED: 'SCRIPT_EXEC_FAILED',
 } as const;
 
@@ -43,17 +42,6 @@ export function validateRect2i(v: unknown): { x: number; y: number; w: number; h
   if (h <= 0) throw new Error('Region h must be > 0');
   return { x: obj.x as number, y: obj.y as number, w, h };
 }
-
-// Internal helpers
-function opsError(code: keyof typeof TILEMAP_ERROR_CODES, message: string) {
-  return { success: false, error: message, error_code: TILEMAP_ERROR_CODES[code], warnings: [] };
-}
-
-function opsErrorResult(code: keyof typeof TILEMAP_ERROR_CODES, message: string): ToolResult {
-  return textResult(JSON.stringify(opsError(code, message)));
-}
-
-const NON_PERSIST = '运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。';
 
 // ─── GDScript Generators: TileMap ──────────────────────────────────────────
 
@@ -596,34 +584,40 @@ export async function handleTool(
         const nodePath = normalizeNodePath(args.node_path as string);
         const layer = args.layer as number | undefined;
         const region = args.region ? validateRect2i(args.region) : undefined;
-        script = genTilemapReadScript(nodePath, region, layer ?? 0);
+        script = genTilemapReadScript(nodePath, region, layer);
         break;
       }
       case 'tilemap_set_cell': {
         const nodePath = normalizeNodePath(args.node_path as string);
         const coords = validateCoords(args.coords);
         const sourceId = args.source_id as number;
+        if (typeof sourceId !== 'number' || !Number.isInteger(sourceId)) {
+          return opsErrorResult('INVALID_TILE_COORDS', 'source_id must be an integer');
+        }
         const atlasCoords = validateCoords(args.atlas_coords);
         const alternativeTile = (args.alternative_tile as number) ?? 0;
         const layer = args.layer as number | undefined;
-        script = genTilemapSetCellScript(nodePath, coords, sourceId, atlasCoords, alternativeTile, layer ?? 0);
+        script = genTilemapSetCellScript(nodePath, coords, sourceId, atlasCoords, alternativeTile, layer);
         break;
       }
       case 'tilemap_erase_cell': {
         const nodePath = normalizeNodePath(args.node_path as string);
         const coords = validateCoords(args.coords);
         const layer = args.layer as number | undefined;
-        script = genTilemapEraseCellScript(nodePath, coords, layer ?? 0);
+        script = genTilemapEraseCellScript(nodePath, coords, layer);
         break;
       }
       case 'tilemap_fill_rect': {
         const nodePath = normalizeNodePath(args.node_path as string);
         const region = validateRect2i(args.region);
         const sourceId = args.source_id as number;
+        if (typeof sourceId !== 'number' || !Number.isInteger(sourceId)) {
+          return opsErrorResult('INVALID_TILE_COORDS', 'source_id must be an integer');
+        }
         const atlasCoords = validateCoords(args.atlas_coords);
         const alternativeTile = (args.alternative_tile as number) ?? 0;
         const layer = args.layer as number | undefined;
-        script = genTilemapFillRectScript(nodePath, region, sourceId, atlasCoords, alternativeTile, layer ?? 0);
+        script = genTilemapFillRectScript(nodePath, region, sourceId, atlasCoords, alternativeTile, layer);
         break;
       }
       case 'tilemap_clear': {
@@ -637,7 +631,7 @@ export async function handleTool(
         const nodePath = normalizeNodePath(args.node_path as string);
         const sourceRegion = validateRect2i(args.source_region);
         const layer = args.layer as number | undefined;
-        script = genTilemapCopyScript(nodePath, sourceRegion, layer ?? 0);
+        script = genTilemapCopyScript(nodePath, sourceRegion, layer);
         break;
       }
       case 'tilemap_paste': {
@@ -648,7 +642,7 @@ export async function handleTool(
           return opsErrorResult('INVALID_REGION', 'pattern must have a cells array');
         }
         const layer = args.layer as number | undefined;
-        script = genTilemapPasteScript(nodePath, target, pattern, layer ?? 0);
+        script = genTilemapPasteScript(nodePath, target, pattern, layer);
         break;
       }
       case 'tilemap_set_transform': {
@@ -658,7 +652,7 @@ export async function handleTool(
         const flipV = (args.flip_v as boolean) ?? false;
         const transpose = (args.transpose as boolean) ?? false;
         const layer = args.layer as number | undefined;
-        script = genTilemapSetTransformScript(nodePath, coords, flipH, flipV, transpose, layer ?? 0);
+        script = genTilemapSetTransformScript(nodePath, coords, flipH, flipV, transpose, layer);
         break;
       }
       default:
@@ -674,31 +668,10 @@ export async function handleTool(
       loadAutoloads,
     });
 
-    if (!result.compile_success) {
-      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.compile_error)));
-    }
-    if (!result.run_success) {
-      return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', result.run_error)));
-    }
+    const errorMapper = (msg: string) =>
+      msg.includes('Node not found') ? 'TILEMAP_NOT_FOUND' : 'SCRIPT_EXEC_FAILED';
 
-    // Parse outputs into unified result
-    const data: Record<string, unknown> = {};
-    const warnings: string[] = [];
-    for (const entry of result.outputs) {
-      if (entry.key === 'warning') {
-        warnings.push(String(entry.value));
-      } else if (entry.key === 'error') {
-        return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', String(entry.value))));
-      } else {
-        try {
-          data[entry.key] = JSON.parse(entry.value);
-        } catch {
-          data[entry.key] = entry.value;
-        }
-      }
-    }
-
-    return textResult(JSON.stringify(opsSuccess(data, warnings)));
+    return parseGdscriptResult(result, [], errorMapper);
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes('Coords') || msg.includes('integer')) return opsErrorResult('INVALID_TILE_COORDS', msg);

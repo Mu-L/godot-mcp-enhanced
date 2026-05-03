@@ -13,7 +13,7 @@ describe('TILEMAP_ERROR_CODES', () => {
   it('has TILEMAP_NOT_FOUND', () => { assert.ok('TILEMAP_NOT_FOUND' in TILEMAP_ERROR_CODES); });
   it('has INVALID_TILE_COORDS', () => { assert.ok('INVALID_TILE_COORDS' in TILEMAP_ERROR_CODES); });
   it('has INVALID_REGION', () => { assert.ok('INVALID_REGION' in TILEMAP_ERROR_CODES); });
-  it('has TILE_SOURCE_NOT_FOUND', () => { assert.ok('TILE_SOURCE_NOT_FOUND' in TILEMAP_ERROR_CODES); });
+  it('has SCRIPT_EXEC_FAILED', () => { assert.ok('SCRIPT_EXEC_FAILED' in TILEMAP_ERROR_CODES); });
 });
 
 describe('validateCoords', () => {
