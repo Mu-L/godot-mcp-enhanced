@@ -62,7 +62,7 @@ func _init():
 			resave_resources(params)
 		_:
 			log_error("Unknown operation: " + operation)
-			quit(1)
+			cleanup_and_quit([scene_root], 1)
 
 	quit()
 
@@ -77,6 +77,12 @@ func log_info(message: String) -> void:
 
 func log_error(message: String) -> void:
 	printerr("[ERROR] " + message)
+
+func cleanup_and_quit(nodes: Array, exit_code: int = 0) -> void:
+	for node in nodes:
+		if is_instance_valid(node):
+			node.free()
+	quit(exit_code)
 
 # ─── Class helpers ────────────────────────────────────────────────────────────
 
@@ -153,7 +159,7 @@ func create_scene(params):
 
 	if result != OK:
 		log_error("Failed to pack scene: " + str(result))
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 
 	# Ensure directory exists
 	var scene_dir_relative = scene_dir_res.substr(6)
@@ -163,22 +169,21 @@ func create_scene(params):
 			var make_dir_error = DirAccess.make_dir_recursive_absolute(scene_dir_abs)
 			if make_dir_error != OK:
 				log_error("Failed to create directory: " + scene_dir_abs)
-				quit(1)
+				cleanup_and_quit([scene_root], 1)
 		else:
 			if not dir.dir_exists(scene_dir_relative):
 				var make_dir_error = dir.make_dir_recursive(scene_dir_relative)
 				if make_dir_error != OK:
 					log_error("Failed to create directory: " + scene_dir_relative + ", error: " + str(make_dir_error))
-					quit(1)
+					cleanup_and_quit([scene_root], 1)
 
 	var save_error = ResourceSaver.save(packed_scene, full_scene_path)
+	scene_root.free()
 	if save_error == OK:
 		print("Scene created successfully at: " + params.scene_path)
 	else:
-		scene_root.free()
 		log_error("Failed to save scene. Error: " + str(save_error))
 		quit(1)
-	scene_root.free()
 
 
 func add_node(params):
@@ -212,17 +217,17 @@ func add_node(params):
 		parent = scene_root.get_node(parent_path.substr(5))
 		if not parent:
 			log_error("Parent node not found: " + parent_path)
-			quit(1)
+			cleanup_and_quit([scene_root], 1)
 	else:
 		parent = scene_root.get_node(parent_path)
 		if not parent:
 			log_error("Parent node not found: " + parent_path)
-			quit(1)
+			cleanup_and_quit([scene_root], 1)
 
 	var new_node = instantiate_class(params.node_type)
 	if not new_node:
 		log_error("Failed to instantiate node of type: " + params.node_type)
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 	new_node.name = params.node_name
 
 	if params.has("properties"):
@@ -241,7 +246,6 @@ func add_node(params):
 		if save_error == OK:
 			print("Node '%s' of type '%s' added successfully" % [params.node_name, params.node_type])
 		else:
-			scene_root.free()
 			log_error("Failed to save scene: " + str(save_error))
 	else:
 		log_error("Failed to pack scene: " + str(result))
@@ -319,7 +323,6 @@ func batch_add_nodes(params):
 			if failed_count > 0:
 				log_error("Failed to add %d nodes" % failed_count)
 		else:
-			scene_root.free()
 			log_error("Failed to save scene: " + str(save_error))
 	else:
 		log_error("Failed to pack scene: " + str(result))
@@ -360,21 +363,20 @@ func load_sprite(params):
 
 	if not sprite_node:
 		log_error("Node not found: " + params.node_path)
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 
 	if not (sprite_node is Sprite2D or sprite_node is Sprite3D or sprite_node is TextureRect):
 		log_error("Node is not a sprite-compatible type: " + sprite_node.get_class())
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 
 	var texture = load(full_texture_path)
 	if not texture:
-		scene_root.free()
 		if not FileAccess.file_exists(full_texture_path):
 			log_error("Texture file not found: " + full_texture_path)
 		else:
 			log_error("Failed to load texture: " + full_texture_path)
 			log_error("Headless mode cannot import textures. Run the editor first to generate .import cache.")
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 
 	if sprite_node is Sprite2D or sprite_node is Sprite3D:
 		sprite_node.texture = texture
@@ -389,7 +391,6 @@ func load_sprite(params):
 		if error == OK:
 			print("Sprite loaded successfully with texture: " + full_texture_path)
 		else:
-			scene_root.free()
 			log_error("Failed to save scene: " + str(error))
 	else:
 		log_error("Failed to pack scene: " + str(result))
@@ -455,14 +456,14 @@ func export_mesh_library(params):
 	var dir = DirAccess.open("res://")
 	if dir == null:
 		log_error("Failed to open res:// directory")
-		quit(1)
+		cleanup_and_quit([scene_root], 1)
 
 	var output_dir = full_output_path.get_base_dir()
 	if output_dir != "res://" and not dir.dir_exists(output_dir.substr(6)):
 		var error = dir.make_dir_recursive(output_dir.substr(6))
 		if error != OK:
 			log_error("Failed to create directory: " + output_dir + ", error: " + str(error))
-			quit(1)
+			cleanup_and_quit([scene_root], 1)
 
 	if item_id > 0:
 		var error = ResourceSaver.save(mesh_library, full_output_path)
@@ -502,14 +503,14 @@ func save_scene(params):
 		var dir = DirAccess.open("res://")
 		if dir == null:
 			log_error("Failed to open res:// directory")
-			quit(1)
+			cleanup_and_quit([scene_root], 1)
 
 		var scene_dir = save_path.get_base_dir()
 		if scene_dir != "res://" and not dir.dir_exists(scene_dir.substr(6)):
 			var error = dir.make_dir_recursive(scene_dir.substr(6))
 			if error != OK:
 				log_error("Failed to create directory: " + scene_dir + ", error: " + str(error))
-				quit(1)
+				cleanup_and_quit([scene_root], 1)
 
 	var packed_scene = PackedScene.new()
 	var result = packed_scene.pack(scene_root)
