@@ -92,17 +92,18 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 - 内置材质: `material.set(name, value)`
 - params 值类型映射约定（按数组长度自动推断 Godot 类型）：
   - `number` → float
-  - `string` → Resource path（调用 `load()` 加载）
+  - `string` → 内置材质属性直接赋值（如 resource_name）；对于 ShaderMaterial 的 sampler2D uniform，`string` 视为资源路径并调用 `load()`
   - `boolean` → bool
   - `null` → null
   - `array` 长度 2 → `Vector2(x, y)`
   - `array` 长度 3 → `Vector3(x, y, z)`
   - `array` 长度 4 → `Color(r, g, b, a)`
-  - 其他类型拒绝（返回 INVALID_MATERIAL_TYPE 错误）
+  - 其他类型拒绝（返回 INVALID_PARAM_TYPE 错误）
+  - 注意：GDShader uniform 不支持纯 string 类型，string 在 ShaderMaterial 上下文中仅用于资源路径（sampler2D 等）
 
 **create:**
 - 白名单: `ShaderMaterial`, `StandardMaterial3D`, `CanvasItemMaterial`
-- 创建 `material_type.new()` → 如果是 ShaderMaterial 且有 shader_path 则 `material.shader = load(path)`
+- 创建 `material_type.new()` → 如果是 ShaderMaterial 且有 shader_path，先检查 `ResourceLoader.exists(shader_path)`，不存在返回 MATERIAL_NOT_FOUND
 - 附加到节点: `node.material_override = material`
 
 **save:**
@@ -111,7 +112,8 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 - resource_path 必须以 `res://` 开头
 
 **load:**
-- `material = load(resource_path)`
+- 先检查 `ResourceLoader.exists(resource_path)`，不存在返回 MATERIAL_NOT_FOUND
+- `material = load(resource_path)`，加载失败（返回 null）返回 MATERIAL_NOT_FOUND
 - 附加到节点: `node.material_override = material`
 
 ---
@@ -123,7 +125,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 ```json
 {
   "project_path": "string (必填)",
-  "node_path": "string (必填)",
+  "node_path": "string (read/write/load_file/apply_template 时必填; list_templates/save_file 时可选)",
   "action": "enum (必填): read | write | load_file | save_file | list_templates | apply_template",
   "code": "string (write 时必填) — 完整 shader 代码",
   "file_path": "string (load_file/save_file 时必填) — res://shaders/xxx.gdshader",
@@ -140,7 +142,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 
 **load_file:** `material.shader = load(file_path)`
 
-**save_file:** 将 shader code 写入文件（通过 FileAccess）
+**save_file:** 将 shader code 写入文件（通过 FileAccess），如果文件已存在则**直接覆盖**（不提示确认）
 
 **list_templates:** 返回内置模板列表（名称 + 描述 + uniform 列表）
 
@@ -192,6 +194,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 export const MATERIAL_ERROR_CODES = {
   MATERIAL_NOT_FOUND: 'MATERIAL_NOT_FOUND',
   INVALID_MATERIAL_TYPE: 'INVALID_MATERIAL_TYPE',
+  INVALID_PARAM_TYPE: 'INVALID_PARAM_TYPE',
   SHADER_COMPILE_FAILED: 'SHADER_COMPILE_FAILED',
   RESOURCE_SAVE_FAILED: 'RESOURCE_SAVE_FAILED',
   INVALID_TEMPLATE: 'INVALID_TEMPLATE',
@@ -207,6 +210,7 @@ export const MATERIAL_ERROR_CODES = {
 | "Not a ShaderMaterial" | INVALID_MATERIAL_TYPE |
 | "Shader compile" / "shader error" | SHADER_COMPILE_FAILED |
 | "Failed to save" | RESOURCE_SAVE_FAILED |
+| "Invalid param type" / "not supported type" | INVALID_PARAM_TYPE |
 | 其他 | SCRIPT_EXEC_FAILED |
 
 ### 安全校验
@@ -245,9 +249,11 @@ func _initialize():
         _mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
         _mcp_done()
         return
-    var mat = node.get_surface_material(${materialIndex})
+    var mat = node.material_override
     if mat == null:
-        mat = node.material_override
+        mat = node.get_surface_override_material(${materialIndex})
+    if mat == null and node.mesh != null:
+        mat = node.mesh.surface_get_material(${materialIndex})
     if mat == null:
         _mcp_output("error", "No material on node")
         _mcp_done()
