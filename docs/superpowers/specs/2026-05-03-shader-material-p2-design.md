@@ -35,7 +35,10 @@
 
 ### 行为
 
-1. 获取节点材质（依次检查 material_override → surface_material_override → mesh surface 材质）
+1. 材质获取优先级（material_index 仅对 mesh surface 材质生效）：
+   - 优先检查 `node.material_override`（如果存在，直接使用，忽略 material_index）
+   - 如果没有 material_override，检查 `node.get_surface_override_material(material_index)`
+   - 最后尝试 `node.mesh.surface_get_material(material_index)`（mesh 内嵌材质）
 2. 判断材质类型（`material.get_class()`）
 3. ShaderMaterial: 遍历 `shader.get_shader_uniform_list()` 获取名称/类型/当前值 + shader resource_path
 4. 内置材质: 遍历 `get_property_list()` 过滤 `usage & PROPERTY_USAGE_STORAGE` 获取可序列化属性
@@ -87,7 +90,15 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 **set_params:**
 - ShaderMaterial: `material.set_shader_parameter(name, value)`
 - 内置材质: `material.set(name, value)`
-- params 中的值类型映射：number → float/int, array[4] → Color, string → resource path
+- params 值类型映射约定（按数组长度自动推断 Godot 类型）：
+  - `number` → float
+  - `string` → Resource path（调用 `load()` 加载）
+  - `boolean` → bool
+  - `null` → null
+  - `array` 长度 2 → `Vector2(x, y)`
+  - `array` 长度 3 → `Vector3(x, y, z)`
+  - `array` 长度 4 → `Color(r, g, b, a)`
+  - 其他类型拒绝（返回 INVALID_MATERIAL_TYPE 错误）
 
 **create:**
 - 白名单: `ShaderMaterial`, `StandardMaterial3D`, `CanvasItemMaterial`
@@ -95,6 +106,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 - 附加到节点: `node.material_override = material`
 
 **save:**
+- 先通过 `DirAccess.make_dir_recursive()` 确保父目录存在
 - `ResourceSaver.save(material, resource_path)`
 - resource_path 必须以 `res://` 开头
 
@@ -124,7 +136,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 
 **read:** 返回 `material.shader.code`（完整 shader 源码）
 
-**write:** 设置 `material.shader.code = code`，触发 Godot 自动编译，返回编译诊断
+**write:** 先 `material.shader = material.shader.duplicate()` 避免影响共享同一 shader 的其他材质，然后设置 `material.shader.code = code`，触发 Godot 自动编译，返回编译诊断
 
 **load_file:** `material.shader = load(file_path)`
 
@@ -168,7 +180,7 @@ Type 值对照 Godot Variant.Type 枚举（3=float, 20=Color 等）。
 }
 ```
 
-编译诊断通过检查 shader 的 `get_shader()` 返回值（null=编译失败）+ 解析 Godot 错误输出获取。
+编译诊断机制：通过检查 `material.shader.code` 设置后 `RenderingServer` 的 shader 编译状态获取。如果 API 不可用，降级为检查 `material.shader` 是否有效（非 null 但 `get_shader()` 返回无效 RID 表示编译失败），并解析 GDScript 执行的 stderr 输出作为错误详情。
 
 ---
 
@@ -269,4 +281,17 @@ v0.7.0（GodotServer.ts VERSION + package.json version 同步更新）
 - 纯函数测试：所有 gen*Script 函数（验证输出包含正确的 GDScript 片段）
 - 验证函数测试：参数校验（params 类型、材质类型白名单、template 名有效性）
 - 错误码测试：MATERIAL_ERROR_CODES 包含所有定义
+- 边界场景测试：
+  1. `material_read` 节点无材质时返回 MATERIAL_NOT_FOUND
+  2. `set_params` 传入非法 uniform 名时的错误处理
+  3. `create` 传入不在白名单中的 material_type 被拒绝
+  4. `shader_edit/write` 传入语法错误的 code，验证编译诊断格式
+  5. `save` 到不存在的子目录（自动创建）
+  6. `load` 不存在的 .tres 文件返回错误
+  7. `apply_template` 后 uniform 默认值正确
 - 预计新增约 30-40 个测试用例
+
+## Godot 版本要求
+
+最低支持 Godot 4.2+。`get_shader_uniform_list()`、`set_shader_parameter()` 等 API 在 4.0+ 可用，但 4.2+ 行为更稳定。
+Godot 4.3+ 新增的 `material_overlay` 属性暂不在本版本支持范围内，后续版本可扩展。
