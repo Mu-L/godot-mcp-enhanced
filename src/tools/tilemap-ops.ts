@@ -60,12 +60,6 @@ function opsErrorResult(code: keyof typeof TILEMAP_ERROR_CODES, message: string)
 
 const SCENE_TREE_HEADER = `extends SceneTree
 
-func _mcp_output(key: String, value) -> void:
-\tif not _mcp_outputs: _mcp_outputs = []
-\t_mcp_outputs.append({"key": key, "value": str(value)})
-
-var _mcp_outputs: Array = []
-
 func _mcp_done() -> void:
 \tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs}))
 \tquit()
@@ -225,8 +219,9 @@ func _initialize():
 }
 
 export function genTilemapClearScript(
-  nodePath: string, layer?: number
+  nodePath: string, layer?: number, clearAll?: boolean
 ): string {
+  const tileMapClear = clearAll ? '\t\tnode.clear()' : `\t\tnode.clear_layer(${layer ?? 0})`;
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \tvar node = get_node("${gdEscape(nodePath)}")
@@ -235,7 +230,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tif node is TileMap:
-\t\tnode.clear()
+${tileMapClear}
 \telif node is TileMapLayer:
 \t\tnode.clear()
 \telse:
@@ -299,7 +294,7 @@ func _initialize():
 \t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tvar pattern = JSON.parse('${gdEscape(patternJson)}')
+\tvar pattern = JSON.parse("${gdEscape(patternJson)}")
 \tvar tx = ${targetCoords.x}
 \tvar ty = ${targetCoords.y}
 \tif node is TileMap:
@@ -646,7 +641,8 @@ export async function handleTool(
       case 'tilemap_clear': {
         const nodePath = normalizeNodePath(args.node_path as string);
         const layer = args.layer as number | undefined;
-        script = genTilemapClearScript(nodePath, layer ?? 0);
+        const clearAll = layer === undefined;
+        script = genTilemapClearScript(nodePath, layer, clearAll);
         break;
       }
       case 'tilemap_copy': {
@@ -716,7 +712,7 @@ export async function handleTool(
     const msg = (err as Error).message;
     if (msg.includes('Coords') || msg.includes('integer')) return opsErrorResult('INVALID_TILE_COORDS', msg);
     if (msg.includes('Rect2i') || msg.includes('must be > 0')) return opsErrorResult('INVALID_REGION', msg);
-    if (msg.includes('NodePath')) return opsErrorResult('INVALID_REGION', msg);
+    if (msg.includes('NodePath')) return opsErrorResult('TILEMAP_NOT_FOUND', msg);
     return opsErrorResult('TILEMAP_NOT_FOUND', msg);
   }
 }

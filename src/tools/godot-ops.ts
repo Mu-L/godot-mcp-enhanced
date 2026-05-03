@@ -692,6 +692,7 @@ export async function handleTool(
     const godot = await ctx.findGodot();
     const loadAutoloads = args.load_autoloads !== false;
     let script: string;
+    const paramWarnings: string[] = [];
 
     switch (name) {
       case 'signal_connect': {
@@ -779,21 +780,10 @@ export async function handleTool(
         const pitchScale = args.pitch_scale as number | undefined;
         const bus = args.bus as string | undefined;
         const fromPosition = args.from_position as number | undefined;
-        const paramWarnings: string[] = [];
         const clampVol = clampParam(volumeDb, -80, 24, 'volume_db', paramWarnings);
         const clampPitch = clampParam(pitchScale, 0.01, 100, 'pitch_scale', paramWarnings);
         script = genAudioPlayScript(nodePath, streamPath, clampVol, clampPitch, bus, fromPosition);
-        const audioResult = await executeGdscript({ godotPath: godot, projectPath, code: script, timeout: 30, loadAutoloads });
-        if (!audioResult.compile_success) return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', audioResult.compile_error)));
-        if (!audioResult.run_success) return textResult(JSON.stringify(opsError('SCRIPT_EXEC_FAILED', audioResult.run_error)));
-        const aData: Record<string, unknown> = {};
-        const aWarnings = [...paramWarnings];
-        for (const entry of audioResult.outputs) {
-          if (entry.key === 'warning') { aWarnings.push(String(entry.value)); }
-          else if (entry.key === 'error') { return textResult(JSON.stringify(opsError('AUDIO_NOT_FOUND', String(entry.value)))); }
-          else { try { aData[entry.key] = JSON.parse(entry.value); } catch { aData[entry.key] = entry.value; } }
-        }
-        return textResult(JSON.stringify(opsSuccess(aData, aWarnings)));
+        break;
       }
       case 'audio_stop': {
         const nodePath = normalizeNodePath(args.node_path as string);
@@ -805,13 +795,13 @@ export async function handleTool(
         const param = args.param as string;
         const value = args.value;
         if (!['volume_db', 'pitch_scale', 'bus'].includes(param)) {
-          return opsErrorResult('INVALID_SIGNAL', 'param must be volume_db, pitch_scale, or bus');
+          return opsErrorResult('INVALID_TYPE', 'param must be volume_db, pitch_scale, or bus');
         }
         if (param === 'bus' && typeof value !== 'string') {
-          return opsErrorResult('INVALID_SIGNAL', 'bus param requires a string value');
+          return opsErrorResult('INVALID_TYPE', 'bus param requires a string value');
         }
         if (param !== 'bus' && typeof value !== 'number') {
-          return opsErrorResult('INVALID_SIGNAL', `${param} param requires a number value`);
+          return opsErrorResult('INVALID_TYPE', `${param} param requires a number value`);
         }
         script = genAudioSetParamScript(nodePath, param, value as number | string);
         break;
@@ -859,7 +849,7 @@ export async function handleTool(
       }
     }
 
-    return textResult(JSON.stringify(opsSuccess(data, warnings)));
+    return textResult(JSON.stringify(opsSuccess(data, [...paramWarnings, ...warnings])));
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
