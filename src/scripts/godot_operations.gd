@@ -62,7 +62,7 @@ func _init():
 			resave_resources(params)
 		_:
 			log_error("Unknown operation: " + operation)
-			cleanup_and_quit([scene_root], 1)
+			cleanup_and_quit([], 1)
 
 	quit()
 
