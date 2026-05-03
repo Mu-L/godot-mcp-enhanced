@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MATERIAL_ERROR_CODES,
   validateParamType,
+  handleTool,
   genMaterialReadScript,
   genMaterialSetParamsScript,
   genMaterialCreateScript,
@@ -165,9 +166,15 @@ describe('genMaterialSetParamsScript', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { val: null });
     assert.ok(script.includes('null'));
   });
-  it('converts string (resource path)', () => {
+  it('converts string (resource path) with load() for shader', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { tex: 'res://icon.png' });
-    assert.ok(script.includes('res://icon.png'));
+    assert.ok(script.includes('load("res://icon.png")'));
+    assert.ok(script.includes('"res://icon.png"'));
+  });
+  it('converts plain string without load() for non-resource', () => {
+    const script = genMaterialSetParamsScript('/root/Player', 0, { name: 'hello' });
+    assert.ok(script.includes('"hello"'));
+    assert.ok(!script.includes('load("hello")'));
   });
   it('handles multiple params', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { a: 1, b: [1, 0, 0, 1] });
@@ -248,10 +255,10 @@ describe('genShaderWriteScript', () => {
     const script = genShaderWriteScript('/root/Player', 0, 'shader_type canvas_item;');
     assert.ok(script.includes('shader_type canvas_item'));
   });
-  it('uses create_timer instead of process_frame', () => {
+  it('uses process_frame for compile wait', () => {
     const script = genShaderWriteScript('/root/Player', 0, 'shader_type canvas_item;');
-    assert.ok(script.includes('create_timer'));
-    assert.ok(!script.includes('process_frame'));
+    assert.ok(script.includes('process_frame'));
+    assert.ok(!script.includes('create_timer'));
   });
   it('includes errors and warnings arrays', () => {
     const script = genShaderWriteScript('/root/Player', 0, 'shader_type canvas_item;');
@@ -332,4 +339,86 @@ describe('all templates are valid', () => {
       assert.ok(script.includes('_mcp_done'));
     });
   }
+});
+
+// ─── handleTool integration tests ───────────────────────────────────────────
+
+describe('handleTool routing', () => {
+  it('returns null for unknown tool name', async () => {
+    const result = await handleTool('unknown_tool', {}, { findGodot: async () => '/fake' });
+    assert.strictEqual(result, null);
+  });
+
+  it('returns null for unrelated tool', async () => {
+    const result = await handleTool('run_project', {}, { findGodot: async () => '/fake' });
+    assert.strictEqual(result, null);
+  });
+
+  it('material_write rejects missing action', async () => {
+    const result = await handleTool('material_write', {
+      project_path: '/tmp/fake',
+      node_path: '/root/Node',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, false);
+    assert.ok(parsed.error_code);
+  });
+
+  it('material_write rejects invalid material_type', async () => {
+    const result = await handleTool('material_write', {
+      project_path: '/tmp/fake',
+      node_path: '/root/Node',
+      action: 'create',
+      material_type: 'InvalidType',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, false);
+    assert.strictEqual(parsed.error_code, 'INVALID_MATERIAL_TYPE');
+  });
+
+  it('shader_edit list_templates works without project_path', async () => {
+    const result = await handleTool('shader_edit', {
+      action: 'list_templates',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, true);
+    assert.ok(parsed.data.templates.length >= 6);
+  });
+
+  it('shader_edit rejects missing code for write', async () => {
+    const result = await handleTool('shader_edit', {
+      project_path: '/tmp/fake',
+      node_path: '/root/Node',
+      action: 'write',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, false);
+    assert.strictEqual(parsed.error_code, 'SCRIPT_EXEC_FAILED');
+  });
+
+  it('material_write rejects non-res:// resource_path', async () => {
+    const result = await handleTool('material_write', {
+      project_path: '/tmp/fake',
+      node_path: '/root/Node',
+      action: 'save',
+      resource_path: 'invalid/path.tres',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, false);
+  });
+
+  it('material_read rejects empty node_path', async () => {
+    const result = await handleTool('material_read', {
+      project_path: '/tmp/fake',
+      node_path: '',
+    }, { findGodot: async () => '/fake' });
+    assert.ok(result);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.strictEqual(parsed.success, false);
+  });
 });

@@ -167,11 +167,14 @@ export function validateParamType(v: unknown): 'number' | 'string' | 'boolean' |
 
 // ─── Value conversion helper ───────────────────────────────────────────────
 
-function valueToGdscript(value: unknown): string {
+function valueToGdscript(value: unknown, forShader = false): string {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'number') return String(value);
   if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'string') return `"${gdEscape(value)}"`;
+  if (typeof value === 'string') {
+    if (forShader && value.startsWith('res://')) return `load("${gdEscape(value)}")`;
+    return `"${gdEscape(value)}"`;
+  }
   if (Array.isArray(value)) {
     const len = value.length;
     if (len === 2) return `Vector2(${Number(value[0])}, ${Number(value[1])})`;
@@ -252,8 +255,9 @@ export function genMaterialSetParamsScript(
   nodePath: string, materialIndex: number, params: Record<string, unknown>
 ): string {
   const paramLines = Object.entries(params).map(([key, value]) => {
-    const gdValue = valueToGdscript(value);
-    return `\tif is_shader:\n\t\tmat.set_shader_parameter("${gdEscape(key)}", ${gdValue})\n\telse:\n\t\tmat.set("${gdEscape(key)}", ${gdValue})`;
+    const gdShaderValue = valueToGdscript(value, true);
+    const gdValue = valueToGdscript(value, false);
+    return `\tif is_shader:\n\t\tmat.set_shader_parameter("${gdEscape(key)}", ${gdShaderValue})\n\telse:\n\t\tmat.set("${gdEscape(key)}", ${gdValue})`;
   }).join('\n');
   return `${SCENE_TREE_HEADER}
 func _initialize():
@@ -408,7 +412,7 @@ func _initialize():
 \t\treturn
 \tmat.shader = mat.shader.duplicate()
 \tmat.shader.code = "${gdEscape(code)}"
-\tawait get_tree().create_timer(0.1).timeout
+\tawait get_tree().process_frame
 \tvar compile_ok = mat.shader != null and mat.shader.get_rid().is_valid()
 \tvar errors = []
 \tvar warnings = []
@@ -500,7 +504,7 @@ func _initialize():
 \t\treturn
 \tmat.shader = mat.shader.duplicate()
 \tmat.shader.code = "${gdEscape(code)}"
-\tawait get_tree().create_timer(0.1).timeout
+\tawait get_tree().process_frame
 \tvar compile_ok = mat.shader != null and mat.shader.get_rid().is_valid()
 \tvar errors = []
 \tvar warnings = []
@@ -608,6 +612,16 @@ export async function handleTool(
   if (!(TOOL_NAMES as readonly string[]).includes(name)) return null;
 
   try {
+    // list_templates 不需要 project_path，提前返回
+    if (name === 'shader_edit' && args.action === 'list_templates') {
+      const templates = Object.entries(SHADER_TEMPLATES).map(([n, t]) => ({
+        name: n,
+        description: t.description,
+        uniforms: t.uniforms,
+      }));
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { templates }, warnings: [] }) }] };
+    }
+
     const projectPath = validatePath(args.project_path as string);
     const godot = await ctx.findGodot();
     const loadAutoloads = args.load_autoloads !== false;
@@ -720,12 +734,7 @@ export async function handleTool(
             break;
           }
           case 'list_templates': {
-            const templates = Object.entries(SHADER_TEMPLATES).map(([name, t]) => ({
-              name,
-              description: t.description,
-              uniforms: t.uniforms,
-            }));
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { templates }, warnings: [] }) }] };
+            return null as never;
           }
           case 'apply_template': {
             const nodePath = requireNodePath(args.node_path);
