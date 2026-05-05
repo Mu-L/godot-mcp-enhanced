@@ -2,7 +2,7 @@
 // Parses Godot runtime output and generates actionable fix suggestions
 
 export interface ParsedError {
-  type: 'script_error' | 'runtime_error' | 'parse_error' | 'null_reference' | 'type_error' | 'unknown';
+  type: 'script_error' | 'runtime_error' | 'parse_error' | 'null_reference' | 'type_error' | 'headless_limitation' | 'unknown';
   message: string;
   file?: string;
   line?: number;
@@ -102,6 +102,21 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       const path = match ? match[1].trim() : 'the resource';
       return `File/resource not found: ${path}. Check the path is correct and the file exists in the project.`;
     },
+  },
+  {
+    test: (msg) => /texture_2d_get/.test(msg) && /null/.test(msg),
+    type: 'headless_limitation',
+    suggestion: () => 'SubViewport texture is null in headless mode. This is a known headless rendering limitation — the code works correctly on actual devices with a GPU. Safe to ignore when testing via run_and_verify.',
+  },
+  {
+    test: (msg) => /Condition ".*p_canvas_item.*is true/.test(msg) || /Condition ".*p_viewport.*is true/.test(msg),
+    type: 'headless_limitation',
+    suggestion: () => 'Canvas/Viewport rendering assertion in headless mode. This is typically a headless-only issue caused by SubViewport or CanvasItem operations without a real rendering server. Safe to ignore on actual devices.',
+  },
+  {
+    test: (msg) => /get_image\(\)/.test(msg) && /null/.test(msg),
+    type: 'headless_limitation',
+    suggestion: () => 'get_image() returned null, likely because SubViewport did not render in headless mode. Add a null check (if img == null: return) and test on a real device. This error does not occur with a GPU.',
   },
   {
     test: (msg) => /Condition "!.*" is true/.test(msg) || /Condition ".*" is true/.test(msg),
@@ -285,9 +300,14 @@ export function analyzeOutput(output: string[]): AnalysisResult {
   const uniqueSuggestions = [...new Set(suggestions)];
 
   // Build summary
+  const headlessLimitations = errors.filter(e => e.type === 'headless_limitation');
+  const realErrors = errors.filter(e => e.type !== 'headless_limitation');
   const parts: string[] = [];
-  if (errors.length > 0) {
-    parts.push(`${errors.length} error(s)`);
+  if (realErrors.length > 0) {
+    parts.push(`${realErrors.length} error(s)`);
+  }
+  if (headlessLimitations.length > 0) {
+    parts.push(`${headlessLimitations.length} headless limitation(s) (safe to ignore on real devices)`);
   }
   if (warnings.length > 0) {
     parts.push(`${warnings.length} warning(s)`);
@@ -301,7 +321,7 @@ export function analyzeOutput(output: string[]): AnalysisResult {
     : 'No errors, warnings, or output found.';
 
   return {
-    hasErrors: errors.length > 0,
+    hasErrors: realErrors.length > 0,
     errors,
     warnings,
     prints,

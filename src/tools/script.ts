@@ -6,6 +6,29 @@ import { textResult } from '../types.js';
 import { validatePath, resolveWithinRoot, ensureDir } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 
+function detectDuplicateLines(lines: string[]): string[] {
+  const warnings: string[] = [];
+  let runStart = -1;
+  for (let i = 1; i <= lines.length; i++) {
+    const cur = i < lines.length ? lines[i].trim() : '';
+    const prev = lines[i - 1].trim();
+    if (cur.length > 10 && cur === prev && (cur.includes('(') || cur.includes('='))) {
+      if (runStart < 0) runStart = i - 1;
+    } else {
+      if (runStart >= 0 && i - runStart >= 3) {
+        warnings.push(`Duplicate block (lines ${runStart + 1}-${i}): "${prev.substring(0, 80)}"`);
+      }
+      runStart = -1;
+    }
+  }
+  return warnings;
+}
+
+function formatDuplicateWarnings(warnings: string[]): string {
+  if (warnings.length === 0) return '';
+  return `\n\n⚠ Warning: ${warnings.length} duplicate line(s) detected (possible copy-paste error):\n${warnings.map(w => `  ${w}`).join('\n')}`;
+}
+
 const TOOL_NAMES = [
   'read_script',
   'write_script',
@@ -202,7 +225,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const finalContent = hasCRLF ? newFileContent.replace(/\n/g, '\r\n') : newFileContent;
           writeFileSync(fullPath, finalContent, 'utf-8');
           const count = normalizedContent.split(normalizedSearch).length - 1;
-          return textResult(`Edited ${fullPath}: replaced all ${count} occurrences of search text.`);
+
+          const dupWarns = detectDuplicateLines(finalContent.split(/\r?\n/));
+          const dw = formatDuplicateWarnings(dupWarns);
+
+          return textResult(`Edited ${fullPath}: replaced all ${count} occurrences of search text.${dw}`);
         }
 
         let pos = 0;
@@ -226,7 +253,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const newFileContent = before + normalizedReplace + after;
         const finalContent = hasCRLF ? newFileContent.replace(/\n/g, '\r\n') : newFileContent;
         writeFileSync(fullPath, finalContent, 'utf-8');
-        return textResult(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).`);
+
+        const dupWarns = detectDuplicateLines(finalContent.split(/\r?\n/));
+        const dw = formatDuplicateWarnings(dupWarns);
+
+        return textResult(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).${dw}`);
       }
 
       // Line-number mode
@@ -293,7 +324,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const diffHeader = `Edited ${fullPath}: replaced lines ${startLine}-${endLine} (${beforeLines.length} lines → ${afterLines.length} lines)`;
       const diffBody = `--- Before ---\n${beforeLines.join('\n')}\n--- After ---\n${afterLines.join('\n')}`;
 
-      return textResult(`${diffHeader}\n${diffBody}`);
+      const warnings = formatDuplicateWarnings(detectDuplicateLines(lines));
+
+      return textResult(`${diffHeader}\n${diffBody}${warnings}`);
     }
 
     case 'generate_test': {

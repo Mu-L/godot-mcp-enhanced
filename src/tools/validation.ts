@@ -48,7 +48,7 @@ async function checkVersionMismatch(projectPath: string, godotBin: string): Prom
 
 // ─── Script file collection ────────────────────────────────────────────────
 
-function collectScriptFiles(projectPath: string, excludeDirs: string[] = ['.godot', '.import', 'addons', 'tools']): string[] {
+function collectFilesByExt(projectPath: string, extensions: string[], excludeDirs: string[] = ['.godot', '.import', 'addons', 'tools']): string[] {
   const results: string[] = [];
   function scan(dir: string, depth: number): void {
     if (depth > 15) return;
@@ -59,7 +59,7 @@ function collectScriptFiles(projectPath: string, excludeDirs: string[] = ['.godo
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
           scan(full, depth + 1);
-        } else if (entry.name.endsWith('.gd')) {
+        } else if (extensions.some(ext => entry.name.endsWith(ext))) {
           results.push(full);
         }
       }
@@ -214,6 +214,106 @@ async function batchValidateScripts(
   return Array.from(results.entries()).map(([file, errors]) => ({ file, errors }));
 }
 
+// ─── Common API pitfall scanner ─────────────────────────────────────────────
+
+interface PitfallRule {
+  pattern: RegExp;
+  message: string;
+  condition?: (content: string) => boolean;
+}
+
+const API_PITFALL_RULES: PitfallRule[] = [
+  // Vector3 required (Godot 4.x ParticleProcessMaterial)
+  {
+    pattern: /\.(direction|gravity|emission_box_extents)\s*=\s*Vector2\s*\(/,
+    message: 'Property requires Vector3, not Vector2. In Godot 4.x, ParticleProcessMaterial.direction/gravity/emission_box_extents all take Vector3.',
+  },
+  // GradientTexture1D required for color_ramp
+  {
+    pattern: /\.color_ramp\s*=\s*Gradient\.new\s*\(\s*\)/,
+    message: 'color_ramp requires GradientTexture1D, not a bare Gradient. Wrap it: var tex := GradientTexture1D.new(); tex.gradient = grad; mat.color_ramp = tex',
+  },
+  // RefCounted cannot add_child (only flag if file also uses scene tree APIs)
+  {
+    pattern: /extends\s+RefCounted/,
+    message: 'RefCounted cannot call add_child(). If you need SubViewport or child nodes, use "extends Node" instead.',
+    condition: (content) => /SubViewport|add_child|get_texture|get_image|queue_free/.test(content),
+  },
+  // seed() global pollution
+  {
+    pattern: /^\s*seed\s*\(\s*\d+\s*\)/m,
+    message: 'seed() affects ALL subsequent random calls globally. Consider using RandomNumberGenerator with .seed = value instead to isolate randomness.',
+  },
+  // queue_free called twice within 3 lines (allows blank lines/comments between)
+  {
+    pattern: /\.queue_free\s*\(\s*\)\s*(?:\r?\n[^\n]*){0,2}\r?\n[^\n]*\.queue_free\s*\(\s*\)/,
+    message: 'queue_free() appears to be called twice on the same object (likely a copy-paste error).',
+  },
+  // Emission shape constant does not exist
+  {
+    pattern: /EMISSION_SHAPE_RECTANGLE/,
+    message: 'EMISSION_SHAPE_RECTANGLE does not exist in Godot 4.x. Use EMISSION_SHAPE_BOX for 3D box emission.',
+  },
+];
+
+function scanForCommonPitfalls(content: string): string[] {
+  // Strip comment lines to avoid false positives on documented code
+  const codeOnly = content.split(/\r?\n/).filter(l => !l.trimStart().startsWith('#')).join('\n');
+  const warnings: string[] = [];
+  for (const rule of API_PITFALL_RULES) {
+    if (rule.pattern.test(codeOnly)) {
+      if (rule.condition && !rule.condition(codeOnly)) continue;
+      warnings.push(rule.message);
+    }
+  }
+  return warnings;
+}
+
+// ─── Shader file validation ────────────────────────────────────────────────
+
+function validateShaderFile(filePath: string, relPath: string): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch {
+    return { errors: [`Cannot read shader file: ${relPath}`], warnings: [] };
+  }
+
+  const lines = content.split('\n');
+
+  // Must have shader_type declaration
+  const hasShaderType = lines.some(l => /^\s*shader_type\s+\w+\s*;/.test(l));
+  if (!hasShaderType) {
+    errors.push('Missing shader_type declaration (e.g. "shader_type canvas_item;" or "shader_type spatial;")');
+  }
+
+  // Check for common syntax issues
+  const varyings: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const lineNum = i + 1;
+
+    // uniform without type (just "uniform name;")
+    if (/^uniform\s+\w+\s*;\s*$/.test(line)) {
+      errors.push(`Line ${lineNum}: uniform missing type (e.g. "uniform float name;")`);
+    }
+
+    // duplicate varying declarations
+    const vm = line.match(/^varying\s+\w+\s+(\w+)/);
+    if (vm) {
+      if (varyings.includes(vm[1])) {
+        errors.push(`Line ${lineNum}: Duplicate varying declaration: ${vm[1]}`);
+      }
+      varyings.push(vm[1]);
+    }
+  }
+
+  return { errors, warnings };
+}
+
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
 export function getToolDefinitions(): Tool[] {
@@ -328,7 +428,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       const precheckErrors: Array<{ file: string; errors: string[] }> = [];
       try {
-        const allScripts = collectScriptFiles(projectPath);
+        const allScripts = collectFilesByExt(projectPath, ['.gd']);
         const scriptsToCheck = allScripts.slice(0, 10);
         if (scriptsToCheck.length > 0) {
           const batchResults = await batchValidateScripts(godot, projectPath, scriptsToCheck, 15000);
@@ -543,9 +643,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       if (args.scripts && Array.isArray(args.scripts) && args.scripts.length > 0) {
         scriptsToValidate = (args.scripts as string[]).map(s => resolveWithinRoot(p, s));
       } else {
-        scriptsToValidate = collectScriptFiles(p);
+        scriptsToValidate = collectFilesByExt(p, ['.gd']);
       }
-
       const totalFound = scriptsToValidate.length;
       if (scriptsToValidate.length > 50) {
         scriptsToValidate = scriptsToValidate.slice(0, 50);
@@ -553,6 +652,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       const relOf = (f: string) => f.replace(p + (process.platform === 'win32' ? '\\' : '/'), '');
 
+      // Batch Godot parser validation
       const BATCH_SIZE = 20;
       const allBatchResults: Array<{ file: string; errors: string[] }> = [];
       for (let i = 0; i < scriptsToValidate.length; i += BATCH_SIZE) {
@@ -562,21 +662,50 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       const errorMap = new Map(allBatchResults.map(r => [r.file, r.errors]));
-      const results: Array<{ file: string; has_errors: boolean; errors: string[] }> = [];
+      const results: Array<{ file: string; has_errors: boolean; errors: string[]; warnings?: string[] }> = [];
       let totalErrors = 0;
+      let totalWarnings = 0;
       for (const sf of scriptsToValidate) {
         const rel = relOf(sf);
         const errs = errorMap.get(rel) || [];
         totalErrors += errs.length;
-        results.push({ file: rel, has_errors: errs.length > 0, errors: errs });
+
+        // API pitfall scan
+        let warnings: string[] = [];
+        try {
+          const content = readFileSync(sf, 'utf-8');
+          warnings = scanForCommonPitfalls(content);
+          totalWarnings += warnings.length;
+        } catch { /* optional */ }
+
+        results.push({ file: rel, has_errors: errs.length > 0 || warnings.length > 0, errors: errs, warnings: warnings.length > 0 ? warnings : undefined });
+      }
+
+      // Shader validation
+      const shaderFiles = collectFilesByExt(p, ['.gdshader']);
+      const shaderResults: Array<{ file: string; has_errors: boolean; errors: string[]; warnings?: string[] }> = [];
+      for (const sf of shaderFiles) {
+        const rel = relOf(sf);
+        const { errors: sErrors, warnings: sWarnings } = validateShaderFile(sf, rel);
+        totalErrors += sErrors.length;
+        totalWarnings += sWarnings.length;
+        if (sErrors.length > 0 || sWarnings.length > 0) {
+          shaderResults.push({ file: rel, has_errors: sErrors.length > 0, errors: sErrors, warnings: sWarnings.length > 0 ? sWarnings : undefined });
+        }
       }
 
       let summaryMsg = `Validated ${scriptsToValidate.length} scripts, found ${totalErrors} errors in ${results.filter(r => r.has_errors).length} files.`;
+      if (totalWarnings > 0) {
+        summaryMsg += ` ${totalWarnings} API warning(s) detected.`;
+      }
+      if (shaderResults.length > 0) {
+        summaryMsg += ` Validated ${shaderFiles.length} shader(s), ${shaderResults.filter(r => r.has_errors).length} with errors.`;
+      }
       if (totalFound > 50) {
         summaryMsg += ` (${totalFound - 50} scripts skipped — specify scripts parameter to validate more)`;
       }
 
-      const scriptsSummary = {
+      const scriptsSummary: Record<string, unknown> = {
         validated: scriptsToValidate.length,
         total_scanned: totalFound,
         total_errors: totalErrors,
@@ -585,8 +714,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         summary: summaryMsg,
       };
 
+      if (shaderResults.length > 0) {
+        scriptsSummary.shaders = shaderResults;
+        scriptsSummary.shaders_validated = shaderFiles.length;
+      }
+
       const vWarn = await checkVersionMismatch(p, godot);
-      if (vWarn) (scriptsSummary as any).version_warning = vWarn;
+      if (vWarn) scriptsSummary.version_warning = vWarn;
 
       return textResult(JSON.stringify(scriptsSummary, null, 2));
     }
