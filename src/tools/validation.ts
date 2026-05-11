@@ -111,10 +111,14 @@ export async function batchValidateScripts(
 
   const results = new Map<string, string[]>();
 
+  // Only filter Godot engine internal noise, NOT user-visible identifier errors.
+  // Previously "Identifier not found" and "not declared in the current scope" were
+  // filtered here, but those are real errors when class_name references fail to
+  // resolve in headless mode — exactly the bugs users need to catch.
+  // Autoload errors (e.g. DataRegistry, PlayerData not available in headless) are
+  // intentionally NOT filtered — users should know their scripts depend on autoloads.
   const isErrorFalsePositive = (line: string): boolean => {
-    if (line.includes('Identifier not found')) return true;
-    if (line.includes('not declared in the current scope')) return true;
-    if (line.includes('not found in base self')) return true;
+    if (line.includes('not found in base self') && line.includes('ScriptBus')) return true;
     if (line.includes('Condition') && line.includes('is true')) return true;
     return false;
   };

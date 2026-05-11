@@ -1,5 +1,5 @@
 import { join, basename } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -71,6 +71,7 @@ const TOOL_NAMES = [
   'generate_test',
   'create_test_scene',
   'execute_gdscript',
+  'project_replace',
 ] as const;
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
@@ -190,6 +191,34 @@ export function getToolDefinitions(): Tool[] {
           load_autoloads: { type: 'boolean', description: 'When true, runs with full autoload context so DataRegistry/PlayerData etc. are available (default: false)', default: false },
         },
         required: ['project_path', 'code'],
+      },
+    },
+    {
+      name: 'project_replace',
+      description: 'Batch find-and-replace across all matching files in a Godot project. '
+        + 'Scans files by extension, performs string replacement (CRLF-safe), and returns a summary of changes. '
+        + 'Supports dry_run mode to preview changes without writing.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Path to Godot project directory' },
+          search: { type: 'string', description: 'The exact text to search for' },
+          replace: { type: 'string', description: 'The replacement text' },
+          extensions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'File extensions to scan (default: [".gd"])',
+            default: ['.gd'],
+          },
+          exclude_dirs: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Directory names to exclude (default: [".godot", ".import", "addons", "tools"])',
+            default: ['.godot', '.import', 'addons', 'tools'],
+          },
+          dry_run: { type: 'boolean', description: 'Preview changes without writing (default: false)', default: false },
+        },
+        required: ['project_path', 'search', 'replace'],
       },
     },
   ];
@@ -552,6 +581,88 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       });
 
       return textResult(JSON.stringify(result, null, 2));
+    }
+
+    case 'project_replace': {
+      const p = validatePath(args.project_path as string);
+      const search = args.search as string;
+      const replace = (args.replace as string) ?? '';
+      const extensions: string[] = (args.extensions as string[]) || ['.gd'];
+      const excludeDirs: string[] = (args.exclude_dirs as string[]) || ['.godot', '.import', 'addons', 'tools'];
+      const dryRun = args.dry_run === true;
+
+      if (!search) {
+        return textResult('Error: search must be a non-empty string.');
+      }
+
+      const normalizedSearch = search.replace(/\r\n/g, '\n');
+      const normalizedReplace = replace.replace(/\r\n/g, '\n');
+
+      // Collect files
+      const matchedFiles: string[] = [];
+      function scanDir(dir: string, depth: number): void {
+        if (depth > 15) return;
+        try {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name.startsWith('.')) continue;
+            if (excludeDirs.includes(entry.name)) continue;
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              scanDir(full, depth + 1);
+            } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+              matchedFiles.push(full);
+            }
+          }
+        } catch { /* skip */ }
+      }
+      scanDir(p, 0);
+
+      const pathSep = process.platform === 'win32' ? '\\' : '/';
+      const relOf = (absPath: string) => absPath.replace(p + pathSep, '');
+
+      const changedFiles: string[] = [];
+      const unchangedFiles: string[] = [];
+      let totalReplacements = 0;
+
+      for (const filePath of matchedFiles) {
+        const content = readFileSync(filePath, 'utf-8');
+        const hasCRLF = content.includes('\r\n');
+        const normalized = content.replace(/\r\n/g, '\n');
+
+        if (!normalized.includes(normalizedSearch)) {
+          unchangedFiles.push(relOf(filePath));
+          continue;
+        }
+
+        const count = normalized.split(normalizedSearch).length - 1;
+        totalReplacements += count;
+
+        if (!dryRun) {
+          const newContent = normalized.split(normalizedSearch).join(normalizedReplace);
+          const finalContent = hasCRLF ? newContent.split('\n').join('\r\n') : newContent;
+          writeFileSync(filePath, finalContent, 'utf-8');
+        }
+
+        changedFiles.push(relOf(filePath));
+      }
+
+      const prefix = dryRun ? '[DRY RUN] ' : '';
+      const summary = [
+        `${prefix}Batch replace complete.`,
+        `Search: "${search.substring(0, 80)}${search.length > 80 ? '...' : ''}"`,
+        `Replace: "${replace.substring(0, 80)}${replace.length > 80 ? '...' : ''}"`,
+        `Extensions: ${extensions.join(', ')}`,
+        `Scanned: ${matchedFiles.length} files`,
+        `Changed: ${changedFiles.length} files (${totalReplacements} replacements)`,
+        unchangedFiles.length > 0 ? `Unchanged: ${unchangedFiles.length} files` : '',
+      ].filter(Boolean).join('\n');
+
+      const details = changedFiles.length > 0
+        ? '\n\nChanged files:\n' + changedFiles.slice(0, 50).map(f => `  ${f}`).join('\n')
+          + (changedFiles.length > 50 ? `\n  ... and ${changedFiles.length - 50} more` : '')
+        : '\n\nNo files contained the search text.';
+
+      return textResult(summary + details);
     }
 
     default:

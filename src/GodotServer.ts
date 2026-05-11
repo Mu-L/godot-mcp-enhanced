@@ -124,7 +124,7 @@ function log(...args: unknown[]): void {
 
 const WRITE_TOOLS = new Set([
   'create_scene', 'add_node', 'save_scene', 'load_sprite', 'batch_add_nodes',
-  'write_script', 'edit_script', 'create_test_scene', 'execute_gdscript',
+  'write_script', 'edit_script', 'create_test_scene', 'execute_gdscript', 'project_replace',
   'import_resources',
   'tilemap_set_cell', 'tilemap_erase_cell', 'tilemap_fill_rect', 'tilemap_clear', 'tilemap_paste', 'tilemap_set_transform',
   'material_write', 'shader_edit',
