@@ -139,6 +139,7 @@ const WRITE_TOOLS = new Set([
   'game_bridge_install', 'game_bridge_uninstall',
   'game_query', 'game_input', 'game_wait',
   'dev_loop', 'scene_snapshot', 'batch_validate',
+  'diagnose_physics', 'query_spatial', 'collision_overlay',
 ]);
 
 // ─── Lite mode tools (14 core tools) ──────────────────────────────────────────
