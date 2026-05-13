@@ -4,6 +4,9 @@ var _scene_commands: Node
 var _node_commands: Node
 var _test_commands: Node
 var _export_commands: Node
+var _particle_commands: Node
+var _nav_commands: Node
+var _animtree_commands: Node
 var _undo_manager: Node
 
 func setup(plugin: EditorPlugin) -> void:
@@ -26,6 +29,18 @@ func setup(plugin: EditorPlugin) -> void:
 	_export_commands.setup(plugin)
 	add_child(_export_commands)
 
+	_particle_commands = preload("commands/particle_commands.gd").new()
+	_particle_commands.setup(plugin)
+	add_child(_particle_commands)
+
+	_nav_commands = preload("commands/nav_commands.gd").new()
+	_nav_commands.setup(plugin)
+	add_child(_nav_commands)
+
+	_animtree_commands = preload("commands/animtree_commands.gd").new()
+	_animtree_commands.setup(plugin)
+	add_child(_animtree_commands)
+
 func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 	match method:
 		"open_scene":
@@ -42,5 +57,35 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _export_commands.handle_export_get_preset(params)
 		"export_build":
 			return _export_commands.handle_export_build(params)
+		"particles_create":
+			return _particle_commands.handle_particles_create(params, request_id)
+		"particles_set_emission":
+			return _particle_commands.handle_particles_set_emission(params)
+		"particles_set_process":
+			return _particle_commands.handle_particles_set_process(params)
+		"particles_load_preset":
+			return _particle_commands.handle_particles_load_preset(params)
+		"particles_set_material":
+			return _particle_commands.handle_particles_set_material(params)
+		"nav_create_region":
+			return _nav_commands.handle_nav_create_region(params, request_id)
+		"nav_bake_mesh":
+			return _nav_commands.handle_nav_bake_mesh(params)
+		"nav_create_agent":
+			return _nav_commands.handle_nav_create_agent(params, request_id)
+		"nav_set_params":
+			return _nav_commands.handle_nav_set_params(params)
+		"nav_create_link":
+			return _nav_commands.handle_nav_create_link(params, request_id)
+		"animtree_create":
+			return _animtree_commands.handle_animtree_create(params, request_id)
+		"animtree_add_state":
+			return _animtree_commands.handle_animtree_add_state(params)
+		"animtree_add_transition":
+			return _animtree_commands.handle_animtree_add_transition(params)
+		"animtree_set_blend":
+			return _animtree_commands.handle_animtree_set_blend(params)
+		"animtree_play":
+			return _animtree_commands.handle_animtree_play(params)
 		_:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
