@@ -2,13 +2,22 @@
   "name": "godot-mcp-enhanced",
   "version": "0.7.0",
   "description": "Enhanced MCP server for Godot game engine - closed-loop AI development with dynamic GDScript execution, scene tree query, node inspection, and more",
-  "keywords": ["godot", "mcp", "ai", "claude", "game-dev", "closed-loop"],
+  "keywords": [
+    "godot",
+    "mcp",
+    "ai",
+    "claude",
+    "game-dev",
+    "closed-loop"
+  ],
   "license": "MIT",
   "type": "module",
   "bin": {
     "godot-mcp-enhanced": "./build/index.js"
   },
-  "files": ["build"],
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs'),p=require('path');const src=p.join(__dirname,'src','scripts');const dst=p.join(__dirname,'build','scripts');fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).filter(f=>f.endsWith('.gd')).forEach(f=>{fs.copyFileSync(p.join(src,f),p.join(dst,f));console.log('Copied',f)})\"",
     "test": "npm run build && node --test test/*.test.js",
@@ -17,10 +26,12 @@
     "watch": "tsc --watch"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0"
+    "@modelcontextprotocol/sdk": "0.6.0",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.3.3"
   },
   "engines": {
