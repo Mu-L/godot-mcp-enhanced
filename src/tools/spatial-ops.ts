@@ -67,104 +67,101 @@ function genGetNodeInfo(nodePath: string, includeChildren: boolean, typeFilter: 
 \t\t\t\tcontinue`
     : '';
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _get_info(n: Node3D) -> Dictionary:
-	var d: Dictionary = {}
-	d["path"] = str(n.get_path()).trim_prefix("/root/")
-	d["type"] = n.get_class()
-	d["global_position"] = [n.global_position.x, n.global_position.y, n.global_position.z]
-	d["global_rotation"] = [n.global_rotation.x, n.global_rotation.y, n.global_rotation.z]
-	d["global_scale"] = [n.global_scale.x, n.global_scale.y, n.global_scale.z]
-	d["visible"] = n.visible
-	if n is VisualInstance3D:
-		var a: AABB = n.get_aabb()
-		d["local_aabb"] = {"position": [a.position.x, a.position.y, a.position.z], "size": [a.size.x, a.size.y, a.size.z]}
-		var ga: AABB = n.get_global_aabb()
-		d["global_aabb"] = {"position": [ga.position.x, ga.position.y, ga.position.z], "size": [ga.size.x, ga.size.y, ga.size.z]}
-	return d
+\tvar d: Dictionary = {}
+\td["path"] = str(n.get_path()).trim_prefix("/root/")
+\td["type"] = n.get_class()
+\td["global_position"] = [n.global_position.x, n.global_position.y, n.global_position.z]
+\td["global_rotation"] = [n.global_rotation.x, n.global_rotation.y, n.global_rotation.z]
+\tvar _gs: Vector3 = n.global_transform.basis.get_scale()
+\td["global_scale"] = [_gs.x, _gs.y, _gs.z]
+\td["visible"] = n.visible
+\tif n is VisualInstance3D:
+\t\tvar a: AABB = n.get_aabb()
+\t\td["local_aabb"] = {"position": [a.position.x, a.position.y, a.position.z], "size": [a.size.x, a.size.y, a.size.z]}
+\t\tvar ga: AABB = n.get_global_aabb()
+\t\td["global_aabb"] = {"position": [ga.position.x, ga.position.y, ga.position.z], "size": [ga.size.x, ga.size.y, ga.size.z]}
+\treturn d
 
 func _initialize():
-	_mcp_load_main_scene()
-	var _node: Node3D = _mcp_get_node("${gdEscape(nodePath)}")
-	if _node == null or not (_node is Node3D):
-		_mcp_output("error", "Node3D not found: ${gdEscape(nodePath)}")
-		_mcp_done()
-		return
-	var _results: Array = []
-	if "${gdEscape(typeFilter)}" == "" or _node.is_class("${gdEscape(typeFilter)}"):
-		_results.append(_get_info(_node))
-	if ${includeChildren ? 'true' : 'false'}:
-		var _stack: Array = []
-		for _c in _node.get_children():
-			if _c is Node3D:
-				_stack.append(_c)
-		while _stack.size() > 0 and _results.size() < ${maxResults}:
-			var _c: Node3D = _stack.pop_back()
+\t_mcp_load_main_scene()
+\tvar _node: Node3D = _mcp_get_node("${gdEscape(nodePath)}")
+\tif _node == null or not (_node is Node3D):
+\t\t_mcp_output("error", "Node3D not found: ${gdEscape(nodePath)}")
+\t\t_mcp_done()
+\t\treturn
+\tvar _results: Array = []
+\tif "${gdEscape(typeFilter)}" == "" or _node.is_class("${gdEscape(typeFilter)}"):
+\t\t_results.append(_get_info(_node))
+\tif ${includeChildren ? 'true' : 'false'}:
+\t\tvar _stack: Array = []
+\t\tfor _c in _node.get_children():
+\t\t\tif _c is Node3D:
+\t\t\t\t_stack.append(_c)
+\t\twhile _stack.size() > 0 and _results.size() < ${maxResults}:
+\t\t\tvar _c: Node3D = _stack.pop_back()
 ${filterCheck}
-			_results.append(_get_info(_c))
-			for _gc in _c.get_children():
-				if _gc is Node3D:
-					_stack.append(_gc)
-	_mcp_output("nodes", _results)
-	_mcp_output("count", _results.size())
-	_mcp_done()
+\t\t\t_results.append(_get_info(_c))
+\t\t\tfor _gc in _c.get_children():
+\t\t\t\tif _gc is Node3D:
+\t\t\t\t\t_stack.append(_gc)
+\t_mcp_output("nodes", _results)
+\t_mcp_output("count", _results.size())
+\t_mcp_done()
 `;
 }
 
 function genGetBounds(rootPath: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
-	_mcp_load_main_scene()
-	var _root: Node3D = null
-	if "${gdEscape(rootPath)}" != "":
-		var _n: Node = _mcp_get_node("${gdEscape(rootPath)}")
-		if _n == null or not (_n is Node3D):
-			_mcp_output("error", "Node3D not found")
-			_mcp_done()
-			return
-		_root = _n as Node3D
-	else:
-		var _r: Node = _mcp_get_root()
-		if _r != null:
-			for _c in _r.get_children():
-				if _c is Node3D:
-					_root = _c as Node3D
-					break
-	if _root == null:
-		_mcp_output("error", "No Node3D found")
-		_mcp_done()
-		return
-	var _combined: AABB = AABB()
-	var _count: int = 0
-	var _first: bool = true
-	var _stack: Array = [_root]
-	while _stack.size() > 0:
-		var _n: Node3D = _stack.pop_back()
-		if _n is VisualInstance3D:
-			var _aabb: AABB = _n.get_global_aabb()
-			if _first:
-				_combined = _aabb
-				_first = false
-			else:
-				_combined = _combined.merge(_aabb)
-			_count += 1
-		for _c in _n.get_children():
-			if _c is Node3D:
-				_stack.append(_c)
-	var _result: Dictionary = {}
-	_result["root_path"] = str(_root.get_path()).trim_prefix("/root/")
-	_result["visual_node_count"] = _count
-	if _count > 0:
-		_result["combined_aabb"] = {
-			"position": [_combined.position.x, _combined.position.y, _combined.position.z],
-			"size": [_combined.size.x, _combined.size.y, _combined.size.z],
-			"end": [_combined.end.x, _combined.end.y, _combined.end.z]
-		}
-	_mcp_output("bounds", _result)
-	_mcp_done()
+\t_mcp_load_main_scene()
+\tvar _root: Node3D = null
+\tif "${gdEscape(rootPath)}" != "":
+\t\tvar _n: Node = _mcp_get_node("${gdEscape(rootPath)}")
+\t\tif _n == null or not (_n is Node3D):
+\t\t\t_mcp_output("error", "Node3D not found")
+\t\t\t_mcp_done()
+\t\t\treturn
+\t\t_root = _n as Node3D
+\telse:
+\t\tvar _r: Node = _mcp_get_root()
+\t\tif _r != null:
+\t\t\tfor _c in _r.get_children():
+\t\t\t\tif _c is Node3D:
+\t\t\t\t\t_root = _c as Node3D
+\t\t\t\t\tbreak
+\tif _root == null:
+\t\t_mcp_output("error", "No Node3D found")
+\t\t_mcp_done()
+\t\treturn
+\tvar _combined: AABB = AABB()
+\tvar _count: int = 0
+\tvar _first: bool = true
+\tvar _stack: Array = [_root]
+\twhile _stack.size() > 0:
+\t\tvar _n: Node3D = _stack.pop_back()
+\t\tif _n is VisualInstance3D:
+\t\t\tvar _aabb: AABB = _n.get_global_aabb()
+\t\t\tif _first:
+\t\t\t\t_combined = _aabb
+\t\t\t\t_first = false
+\t\t\telse:
+\t\t\t\t_combined = _combined.merge(_aabb)
+\t\t\t_count += 1
+\t\tfor _c in _n.get_children():
+\t\t\tif _c is Node3D:
+\t\t\t\t_stack.append(_c)
+\tvar _result: Dictionary = {}
+\t_result["root_path"] = str(_root.get_path()).trim_prefix("/root/")
+\t_result["visual_node_count"] = _count
+\tif _count > 0:
+\t\t_result["combined_aabb"] = {
+\t\t\t"position": [_combined.position.x, _combined.position.y, _combined.position.z],
+\t\t\t"size": [_combined.size.x, _combined.size.y, _combined.size.z],
+\t\t\t"end": [_combined.end.x, _combined.end.y, _combined.end.z]
+\t\t}
+\t_mcp_output("bounds", _result)
+\t_mcp_done()
 `;
 }
 
@@ -174,33 +171,31 @@ function genFindInAabb(
   maxResults: number,
 ): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
-	_mcp_load_main_scene()
-	var _aabb: AABB = AABB(Vector3(${aabbMin.x}, ${aabbMin.y}, ${aabbMin.z}), Vector3(${aabbSize.x}, ${aabbSize.y}, ${aabbSize.z}))
-	var _root: Node = _mcp_get_root()
-	if _root == null:
-		_mcp_output("error", "Scene root not found")
-		_mcp_done()
-		return
-	var _results: Array = []
-	var _stack: Array = [_root]
-	while _stack.size() > 0 and _results.size() < ${maxResults}:
-		var _n: Node = _stack.pop_back()
-		if _n is Node3D:
-			var _n3d: Node3D = _n as Node3D
-			if _aabb.has_point(_n3d.global_position):
-				_results.append({
-					"path": str(_n3d.get_path()).trim_prefix("/root/"),
-					"type": _n3d.get_class(),
-					"position": [_n3d.global_position.x, _n3d.global_position.y, _n3d.global_position.z]
-				})
-		for _c in _n.get_children():
-			_stack.append(_c)
-	_mcp_output("nodes", _results)
-	_mcp_output("count", _results.size())
-	_mcp_done()
+\t_mcp_load_main_scene()
+\tvar _aabb: AABB = AABB(Vector3(${aabbMin.x}, ${aabbMin.y}, ${aabbMin.z}), Vector3(${aabbSize.x}, ${aabbSize.y}, ${aabbSize.z}))
+\tvar _root: Node = _mcp_get_root()
+\tif _root == null:
+\t\t_mcp_output("error", "Scene root not found")
+\t\t_mcp_done()
+\t\treturn
+\tvar _results: Array = []
+\tvar _stack: Array = [_root]
+\twhile _stack.size() > 0 and _results.size() < ${maxResults}:
+\t\tvar _n: Node = _stack.pop_back()
+\t\tif _n is Node3D:
+\t\t\tvar _n3d: Node3D = _n as Node3D
+\t\t\tif _aabb.has_point(_n3d.global_position):
+\t\t\t\t_results.append({
+\t\t\t\t\t"path": str(_n3d.get_path()).trim_prefix("/root/"),
+\t\t\t\t\t"type": _n3d.get_class(),
+\t\t\t\t\t"position": [_n3d.global_position.x, _n3d.global_position.y, _n3d.global_position.z]
+\t\t\t\t})
+\t\tfor _c in _n.get_children():
+\t\t\t_stack.append(_c)
+\t_mcp_output("nodes", _results)
+\t_mcp_output("count", _results.size())
+\t_mcp_done()
 `;
 }
 

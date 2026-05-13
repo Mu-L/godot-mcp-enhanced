@@ -42,8 +42,6 @@ export function getToolDefinitions(): Tool[] {
 
 function genSnapshot(): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _data: Dictionary = {}
@@ -66,8 +64,6 @@ func _initialize():
 
 function genStart(): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \t_mcp_output("result", {"status": "profiling_started", "message": "Use get_data to collect frame data after waiting some frames"})
@@ -77,8 +73,6 @@ func _initialize():
 
 function genStop(): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \t_mcp_output("result", {"status": "profiling_stopped"})
@@ -88,7 +82,6 @@ func _initialize():
 
 function genGetData(targetFps: number, frameCount: number): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
 var _mcp_frame_times: Array = []
 var _mcp_target_fps: float = ${targetFps}
 var _mcp_frame_count: int = ${frameCount}
@@ -162,8 +155,6 @@ func _analyze_and_report():
 
 function genGetActiveProcesses(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _root: Node = _mcp_get_root()
@@ -201,8 +192,6 @@ func _initialize():
 
 function genGetSignalConnections(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _root: Node = _mcp_get_root()

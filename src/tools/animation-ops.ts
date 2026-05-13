@@ -85,8 +85,6 @@ export function getToolDefinitions(): Tool[] {
 
 function genListPlayers(rootPath: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _root: Node = _mcp_get_root()
@@ -116,8 +114,6 @@ func _initialize():
 
 function genGetInfo(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -145,8 +141,6 @@ func _initialize():
 
 function genGetDetails(nodePath: string, animName: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -189,8 +183,6 @@ func _initialize():
 
 function genGetKeyframes(nodePath: string, animName: string, trackIdx: number): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -237,8 +229,6 @@ function genPlay(nodePath: string, animName: string, customBlend?: number, custo
     ? `_ap.play("${gdEscape(animName)}", ${customBlend < 0 ? '-1.0' : customBlend}, ${customSpeed ?? 1.0}, ${fromEnd ? 'true' : 'false'})`
     : `_ap.play("${gdEscape(animName)}")`;
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -254,8 +244,6 @@ func _initialize():
 
 function genStop(nodePath: string, keepState?: boolean): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -271,8 +259,6 @@ func _initialize():
 
 function genSeek(nodePath: string, seconds: number, update?: boolean): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -290,8 +276,6 @@ function genCreate(nodePath: string, animName: string, libraryName?: string, len
   const loopMap: Record<string, number> = { none: 0, linear: 1, pingpong: 2 };
   const loopVal = loopMode ? loopMap[loopMode] ?? 0 : 0;
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -319,8 +303,6 @@ func _initialize():
 
 function genDelete(nodePath: string, animName: string, libraryName?: string): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -350,8 +332,6 @@ function genUpdateProps(nodePath: string, animName: string, length?: number, loo
   const loopLine = loopMode !== undefined ? `\t_anim.loop_mode = ${loopVal}` : '';
   const stepLine = step !== undefined ? `\t_anim.step = ${step}` : '';
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -382,8 +362,6 @@ function genAddTrack(nodePath: string, animName: string, trackType: string, trac
     ? `_anim.add_track(${typeVal}, ${insertAt})`
     : `_anim.add_track(${typeVal})`;
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -406,8 +384,6 @@ func _initialize():
 
 function genRemoveTrack(nodePath: string, animName: string, trackIdx: number): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -440,8 +416,6 @@ function genAddKeyframe(nodePath: string, animName: string, trackIdx: number, ti
     ? `\telif _anim.track_get_type(${trackIdx}) == Animation.TYPE_METHOD:\n\t\tvar _md: Dictionary = {"method": "${gdEscape(methodName)}", "args": ${argsToGd(args)}}\n\t\t_anim.track_insert_key(${trackIdx}, ${time}, _md, ${transStr})`
     : '';
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -475,8 +449,6 @@ ${methodBlock}
 
 function genRemoveKeyframe(nodePath: string, animName: string, trackIdx: number, kfIdx: number): string {
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
@@ -514,8 +486,6 @@ function genUpdateKeyframe(nodePath: string, animName: string, trackIdx: number,
     : '';
   const transLine = transition !== undefined ? `\t_anim.track_set_key_transition(${trackIdx}, ${kfIdx}, ${transition})` : '';
   return `${SCENE_TREE_HEADER}
-var _mcp_outputs: Array = []
-
 func _initialize():
 \t_mcp_load_main_scene()
 \tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
