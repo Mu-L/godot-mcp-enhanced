@@ -36,7 +36,7 @@ func _mcp_get_node(path: NodePath) -> Node:
 \tvar _parts: PackedStringArray = _p.split("/")
 \t_node = _r
 \tfor _part in _parts:
-\t\tif _part == "" or _part == "root":
+\t\tif _part == "":
 \t\t\tcontinue
 \t\tvar _found: bool = false
 \t\tfor _ch in _node.get_children():
@@ -45,6 +45,8 @@ func _mcp_get_node(path: NodePath) -> Node:
 \t\t\t\t_found = true
 \t\t\t\tbreak
 \t\tif not _found:
+\t\t\tif _part == "root" and _node == _r:
+\t\t\t\tcontinue
 \t\t\treturn null
 \treturn _node
 func _mcp_load_main_scene() -> void:

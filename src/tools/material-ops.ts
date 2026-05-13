@@ -419,7 +419,7 @@ func _initialize():
 \t\treturn
 \tmat.shader = mat.shader.duplicate()
 \tmat.shader.code = "${gdEscape(code)}"
-\tawait get_tree().process_frame
+\tawait process_frame
 \tvar compile_ok = mat.shader != null and mat.shader.get_rid().is_valid()
 \tvar errors = []
 \tvar warnings = []
@@ -514,7 +514,7 @@ func _initialize():
 \t\treturn
 \tmat.shader = mat.shader.duplicate()
 \tmat.shader.code = "${gdEscape(code)}"
-\tawait get_tree().process_frame
+\tawait process_frame
 \tvar compile_ok = mat.shader != null and mat.shader.get_rid().is_valid()
 \tvar errors = []
 \tvar warnings = []
