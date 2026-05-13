@@ -36,6 +36,7 @@ import * as profilerOps from './tools/profiler-ops.js';
 import * as spatialOps from './tools/spatial-ops.js';
 import { requiresConfirmation, createPendingToken, consumeToken } from './guard.js';
 import { registerTools } from './core/tool-registry.js';
+import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 
 const toolModules = [runtime, screenshot, project, scene, script, validation, docs, godotOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps];
 
@@ -135,28 +136,6 @@ function log(...args: unknown[]): void {
 
 // ─── GodotServer class ───────────────────────────────────────────────────────
 
-// ─── Write tools (filtered in READ_ONLY_MODE) ─────────────────────────────────
-
-const WRITE_TOOLS = new Set([
-  'create_scene', 'add_node', 'save_scene', 'load_sprite', 'batch_add_nodes',
-  'write_script', 'edit_script', 'create_test_scene', 'execute_gdscript', 'project_replace',
-  'import_resources',
-  'tilemap_set_cell', 'tilemap_erase_cell', 'tilemap_fill_rect', 'tilemap_clear', 'tilemap_paste', 'tilemap_set_transform',
-  'material_write', 'shader_edit',
-  'signal_connect', 'signal_disconnect', 'signal_emit',
-  'node_create_3d',
-  'audio_play', 'audio_stop', 'audio_set_param',
-  'capture_screenshot',
-  'create_project',
-  'confirm_and_execute',
-  'edit_node',
-  'remove_node',
-  'game_bridge_install', 'game_bridge_uninstall',
-  'game_query', 'game_input', 'game_wait',
-  'dev_loop', 'scene_snapshot', 'batch_validate',
-  'diagnose_physics', 'query_spatial', 'collision_overlay',
-]);
-
 // ─── Lite mode tools (14 core tools) ──────────────────────────────────────────
 
 const LITE_TOOLS = new Set([
@@ -178,10 +157,12 @@ export class GodotServer {
   private server: Server;
   private opsScript: string;
   private options: ServerOptions;
+  private readOnlyGuard: ReadOnlyGuard;
 
   constructor(opsScript: string, options: ServerOptions = {}) {
     this.opsScript = opsScript;
     this.options = options;
+    this.readOnlyGuard = new ReadOnlyGuard(options.readOnly ?? false);
     this.server = new Server(
       { name: 'godot-mcp-enhanced', version: '0.7.0' },
       { capabilities: { tools: {}, resources: {} } }
@@ -195,7 +176,7 @@ export class GodotServer {
 
     // P0.1: Filter write tools in READ_ONLY_MODE
     if (this.options.readOnly) {
-      allTools = allTools.filter(t => !WRITE_TOOLS.has(t.name));
+      allTools = allTools.filter(t => !this.readOnlyGuard.check(t.name).blocked);
       log('READ_ONLY_MODE: %d tools available', allTools.length);
     }
 
@@ -237,6 +218,15 @@ export class GodotServer {
         }
       }
       try {
+        // ReadOnlyGuard check
+        const guardResult = this.readOnlyGuard.check(name);
+        if (guardResult.blocked) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: { code: guardResult.errorCode, message: guardResult.message } }) }],
+            isError: true,
+          };
+        }
+
         // P1.1: Confirmation Token guard
         if (name === 'confirm_and_execute') {
           const token = args.token as string;
