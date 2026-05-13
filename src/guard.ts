@@ -13,8 +13,6 @@ const pendingTokens = new Map<string, PendingToken>();
 
 export const GUARDED_TOOLS = new Set([
   'remove_node',
-  'write_script',
-  'execute_gdscript',
 ]);
 
 export function requiresConfirmation(toolName: string): boolean {

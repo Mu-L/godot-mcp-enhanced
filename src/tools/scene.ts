@@ -440,7 +440,25 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         propLines += `\n\t${gdScriptSetLine(key, value)}`;
       }
 
+      const trySetHelper = `
+func _try_set(node: Node, prop: String, value: Variant) -> void:
+\tvar _ok = false
+\tif node.get_property_list().any(func(p): return p.name == prop):
+\t\tnode.set(prop, value)
+\t\t_ok = true
+\tif not _ok and node is Control:
+\t\tvar _vtype = typeof(value)
+\t\tif _vtype == TYPE_VECTOR2:
+\t\t\tnode.add_theme_font_size_override(prop, int(value.x))
+\t\telif _vtype == TYPE_COLOR:
+\t\t\tnode.add_theme_color_override(prop, value)
+\t\telif _vtype == TYPE_FLOAT or _vtype == TYPE_INT:
+\t\t\tif node.has_theme_constant(prop):
+\t\t\t\tnode.add_theme_constant_override(prop, int(value))
+`;
+
       const script = `${SCENE_TREE_HEADER}
+${trySetHelper}
 func _initialize():
 \tif not _mcp_load_scene("${gdEscape(scenePath)}"):
 \t\t_mcp_done()
@@ -507,16 +525,30 @@ function gdScriptSetLine(key: string, value: unknown): string {
   if (typeof value === 'string') return `node.${key} = "${gdEscape(value)}"`;
   if (Array.isArray(value)) {
     if (value.length === 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
-      return `node.${key} = Vector2(${value[0]}, ${value[1]})`;
+      return `_try_set(node, "${gdEscape(key)}", Vector2(${value[0]}, ${value[1]}))`;
     }
     if (value.length === 3 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number') {
-      return `node.${key} = Vector3(${value[0]}, ${value[1]}, ${value[2]})`;
+      return `_try_set(node, "${gdEscape(key)}", Vector3(${value[0]}, ${value[1]}, ${value[2]}))`;
     }
     if (value.length === 4 && value.every(v => typeof v === 'number')) {
-      return `node.${key} = Color(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]})`;
+      return `_try_set(node, "${gdEscape(key)}", Color(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}))`;
     }
   }
-  throw new Error(`Property "${key}" has unsupported type. Use string/number/bool/null, or array of 2 (Vector2), 3 (Vector3), or 4 (Color) numbers.`);
+  // Object format: {x,y} → Vector2, {x,y,z} → Vector3, {r,g,b,a} → Color
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.x === 'number' && typeof obj.y === 'number') {
+      if (typeof obj.z === 'number') {
+        return `_try_set(node, "${gdEscape(key)}", Vector3(${obj.x}, ${obj.y}, ${obj.z}))`;
+      }
+      return `_try_set(node, "${gdEscape(key)}", Vector2(${obj.x}, ${obj.y}))`;
+    }
+    if (typeof obj.r === 'number' && typeof obj.g === 'number' && typeof obj.b === 'number') {
+      const a = typeof obj.a === 'number' ? obj.a : 1.0;
+      return `_try_set(node, "${gdEscape(key)}", Color(${obj.r}, ${obj.g}, ${obj.b}, ${a}))`;
+    }
+  }
+  throw new Error(`Property "${key}" has unsupported type. Use string/number/bool/null, array [2]=Vector2/[3]=Vector3/[4]=Color, or object {x,y}/{x,y,z}/{r,g,b,a}.`);
 }
 
 export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {

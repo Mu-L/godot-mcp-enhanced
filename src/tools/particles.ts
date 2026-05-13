@@ -61,6 +61,7 @@ function clampParam(val: number | undefined, min: number, max: number, name: str
 function genParticlesCreateScript(
   nodeType: string, nodeName: string, parentPath: string,
   position?: { x: number; y: number } | { x: number; y: number; z: number },
+  presetLines?: string,
 ): string {
   const is3D = nodeType === 'GPUParticles3D';
   let posLine = '';
@@ -85,8 +86,8 @@ func _initialize():
 \tvar node = ${nodeType}.new()
 \tnode.name = "${gdEscape(nodeName)}"${posLine}
 \tparent.add_child(node)
-\tnode.owner = parent.owner if parent.owner != null else parent
-\t_mcp_output("created", {"type": "${gdEscape(nodeType)}", "name": "${gdEscape(nodeName)}", "path": str(node.get_path()) if node.is_inside_tree() else "${gdEscape(nodeName)}"})
+\tnode.owner = parent.owner if parent.owner != null else parent${presetLines ? presetLines : ''}
+\t_mcp_output("created", {"type": "${gdEscape(nodeType)}", "name": "${gdEscape(nodeName)}", "path": str(node.get_path()) if node.is_inside_tree() else "${gdEscape(nodeName)}"${presetLines ? ', "preset_applied": true' : ''}})
 \t_mcp_done()
 `;
 }
@@ -289,31 +290,36 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'particles_create',
-      description: `创建 GPUParticles2D 或 GPUParticles3D 节点。${NON_PERSIST}`,
-      inputSchema: {
-        type: 'object' as const,
-        properties: {
-          project_path: { type: 'string', description: 'Godot 项目目录路径' },
-          node_type: {
-            type: 'string',
-            enum: ['GPUParticles2D', 'GPUParticles3D'],
-            description: '粒子节点类型',
-          },
-          name: { type: 'string', description: '节点名称' },
-          parent: { type: 'string', description: '父节点路径（默认 root）' },
-          position: {
-            type: 'object',
-            description: '位置。3D 用 {x,y,z}，2D 用 {x,y}',
-            properties: {
-              x: { type: 'number' },
-              y: { type: 'number' },
-              z: { type: 'number' },
-            },
-          },
-          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
-        },
-        required: ['project_path', 'node_type', 'name'],
-      },
+	      description: `创建 GPUParticles2D 或 GPUParticles3D 节点。可选 preset 参数可在创建时直接应用预设效果（推荐，避免 headless 进程隔离问题）。${NON_PERSIST}`,
+	      inputSchema: {
+	        type: 'object' as const,
+	        properties: {
+	          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+	          node_type: {
+	            type: 'string',
+	            enum: ['GPUParticles2D', 'GPUParticles3D'],
+	            description: '粒子节点类型',
+	          },
+	          name: { type: 'string', description: '节点名称' },
+	          parent: { type: 'string', description: '父节点路径（默认 root）' },
+	          position: {
+	            type: 'object',
+	            description: '位置。3D 用 {x,y,z}，2D 用 {x,y}',
+	            properties: {
+	              x: { type: 'number' },
+	              y: { type: 'number' },
+	              z: { type: 'number' },
+	            },
+	          },
+	          preset: {
+	            type: 'string',
+	            enum: ['fire', 'smoke', 'rain', 'snow', 'sparkle', 'explosion'],
+	            description: '可选预设效果，创建时立即应用（推荐，避免 headless 进程隔离导致节点不可见）',
+	          },
+	          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+	        },
+	        required: ['project_path', 'node_type', 'name'],
+	      },
     },
     {
       name: 'particles_set_emission',
@@ -374,7 +380,7 @@ export function getToolDefinitions(): Tool[] {
     },
     {
       name: 'particles_load_preset',
-      description: `加载预设粒子效果（纯参数配置，不引用外部资源）。${NON_PERSIST}`,
+	      description: `加载预设粒子效果（纯参数配置，不引用外部资源）。注意：Headless 模式下仅对已存在于场景文件中的节点有效，运行时创建的节点不跨进程持久。推荐使用 particles_create 的 preset 参数在创建时直接应用。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -444,7 +450,33 @@ export async function handleTool(
             position = validateVector2(args.position);
           }
         }
-        script = genParticlesCreateScript(nodeType, nodeName, parentPath, position);
+        // Optional preset: generate preset GDScript lines to apply in same process
+        let presetLines: string | undefined;
+        const preset = args.preset as string | undefined;
+        if (preset) {
+          if (!PRESETS.includes(preset as typeof PRESETS[number])) {
+            return opsErrorResult(ERROR_CODES.PRESET_NOT_FOUND, `Unknown preset "${preset}". Available: ${PRESETS.join(', ')}`);
+          }
+          const cfg = PRESET_CONFIGS[preset];
+          let lines = '';
+          lines += `\n\tnode.amount = ${cfg.amount}`;
+          lines += `\n\tnode.lifetime = ${cfg.lifetime}`;
+          lines += `\n\tnode.explosiveness = ${cfg.explosiveness ?? 0}`;
+          lines += `\n\tnode.randomness = ${cfg.randomness ?? 0}`;
+          if (cfg.one_shot) lines += `\n\tnode.one_shot = true`;
+          lines += `\n\tvar mat = node.process_material`;
+          lines += `\n\tif mat == null:`;
+          lines += `\n\t\tmat = ParticleProcessMaterial.new()`;
+          lines += `\n\t\tnode.process_material = mat`;
+          const gravity = cfg.gravity as { x: number; y: number; z: number } | undefined;
+          if (gravity) lines += `\n\tmat.gravity = Vector3(${gravity.x}, ${gravity.y}, ${gravity.z})`;
+          if (cfg.spread !== undefined) lines += `\n\tmat.spread = ${cfg.spread}`;
+          if (cfg.damping !== undefined) lines += `\n\tmat.damping = ${cfg.damping}`;
+          const direction = cfg.direction as { x: number; y: number; z: number } | undefined;
+          if (direction) lines += `\n\tmat.direction = Vector3(${direction.x}, ${direction.y}, ${direction.z})`;
+          presetLines = lines;
+        }
+        script = genParticlesCreateScript(nodeType, nodeName, parentPath, position, presetLines);
         break;
       }
       case 'particles_set_emission': {

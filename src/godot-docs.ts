@@ -351,11 +351,15 @@ export function getClassInfo(
 
 export function searchClasses(query: string, limit: number = 20): Array<{ name: string; inherits: string; description: string }> {
   ensureInit();
-  const q = query.toLowerCase();
+  const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+  if (keywords.length === 0) return [];
   const results: Array<{ name: string; inherits: string; description: string }> = [];
 
   for (const [, cls] of classMap) {
-    if (cls.name.toLowerCase().includes(q) || (cls.brief_description || '').toLowerCase().includes(q)) {
+    const nameLower = cls.name.toLowerCase();
+    const descLower = (cls.brief_description || '').toLowerCase();
+    const combined = nameLower + ' ' + descLower;
+    if (keywords.every(kw => combined.includes(kw))) {
       results.push({
         name: cls.name,
         inherits: cls.inherits || '',

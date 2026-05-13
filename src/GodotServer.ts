@@ -188,6 +188,19 @@ export class GodotServer {
     // ── Collect tool definitions from all modules ──
     let allTools = toolModules.flatMap(m => m.getToolDefinitions());
 
+    // Inline tool: confirm_and_execute (for confirmation token flow)
+    allTools.push({
+      name: 'confirm_and_execute',
+      description: 'Execute a previously blocked tool using a confirmation token. Use this when a tool returns a confirmation_token.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          token: { type: 'string', description: 'Confirmation token from the blocked tool response' },
+        },
+        required: ['token'],
+      },
+    });
+
     // P0.1: Filter write tools in READ_ONLY_MODE
     if (this.options.readOnly) {
       allTools = allTools.filter(t => !this.readOnlyGuard.check(t.name).blocked);

@@ -45,8 +45,29 @@
 | **截图自动重试** | **不支持** | **支持**（失败后 2x frameDelay 重试） |
 | **音频播放控制** | **不支持** | **支持**（播放/停止/参数/状态查询） |
 | **TileMap 编辑** | **不支持** | **支持**（读写/填充/复制粘贴/变换，兼容旧版 TileMap 与 TileMapLayer） |
+| **双模式架构** | **不支持** | **支持**（Headless CLI + Editor WebSocket JSON-RPC 2.0） |
+| **粒子系统** | **不支持** | **支持**（GPU 粒子创建/发射/处理/预设/材质，6 种预设效果） |
+| **导航系统** | **不支持** | **支持**（NavigationRegion3D/Agent/Link 创建与管理） |
+| **AnimationTree** | **不支持** | **支持**（状态机/混合树/混合空间创建与管理） |
+| **测试断言** | **不支持** | **支持**（场景树断言 + 压力测试） |
+| **导出管理** | **不支持** | **支持**（预设查询/导出构建） |
+| **材质与着色器** | **不支持** | **支持**（读写材质/着色器编辑/模板） |
+| **Game Bridge** | **不支持** | **支持**（运行时查询/输入/等待） |
+| **工作流引擎** | **不支持** | **支持**（dev_loop/场景快照/批量验证） |
+| **动画播放器控制** | **不支持** | **支持**（查询/播放/编辑动画） |
+| **性能分析** | **不支持** | **支持**（FPS/内存/绘制调用/物理统计） |
+| **3D 空间查询** | **不支持** | **支持**（transform/AABB/bounds/区域查找） |
 
 ## 核心亮点
+
+### 双模式架构
+
+v0.8.0 引入双模式架构，同时支持 **Headless CLI** 和 **Editor WebSocket** 两种连接方式：
+
+- **Headless 模式**（原有）：通过 `executeGdscript()` 在独立 Godot 进程中执行代码，所有工具继续支持
+- **Editor 模式**（新增）：通过 WebSocket JSON-RPC 2.0 连接编辑器内 GDScript 插件，实时操作打开的场景
+- **Editor 插件**：`addons/godot_mcp_server/` 提供 command_handler + 7 个命令模块（node/test/export/particle/nav/animtree/undo）
+- 自动检测编辑器连接状态，两种模式工具互不冲突
 
 ### 动态 GDScript 执行
 
@@ -125,19 +146,34 @@ npm install
       },
       "autoApprove": [
         "launch_editor", "run_project", "stop_project",
-        "get_debug_output", "capture_screenshot", "run_tests",
+        "get_debug_output", "capture_screenshot", "analyze_screenshot", "run_tests",
         "get_godot_version", "list_projects", "get_project_info",
-        "list_files", "read_project_config",
+        "list_files", "read_project_config", "create_project",
         "read_scene", "create_scene", "add_node", "save_scene", "load_sprite",
-        "read_script", "write_script",
+        "edit_node", "remove_node", "batch_add_nodes",
+        "read_script", "write_script", "edit_script",
+        "generate_test", "create_test_scene", "project_replace",
         "execute_gdscript", "query_scene_tree", "inspect_node",
-        "batch_add_nodes", "validate_project", "import_resources",
-        "run_and_verify", "analyze_error", "edit_script",
+        "validate_project", "import_resources",
+        "run_and_verify", "analyze_error", "validate_scripts",
         "signal_connect", "signal_disconnect", "signal_emit", "signal_list",
-        "physics_raycast", "physics_body_info", "node_create_3d", "nav_query_path",
+        "physics_raycast", "physics_body_info", "diagnose_physics",
+        "query_spatial", "collision_overlay", "node_create_3d", "nav_query_path",
         "audio_play", "audio_stop", "audio_set_param", "audio_query",
         "tilemap_read", "tilemap_set_cell", "tilemap_erase_cell", "tilemap_fill_rect",
-        "tilemap_clear", "tilemap_copy", "tilemap_paste", "tilemap_set_transform"
+        "tilemap_clear", "tilemap_copy", "tilemap_paste", "tilemap_set_transform",
+        "material_read", "material_write", "shader_edit",
+        "game_bridge_install", "game_bridge_uninstall",
+        "game_query", "game_input", "game_wait",
+        "dev_loop", "scene_snapshot", "batch_validate",
+        "animation", "profiler", "spatial_info",
+        "get_class_info", "search_classes", "find_method", "get_inheritance",
+        "test_assert", "test_stress", "export_list_presets", "export_get_preset", "export_build",
+        "particles_create", "particles_set_emission", "particles_set_process",
+        "particles_load_preset", "particles_set_material",
+        "nav_create_region", "nav_bake_mesh", "nav_create_agent", "nav_set_params", "nav_create_link",
+        "animtree_create", "animtree_add_state", "animtree_add_transition",
+        "animtree_set_blend", "animtree_play"
       ]
     }
   }
@@ -152,7 +188,7 @@ npm install
 | `DEBUG` | 启用详细日志 | `false` |
 | `ALLOW_OUTSIDE_PROJECT_PATHS` | 允许工具访问项目目录外的文件（如截图输出路径） | `false` |
 
-## 工具列表（共 55 个）
+## 工具列表（共 96 个）
 
 ### 执行工具
 
@@ -163,6 +199,7 @@ npm install
 | `stop_project` | 停止运行中的项目，返回结构化输出 |
 | `get_debug_output` | 获取分类调试输出（错误/警告/打印） |
 | `capture_screenshot` | 截取游戏画面（Windows 默认窗口模式，Linux/macOS 自动降级） |
+| `analyze_screenshot` | AI 分析截图内容（元素识别、缺陷检测） |
 | `run_tests` | 运行 GUT 单元测试并解析结果 |
 | `get_godot_version` | 获取 Godot 引擎版本 |
 
@@ -190,6 +227,7 @@ npm install
 | `get_project_info` | 项目元数据 + 文件统计 |
 | `list_files` | 列出文件（支持扩展名/子目录过滤） |
 | `read_project_config` | 解析 project.godot 为结构化 JSON |
+| `create_project` | 创建完整 Godot 项目结构 |
 | `validate_project` | 检查缺失资源、无效脚本引用、孤立 .import 文件 |
 | `import_resources` | 扫描目录批量生成 .import 文件（图片/音频/字体/3D模型） |
 
@@ -203,6 +241,8 @@ npm install
 | `batch_add_nodes` | 一次调用添加多个节点（比重复 `add_node` 快得多） |
 | `save_scene` | 保存场景更改 |
 | `load_sprite` | 加载纹理到精灵节点 |
+| `edit_node` | 编辑节点属性（位置/缩放/旋转/自定义属性） |
+| `remove_node` | 从场景移除节点（需确认令牌） |
 
 ### 脚本工具
 
@@ -211,6 +251,9 @@ npm install
 | `read_script` | 读取 .gd 文件（含元数据） |
 | `write_script` | 写入/覆盖 .gd 文件 |
 | `edit_script` | 按行范围编辑 .gd 文件。支持 `raw`/`smart` 缩进模式、内容验证、变更前后对比。 |
+| `generate_test` | 分析 .gd 文件并生成 GUT 测试脚本 |
+| `create_test_scene` | 创建 GUT 测试运行器场景 |
+| `project_replace` | 全项目批量搜索替换（CRLF 安全） |
 
 ### 运行时操作工具
 
@@ -237,6 +280,9 @@ npm install
 | `audio_stop` | 停止指定音频播放器的播放。 |
 | `audio_set_param` | 设置音频参数：音量 dB、音调缩放、总线路由。 |
 | `audio_query` | 查询播放状态（播放中/暂停/停止）、当前播放位置、总线信息。 |
+| `diagnose_physics` | 诊断物理体碰撞状态（含 ConcavePolygonShape3D 陷阱检测）。 |
+| `query_spatial` | 空间区域查询：碰撞体距离排序，支持碰撞掩码过滤。 |
+| `collision_overlay` | 创建碰撞形状彩色线框叠加（StaticBody=蓝/CharacterBody=绿/RigidBody=红/Area=黄）。 |
 
 ### TileMap 编辑工具（运行时）
 
@@ -263,6 +309,98 @@ npm install
 | `search_classes` | 按名称/描述搜索类 |
 | `find_method` | 查找方法详情（含继承链） |
 | `get_inheritance` | 获取完整继承链 |
+
+### 材质与着色器工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。
+
+| 工具 | 说明 |
+|------|------|
+| `material_read` | 读取节点材质属性和 shader uniform 列表 |
+| `material_write` | 设置材质参数、创建/附加/保存材质（.tres） |
+| `shader_edit` | 读写着色器代码、加载 .gdshader、应用模板、编译诊断 |
+
+### Game Bridge 工具
+
+| 工具 | 说明 |
+|------|------|
+| `game_bridge_install` | 安装 MCP Bridge autoload 到项目（WebSocket 服务端） |
+| `game_bridge_uninstall` | 卸载 MCP Bridge autoload |
+| `game_query` | 查询运行中游戏状态（场景树/节点属性/性能/视口） |
+| `game_input` | 向运行中游戏发送输入事件（键盘/鼠标/文本） |
+| `game_wait` | 等待特定游戏状态条件（节点出现/属性值变化） |
+
+### 工作流工具
+
+| 工具 | 说明 |
+|------|------|
+| `dev_loop` | 开发循环：执行 GDScript → 验证 → 捕获输出，一步完成 |
+| `scene_snapshot` | 场景树快照，用于前后对比检测变更 |
+| `batch_validate` | 批量验证多个 GDScript 文件 |
+
+### 动画工具（运行时）
+
+| 工具 | 说明 |
+|------|------|
+| `animation` | 查询、播放、编辑动画。支持 list_players、get_info、get_details、get_keyframes、play、stop、seek、create、delete、update_props、add/remove_track、add/remove/update_keyframe 等子操作 |
+
+### 性能分析工具（运行时）
+
+| 工具 | 说明 |
+|------|------|
+| `profiler` | 性能分析：快照（FPS/内存/绘制调用/物理统计）、采样分析、活跃进程检测、信号连接审计 |
+
+### 3D 空间工具
+
+| 工具 | 说明 |
+|------|------|
+| `spatial_info` | 获取 Node3D 空间信息：transform、AABB、bounds、区域查找 |
+
+### 测试与导出工具
+
+| 工具 | 说明 |
+|------|------|
+| `test_assert` | 断言场景树状态：node_exists、property_equals、signal_connected、node_count |
+| `test_stress` | 压力测试：重复创建/销毁节点检测内存泄漏 |
+| `export_list_presets` | 列出项目导出预设 |
+| `export_get_preset` | 获取导出预设详情 |
+| `export_build` | 执行导出构建 |
+
+### 粒子系统工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。
+
+| 工具 | 说明 |
+|------|------|
+| `particles_create` | 创建 GPU 粒子节点（GPUParticles2D / GPUParticles3D） |
+| `particles_set_emission` | 设置发射参数：形状（point/sphere/box/ring）、半径、方向、扩散 |
+| `particles_set_process` | 设置处理参数：重力、速度、爆炸性、生命周期、阻尼 |
+| `particles_load_preset` | 加载预设效果：fire / smoke / rain / snow / sparkle / explosion |
+| `particles_set_material` | 创建或重置 ParticleProcessMaterial |
+
+### 导航工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。
+
+| 工具 | 说明 |
+|------|------|
+| `nav_create_region` | 创建 NavigationRegion3D 并可选烘焙导航网格 |
+| `nav_bake_mesh` | 烘焙导航网格（长时间操作） |
+| `nav_create_agent` | 创建 NavigationAgent3D 并设置寻路参数 |
+| `nav_set_params` | 设置导航代理参数（10 个可配置字段：radius、height、max_speed 等） |
+| `nav_create_link` | 创建 NavigationLink3D 连接点（支持双向） |
+
+### AnimationTree 工具（运行时）
+
+> **注意：** 运行时操作仅在 headless 执行上下文中生效，不持久化到 .tscn 文件。
+
+| 工具 | 说明 |
+|------|------|
+| `animtree_create` | 创建 AnimationTree 节点（支持 AnimationNodeStateMachine / BlendTree / BlendSpace2D） |
+| `animtree_add_state` | 向状态机添加动画状态（AnimationNodeAnimation） |
+| `animtree_add_transition` | 在状态间添加转换（含交叉淡入淡出时间和条件） |
+| `animtree_set_blend` | 设置混合参数（float 用于 BlendTree，Vector2 用于 BlendSpace） |
+| `animtree_play` | 切换到目标状态（通过 playback.travel） |
 
 ## MCP 资源（Resources）
 
@@ -447,6 +585,38 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 MIT
 
 ## 更新日志
+
+### v0.8.0（2026-05-13）
+
+架构升级 + 41 个新工具（P1 双模式架构 + P2 测试框架 + P3 高级工具集）：
+
+**P1 — 双模式架构：**
+
+| 变更 | 说明 |
+|------|------|
+| **Editor WebSocket 模式** | 新增 EditorConnection + EditorToolExecutor，通过 WebSocket JSON-RPC 2.0 连接编辑器内插件，实现实时场景操作 |
+| **GDScript 编辑器插件** | `addons/godot_mcp_server/` 提供 command_handler + 7 个命令模块（node/test/export/particle/nav/animtree/undo），在编辑器内直接操作场景 |
+| **UndoManager** | 编辑器操作支持撤销栈 |
+
+**P2 — 测试框架 + 导出管理（5 个工具）：**
+
+| 工具 | 说明 |
+|------|------|
+| `test_assert` | 断言场景树状态（node_exists / property_equals / signal_connected / node_count） |
+| `test_stress` | 压力测试：重复创建/销毁节点检测内存泄漏 |
+| `export_list_presets` | 列出项目导出预设 |
+| `export_get_preset` | 获取导出预设详情 |
+| `export_build` | 执行导出构建 |
+
+**P3 — 高级工具集（15 个工具）：**
+
+| 模块 | 工具 |
+|------|------|
+| **粒子系统** | `particles_create` / `set_emission` / `set_process` / `load_preset` / `set_material` — 完整 GPU 粒子控制，内置 6 种预设效果 |
+| **导航系统** | `nav_create_region` / `bake_mesh` / `create_agent` / `set_params` / `create_link` — NavigationRegion3D/Agent/Link 全链路 |
+| **AnimationTree** | `animtree_create` / `add_state` / `add_transition` / `set_blend` / `play` — 状态机创建/状态/转换/混合/播放 |
+
+**同步更新的编辑器命令（GDScript）：** particle_commands.gd、nav_commands.gd、animtree_commands.gd（各 5 个 handler），command_handler.gd 路由 15 个新命令。
 
 ### v0.7.0（2026-05-08）
 

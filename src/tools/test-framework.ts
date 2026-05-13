@@ -101,7 +101,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       return opsErrorResult('EDITOR_ONLY', `Tool "${name}" requires Editor mode. Set GODOT_MCP_MODE=editor and install the Godot plugin.`);
     }
 
-    const projectPath = validatePath(args.project_path as string);
+    const rawProjectPath = args.project_path as string;
+    if (!rawProjectPath || typeof rawProjectPath !== 'string') {
+      return opsErrorResult('INVALID_PARAMS', 'project_path is required and must be a string');
+    }
+    const projectPath = validatePath(rawProjectPath);
     const godot = await ctx.findGodot();
 
     switch (name) {
@@ -214,7 +218,7 @@ func _init():
 \t\t\t_peak = _mem
 \t\t_n.queue_free()
 \tfor _f in range(3):
-\t\tawait get_tree().process_frame
+		await process_frame
 \tvar _obj_after = Performance.get_monitor(Performance.OBJECT_COUNT)
 \tvar _mem_after = Performance.get_monitor(Performance.MEMORY_STATIC)
 \tvar _obj_leaked = (_obj_after - _obj_before) > _iters * 0.1
