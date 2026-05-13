@@ -61,8 +61,8 @@ func _process(delta: float) -> void:
 			WebSocketPeer.STATE_CLOSED:
 				to_remove.append(i)
 
-	for i in to_remove:
-		_peers.remove_at(i)
+	for i in range(to_remove.size() - 1, -1, -1):
+		_peers.remove_at(to_remove[i])
 		print("[MCP] Client disconnected")
 
 func _handle_message(text: String, peer: WebSocketPeer) -> void:

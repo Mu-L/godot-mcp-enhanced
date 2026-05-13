@@ -9,7 +9,7 @@ func create_action(request_id: int, do_methods: Array, undo_methods: Array) -> v
 	var undo_redo = _plugin.get_undo_redo()
 	undo_redo.create_action("MCP: op_%d" % request_id)
 	for m in do_methods:
-		undo_redo.add_do_method(m.target, m.method, m.args)
+		undo_redo.add_do_method(m.target, m.method, m.args[0] if m.args.size() == 1 else m.args)
 	for m in undo_methods:
-		undo_redo.add_undo_method(m.target, m.method, m.args)
+		undo_redo.add_undo_method(m.target, m.method, m.args[0] if m.args.size() == 1 else m.args)
 	undo_redo.commit_action()
