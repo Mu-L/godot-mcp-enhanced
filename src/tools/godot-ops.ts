@@ -324,7 +324,11 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar space_state = world.direct_space_state
-\tvar center_v = Vector3(${center.x}, ${center.y}, ${center.z})
+	if space_state == null:
+		_mcp_output("error", "Physics space state not available (PhysicsServer may not be initialized in headless mode)")
+		_mcp_done()
+		return
+	var center_v = Vector3(${center.x}, ${center.y}, ${center.z})
 \tvar sphere = SphereShape3D.new()
 \tsphere.radius = ${radius}
 \tvar query = PhysicsShapeQueryParameters3D.new()
@@ -733,7 +737,7 @@ export function getToolDefinitions(): Tool[] {
     },
     {
       name: 'diagnose_physics',
-      description: `Diagnose physics collision state for a body. Returns velocity, contact points (position/normal), collision shape info, and warns about ConcavePolygonShape3D traps. ${NON_PERSIST}`,
+      description: `Diagnose physics collision state for a body. Returns velocity, contact points (position/normal), collision shape info, and warns about ConcavePolygonShape3D traps. WARNING: Uses move_and_collide with test_only=true which may have side effects on physics state. `,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -989,7 +993,7 @@ export async function handleTool(
       case 'collision_overlay': {
         const parentPath = normalizeNodePath((args.parent_path as string) || 'root');
         const colorOverride = args.color_override as string | undefined;
-        if (colorOverride && !/^[\d.,\s]+$/.test(colorOverride)) {
+        if (colorOverride && !/^\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+(?:\s*,\s*[\d.]+\s*)?$/.test(colorOverride)) {
           return opsErrorResult('INVALID_TYPE', 'color_override must be comma-separated numbers (e.g. "1,0,0,0.5")');
         }
         script = genCollisionOverlayScript(parentPath, colorOverride);

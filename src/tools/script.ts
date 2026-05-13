@@ -394,7 +394,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const originalLine = lines[startLine - 1] || '';
         const originalBaseIndent = (originalLine.match(/^(\t*)/) || ['',''])[1].length;
 
-        const newNonEmptyLines = newLines.filter(l => l !== '');
+        const newNonEmptyLines = newLines.filter(l => l.trim() !== '');
         let newMinIndent = Infinity;
         for (const nl of newNonEmptyLines) {
           const tabs = (nl.match(/^(\t*)/) || ['',''])[1].length;
@@ -405,7 +405,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const indentDelta = originalBaseIndent - newMinIndent;
 
         adjustedLines = newLines.map((line: string) => {
-          if (line === '') return line;
+          if (line.trim() === '') return line;
 
           const currentTabs = (line.match(/^(\t*)/) || ['',''])[1].length;
 
@@ -443,8 +443,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const ctxAfter = contextAfter.length > 0 ? `\n--- Context (after) ---\n${contextAfter.join('\n')}` : '';
 
       const warnings = formatDuplicateWarnings(detectDuplicateLines(lines));
+      const skipNote = (autoValidate && !fullPath.endsWith('.gd'))
+        ? "\nNote: Auto-validate only supports .gd files. Other file types are not validated."
+        : "";
 
-      return textResult(`${diffHeader}\n${diffBody}${ctxBefore}${ctxAfter}${warnings}`);
+      return textResult(`${diffHeader}\n${diffBody}${ctxBefore}${ctxAfter}${warnings}${skipNote}`);
     }
 
     case 'generate_test': {
@@ -599,15 +602,19 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const normalizedReplace = replace.replace(/\r\n/g, '\n');
 
       // Collect files
+      const MAX_FILES = 500;
       const matchedFiles: string[] = [];
       function scanDir(dir: string, depth: number): void {
+        if (matchedFiles.length >= MAX_FILES) return;
         if (depth > 15) return;
         try {
           for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (matchedFiles.length >= MAX_FILES) return;
             if (entry.name.startsWith('.')) continue;
             if (excludeDirs.includes(entry.name)) continue;
             const full = join(dir, entry.name);
             if (entry.isDirectory()) {
+              if (existsSync(join(full, '.gdignore'))) continue;
               scanDir(full, depth + 1);
             } else if (extensions.some(ext => entry.name.endsWith(ext))) {
               matchedFiles.push(full);
@@ -616,9 +623,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         } catch { /* skip */ }
       }
       scanDir(p, 0);
+      if (matchedFiles.length >= MAX_FILES) {
+        return textResult(`Error: Too many matching files (>${MAX_FILES}). Narrow the search with more specific extensions or add directories to exclude_dirs.`);
+      }
 
       const pathSep = process.platform === 'win32' ? '\\' : '/';
-      const relOf = (absPath: string) => absPath.replace(p + pathSep, '');
+      const relOf = (absPath: string) => absPath.slice(p.length + 1);
 
       const changedFiles: string[] = [];
       const unchangedFiles: string[] = [];

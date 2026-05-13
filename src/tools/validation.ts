@@ -50,6 +50,7 @@ function collectFilesByExt(projectPath: string, extensions: string[], excludeDir
 }
 
 // ─── Batch script validation ────────────────────────────────────────────────
+// Used by edit_script auto-validate (script.ts) and batch_validate tool.
 
 export async function batchValidateScripts(
   godotPath: string,

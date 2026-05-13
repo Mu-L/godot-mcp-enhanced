@@ -11,8 +11,8 @@ describe('GUARDED_TOOLS', () => {
   it('includes write_script', () => {
     assert.ok(GUARDED_TOOLS.has('write_script'));
   });
-  it('includes edit_script', () => {
-    assert.ok(GUARDED_TOOLS.has('edit_script'));
+  it('does NOT include edit_script (auto-validate handles safety)', () => {
+    assert.ok(!GUARDED_TOOLS.has('edit_script'));
   });
   it('includes execute_gdscript', () => {
     assert.ok(GUARDED_TOOLS.has('execute_gdscript'));
