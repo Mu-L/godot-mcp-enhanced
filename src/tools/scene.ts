@@ -299,15 +299,28 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const rootNodeType = (args.root_node_type as string) || 'Node2D';
       const scriptContent = args.script_content as string | undefined;
 
+      // 输入验证: 防止 .tscn 模板注入
+      const safeId = /^[A-Za-z0-9_]+$/;
+      if (!safeId.test(rootNodeType)) {
+        return textResult(`Error: root_node_type contains invalid characters: "${rootNodeType}"`);
+      }
+
       // 推导根节点名: PascalCase (tween_demo -> TweenDemo)
       let rootNodeName = args.root_node_name as string;
       if (!rootNodeName) {
         const baseName = sceneRelPath.split('/').pop()!.replace(/\.tscn$/i, '');
-        rootNodeName = baseName.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+        rootNodeName = baseName ? baseName.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('') : 'Root';
+      }
+      if (!safeId.test(rootNodeName)) {
+        return textResult(`Error: root_node_name contains invalid characters: "${rootNodeName}"`);
       }
 
       const sceneAbsPath = resolveWithinRoot(p, sceneRelPath);
-      ensureDir(sceneAbsPath);
+
+      // 覆写保护
+      if (existsSync(sceneAbsPath)) {
+        return textResult(`Error: Scene already exists: ${sceneRelPath}. Remove it first or use a different path.`);
+      }
 
       // 生成 .tscn 内容
       let tscnContent: string;
@@ -330,14 +343,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         ].join('\n');
       }
 
-      writeFileSync(sceneAbsPath, tscnContent, 'utf-8');
+      try {
+        ensureDir(sceneAbsPath);
+        writeFileSync(sceneAbsPath, tscnContent, 'utf-8');
+      } catch (e: unknown) {
+        return textResult(`Error writing scene: ${(e as Error).message}`);
+      }
 
       // 如果提供 script_content 且脚本不存在，创建脚本文件
       if (scriptRelPath && scriptContent) {
         const scriptAbsPath = resolveWithinRoot(p, scriptRelPath);
         if (!existsSync(scriptAbsPath)) {
-          ensureDir(scriptAbsPath);
-          writeFileSync(scriptAbsPath, scriptContent, 'utf-8');
+          try {
+            ensureDir(scriptAbsPath);
+            writeFileSync(scriptAbsPath, scriptContent, 'utf-8');
+          } catch (e: unknown) {
+            return textResult(`Scene created but script write failed: ${(e as Error).message}`);
+          }
         }
       }
 
