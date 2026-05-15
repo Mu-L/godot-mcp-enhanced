@@ -48,9 +48,15 @@ const KNOWN_BASE_METHODS: Set<string> = new Set([
   'get_path', 'resource_path', 'get_resource', 'duplicate',
 ]);
 
+export interface BatchValidateResult {
+  file: string;
+  errors: string[];
+  filtered_count?: number;
+}
+
 interface ExtendedAnalysisResult extends AnalysisResult {
   version_warning?: string;
-  precheck_errors?: Array<{ file: string; errors: string[] }>;
+  precheck_errors?: BatchValidateResult[];
   scene_tree?: unknown;
 }
 
@@ -95,7 +101,7 @@ export async function batchValidateScripts(
   projectPath: string,
   scriptFiles: string[],
   globalTimeoutMs: number = 15000
-): Promise<Array<{ file: string; errors: string[] }>> {
+): Promise<BatchValidateResult[]> {
   if (scriptFiles.length === 0) return [];
 
   let effectiveGodotPath = godotPath;
@@ -480,7 +486,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       const versionWarning = await checkVersionMismatch(projectPath, godot);
 
-      const precheckErrors: Array<{ file: string; errors: string[] }> = [];
+      const precheckErrors: BatchValidateResult[] = [];
       try {
         const allScripts = collectFilesByExt(projectPath, ['.gd']);
         const scriptsToCheck = allScripts.slice(0, 10);
@@ -709,7 +715,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       // Batch Godot parser validation
       const BATCH_SIZE = 20;
-      const allBatchResults: Array<{ file: string; errors: string[] }> = [];
+      const allBatchResults: BatchValidateResult[] = [];
       for (let i = 0; i < scriptsToValidate.length; i += BATCH_SIZE) {
         const batch = scriptsToValidate.slice(i, i + BATCH_SIZE);
         const batchResults = await batchValidateScripts(godot, p, batch, Math.min(perScriptTimeout * Math.max(batch.length, 5), 60) * 1000);
@@ -722,7 +728,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       let totalWarnings = 0;
       let totalFiltered = 0;
       for (const r of allBatchResults) {
-        if ((r as any).filtered_count) totalFiltered += (r as any).filtered_count;
+        if (r.filtered_count) totalFiltered += r.filtered_count;
       }
       for (const sf of scriptsToValidate) {
         const rel = relOf(sf);

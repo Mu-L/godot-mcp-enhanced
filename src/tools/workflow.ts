@@ -8,7 +8,7 @@ import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, parseGdscriptResult } from './shared.js';
 import { gdEscape } from './godot-ops.js';
-import { batchValidateScripts } from './validation.js';
+import { batchValidateScripts, type BatchValidateResult } from './validation.js';
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
@@ -201,7 +201,7 @@ func _snap(node: Node, max_depth: int, depth: int) -> Dictionary:
       for (const r of batchResults) {
         results[r.file] = r.errors.length > 0 ? { valid: false, error: r.errors } : { valid: true };
         if (r.errors.length > 0) allValid = false;
-        if ((r as any).filtered_count) totalFiltered += (r as any).filtered_count;
+        if (r.filtered_count) totalFiltered += r.filtered_count;
       }
       for (const m of missing) {
         results[m] = { valid: false, error: 'File not found' };
