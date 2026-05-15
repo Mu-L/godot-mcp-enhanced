@@ -101,6 +101,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const gdFiles: string[] = [];
 
       for (const f of files) {
+        if (!f.path || typeof f.path !== 'string') {
+          failed.push({ path: String(f.path), error: 'Invalid or missing path' });
+          continue;
+        }
         const relPath = normalizeUserProjectPath(f.path);
         const absPath = resolveWithinRoot(projectPath, relPath);
 
@@ -150,7 +154,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     case 'batch_run_verify': {
       const projectPath = validatePath(args.project_path as string);
       const scenes = args.scenes as string[];
-      const timeout = (args.timeout as number) || 10;
+      const timeout = Math.min((args.timeout as number) || 10, 60);
       const captureTree = args.capture_tree === true;
 
       if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -165,7 +169,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       let timedOut = 0;
 
       for (const scene of scenes) {
-        const sceneFullPath = join(projectPath, scene);
+        const normalizedScene = normalizeUserProjectPath(scene);
+        const sceneFullPath = resolveWithinRoot(projectPath, normalizedScene);
         if (!existsSync(sceneFullPath)) {
           results.push({ scene, status: 'error', errors: ['File not found'] });
           failed++;
@@ -204,8 +209,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(`Error: Scene B not found: ${sceneB}`);
       }
 
-      const parsedA = parseTscn(readFileSync(absA, 'utf-8'));
-      const parsedB = parseTscn(readFileSync(absB, 'utf-8'));
+      let parsedA: ReturnType<typeof parseTscn>;
+      let parsedB: ReturnType<typeof parseTscn>;
+      try {
+        parsedA = parseTscn(readFileSync(absA, 'utf-8'));
+        parsedB = parseTscn(readFileSync(absB, 'utf-8'));
+      } catch (e: unknown) {
+        return textResult(`Error reading scene files: ${(e as Error).message}`);
+      }
 
       const mapA = parsedA.nodeMap;
       const mapB = parsedB.nodeMap;
