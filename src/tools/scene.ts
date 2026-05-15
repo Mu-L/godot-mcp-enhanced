@@ -1,10 +1,10 @@
 import { spawn } from 'child_process';
 import { join, dirname } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
-import { validatePath, resolveWithinRoot, normalizeUserProjectPath, parseMcpScriptOutput } from '../helpers.js';
+import { validatePath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, parseMcpScriptOutput } from '../helpers.js';
 import { parseTscn, parseTscnSummary } from '../tscn-parser.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from './shared.js';
@@ -16,6 +16,7 @@ const TOOL_NAMES = [
   'add_node',
   'save_scene',
   'load_sprite',
+  'quick_scene',
   'batch_add_nodes',
   'query_scene_tree',
   'inspect_node',
@@ -94,6 +95,23 @@ export function getToolDefinitions(): Tool[] {
           node_path: { type: 'string', description: 'Sprite node path (default: root)', default: 'root' },
         },
         required: ['project_path', 'scene_path', 'texture_path'],
+      },
+    },
+    {
+      name: 'quick_scene',
+      description: 'Create a complete scene with optional script attachment in one step. '
+        + 'Generates .tscn with root node, ext_resource reference, and optionally creates the .gd script file.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Path to Godot project directory' },
+          scene_path: { type: 'string', description: 'Scene path relative to project (e.g. res://scenes/player.tscn)' },
+          script_path: { type: 'string', description: 'Script path relative to project (e.g. res://scripts/player.gd). Optional.' },
+          root_node_type: { type: 'string', description: 'Root node type (default: Node2D)', default: 'Node2D' },
+          root_node_name: { type: 'string', description: 'Root node name (default: derived from scene filename via PascalCase)' },
+          script_content: { type: 'string', description: 'If provided and script does not exist, creates the .gd file with this content' },
+        },
+        required: ['project_path', 'scene_path'],
       },
     },
     {
@@ -272,6 +290,63 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           resolve({ content: [{ type: 'text', text: `Error: ${err.message}` }] });
         });
       });
+    }
+
+    case 'quick_scene': {
+      const p = validatePath(args.project_path as string);
+      const sceneRelPath = normalizeUserProjectPath(args.scene_path as string);
+      const scriptRelPath = args.script_path ? normalizeUserProjectPath(args.script_path as string) : undefined;
+      const rootNodeType = (args.root_node_type as string) || 'Node2D';
+      const scriptContent = args.script_content as string | undefined;
+
+      // 推导根节点名: PascalCase (tween_demo -> TweenDemo)
+      let rootNodeName = args.root_node_name as string;
+      if (!rootNodeName) {
+        const baseName = sceneRelPath.split('/').pop()!.replace(/\.tscn$/i, '');
+        rootNodeName = baseName.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+      }
+
+      const sceneAbsPath = resolveWithinRoot(p, sceneRelPath);
+      ensureDir(sceneAbsPath);
+
+      // 生成 .tscn 内容
+      let tscnContent: string;
+      if (scriptRelPath) {
+        tscnContent = [
+          '[gd_scene load_steps=2 format=3]',
+          '',
+          `[ext_resource type="Script" path="res://${scriptRelPath.replace(/\\/g, '/')}" id="1"]`,
+          '',
+          `[node name="${rootNodeName}" type="${rootNodeType}"]`,
+          'script = ExtResource("1")',
+          '',
+        ].join('\n');
+      } else {
+        tscnContent = [
+          '[gd_scene format=3]',
+          '',
+          `[node name="${rootNodeName}" type="${rootNodeType}"]`,
+          '',
+        ].join('\n');
+      }
+
+      writeFileSync(sceneAbsPath, tscnContent, 'utf-8');
+
+      // 如果提供 script_content 且脚本不存在，创建脚本文件
+      if (scriptRelPath && scriptContent) {
+        const scriptAbsPath = resolveWithinRoot(p, scriptRelPath);
+        if (!existsSync(scriptAbsPath)) {
+          ensureDir(scriptAbsPath);
+          writeFileSync(scriptAbsPath, scriptContent, 'utf-8');
+        }
+      }
+
+      const parts = [`Created scene: ${sceneRelPath}`];
+      parts.push(`Root: ${rootNodeName} [${rootNodeType}]`);
+      if (scriptRelPath) parts.push(`Script: res://${scriptRelPath.replace(/\\/g, '/')}`);
+      if (scriptRelPath && scriptContent) parts.push(`Script file created`);
+
+      return textResult(parts.join('\n'));
     }
 
     case 'query_scene_tree': {
@@ -557,6 +632,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   add_node: { readonly: false, long_running: false },
   save_scene: { readonly: false, long_running: false },
   load_sprite: { readonly: false, long_running: false },
+  quick_scene: { readonly: false, long_running: false },
   batch_add_nodes: { readonly: false, long_running: false },
   query_scene_tree: { readonly: true, long_running: false },
   inspect_node: { readonly: true, long_running: false },
