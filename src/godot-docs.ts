@@ -181,19 +181,15 @@ export function initDocs(docsPath: string): void {
 
   let data: ApiData;
 
-  // 缓存命中：同一路径且已解析过，直接使用缓存
   if (cachedApiData && cachedApiPath === docsPath) {
     data = cachedApiData;
   } else {
-    // 缓存未命中：读取并解析文件
     const raw = readFileSync(docsPath, 'utf-8');
     try {
       data = JSON.parse(raw);
     } catch (err) {
-      // 解析失败不缓存，允许重试
       throw err;
     }
-    // 解析成功，写入缓存
     cachedApiData = data;
     cachedApiPath = docsPath;
   }

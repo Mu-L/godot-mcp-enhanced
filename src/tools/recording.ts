@@ -114,12 +114,19 @@ func _initialize():
 export function genRecordingStopScript(): string {
   return `${SCENE_TREE_HEADER}
 
+var _mcp_recorded_events: Array = []
+var _mcp_record_start_time: int = 0
+
 func _initialize():
 \t_mcp_load_main_scene()
-\t# In headless mode, recording state does not persist across calls.
-\t# This script demonstrates the stop behavior; actual use requires Bridge.
 \tvar events: Array = []
 \tvar duration_ms: int = 0
+\tvar bridge = _mcp_get_node("/root/MCPBridge")
+\tif bridge != null:
+\t\tevents = bridge.get_meta("_mcp_recorded_events", [])
+\t\t_mcp_record_start_time = int(bridge.get_meta("_mcp_record_start_time", 0))
+\t\tbridge.set_meta("_mcp_recording", false)
+\t\tduration_ms = Time.get_ticks_msec() - _mcp_record_start_time if _mcp_record_start_time > 0 else 0
 \t_mcp_output("recording_stopped", {
 \t\t"version": 1,
 \t\t"duration_ms": duration_ms,
@@ -147,7 +154,11 @@ func _initialize():
 \t\t_mcp_output("error", "Failed to open file for writing: res://recordings/${fileName}")
 \t\t_mcp_done()
 \t\treturn
-\tvar events_data: String = "${eventsJsonEscaped}"
+\tvar events_data: String = JSON.stringify(JSON.parse_string("${eventsJsonEscaped}"))
+\tif events_data == "":
+\t\t_mcp_output("error", "Invalid events JSON")
+\t\t_mcp_done()
+\t\treturn
 \tfile.store_string(events_data)
 \tfile.close()
 \t_mcp_output("saved", {"file_name": "${fileName}", "path": "res://recordings/${fileName}"})
@@ -344,10 +355,16 @@ export async function handleTool(
 
     switch (name) {
       case 'recording_start': {
+        if (!loadAutoloads) {
+          return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'recording_start requires Game Bridge (load_autoloads=true). Input capture is not available in headless mode.');
+        }
         script = genRecordingStartScript();
         break;
       }
       case 'recording_stop': {
+        if (!loadAutoloads) {
+          return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'recording_stop requires Game Bridge (load_autoloads=true). Recording state is not available in headless mode.');
+        }
         script = genRecordingStopScript();
         break;
       }
@@ -395,6 +412,9 @@ export async function handleTool(
         } catch (e) {
           return opsErrorResult('INVALID_RECORDING_FORMAT', (e as Error).message);
         }
+        if (!loadAutoloads) {
+          return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'recording_play requires Game Bridge (load_autoloads=true). Input injection is not available in headless mode.');
+        }
         const speed = typeof args.speed === 'number' && args.speed > 0 ? args.speed : 1.0;
         const escapedJson = gdJsonEscape(eventsJson);
         script = genRecordingPlayScript(escapedJson, speed);
@@ -431,7 +451,7 @@ export async function handleTool(
 
 export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
   recording_start: { readonly: false, long_running: false },
-  recording_stop: { readonly: true, long_running: false },
+  recording_stop: { readonly: false, long_running: false },
   recording_save: { readonly: false, long_running: false },
   recording_load: { readonly: true, long_running: false },
   recording_play: { readonly: false, long_running: false },

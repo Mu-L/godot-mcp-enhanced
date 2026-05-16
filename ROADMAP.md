@@ -37,7 +37,7 @@ status: active
 
 ## v0.9.0 已完成（2026-05-16）
 
-基于 [v0.9.0 设计文档](docs/superpowers/specs/2026-05-16-v090-feature-upgrade-design.md)，工具数 100 → 123。
+基于 [v0.9.0 设计文档](docs/superpowers/specs/2026-05-16-v090-feature-upgrade-design.md)，工具数 100 → 117。
 
 ### P0 — 性能优化
 
@@ -63,7 +63,7 @@ status: active
 
 ### 统计
 
-- 工具数: 100 → 123
+- 工具数: 100 → 117
 - 测试: 295 → 420+ 用例
 - 新依赖: 0
 

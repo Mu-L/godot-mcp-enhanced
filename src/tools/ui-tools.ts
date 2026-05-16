@@ -139,6 +139,7 @@ export function genUiSetLayoutScript(
     lines += `\n\tnode.custom_minimum_size = Vector2(${customMinSize.x ?? 'node.custom_minimum_size.x'}, ${customMinSize.y ?? 'node.custom_minimum_size.y'})`;
   }
   if (growDirection) {
+    const dir = growDirection.toLowerCase();
     const dirMap: Record<string, string> = {
       both: 'Control.GROW_DIRECTION_BOTH',
       up: 'Control.GROW_DIRECTION_UP',
@@ -146,10 +147,14 @@ export function genUiSetLayoutScript(
       left: 'Control.GROW_DIRECTION_LEFT',
       right: 'Control.GROW_DIRECTION_RIGHT',
     };
-    const gdDir = dirMap[growDirection.toLowerCase()];
+    const gdDir = dirMap[dir];
     if (gdDir) {
-      lines += `\n\tnode.grow_horizontal = ${gdDir}`;
-      lines += `\n\tnode.grow_vertical = ${gdDir}`;
+      if (dir === 'left' || dir === 'right' || dir === 'both') {
+        lines += `\n\tnode.grow_horizontal = ${gdDir}`;
+      }
+      if (dir === 'up' || dir === 'down' || dir === 'both') {
+        lines += `\n\tnode.grow_vertical = ${gdDir}`;
+      }
     }
   }
 
@@ -339,6 +344,9 @@ export function genUiContainerAddScript(
   childName: string,
   childProperties?: Record<string, unknown>,
 ): string {
+  if (!CONTROL_TYPES.includes(childType as typeof CONTROL_TYPES[number])) {
+    throw new Error(`INVALID_CONTROL_TYPE: "${childType}" is not a whitelisted Control type`);
+  }
   const propLines = childProperties && Object.keys(childProperties).length > 0
     ? genPropertyLines(childProperties).replace(/\tnode\./g, '\tchild.')
     : '';
