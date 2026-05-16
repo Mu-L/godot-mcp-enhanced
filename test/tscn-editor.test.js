@@ -224,3 +224,222 @@ speed = 100.0
     assert.ok(result.includes('parent="Enemy"'));
   });
 });
+
+// ── C1: Property override deduplication ────────────────────────────────────────
+
+describe('tscn-editor C1: property override deduplication', () => {
+  it('should replace (not duplicate) source property when override exists', () => {
+    // Source has speed = 200.0, target overrides with speed = 300.0
+    const target = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+speed = 300.0
+`;
+    const source = `[gd_scene format=3]
+
+[node name="Player" type="CharacterBody2D"]
+speed = 200.0
+health = 100.0
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // The override value should be present
+    assert.ok(result.includes('speed = 300.0'), 'should have override value 300.0');
+    // The source value should NOT be present (deduplicated)
+    assert.ok(!result.includes('speed = 200.0'), 'should NOT have source value 200.0');
+    // Non-overridden source property should still be present
+    assert.ok(result.includes('health = 100.0'), 'should preserve non-overridden source property');
+  });
+
+  it('should keep source properties that are not overridden', () => {
+    const target = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+position = Vector2(100, 200)
+`;
+    const source = `[gd_scene format=3]
+
+[node name="Player" type="CharacterBody2D"]
+speed = 200.0
+health = 100.0
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // Both source properties should remain since neither is overridden
+    assert.ok(result.includes('speed = 200.0'), 'should preserve speed');
+    assert.ok(result.includes('health = 100.0'), 'should preserve health');
+    // Override should also be present
+    assert.ok(result.includes('position = Vector2(100, 200)'), 'should preserve position override');
+  });
+});
+
+// ── C2: sub_resource and connection handling ───────────────────────────────────
+
+describe('tscn-editor C2: sub_resource handling', () => {
+  it('should preserve sub_resources from source in output', () => {
+    const target = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+`;
+    const source = `[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/player.gd" id="1"]
+
+[sub_resource type="RectangleShape2D" id="1"]
+size = Vector2(50, 50)
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("1")
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // sub_resource should be preserved
+    assert.ok(result.includes('[sub_resource type="RectangleShape2D"'), 'should have sub_resource header');
+    assert.ok(result.includes('size = Vector2(50, 50)'), 'should have sub_resource properties');
+  });
+
+  it('should remap sub_resource IDs to avoid conflicts with target', () => {
+    const target = `[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[sub_resource type="CircleShape2D" id="1"]
+radius = 10.0
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+`;
+    const source = `[gd_scene load_steps=3 format=3]
+
+[sub_resource type="RectangleShape2D" id="1"]
+size = Vector2(50, 50)
+
+[node name="Player" type="CharacterBody2D"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("1")
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // Target has sub_resource id="1", source id="1" should be remapped to id="2"
+    assert.ok(result.includes('[sub_resource type="RectangleShape2D" id="2"]'), 'source sub_resource should be remapped to id 2');
+    // Node reference should be updated to match
+    assert.ok(result.includes('SubResource("2")'), 'node should reference remapped SubResource 2');
+    // Target sub_resource should be untouched
+    assert.ok(result.includes('[sub_resource type="CircleShape2D" id="1"]'), 'target sub_resource id 1 should be preserved');
+  });
+
+  it('should remap sub_resource IDs that conflict with multiple target IDs', () => {
+    const target = `[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[sub_resource type="CircleShape2D" id="1"]
+radius = 10.0
+
+[sub_resource type="CapsuleShape2D" id="2"]
+height = 20.0
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+`;
+    const source = `[gd_scene load_steps=3 format=3]
+
+[sub_resource type="RectangleShape2D" id="1"]
+size = Vector2(50, 50)
+
+[sub_resource type="ConvexPolygonShape2D" id="2"]
+points = [Vector2(0, 0), Vector2(10, 0)]
+
+[node name="Player" type="CharacterBody2D"]
+
+[node name="Collision" type="CollisionShape2D" parent="."]
+shape = SubResource("1")
+
+[node name="Hitbox" type="CollisionShape2D" parent="."]
+shape = SubResource("2")
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // Target max sub_resource id is 2, source ids 1,2 should become 3,4
+    assert.ok(result.includes('[sub_resource type="RectangleShape2D" id="3"]'), 'source sub_resource 1 should remap to 3');
+    assert.ok(result.includes('[sub_resource type="ConvexPolygonShape2D" id="4"]'), 'source sub_resource 2 should remap to 4');
+    assert.ok(result.includes('SubResource("3")'), 'node should reference remapped SubResource 3');
+    assert.ok(result.includes('SubResource("4")'), 'node should reference remapped SubResource 4');
+  });
+});
+
+describe('tscn-editor C2: connection handling', () => {
+  it('should preserve and remap connections from source', () => {
+    const target = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+`;
+    const source = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/player.gd" id="1"]
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1")
+
+[node name="Button" type="Button" parent="."]
+
+[connection signal="pressed" from="Button" to="." method="_on_button_pressed"]
+`;
+    const result = detachInstance(target, source, 'Player', '.');
+
+    // Connection should be present with remapped paths
+    assert.ok(result.includes('signal="pressed"'), 'should have connection signal');
+    assert.ok(result.includes('from="Player/Button"'), 'from path should be remapped to Player/Button');
+    assert.ok(result.includes('to="Player"'), 'to path "." should be remapped to Player');
+  });
+
+  it('should remap connection with nested child paths', () => {
+    const target = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/ui.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="UI" parent="." instance=ExtResource("1")]
+`;
+    const source = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui.gd" id="1"]
+
+[node name="UI" type="Control"]
+script = ExtResource("1")
+
+[node name="Panel" type="Panel" parent="."]
+
+[node name="CloseBtn" type="Button" parent="Panel"]
+
+[connection signal="pressed" from="Panel/CloseBtn" to="." method="_on_close"]
+`;
+    const result = detachInstance(target, source, 'UI', '.');
+
+    assert.ok(result.includes('from="UI/Panel/CloseBtn"'), 'nested from path should be remapped');
+    assert.ok(result.includes('to="UI"'), 'to path should be remapped to UI');
+  });
+});

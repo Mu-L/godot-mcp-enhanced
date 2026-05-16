@@ -549,27 +549,47 @@ function findMaxExtResourceId(lines: string[]): number {
 
 /**
  * Extract sections from source .tscn text into structured groups.
+ * Handles ext_resources, sub_resources (multi-line), connections, and nodes.
  */
 function parseSourceScene(sourceTscn: string): {
   extResources: string[];
+  subResources: string[];
+  connections: string[];
   nodeGroups: Array<{ header: string; props: string[] }>;
 } {
   const lines = normalizeLines(sourceTscn);
   const extResources: string[] = [];
+  const subResources: string[] = [];
+  const connections: string[] = [];
   const nodeGroups: Array<{ header: string; props: string[] }> = [];
+
+  let section = '';
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('[ext_resource')) {
       extResources.push(trimmed);
+      section = 'ext';
+    } else if (trimmed.startsWith('[sub_resource')) {
+      subResources.push(trimmed);
+      section = 'sub';
+    } else if (trimmed.startsWith('[connection')) {
+      connections.push(trimmed);
+      section = 'connection';
     } else if (trimmed.startsWith('[node')) {
       nodeGroups.push({ header: trimmed, props: [] });
-    } else if (nodeGroups.length > 0 && trimmed !== '' && !trimmed.startsWith('[')) {
+      section = 'node';
+    } else if (trimmed.startsWith('[')) {
+      section = ''; // unknown section, skip
+    } else if (section === 'sub') {
+      subResources.push(line);
+    } else if (section === 'node') {
       nodeGroups[nodeGroups.length - 1].props.push(line);
     }
+    // ext_resource and connection are typically single-line — nothing extra to collect
   }
 
-  return { extResources, nodeGroups };
+  return { extResources, subResources, connections, nodeGroups };
 }
 
 /**
@@ -602,6 +622,93 @@ function remapNodeLineRefs(line: string, idMap: Map<number, number>): string {
     const oldId = parseInt(idStr);
     const newId = idMap.get(oldId);
     return newId !== undefined ? `ExtResource("${newId}")` : _match;
+  });
+}
+
+/**
+ * Find max sub_resource id in a .tscn text (lines).
+ * Format: [sub_resource type="..." id="N"]
+ */
+function findMaxSubResourceId(lines: string[]): number {
+  let maxId = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('[sub_resource')) continue;
+    const m = trimmed.match(/id="(\d+)"/);
+    if (m) {
+      const id = parseInt(m[1]);
+      if (id > maxId) maxId = id;
+    }
+  }
+  return maxId;
+}
+
+/**
+ * Remap sub_resource IDs in source lines to avoid conflicts with target.
+ * Returns remapped lines and a map from old ID → new ID.
+ */
+function remapSubResourceIds(
+  sourceSubResources: string[],
+  targetMaxId: number,
+): { remapped: string[]; idMap: Map<number, number> } {
+  const idMap = new Map<number, number>();
+  let nextId = targetMaxId + 1;
+
+  const remapped: string[] = [];
+  for (const line of sourceSubResources) {
+    // Only header lines contain id="N"
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[sub_resource')) {
+      const idMatch = trimmed.match(/id="(\d+)"/);
+      if (idMatch) {
+        const oldId = parseInt(idMatch[1]);
+        const newId = nextId++;
+        idMap.set(oldId, newId);
+        remapped.push(line.replace(`id="${oldId}"`, `id="${newId}"`));
+        continue;
+      }
+    }
+    remapped.push(line);
+  }
+
+  return { remapped, idMap };
+}
+
+/**
+ * Apply sub_resource ID remapping to SubResource("N") references in a line.
+ */
+function remapSubResourceRefs(line: string, idMap: Map<number, number>): string {
+  if (idMap.size === 0) return line;
+  return line.replace(/SubResource\("(\d+)"\)/g, (_match, idStr) => {
+    const oldId = parseInt(idStr);
+    const newId = idMap.get(oldId);
+    return newId !== undefined ? `SubResource("${newId}")` : _match;
+  });
+}
+
+/**
+ * Remap connection paths for inlined subtree.
+ * Prepends instanceNodeName prefix to from/to fields.
+ * "." → instanceNodeName, "Child" → "instanceNodeName/Child"
+ */
+function remapConnectionPaths(
+  connections: string[],
+  instanceNodeName: string,
+  tscnParent: string,
+): string[] {
+  return connections.map(line => {
+    let result = line;
+    // Remap from="..." attribute
+    result = result.replace(/from="([^"]+)"/, (_match, path) => {
+      const newPath = path === '.' ? instanceNodeName : `${instanceNodeName}/${path}`;
+      return `from="${newPath}"`;
+    });
+    // Remap to="..." attribute
+    result = result.replace(/to="([^"]+)"/, (_match, path) => {
+      const newPath = path === '.' ? instanceNodeName : `${instanceNodeName}/${path}`;
+      return `to="${newPath}"`;
+    });
+    return result;
   });
 }
 
@@ -641,6 +748,20 @@ export function detachInstance(
     targetMaxId,
   );
 
+  // 2b. Remap source sub_resource IDs to avoid conflicts with target
+  const targetMaxSubId = findMaxSubResourceId(targetLines);
+  const { remapped: remappedSubResources, idMap: subIdMap } = remapSubResourceIds(
+    source.subResources,
+    targetMaxSubId,
+  );
+
+  // 2c. Remap connection paths for inlined subtree
+  const remappedConnections = remapConnectionPaths(
+    source.connections,
+    nodeName,
+    parentToTscnParent(parent),
+  );
+
   // 3. Build expanded node lines from source
   const expandedLines: string[] = [];
 
@@ -677,12 +798,30 @@ export function detachInstance(
 
   // Remap ExtResource references in root header
   rootHeader = remapNodeLineRefs(rootHeader, idMap);
+  rootHeader = remapSubResourceRefs(rootHeader, subIdMap);
 
   expandedLines.push(rootHeader);
 
-  // Add root node property lines (remapped)
-  for (const propLine of rootGroup.props) {
-    expandedLines.push(remapNodeLineRefs(propLine, idMap));
+  // Add root node property lines (remapped), but remove any that will be overridden
+  let sourceNodeLines = rootGroup.props.map(l => {
+    return remapSubResourceRefs(remapNodeLineRefs(l, idMap), subIdMap);
+  });
+
+  // C1 fix: deduplicate source properties against overrides
+  if (info.propertyOverrides.length > 0) {
+    const overrideKeys = new Set<string>();
+    for (const ovr of info.propertyOverrides) {
+      const m = ovr.trim().match(/^(\w+)\s*=/);
+      if (m) overrideKeys.add(m[1]);
+    }
+    sourceNodeLines = sourceNodeLines.filter(line => {
+      const m = line.trim().match(/^(\w+)\s*=/);
+      return !m || !overrideKeys.has(m[1]);
+    });
+  }
+
+  for (const propLine of sourceNodeLines) {
+    expandedLines.push(propLine);
   }
 
   // Add property overrides from target instance
@@ -705,10 +844,11 @@ export function detachInstance(
     }
 
     header = remapNodeLineRefs(header, idMap);
+    header = remapSubResourceRefs(header, subIdMap);
 
     expandedLines.push(header);
     for (const propLine of group.props) {
-      expandedLines.push(remapNodeLineRefs(propLine, idMap));
+      expandedLines.push(remapSubResourceRefs(remapNodeLineRefs(propLine, idMap), subIdMap));
     }
   }
 
@@ -723,8 +863,18 @@ export function detachInstance(
     }
   }
 
+  // Find the first [node] line in target — sub_resources go before it
+  let firstNodeIdx = -1;
+  for (let i = 0; i < targetLines.length; i++) {
+    if (targetLines[i].trim().startsWith('[node')) {
+      firstNodeIdx = i;
+      break;
+    }
+  }
+
   const cleanResult: string[] = [];
   let insertedExpanded = false;
+  let insertedSubResources = false;
 
   for (let i = 0; i < targetLines.length; i++) {
     // Skip the instance node line and its property overrides
@@ -736,6 +886,15 @@ export function detachInstance(
         insertedExpanded = true;
       }
       continue;
+    }
+
+    // Insert remapped sub_resources before the first [node] section
+    if (!insertedSubResources && i === firstNodeIdx && remappedSubResources.length > 0) {
+      cleanResult.push('');  // blank line separator
+      for (const subLine of remappedSubResources) {
+        cleanResult.push(subLine);
+      }
+      insertedSubResources = true;
     }
 
     cleanResult.push(targetLines[i]);
@@ -752,6 +911,19 @@ export function detachInstance(
     for (const expLine of expandedLines) {
       cleanResult.push(expLine);
     }
+  }
+
+  // Append remapped connections at the end (before trailing blank lines)
+  if (remappedConnections.length > 0) {
+    // Remove trailing blank lines, add connections, then trailing newline
+    while (cleanResult.length > 0 && cleanResult[cleanResult.length - 1].trim() === '') {
+      cleanResult.pop();
+    }
+    cleanResult.push('');
+    for (const connLine of remappedConnections) {
+      cleanResult.push(connLine);
+    }
+    cleanResult.push('');
   }
 
   // 5. Remove the now-unused ext_resource if no other nodes reference it
