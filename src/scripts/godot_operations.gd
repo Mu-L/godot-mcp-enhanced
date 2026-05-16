@@ -229,7 +229,7 @@ func add_node(params):
 	if params.has("properties"):
 		var properties = params.properties
 		for property in properties:
-			if _is_safe_property(property):
+			if _is_safe_property(property) and _is_safe_value(properties[property]):
 				new_node.set(property, properties[property])
 
 	parent.add_child(new_node)
@@ -302,7 +302,7 @@ func batch_add_nodes(params):
 		if node_def.has("properties"):
 			var properties = node_def.properties
 			for property in properties:
-				if _is_safe_property(property):
+				if _is_safe_property(property) and _is_safe_value(properties[property]):
 					new_node.set(property, properties[property])
 
 		parent.add_child(new_node)
@@ -526,6 +526,12 @@ func _is_safe_property(prop_name: String) -> bool:
 	if prop_name in BLOCKED_PROPERTIES:
 		return false
 	if "." in prop_name and prop_name.split(".")[0] in BLOCKED_PROPERTIES:
+		return false
+	return true
+
+
+func _is_safe_value(val) -> bool:
+	if val is Script or val is Resource or val is Callable or val is Signal:
 		return false
 	return true
 

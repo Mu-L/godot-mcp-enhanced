@@ -1,6 +1,7 @@
 import { createConnection } from 'net';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -22,16 +23,32 @@ interface BridgeResponse {
 
 let _nextRequestId = 1;
 
+function readBridgeSecret(): string | null {
+  const secretPath = join(tmpdir(), `mcp_bridge_${BRIDGE_PORT}.secret`);
+  try {
+    return readFileSync(secretPath, 'utf-8').trim();
+  } catch {
+    return null;
+  }
+}
+
 function sendToBridge(method: string, params: Record<string, unknown> = {}, timeout = DEFAULT_TIMEOUT): Promise<BridgeResponse> {
   return new Promise((resolve, reject) => {
     const id = _nextRequestId++;
-    const message = JSON.stringify({ id, method, params }) + '\n';
+    const secret = readBridgeSecret();
 
     const socket = createConnection({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
-      socket.write(message);
+      if (secret) {
+        const authMsg = JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n';
+        const cmdMsg = JSON.stringify({ id, method, params }) + '\n';
+        socket.write(authMsg + cmdMsg);
+      } else {
+        socket.write(JSON.stringify({ id, method, params }) + '\n');
+      }
     });
 
     let buffer = '';
+    let authDone = !secret;
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new Error(`Bridge request timed out after ${timeout}ms`));
@@ -39,7 +56,6 @@ function sendToBridge(method: string, params: Record<string, unknown> = {}, time
 
     socket.on('data', (data: Buffer) => {
       buffer += data.toString();
-      // Process all complete lines
       let idx: number;
       while ((idx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.substring(0, idx).trim();
@@ -47,8 +63,10 @@ function sendToBridge(method: string, params: Record<string, unknown> = {}, time
         if (!line) continue;
         try {
           const resp = JSON.parse(line);
-          // Skip auth response
-          if (resp.id === 0 && resp.result?.authenticated) continue;
+          if (!authDone && resp.result?.authenticated) {
+            authDone = true;
+            continue;
+          }
           clearTimeout(timer);
           socket.destroy();
           resolve(resp);

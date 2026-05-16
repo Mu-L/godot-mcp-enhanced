@@ -12,6 +12,7 @@ var _peers: Array[StreamPeerTCP] = []
 var _peer_buffers: Dictionary = {}
 var _authenticated_peers: Dictionary = {}
 var _secret: String = ""
+var _secret_file: String = ""
 
 const BLOCKED_PROPERTIES := [
 	"script", "owner", "process_mode", "process_priority", "process_input",
@@ -86,6 +87,11 @@ func _start_server() -> void:
 		_server = null
 		return
 	print("[MCP Bridge] Listening on port %d | secret: %s" % [PORT, _secret])
+	_secret_file = OS.get_temp_dir().path_join("mcp_bridge_%d.secret" % PORT)
+	var f := FileAccess.open(_secret_file, FileAccess.WRITE)
+	if f:
+		f.store_string(_secret)
+		f.close()
 ## Compat: Godot 4.6 renamed TCPServer.accept() to take_connection()
 func _server_take_connection() -> StreamPeerTCP:
 	if _server.has_method("take_connection"):
@@ -110,6 +116,8 @@ func _stop_server() -> void:
 	_authenticated_peers.clear()
 	if _server:
 		_server.stop()
+		if _secret_file != "" and FileAccess.file_exists(_secret_file):
+			DirAccess.remove_absolute(_secret_file)
 		_server = null
 
 
@@ -303,7 +311,7 @@ func _cmd_set_node_property(params: Dictionary) -> Variant:
 		return {"error": {"code": -2, "message": "Blocked property: %s" % prop}}
 	if "." in prop and prop.split(".")[0] in BLOCKED_PROPERTIES:
 		return {"error": {"code": -2, "message": "Blocked nested property: %s" % prop}}
-	if value is Script or value is Resource:
+	if not _is_safe_value(value):
 		return {"error": {"code": -3, "message": "Value type not allowed: %s" % value.get_class()}}
 	node.set(prop, value)
 	return {"success": true, "node": path, "property": prop}
@@ -342,6 +350,12 @@ func _jsonify(val: Variant) -> Variant:
 	if val is Node:
 		return str(val.get_path())
 	return val
+
+
+func _is_safe_value(val: Variant) -> bool:
+	if val is Script or val is Resource or val is Callable or val is Signal:
+		return false
+	return true
 
 
 # ─── Input simulation ──────────────────────────────────────────────────────

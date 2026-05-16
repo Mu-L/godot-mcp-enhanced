@@ -189,8 +189,25 @@ func _init():
   return parseGdscriptResult(result, [], (msg) => 'ASSERTION_FAILED');
 }
 
+const STRESS_SAFE_TYPES = new Set([
+  'Node', 'Node2D', 'Node3D', 'Control', 'CanvasItem',
+  'CharacterBody2D', 'CharacterBody3D', 'RigidBody2D', 'RigidBody3D',
+  'StaticBody2D', 'StaticBody3D', 'AnimatableBody2D', 'AnimatableBody3D',
+  'Area2D', 'Area3D', 'PhysicsBody2D', 'PhysicsBody3D',
+  'Sprite2D', 'Sprite3D', 'MeshInstance3D', 'Camera2D', 'Camera3D',
+  'Label', 'Button', 'Panel', 'BoxContainer', 'HBoxContainer', 'VBoxContainer',
+  'MarginContainer', 'ScrollContainer', 'GridContainer',
+  'CollisionShape2D', 'CollisionShape3D', 'CollisionPolygon2D', 'CollisionPolygon3D',
+  'AudioStreamPlayer', 'AudioStreamPlayer2D', 'AudioStreamPlayer3D',
+  'Timer', 'Tween',
+]);
+
 async function handleTestStress(args: Record<string, unknown>, godot: string, projectPath: string): Promise<ToolResult> {
-  const nodeType = gdEscape((args.node_type as string) || 'Node');
+  const rawType = (args.node_type as string) || 'Node';
+  if (!STRESS_SAFE_TYPES.has(rawType)) {
+    return opsErrorResult('INVALID_NODE_TYPE', `node_type "${rawType}" not in stress test whitelist. Allowed: ${[...STRESS_SAFE_TYPES].join(', ')}`);
+  }
+  const nodeType = gdEscape(rawType);
   const iterations = (args.iterations as number) || 100;
 
   const script = `${SCENE_TREE_HEADER}
