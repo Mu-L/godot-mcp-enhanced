@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import {
   TOOL_NAMES as ANIM_TOOL_NAMES,
   getToolDefinitions as getAnimDefs,
+  genAnimationBlend,
+} from '../build/tools/animation-ops.js';
+import {
+  TOOL_NAMES as TRACK_TOOL_NAMES,
+  getToolDefinitions as getTrackDefs,
   genAnimationTrackAdd,
   genAnimationTrackRemove,
   genAnimationKeyframeAdd,
   genAnimationKeyframeRemove,
   genAnimationKeyframeUpdate,
   genAnimationCurve,
-  genAnimationBlend,
-} from '../build/tools/animation-ops.js';
+} from '../build/tools/animation-track.js';
 import {
   TOOL_NAMES as ANIMTREE_TOOL_NAMES,
   getToolDefinitions as getAnimtreeDefs,
@@ -20,30 +24,41 @@ import {
 
 // ─── animation-ops TOOL_NAMES ────────────────────────────────────────────
 
-describe('animation-ops TOOL_NAMES (with P2 additions)', () => {
-  it('contains 5 tool names (animation + 4 new)', () => {
-    assert.strictEqual(ANIM_TOOL_NAMES.length, 5);
+describe('animation-ops TOOL_NAMES', () => {
+  it('contains 2 tool names (animation + animation_blend)', () => {
+    assert.strictEqual(ANIM_TOOL_NAMES.length, 2);
   });
-  it('includes animation_track', () => {
-    assert.ok(ANIM_TOOL_NAMES.includes('animation_track'));
-  });
-  it('includes animation_keyframe', () => {
-    assert.ok(ANIM_TOOL_NAMES.includes('animation_keyframe'));
-  });
-  it('includes animation_curve', () => {
-    assert.ok(ANIM_TOOL_NAMES.includes('animation_curve'));
+  it('includes animation', () => {
+    assert.ok(ANIM_TOOL_NAMES.includes('animation'));
   });
   it('includes animation_blend', () => {
     assert.ok(ANIM_TOOL_NAMES.includes('animation_blend'));
   });
 });
 
+// ─── animation-track TOOL_NAMES ──────────────────────────────────────────
+
+describe('animation-track TOOL_NAMES', () => {
+  it('contains 3 tool names', () => {
+    assert.strictEqual(TRACK_TOOL_NAMES.length, 3);
+  });
+  it('includes animation_track', () => {
+    assert.ok(TRACK_TOOL_NAMES.includes('animation_track'));
+  });
+  it('includes animation_keyframe', () => {
+    assert.ok(TRACK_TOOL_NAMES.includes('animation_keyframe'));
+  });
+  it('includes animation_curve', () => {
+    assert.ok(TRACK_TOOL_NAMES.includes('animation_curve'));
+  });
+});
+
 // ─── getToolDefinitions (animation-ops) ───────────────────────────────────
 
 describe('animation-ops getToolDefinitions', () => {
-  it('returns 5 tool definitions', () => {
+  it('returns 2 tool definitions', () => {
     const defs = getAnimDefs();
-    assert.strictEqual(defs.length, 5);
+    assert.strictEqual(defs.length, 2);
   });
   it('each definition has inputSchema with required fields', () => {
     const defs = getAnimDefs();
@@ -52,8 +67,17 @@ describe('animation-ops getToolDefinitions', () => {
       assert.ok(def.inputSchema.required, `${def.name} missing required`);
     }
   });
+});
+
+// ─── getToolDefinitions (animation-track) ─────────────────────────────────
+
+describe('animation-track getToolDefinitions', () => {
+  it('returns 3 tool definitions', () => {
+    const defs = getTrackDefs();
+    assert.strictEqual(defs.length, 3);
+  });
   it('animation_track has action enum with add and remove', () => {
-    const defs = getAnimDefs();
+    const defs = getTrackDefs();
     const track = defs.find(d => d.name === 'animation_track');
     assert.ok(track);
     const actionEnum = track.inputSchema.properties.action.enum;
@@ -61,7 +85,7 @@ describe('animation-ops getToolDefinitions', () => {
     assert.ok(actionEnum.includes('remove'));
   });
   it('animation_keyframe has action enum with add, remove, update', () => {
-    const defs = getAnimDefs();
+    const defs = getTrackDefs();
     const kf = defs.find(d => d.name === 'animation_keyframe');
     assert.ok(kf);
     const actionEnum = kf.inputSchema.properties.action.enum;

@@ -3,6 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { join } from 'path';
+import { appendOutput, clearOutputBuffer } from '../core/process-state.js';
 import { existsSync } from 'fs';
 import { validatePath, checkVersionMismatch } from '../helpers.js';
 
@@ -124,7 +125,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       ctx.setProjectDir(p);
-      ctx.setOutputBuffer([]);
+      clearOutputBuffer();
       ctx.setProcessStartTime(Date.now());
 
       const proc = spawn(godot, ['--path', p, '--debug'], {
@@ -132,10 +133,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       });
 
       proc.stdout?.on('data', (data: Buffer) => {
-        ctx.outputBuffer.push(...data.toString().split('\n'));
+        appendOutput(data.toString().split('\n'));
       });
       proc.stderr?.on('data', (data: Buffer) => {
-        ctx.outputBuffer.push(...data.toString().split('\n'));
+        appendOutput(data.toString().split('\n'));
       });
 
       proc.on('close', () => {
@@ -174,7 +175,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         prints: classified.prints.slice(-50),
         total_lines: ctx.outputBuffer.length,
       };
-      ctx.setOutputBuffer([]);
+      clearOutputBuffer();
       return textResult(JSON.stringify(result, null, 2));
     }
 

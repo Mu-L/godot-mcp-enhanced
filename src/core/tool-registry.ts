@@ -38,3 +38,11 @@ export function getAllToolNames(): string[] {
 export function getToolMeta(name: string): ToolMeta | undefined {
   return registry.get(name);
 }
+
+export const LITE_TOOLS = new Set([
+  'list_projects', 'get_project_info', 'list_files', 'read_project_config',
+  'read_scene', 'create_scene', 'add_node', 'save_scene',
+  'read_script', 'write_script', 'edit_script',
+  'execute_gdscript', 'get_godot_version',
+  'run_and_verify', 'confirm_and_execute',
+]);

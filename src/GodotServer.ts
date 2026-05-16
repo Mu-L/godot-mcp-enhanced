@@ -7,9 +7,9 @@ import {
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ChildProcess } from 'child_process';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
+import type { ChildProcess } from 'child_process';
 import type { ToolResult } from './types.js';
 import {
   listResources as listMcpResources,
@@ -45,13 +45,19 @@ import * as batchTools from './tools/batch-tools.js';
 import * as uiOps from './tools/ui-tools.js';
 import * as recordingOps from './tools/recording.js';
 import * as editorSync from './tools/editor-sync.js';
+import * as animationTrack from './tools/animation-track.js';
 import { requiresConfirmation, createPendingToken, consumeToken } from './guard.js';
-import { registerTools } from './core/tool-registry.js';
+import { registerTools, LITE_TOOLS } from './core/tool-registry.js';
 import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
+import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
+import * as ps from './core/process-state.js';
 
-const toolModules = [runtime, screenshot, project, scene, script, validation, docs, node3dOps, physicsOps, audioOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps, signalOps, batchTools, uiOps, recordingOps, editorSync];
+// Re-export for backward compatibility (tests import from GodotServer)
+export { clearGodotPathCache, getCachedGodotPath };
+
+const toolModules = [runtime, screenshot, project, scene, script, validation, docs, node3dOps, physicsOps, audioOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, animationTrack, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps, signalOps, batchTools, uiOps, recordingOps, editorSync];
 
 // 注册工具标签
 const allMeta: Array<{ name: string; readonly: boolean; long_running: boolean }> = [];
@@ -64,93 +70,6 @@ for (const mod of toolModules) {
 }
 registerTools(allMeta);
 
-// ─── Godot binary detection ──────────────────────────────────────────────────
-
-const WINDOWS_SEARCH_DIRS = [
-  'C:\\Program Files\\Godot',
-  'C:\\Program Files (x86)\\Godot',
-];
-
-const POSIX_CANDIDATES = [
-  '/usr/bin/godot4',
-  '/usr/local/bin/godot4',
-  '/Applications/Godot.app/Contents/MacOS/Godot',
-];
-
-let godotPath: string | null = null;
-
-/** Clear the cached Godot binary path (useful for testing or after path changes). */
-export function clearGodotPathCache(): void {
-  godotPath = null;
-}
-
-/** Get the currently cached Godot binary path, or null if not yet resolved. */
-export function getCachedGodotPath(): string | null {
-  return godotPath;
-}
-
-function findInDirectory(dir: string): string | null {
-  if (!existsSync(dir)) return null;
-  try {
-    for (const entry of readdirSync(dir)) {
-      if (/^Godot_v4.*\.exe$/i.test(entry)) {
-        return join(dir, entry);
-      }
-    }
-  } catch { /* permission denied */ }
-  return null;
-}
-
-async function findGodot(): Promise<string> {
-  if (godotPath) return godotPath;
-
-  const tried: string[] = [];
-
-  // 1. Environment variable
-  if (process.env.GODOT_PATH) {
-    if (existsSync(process.env.GODOT_PATH)) {
-      godotPath = process.env.GODOT_PATH;
-      return godotPath;
-    }
-    tried.push(`GODOT_PATH=${process.env.GODOT_PATH}`);
-  }
-
-  // 2. Try `godot` on PATH via a quick spawn
-  try {
-    const { execSync } = await import('child_process');
-    const out = execSync('godot --version', { encoding: 'utf-8', timeout: 5000 }).trim();
-    if (out.includes('Godot')) {
-      godotPath = 'godot';
-      return godotPath;
-    }
-  } catch { tried.push('godot (PATH)'); }
-
-  // 3. Platform-specific search
-  if (process.platform === 'win32') {
-    for (const dir of WINDOWS_SEARCH_DIRS) {
-      tried.push(`${dir}/Godot_v4*.exe`);
-      const found = findInDirectory(dir);
-      if (found) { godotPath = found; return found; }
-    }
-  } else {
-    for (const candidate of POSIX_CANDIDATES) {
-      tried.push(candidate);
-      if (existsSync(candidate)) { godotPath = candidate; return candidate; }
-    }
-  }
-
-  throw new Error(
-    `Godot binary not found. Tried:\n${tried.map(t => `  - ${t}`).join('\n')}\nSet GODOT_PATH or add godot to PATH.`
-  );
-}
-
-// ─── Debug output state ──────────────────────────────────────────────────────
-
-let runningProcess: ChildProcess | null = null;
-let outputBuffer: string[] = [];
-let processStartTime: number = 0;
-let projectDir: string = '';
-
 const DEBUG = process.env.DEBUG === 'true';
 
 function log(...args: unknown[]): void {
@@ -158,16 +77,6 @@ function log(...args: unknown[]): void {
 }
 
 // ─── GodotServer class ───────────────────────────────────────────────────────
-
-// ─── Lite mode tools (14 core tools) ──────────────────────────────────────────
-
-const LITE_TOOLS = new Set([
-  'list_projects', 'get_project_info', 'list_files', 'read_project_config',
-  'read_scene', 'create_scene', 'add_node', 'save_scene',
-  'read_script', 'write_script', 'edit_script',
-  'execute_gdscript', 'get_godot_version',
-  'run_and_verify', 'confirm_and_execute',
-]);
 
 // ─── Server options ───────────────────────────────────────────────────────────
 
@@ -238,14 +147,14 @@ export class GodotServer {
     const ctx = {
       opsScript: this.opsScript,
       findGodot,
-      get runningProcess() { return runningProcess; },
-      setRunningProcess(proc: ChildProcess | null) { runningProcess = proc; },
-      get outputBuffer() { return outputBuffer; },
-      setOutputBuffer(buf: string[]) { outputBuffer = buf; },
-      get processStartTime() { return processStartTime; },
-      setProcessStartTime(t: number) { processStartTime = t; },
-      get projectDir() { return projectDir; },
-      setProjectDir(d: string) { projectDir = d; },
+      get runningProcess() { return ps.getRunningProcess(); },
+      setRunningProcess(proc: ChildProcess | null) { ps.setRunningProcess(proc); },
+      get outputBuffer() { return ps.getOutputBuffer(); },
+      setOutputBuffer(buf: string[]) { ps.setOutputBuffer(buf); },
+      get processStartTime() { return ps.getProcessStartTime(); },
+      setProcessStartTime(t: number) { ps.setProcessStartTime(t); },
+      get projectDir() { return ps.getProjectDir(); },
+      setProjectDir(d: string) { ps.setProjectDir(d); },
       parseGodotConfig,
     };
 
