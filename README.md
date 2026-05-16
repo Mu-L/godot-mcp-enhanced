@@ -586,6 +586,52 @@ MIT
 
 ## 更新日志
 
+### v0.10.0（2026-05-16）
+
+场景实例化 + 编辑器实时同步 + 代码优化重构：
+
+**场景实例化（P1）：**
+
+| 工具 | 说明 |
+|------|------|
+| `instance_scene` | 实例化 .tscn 场景到指定父节点，支持 transform 和自定义属性覆盖 |
+| `get_scene_root` | 获取场景实例的根节点路径（支持 PackedScene 实例） |
+| `detach_node` | 从场景树分离节点（等效于 `remove_child`），返回序列化快照 |
+| `save_scene`（增强） | 新增 `selected_only` 选项，仅保存选中分支为独立 .tscn |
+
+**编辑器实时同步（P2）：**
+
+| 工具 | 说明 |
+|------|------|
+| `editor_sync` | 轻量级场景树同步（全量/增量/选中模式），双向属性 diff |
+| `editor_scene_state` | 获取编辑器当前场景状态（播放中/暂停/编辑中） |
+| `editor_undo_redo` | 编辑器操作撤销/重做，支持历史记录查询 |
+
+**代码优化重构（净删除 460 行）：**
+
+- `GodotServer.ts` 399→307 行：提取 `godot-finder.ts`（80 行）、`process-state.ts`（55 行），LITE_TOOLS 移入 `tool-registry.ts`
+- `animation-ops.ts` 1088→686 行：提取 `animation-shared.ts`（62 行）、`animation-track.ts`（414 行）
+- `outputBuffer` 新增 5000 行上限保护，`appendOutput()` 超限自动截断
+
+124 个工具，466 测试通过。
+
+### v0.9.0（2026-05-15）
+
+审查反馈修复 + 架构优化：
+
+| 变更 | 说明 |
+|------|------|
+| **批量工具** | `batch_add_nodes`、`batch_create_files`、`batch_run_verify`、`batch_validate` |
+| **UI 工具** | `ui_inspect`（Control 节点树检查）、`ui_edit`（Control 属性编辑） |
+| **录制工具** | `recording_start` / `recording_stop` / `recording_export` |
+| **编辑器同步** | `editor_sync` 初始版本（轻量场景树同步） |
+| **确认令牌** | 危险操作新增确认令牌机制 |
+| **Read-Only 模式** | `--read-only` 启动参数，仅暴露查询类工具 |
+| **Lite 模式** | `--mode lite` 启动参数，仅暴露核心工具子集 |
+| **性能分析** | `profiler` 工具增强 |
+
+118 个工具，463 测试通过。
+
 ### v0.8.0（2026-05-13）
 
 架构升级 + 41 个新工具（P1 双模式架构 + P2 测试框架 + P3 高级工具集）：
