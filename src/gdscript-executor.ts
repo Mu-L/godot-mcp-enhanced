@@ -15,6 +15,9 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
 
+// Re-export Godot path cache management from GodotServer
+export { clearGodotPathCache, getCachedGodotPath } from './GodotServer.js';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface OutputEntry {

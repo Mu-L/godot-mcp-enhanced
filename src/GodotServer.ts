@@ -76,6 +76,16 @@ const POSIX_CANDIDATES = [
 
 let godotPath: string | null = null;
 
+/** Clear the cached Godot binary path (useful for testing or after path changes). */
+export function clearGodotPathCache(): void {
+  godotPath = null;
+}
+
+/** Get the currently cached Godot binary path, or null if not yet resolved. */
+export function getCachedGodotPath(): string | null {
+  return godotPath;
+}
+
 function findInDirectory(dir: string): string | null {
   if (!existsSync(dir)) return null;
   try {
