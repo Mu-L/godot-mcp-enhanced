@@ -35,7 +35,7 @@ func handle_instance_scene(params: Dictionary) -> Dictionary:
 	if not node_name.is_empty():
 		instance.name = node_name
 
-	var blocked: Array = ["script", "owner", "name", "meta", "process_mode", "process_priority",
+	var blocked: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
 		"process_input", "process_unhandled_input", "process_unhandled_key_input",
 		"process_internal", "physics_process_mode", "input_event", "ready"]
 	for key in properties:
@@ -74,7 +74,7 @@ func handle_set_instance_property(params: Dictionary) -> Dictionary:
 	if target == root or target.owner != root:
 		return {"error": {"code": -32004, "message": "NODE_NOT_INSTANCE"}}
 
-	var blocked: Array = ["script", "owner", "name", "meta", "process_mode", "process_priority",
+	var blocked: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
 		"process_input", "process_unhandled_input", "process_unhandled_key_input",
 		"process_internal", "physics_process_mode", "input_event", "ready"]
 	if prop_name.begins_with("_") or prop_name in blocked:

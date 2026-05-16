@@ -9,6 +9,7 @@ export interface ToolResult {
 export class EditorToolExecutor {
   private syncActive = false;
   private treeChangeBuffer: Array<{ type: string; path: string; node_type: string }> = [];
+  private static readonly MAX_BUFFER_SIZE = 10000;
   private readonly conn: EditorConnection;
 
   constructor(conn: EditorConnection) {
@@ -46,7 +47,12 @@ export class EditorToolExecutor {
   }
 
   private handleTreeChange = (params: unknown): void => {
+    if (typeof params !== 'object' || params === null) return;
     const p = params as { type: string; path: string; node_type: string };
+    if (typeof p.type !== 'string' || typeof p.path !== 'string') return;
+    if (this.treeChangeBuffer.length >= EditorToolExecutor.MAX_BUFFER_SIZE) {
+      this.treeChangeBuffer.shift(); // 丢弃最旧
+    }
     this.treeChangeBuffer.push(p);
   };
 
@@ -88,7 +94,9 @@ export class EditorToolExecutor {
     this.treeChangeBuffer = [];
     try {
       const result = await this.conn.request('editor_sync_stop', args);
-      const merged = { ...(result as Record<string, unknown>), buffered_changes: changes };
+      const merged = typeof result === 'object' && result !== null
+        ? { ...(result as Record<string, unknown>), buffered_changes: changes }
+        : { result, buffered_changes: changes };
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(merged) }],
       };

@@ -36,6 +36,7 @@ function escapeTscnAttr(value: string): string {
 
 /** Escape property values for safe embedding in .tscn files */
 function escapeTscnValue(value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error('Value must not contain newlines');
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]');
 }
 
@@ -122,6 +123,10 @@ export function editNodeProperty(
   property: string,
   value: string,
 ): SceneEditResult {
+  if (!/^[a-zA-Z_]\w*$/.test(property)) {
+    return { success: false, message: `Invalid property name: ${property}` };
+  }
+
   const lines = normalizeLines(tscnContent);
   const nodeLine = findNodeSectionLine(lines, nodePath);
 
@@ -352,7 +357,7 @@ export function setNodeScript(
       }
     }
 
-    lines.splice(insertAt, 0, `[ext_resource type="Script" path="${scriptPath}" id="${extId}"]`);
+    lines.splice(insertAt, 0, `[ext_resource type="Script" path="${escapeTscnAttr(scriptPath)}" id="${extId}"]`);
   }
 
   // Re-find node line after potential insertion
@@ -776,12 +781,12 @@ export function detachInstance(
   const tscnParent = parentToTscnParent(parent);
 
   // Set name to the instance node's name
-  rootHeader = rootHeader.replace(/name="[^"]+"/, `name="${nodeName}"`);
+  rootHeader = rootHeader.replace(/name="[^"]+"/, `name="${escapeTscnAttr(nodeName)}"`);
 
   // Set parent
   if (!rootHeader.includes('parent=')) {
     if (tscnParent !== '.') {
-      rootHeader = rootHeader.replace(']', ` parent="${tscnParent}"]`);
+      rootHeader = rootHeader.replace(']', ` parent="${escapeTscnAttr(tscnParent)}"]`);
     }
     // If tscnParent is ".", root node has no parent attr — which is correct for scene root children
     // But in a target scene, nodes under root need parent="."
@@ -793,7 +798,7 @@ export function detachInstance(
       rootHeader = rootHeader.replace(']', ` parent="."]`);
     }
   } else {
-    rootHeader = rootHeader.replace(/parent="[^"]+"/, `parent="${tscnParent}"`);
+    rootHeader = rootHeader.replace(/parent="[^"]+"/, `parent="${escapeTscnAttr(tscnParent)}"`);
   }
 
   // Remap ExtResource references in root header
@@ -838,9 +843,9 @@ export function detachInstance(
     if (parentMatch) {
       const originalParent = parentMatch[1];
       const newParent = originalParent === '.' ? nodeName : `${nodeName}/${originalParent}`;
-      header = header.replace(/parent="[^"]+"/, `parent="${newParent}"`);
+      header = header.replace(/parent="[^"]+"/, `parent="${escapeTscnAttr(newParent)}"`);
     } else {
-      header = header.replace(']', ` parent="${nodeName}"]`);
+      header = header.replace(']', ` parent="${escapeTscnAttr(nodeName)}"]`);
     }
 
     header = remapNodeLineRefs(header, idMap);

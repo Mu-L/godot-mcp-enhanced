@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { join, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -690,26 +690,26 @@ func _initialize():
   }
 }
 
-function gdScriptSetLine(key: string, value: unknown): string {
-  if (value === null || value === undefined) return `node.${key} = null`;
-  if (typeof value === 'boolean') return `node.${key} = ${value}`;
+function gdScriptSetLine(key: string, value: unknown, varName = 'node'): string {
+  if (value === null || value === undefined) return `${varName}.${key} = null`;
+  if (typeof value === 'boolean') return `${varName}.${key} = ${value}`;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return `# skipped ${key}: non-finite number`;
-    return `node.${key} = ${value}`;
+    return `${varName}.${key} = ${value}`;
   }
-  if (typeof value === 'string') return `node.${key} = "${gdEscape(value)}"`;
+  if (typeof value === 'string') return `${varName}.${key} = "${gdEscape(value)}"`;
   if (Array.isArray(value)) {
     if (value.length === 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
       if (!Number.isFinite(value[0]) || !Number.isFinite(value[1])) return `# skipped ${key}: non-finite number in array`;
-      return `_try_set(node, "${gdEscape(key)}", Vector2(${value[0]}, ${value[1]}))`;
+      return `_try_set(${varName}, "${gdEscape(key)}", Vector2(${value[0]}, ${value[1]}))`;
     }
     if (value.length === 3 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number') {
       if (!Number.isFinite(value[0]) || !Number.isFinite(value[1]) || !Number.isFinite(value[2])) return `# skipped ${key}: non-finite number in array`;
-      return `_try_set(node, "${gdEscape(key)}", Vector3(${value[0]}, ${value[1]}, ${value[2]}))`;
+      return `_try_set(${varName}, "${gdEscape(key)}", Vector3(${value[0]}, ${value[1]}, ${value[2]}))`;
     }
     if (value.length === 4 && value.every(v => typeof v === 'number')) {
       if (!value.every(v => Number.isFinite(v as number))) return `# skipped ${key}: non-finite number in array`;
-      return `_try_set(node, "${gdEscape(key)}", Color(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}))`;
+      return `_try_set(${varName}, "${gdEscape(key)}", Color(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}))`;
     }
   }
   // Object format: {x,y} → Vector2, {x,y,z} → Vector3, {r,g,b,a} → Color
@@ -719,14 +719,14 @@ function gdScriptSetLine(key: string, value: unknown): string {
       if (!Number.isFinite(obj.x as number) || !Number.isFinite(obj.y as number)) return `# skipped ${key}: non-finite number in object`;
       if (typeof obj.z === 'number') {
         if (!Number.isFinite(obj.z as number)) return `# skipped ${key}: non-finite number in object`;
-        return `_try_set(node, "${gdEscape(key)}", Vector3(${obj.x}, ${obj.y}, ${obj.z}))`;
+        return `_try_set(${varName}, "${gdEscape(key)}", Vector3(${obj.x}, ${obj.y}, ${obj.z}))`;
       }
-      return `_try_set(node, "${gdEscape(key)}", Vector2(${obj.x}, ${obj.y}))`;
+      return `_try_set(${varName}, "${gdEscape(key)}", Vector2(${obj.x}, ${obj.y}))`;
     }
     if (typeof obj.r === 'number' && typeof obj.g === 'number' && typeof obj.b === 'number') {
       const a = typeof obj.a === 'number' ? obj.a : 1.0;
       if (!Number.isFinite(obj.r as number) || !Number.isFinite(obj.g as number) || !Number.isFinite(obj.b as number) || !Number.isFinite(a as number)) return `# skipped ${key}: non-finite number in object`;
-      return `_try_set(node, "${gdEscape(key)}", Color(${obj.r}, ${obj.g}, ${obj.b}, ${a}))`;
+      return `_try_set(${varName}, "${gdEscape(key)}", Color(${obj.r}, ${obj.g}, ${obj.b}, ${a}))`;
     }
   }
   throw new Error(`Property "${key}" has unsupported type. Use string/number/bool/null, array [2]=Vector2/[3]=Vector3/[4]=Color, or object {x,y}/{x,y,z}/{r,g,b,a}.`);
@@ -773,7 +773,7 @@ async function handleInstanceScene(args: Record<string, unknown>, ctx: ToolConte
   for (const [key, value] of safeProps) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) continue;
     try {
-      const line = gdScriptSetLine(key, value).replace(/node\./g, '_inst.').replace(/node,/g, '_inst,');
+      const line = gdScriptSetLine(key, value, '_inst');
       if (!line.startsWith('# skipped')) {
         propLines += `\n\t${line}`;
       }
@@ -875,7 +875,7 @@ async function handleSetInstanceProperty(args: Record<string, unknown>, ctx: Too
   // 生成属性设置行
   let propLine: string;
   try {
-    propLine = gdScriptSetLine(propName, propValue).replace(/node\./g, 'target.').replace(/node,/g, 'target,');
+    propLine = gdScriptSetLine(propName, propValue, 'target');
   } catch (e: unknown) {
     return opsErrorResult('INVALID_VALUE', (e as Error).message);
   }
@@ -1004,7 +1004,7 @@ function handleDetachInstance(args: Record<string, unknown>): ToolResult {
     renameSync(tmpPath, sceneAbsPath);
   } catch (e: unknown) {
     // Cleanup temp file on failure
-    try { require('fs').unlinkSync(tmpPath); } catch { /* best effort */ }
+    try { unlinkSync(tmpPath); } catch { /* best effort */ }
     return textResult(`Error writing scene: ${(e as Error).message}`);
   }
 
