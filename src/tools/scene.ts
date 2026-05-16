@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { join, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -734,7 +734,12 @@ function gdScriptSetLine(key: string, value: unknown): string {
 
 // ─── instance_scene handler ──────────────────────────────────────────────────
 
-const BLOCKED_PROPS = new Set(['script', 'owner', 'name', 'parent', 'children', 'tree']);
+const BLOCKED_PROPS = new Set([
+  'script', 'owner', 'name', 'parent', 'children', 'tree',
+  'meta', 'process_mode', 'process_priority',
+  'process_input', 'process_unhandled_input', 'process_unhandled_key_input',
+  'process_internal', 'physics_process_mode', 'input_event', 'ready',
+]);
 
 async function handleInstanceScene(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
   // 必需参数校验
@@ -746,9 +751,9 @@ async function handleInstanceScene(args: Record<string, unknown>, ctx: ToolConte
   const scenePath = resolveWithinRoot(p, normalizeUserProjectPath(args.scene_path as string));
   const instancePath = String(args.instance_path);
 
-  // 校验 instance_path 后缀
-  if (!instancePath.endsWith('.tscn')) {
-    return opsErrorResult('INVALID_PARAM', 'instance_path must end with .tscn');
+  // 校验 instance_path 后缀 + 路径安全
+  if (!instancePath.endsWith('.tscn') || !/^res:\/\/[a-zA-Z0-9_\-\/\.]+\.tscn$/.test(instancePath)) {
+    return opsErrorResult('INVALID_PARAM', 'instance_path must be a valid res:// path ending in .tscn');
   }
 
   // 循环引用检查：对 instancePath 做与 scenePath 相同的路径解析，防止 res://scenes/../scenes/main.tscn 绕过
@@ -992,13 +997,15 @@ function handleDetachInstance(args: Record<string, unknown>): ToolResult {
     return textResult(`Error detaching instance: ${(e as Error).message}`);
   }
 
-  // Write result, rollback on error
+  // Write result atomically (temp file + rename) to prevent partial writes
+  const tmpPath = sceneAbsPath + '.tmp';
   try {
-    writeFileSync(sceneAbsPath, result, 'utf-8');
+    writeFileSync(tmpPath, result, 'utf-8');
+    renameSync(tmpPath, sceneAbsPath);
   } catch (e: unknown) {
-    // Rollback
-    try { writeFileSync(sceneAbsPath, backup, 'utf-8'); } catch { /* best effort */ }
-    return textResult(`Error writing scene (rolled back): ${(e as Error).message}`);
+    // Cleanup temp file on failure
+    try { require('fs').unlinkSync(tmpPath); } catch { /* best effort */ }
+    return textResult(`Error writing scene: ${(e as Error).message}`);
   }
 
   return textResult(`Detached instance "${nodeName}" — inlined from ${info.sourcePath} (${info.propertyOverrides.length} property override(s) preserved)`);
