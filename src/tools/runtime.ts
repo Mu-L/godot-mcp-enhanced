@@ -132,16 +132,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       });
 
       proc.stdout?.on('data', (data: Buffer) => {
-        const str = data.toString();
-        const buf = [...ctx.outputBuffer];
-        buf.push(...str.split('\n'));
-        ctx.setOutputBuffer(buf);
+        ctx.outputBuffer.push(...data.toString().split('\n'));
       });
       proc.stderr?.on('data', (data: Buffer) => {
-        const str = data.toString();
-        const buf = [...ctx.outputBuffer];
-        buf.push(...str.split('\n'));
-        ctx.setOutputBuffer(buf);
+        ctx.outputBuffer.push(...data.toString().split('\n'));
       });
 
       proc.on('close', () => {

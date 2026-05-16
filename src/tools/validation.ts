@@ -838,14 +838,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
                 '.ttf': 'dynamic_font', '.otf': 'dynamic_font',
                 '.glb': 'scene', '.gltf': 'scene',
               };
+              const typeMap: Record<string, string> = {
+                '.png': 'CompressedTexture2D', '.jpg': 'CompressedTexture2D', '.jpeg': 'CompressedTexture2D',
+                '.webp': 'CompressedTexture2D', '.svg': 'CompressedTexture2D',
+                '.mp3': 'AudioStreamOggVorbis', '.ogg': 'AudioStreamOggVorbis', '.wav': 'AudioStreamWAV',
+                '.ttf': 'FontFile', '.otf': 'FontFile',
+                '.glb': 'PackedScene', '.gltf': 'PackedScene',
+              };
               const importer = importerMap[ext] || 'any';
+              const resourceType = typeMap[ext] || 'Resource';
+              const extSuffix = ext === '.wav' ? '.wav' : ext === '.ogg' || ext === '.mp3' ? '.ogg' : '.ctex';
               const importContent = [
                 `[remap]`,
                 ``,
                 `importer="${importer}"`,
-                `type="CompressedTexture2D"`,
+                `type="${resourceType}"`,
                 `uid="${uid}"`,
-                `path="res://.godot/imported/${entry.name}-${uid.substring(5, 13)}.ctex"`,
+                `path="res://.godot/imported/${entry.name}-${uid.substring(5, 13)}${extSuffix}"`,
                 `metadata={`,
                 `"vram_texture": false`,
                 `}`,

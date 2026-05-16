@@ -200,7 +200,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         '',
         '[application]',
         '',
-        'config/name="' + projectName + '"',
+        'config/name="' + projectName.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"',
         'run/main_scene="res://scenes/main.tscn"',
         'config/features=PackedStringArray("4.6")',
         '',

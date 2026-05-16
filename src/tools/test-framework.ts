@@ -208,7 +208,7 @@ async function handleTestStress(args: Record<string, unknown>, godot: string, pr
     return opsErrorResult('INVALID_NODE_TYPE', `node_type "${rawType}" not in stress test whitelist. Allowed: ${[...STRESS_SAFE_TYPES].join(', ')}`);
   }
   const nodeType = gdEscape(rawType);
-  const iterations = (args.iterations as number) || 100;
+  const iterations = Math.min(Math.max((args.iterations as number) || 100, 1), 10000);
 
   const script = `${SCENE_TREE_HEADER}
 

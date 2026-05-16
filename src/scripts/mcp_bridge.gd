@@ -71,7 +71,7 @@ func _process(_delta: float) -> void:
 	for idx in range(to_remove.size() - 1, -1, -1):
 		var i: int = to_remove[idx]
 		var pid := _peers[i].get_instance_id()
-		_peer_buffers.erase(pid)
+		_peer_buffers.erase("buf_" + str(pid))
 		_authenticated_peers.erase(pid)
 		_peers.remove_at(i)
 
@@ -79,6 +79,7 @@ func _process(_delta: float) -> void:
 # ─── Server management ─────────────────────────────────────────────────────
 
 func _start_server() -> void:
+	randomize()
 	_secret = _generate_secret()
 	_server = TCPServer.new()
 	var err := _server.listen(PORT)
@@ -86,7 +87,7 @@ func _start_server() -> void:
 		push_warning("[MCP Bridge] Failed to listen on port %d: %d" % [PORT, err])
 		_server = null
 		return
-	print("[MCP Bridge] Listening on port %d | secret: %s" % [PORT, _secret])
+	print("[MCP Bridge] Listening on port %d " % PORT)
 	_secret_file = OS.get_temp_dir().path_join("mcp_bridge_%d.secret" % PORT)
 	var f := FileAccess.open(_secret_file, FileAccess.WRITE)
 	if f:

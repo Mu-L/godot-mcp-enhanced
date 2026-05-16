@@ -76,15 +76,18 @@ function runScreenshot(
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
     proc.stderr?.on('data', (d: Buffer) => { out += d.toString(); });
 
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       if (!proc.killed) {
         proc.kill('SIGTERM');
+        killTimer = setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL'); }, 3000);
         resolve({ code: -1, output: out + `\n[TIMEOUT] Killed after ${timeout}s` });
       }
     }, timeout * 1000);
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       resolve({ code, output: out });
     });
   });
