@@ -7,13 +7,17 @@ import {
   genUiSetLayoutScript,
   genUiGetLayoutScript,
   genUiAnchorPresetScript,
+  genUiSetThemeScript,
+  genUiContainerAddScript,
+  genThemeCreateScript,
+  genThemeSetPropertyScript,
 } from '../build/tools/ui-tools.js';
 
 // ─── TOOL_NAMES ─────────────────────────────────────────────────────────────
 
 describe('TOOL_NAMES', () => {
-  it('contains exactly 4 UI tool names', () => {
-    assert.strictEqual(TOOL_NAMES.length, 4);
+  it('contains exactly 8 UI tool names', () => {
+    assert.strictEqual(TOOL_NAMES.length, 8);
   });
   it('includes ui_create_control', () => {
     assert.ok(TOOL_NAMES.includes('ui_create_control'));
@@ -26,6 +30,18 @@ describe('TOOL_NAMES', () => {
   });
   it('includes ui_anchor_preset', () => {
     assert.ok(TOOL_NAMES.includes('ui_anchor_preset'));
+  });
+  it('includes ui_set_theme', () => {
+    assert.ok(TOOL_NAMES.includes('ui_set_theme'));
+  });
+  it('includes ui_container_add', () => {
+    assert.ok(TOOL_NAMES.includes('ui_container_add'));
+  });
+  it('includes theme_create', () => {
+    assert.ok(TOOL_NAMES.includes('theme_create'));
+  });
+  it('includes theme_set_property', () => {
+    assert.ok(TOOL_NAMES.includes('theme_set_property'));
   });
 });
 
@@ -173,12 +189,168 @@ describe('genUiAnchorPresetScript', () => {
   });
 });
 
+// ─── genUiSetThemeScript ────────────────────────────────────────────────────
+
+describe('genUiSetThemeScript', () => {
+  it('generates create action script', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'create');
+    assert.ok(script.includes('Theme.new()'));
+    assert.ok(script.includes('node.theme = theme'));
+    assert.ok(script.includes('_mcp_output("theme_set"'));
+  });
+
+  it('generates set_params action script', () => {
+    const params = { default_font_size: 16, font_color: [1, 0, 0, 1] };
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'set_params', undefined, params);
+    assert.ok(script.includes('node.theme'));
+    assert.ok(script.includes('theme.set("default_font_size", 16)'));
+    assert.ok(script.includes('Color(1, 0, 0, 1)'));
+  });
+
+  it('generates save action script with ResourceSaver', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save', 'res://themes/my_theme.tres');
+    assert.ok(script.includes('ResourceSaver.save'));
+    assert.ok(script.includes('res://themes/my_theme.tres'));
+    assert.ok(script.includes('_mcp_output("saved"'));
+  });
+
+  it('generates load action script', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'load', 'res://themes/my_theme.tres');
+    assert.ok(script.includes('load("res://themes/my_theme.tres")'));
+    assert.ok(script.includes('node.theme = res'));
+    assert.ok(script.includes('_mcp_output("loaded"'));
+  });
+
+  it('throws for save without theme_path', () => {
+    assert.throws(() => genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save'), /theme_path is required/);
+  });
+
+  it('throws for load without theme_path', () => {
+    assert.throws(() => genUiSetThemeScript('/scene.tscn', '/root/Panel', 'load'), /theme_path is required/);
+  });
+
+  it('checks Control type', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'create');
+    assert.ok(script.includes('if not node is Control:'));
+  });
+});
+
+// ─── genUiContainerAddScript ────────────────────────────────────────────────
+
+describe('genUiContainerAddScript', () => {
+  it('generates GDScript that adds child to container', () => {
+    const script = genUiContainerAddScript('/scene.tscn', '/root/VBox', 'Button', 'MyBtn');
+    assert.ok(script.includes('Button.new()'));
+    assert.ok(script.includes('child.name = "MyBtn"'));
+    assert.ok(script.includes('container.add_child(child)'));
+    assert.ok(script.includes('child.owner ='));
+    assert.ok(script.includes('_mcp_output("child_added"'));
+  });
+
+  it('includes child properties when provided', () => {
+    const props = { text: 'Hello', disabled: true };
+    const script = genUiContainerAddScript('/scene.tscn', '/root/HBox', 'Label', 'Lbl', props);
+    assert.ok(script.includes('child.set("text", "Hello")'));
+    assert.ok(script.includes('child.set("disabled", true)'));
+  });
+
+  it('handles node path correctly', () => {
+    const script = genUiContainerAddScript('/scene.tscn', '/root/UI/VBox', 'Panel', 'MyPanel');
+    assert.ok(script.includes('_mcp_get_scene_node("/root/UI/VBox")'));
+  });
+});
+
+// ─── genThemeCreateScript ───────────────────────────────────────────────────
+
+describe('genThemeCreateScript', () => {
+  it('generates create action script', () => {
+    const script = genThemeCreateScript('/scene.tscn', 'create');
+    assert.ok(script.includes('Theme.new()'));
+    assert.ok(script.includes('_mcp_output("theme_created"'));
+    assert.ok(script.includes('"action": "create"'));
+  });
+
+  it('generates extract action script with source node', () => {
+    const script = genThemeCreateScript('/scene.tscn', 'extract', '/root/Panel');
+    assert.ok(script.includes('_mcp_get_scene_node("/root/Panel")'));
+    assert.ok(script.includes('source.theme'));
+    assert.ok(script.includes('if not source is Control:'));
+    assert.ok(script.includes('"action": "extract"'));
+  });
+
+  it('generates script with save_path', () => {
+    const script = genThemeCreateScript('/scene.tscn', 'create', undefined, 'res://themes/new.tres');
+    assert.ok(script.includes('ResourceSaver.save'));
+    assert.ok(script.includes('res://themes/new.tres'));
+    assert.ok(script.includes('_mcp_output("saved"'));
+  });
+
+  it('throws for extract without source_node_path', () => {
+    assert.throws(() => genThemeCreateScript('/scene.tscn', 'extract'), /source_node_path is required/);
+  });
+});
+
+// ─── genThemeSetPropertyScript ──────────────────────────────────────────────
+
+describe('genThemeSetPropertyScript', () => {
+  it('generates default_font script', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'default_font', 'font', 'res://font.ttf');
+    assert.ok(script.includes('theme.set_default_font'));
+    assert.ok(script.includes('load("res://font.ttf")'));
+    assert.ok(script.includes('_mcp_output("property_set"'));
+    assert.ok(script.includes('"item_type": "default_font"'));
+  });
+
+  it('generates color script with RGBA array', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'font_color', [1, 0.5, 0, 0.8], 'Button');
+    assert.ok(script.includes('theme.set_color'));
+    assert.ok(script.includes('Color(1, 0.5, 0, 0.8)'));
+    assert.ok(script.includes('"Button"'));
+    assert.ok(script.includes('"name": "font_color"'));
+  });
+
+  it('generates color script with RGB array (alpha defaults to 1)', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'bg', [0.2, 0.3, 0.4]);
+    assert.ok(script.includes('Color(0.2, 0.3, 0.4, 1)'));
+  });
+
+  it('generates constant script', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'font_size', 16, 'Label');
+    assert.ok(script.includes('theme.set_constant'));
+    assert.ok(script.includes('"font_size"'));
+    assert.ok(script.includes('16'));
+    assert.ok(script.includes('"Label"'));
+  });
+
+  it('generates stylebox script', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'stylebox', 'panel', 'res://styles/panel.tres', 'Button');
+    assert.ok(script.includes('theme.set_stylebox'));
+    assert.ok(script.includes('load("res://styles/panel.tres")'));
+  });
+
+  it('validates theme node exists', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 4);
+    assert.ok(script.includes('_mcp_get_scene_node'));
+    assert.ok(script.includes('if theme == null:'));
+    assert.ok(script.includes('if not theme is Theme:'));
+  });
+
+  it('throws for color with invalid value', () => {
+    assert.throws(() => genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'bg', 'not-array'), /array/);
+  });
+
+  it('includes scene loading when scene_path provided', () => {
+    const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 4, undefined, '/scene.tscn');
+    assert.ok(script.includes('_mcp_load_scene("/scene.tscn")'));
+  });
+});
+
 // ─── getToolDefinitions ─────────────────────────────────────────────────────
 
 describe('getToolDefinitions', () => {
-  it('returns 4 tool definitions', () => {
+  it('returns 8 tool definitions', () => {
     const defs = getToolDefinitions();
-    assert.strictEqual(defs.length, 4);
+    assert.strictEqual(defs.length, 8);
   });
   it('each definition has a name from TOOL_NAMES', () => {
     const defs = getToolDefinitions();
@@ -215,5 +387,48 @@ describe('getToolDefinitions', () => {
     assert.ok(enumValues.includes('top_left'));
     assert.ok(enumValues.includes('full_rect'));
     assert.ok(enumValues.includes('center'));
+  });
+  it('ui_set_theme has action enum with 4 values', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'ui_set_theme');
+    assert.ok(def);
+    const enumValues = def.inputSchema.properties.action.enum;
+    assert.ok(enumValues);
+    assert.strictEqual(enumValues.length, 4);
+    assert.ok(enumValues.includes('set_params'));
+    assert.ok(enumValues.includes('create'));
+    assert.ok(enumValues.includes('save'));
+    assert.ok(enumValues.includes('load'));
+  });
+  it('ui_container_add has child_type enum with Control types', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'ui_container_add');
+    assert.ok(def);
+    const enumValues = def.inputSchema.properties.child_type.enum;
+    assert.ok(enumValues);
+    assert.ok(enumValues.includes('Button'));
+    assert.ok(enumValues.includes('Label'));
+  });
+  it('theme_create has action enum with create and extract', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'theme_create');
+    assert.ok(def);
+    const enumValues = def.inputSchema.properties.action.enum;
+    assert.ok(enumValues);
+    assert.strictEqual(enumValues.length, 2);
+    assert.ok(enumValues.includes('create'));
+    assert.ok(enumValues.includes('extract'));
+  });
+  it('theme_set_property has item_type enum with 4 values', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'theme_set_property');
+    assert.ok(def);
+    const enumValues = def.inputSchema.properties.item_type.enum;
+    assert.ok(enumValues);
+    assert.strictEqual(enumValues.length, 4);
+    assert.ok(enumValues.includes('default_font'));
+    assert.ok(enumValues.includes('color'));
+    assert.ok(enumValues.includes('constant'));
+    assert.ok(enumValues.includes('stylebox'));
   });
 });
