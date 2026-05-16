@@ -7,6 +7,7 @@ var _export_commands: Node
 var _particle_commands: Node
 var _nav_commands: Node
 var _animtree_commands: Node
+var _sync_commands: Node
 var _undo_manager: Node
 
 func setup(plugin: EditorPlugin) -> void:
@@ -40,6 +41,10 @@ func setup(plugin: EditorPlugin) -> void:
 	_animtree_commands = preload("commands/animtree_commands.gd").new()
 	_animtree_commands.setup(plugin)
 	add_child(_animtree_commands)
+
+	_sync_commands = preload("commands/sync_commands.gd").new()
+	_sync_commands.setup(self)
+	add_child(_sync_commands)
 
 func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 	match method:
@@ -91,5 +96,18 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _animtree_commands.handle_animtree_set_blend(params)
 		"animtree_play":
 			return _animtree_commands.handle_animtree_play(params)
+		"editor_sync_start":
+			return _sync_commands.start_sync()
+		"editor_sync_stop":
+			return _sync_commands.stop_sync()
+		"editor_get_scene_tree":
+			return _sync_commands.get_scene_tree()
 		_:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
+
+
+func send_notification(method: String, params: Dictionary) -> void:
+	# Forward to plugin's WebSocket/TCP notification channel
+	var plugin = get_parent()
+	if plugin and plugin.has_method("send_mcp_notification"):
+		plugin.send_mcp_notification(method, params)

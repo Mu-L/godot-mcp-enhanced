@@ -1,0 +1,82 @@
+extends Node
+
+var _command_handler: Node
+var _syncing: bool = false
+var _node_paths: Dictionary = {}  # { instance_id (int): path (String) }
+
+
+func setup(handler: Node) -> void:
+	_command_handler = handler
+
+
+func start_sync() -> Dictionary:
+	if _syncing:
+		return {"error": {"code": "SYNC_ALREADY_ACTIVE", "message": "Sync already active"}}
+	_syncing = true
+	_node_paths.clear()
+	_cache_paths_recursive(get_tree().root)
+	get_tree().connect("node_added", _on_node_added)
+	get_tree().connect("node_removed", _on_node_removed)
+	return {"result": {"success": true}}
+
+
+func stop_sync() -> Dictionary:
+	if not _syncing:
+		return {"error": {"code": "SYNC_NOT_ACTIVE", "message": "Sync not active"}}
+	_syncing = false
+	get_tree().disconnect("node_added", _on_node_added)
+	get_tree().disconnect("node_removed", _on_node_removed)
+	_node_paths.clear()
+	return {"result": {"success": true}}
+
+
+func get_scene_tree() -> Dictionary:
+	var ei = Engine.get_singleton("EditorInterface") as EditorInterface
+	var root = ei.get_edited_scene_root()
+	if not root:
+		return {"error": {"code": "NO_SCENE", "message": "No current scene"}}
+	return {"result": {"success": true, "tree": _serialize_tree(root, 0, 5)}}
+
+
+func _cache_paths_recursive(node: Node) -> void:
+	if node:
+		_node_paths[node.get_instance_id()] = str(node.get_path())
+		for child in node.get_children():
+			_cache_paths_recursive(child)
+
+
+func _on_node_added(node: Node) -> void:
+	var path = str(node.get_path())
+	_node_paths[node.get_instance_id()] = path
+	if _command_handler and _command_handler.has_method("send_notification"):
+		_command_handler.send_notification("scene_tree_changed", {
+			"type": "node_added",
+			"path": path,
+			"node_type": node.get_class()
+		})
+
+
+func _on_node_removed(node: Node) -> void:
+	var id = node.get_instance_id()
+	var path = _node_paths.get(id, "<removed>")
+	_node_paths.erase(id)
+	if _command_handler and _command_handler.has_method("send_notification"):
+		_command_handler.send_notification("scene_tree_changed", {
+			"type": "node_removed",
+			"path": path,
+			"node_type": node.get_class()
+		})
+
+
+func _serialize_tree(node: Node, depth: int, max_depth: int) -> Dictionary:
+	var result = {
+		"name": str(node.name),
+		"type": node.get_class(),
+		"path": str(node.get_path())
+	}
+	if depth < max_depth:
+		var children = []
+		for child in node.get_children():
+			children.append(_serialize_tree(child, depth + 1, max_depth))
+		result["children"] = children
+	return result
