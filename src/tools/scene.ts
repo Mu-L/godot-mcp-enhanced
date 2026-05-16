@@ -8,7 +8,7 @@ import { validatePath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, p
 import { parseTscn, parseTscnSummary } from '../tscn-parser.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from './shared.js';
-import { normalizeNodePath, gdEscape } from './godot-ops.js';
+import { normalizeNodePath, gdEscape } from './shared.js';
 
 const TOOL_NAMES = [
   'read_scene',

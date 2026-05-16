@@ -26,7 +26,9 @@ import * as scene from './tools/scene.js';
 import * as script from './tools/script.js';
 import * as validation from './tools/validation.js';
 import * as docs from './tools/docs.js';
-import * as godotOps from './tools/godot-ops.js';
+import * as node3dOps from './tools/node-3d-ops.js';
+import * as physicsOps from './tools/physics-ops.js';
+import * as audioOps from './tools/audio-ops.js';
 import * as tilemapOps from './tools/tilemap-ops.js';
 import * as materialOps from './tools/material-ops.js';
 import * as gameBridge from './tools/game-bridge.js';
@@ -46,7 +48,7 @@ import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 
-const toolModules = [runtime, screenshot, project, scene, script, validation, docs, godotOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps, signalOps, batchTools];
+const toolModules = [runtime, screenshot, project, scene, script, validation, docs, node3dOps, physicsOps, audioOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps, signalOps, batchTools];
 
 // 注册工具标签
 const allMeta: Array<{ name: string; readonly: boolean; long_running: boolean }> = [];

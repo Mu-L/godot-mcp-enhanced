@@ -7,7 +7,7 @@ import { textResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, parseGdscriptResult } from './shared.js';
-import { gdEscape } from './godot-ops.js';
+import { gdEscape } from './shared.js';
 import { batchValidateScripts, type BatchValidateResult } from './validation.js';
 
 // ─── Tool definitions ──────────────────────────────────────────────────────

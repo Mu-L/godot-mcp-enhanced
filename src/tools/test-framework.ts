@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { validatePath } from '../helpers.js';
 import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from './shared.js';
-import { gdEscape } from './godot-ops.js';
+import { gdEscape } from './shared.js';
 
 const TOOL_NAMES = ['test_assert', 'test_stress', 'export_list_presets', 'export_get_preset', 'export_build'] as const;
 
