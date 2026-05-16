@@ -651,13 +651,16 @@ function gdScriptSetLine(key: string, value: unknown): string {
   if (typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
     if (typeof obj.x === 'number' && typeof obj.y === 'number') {
+      if (!Number.isFinite(obj.x as number) || !Number.isFinite(obj.y as number)) return `# skipped ${key}: non-finite number in object`;
       if (typeof obj.z === 'number') {
+        if (!Number.isFinite(obj.z as number)) return `# skipped ${key}: non-finite number in object`;
         return `_try_set(node, "${gdEscape(key)}", Vector3(${obj.x}, ${obj.y}, ${obj.z}))`;
       }
       return `_try_set(node, "${gdEscape(key)}", Vector2(${obj.x}, ${obj.y}))`;
     }
     if (typeof obj.r === 'number' && typeof obj.g === 'number' && typeof obj.b === 'number') {
       const a = typeof obj.a === 'number' ? obj.a : 1.0;
+      if (!Number.isFinite(obj.r as number) || !Number.isFinite(obj.g as number) || !Number.isFinite(obj.b as number) || !Number.isFinite(a as number)) return `# skipped ${key}: non-finite number in object`;
       return `_try_set(node, "${gdEscape(key)}", Color(${obj.r}, ${obj.g}, ${obj.b}, ${a}))`;
     }
   }
