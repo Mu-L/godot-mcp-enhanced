@@ -35,6 +35,40 @@ status: active
 
 ---
 
+## v0.9.0 已完成（2026-05-16）
+
+基于 [v0.9.0 设计文档](docs/superpowers/specs/2026-05-16-v090-feature-upgrade-design.md)，工具数 100 → 117。
+
+### P0 — 性能优化
+
+- [x] Godot 二进制路径缓存（模块级变量）
+- [x] API 文档单条目缓存（extension_api.json）
+
+### P1 — UI/Theme 系统 + 架构重构
+
+- [x] godot-ops.ts 完整拆分为 signal-ops / node-3d-ops / physics-ops / audio-ops + nav 迁移（1112 行 → 0）
+- [x] UI/Theme 8 工具（ui_create_control / ui_set_layout / ui_get_layout / ui_anchor_preset / ui_set_theme / ui_container_add / theme_create / theme_set_property）
+
+### P2 — 高级动画编辑
+
+- [x] 5 个动画工具（animation_track / animation_keyframe / animation_curve / animation_blend / animtree_state_edit）
+
+### P3 — 录制/回放系统
+
+- [x] 5 个录制工具（recording_start / recording_stop / recording_save / recording_load / recording_play）
+
+### P4 — 编辑器插件扩展
+
+- [x] 3 个同步命令模块（ui_commands.gd / animation_commands.gd / recording_commands.gd）
+
+### 统计
+
+- 工具数: 100 → 117
+- 测试: 295 → 420+ 用例
+- 新依赖: 0
+
+---
+
 ## 之前版本已完成
 
 ### v0.7.0（2026-05-08）— 安全加固 + 代码质量

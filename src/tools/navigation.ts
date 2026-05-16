@@ -2,8 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
-import { normalizeNodePath, gdEscape, validateVector3 } from './godot-ops.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, validateVector3 } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -22,6 +21,7 @@ const TOOL_NAMES = [
   'nav_create_agent',
   'nav_set_params',
   'nav_create_link',
+  'nav_query_path',
 ] as const;
 
 // ─── GDScript Generators ──────────────────────────────────────────────────
@@ -209,6 +209,56 @@ func _initialize():
 `;
 }
 
+export function genNavQueryScript(
+  startPos: { x: number; y: number; z: number },
+  endPos: { x: number; y: number; z: number },
+  navigationRegion?: string
+): string {
+  let regionBlock: string;
+  if (navigationRegion) {
+    regionBlock = `\tvar region_node = _mcp_get_node("${gdEscape(navigationRegion)}")
+\tif region_node and region_node is NavigationRegion3D:
+\t\tmap_rid = NavigationServer3D.region_get_map(region_node.get_region_rid())
+\telse:
+\t\tvar maps = NavigationServer3D.get_maps()
+\t\tif maps.is_empty():
+\t\t\t_mcp_output("path", [])
+\t\t\t_mcp_output("path_length", 0)
+\t\t\t_mcp_output("warning", "No navigation data available")
+\t\t\t_mcp_done()
+\t\t\treturn
+\t\tmap_rid = maps[0]`;
+  } else {
+    regionBlock = `\tvar maps = NavigationServer3D.get_maps()
+\tif maps.is_empty():
+\t\t_mcp_output("path", [])
+\t\t_mcp_output("path_length", 0)
+\t\t_mcp_output("warning", "No navigation data available")
+\t\t_mcp_done()
+\t\treturn
+\tmap_rid = maps[0]`;
+  }
+
+  return `${SCENE_TREE_HEADER}
+
+func _initialize():
+\t_mcp_load_main_scene()
+\tvar map_rid: RID
+${regionBlock}
+\tvar start = Vector3(${startPos.x}, ${startPos.y}, ${startPos.z})
+\tvar end = Vector3(${endPos.x}, ${endPos.y}, ${endPos.z})
+\tvar path = NavigationServer3D.map_get_path(map_rid, start, end, true)
+\tvar path_data = []
+\tfor p in path:
+\t\tpath_data.append({"x": p.x, "y": p.y, "z": p.z})
+\t_mcp_output("path", path_data)
+\t_mcp_output("path_length", path_data.size())
+\tif path_data.is_empty():
+\t\t_mcp_output("warning", "No path found")
+\t_mcp_done()
+`;
+}
+
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
 export function getToolDefinitions(): Tool[] {
@@ -326,6 +376,31 @@ export function getToolDefinitions(): Tool[] {
         required: ['project_path', 'name', 'start_position', 'end_position'],
       },
     },
+    {
+      name: 'nav_query_path',
+      description: `Query 3D navigation path. ${NON_PERSIST}`,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          start_pos: {
+            type: 'object',
+            description: '起点 {x,y,z}',
+            properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
+            required: ['x', 'y', 'z'],
+          },
+          end_pos: {
+            type: 'object',
+            description: '终点 {x,y,z}',
+            properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
+            required: ['x', 'y', 'z'],
+          },
+          navigation_region: { type: 'string', description: 'NavigationRegion3D 节点路径（可选）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'start_pos', 'end_pos'],
+      },
+    },
   ];
 }
 
@@ -420,6 +495,14 @@ export async function handleTool(
         script = genCreateLinkScript(nodeName, parentPath, startPosition, endPosition, bidirectional);
         break;
       }
+      case 'nav_query_path': {
+        const startPos = validateVector3(args.start_pos);
+        const endPos = validateVector3(args.end_pos);
+        const navRegion = args.navigation_region as string | undefined;
+        const normalizedRegion = navRegion ? normalizeNodePath(navRegion) : undefined;
+        script = genNavQueryScript(startPos, endPos, normalizedRegion);
+        break;
+      }
       default:
         return null;
     }
@@ -459,4 +542,5 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   nav_create_agent: { readonly: false, long_running: false },
   nav_set_params: { readonly: false, long_running: false },
   nav_create_link: { readonly: false, long_running: false },
+  nav_query_path: { readonly: true, long_running: false },
 };

@@ -2,7 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { validatePath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape } from './godot-ops.js';
+import { normalizeNodePath, gdEscape } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -13,7 +13,10 @@ const TOOL_NAMES = [
   'animtree_add_transition',
   'animtree_set_blend',
   'animtree_play',
+  'animtree_state_edit',
 ] as const;
+
+export { TOOL_NAMES };
 
 const TREE_ROOT_TYPES = [
   'AnimationNodeStateMachine',
@@ -139,6 +142,34 @@ export function getToolDefinitions(): Tool[] {
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
         },
         required: ['project_path', 'node_path', 'state_name'],
+      },
+    },
+    {
+      name: 'animtree_state_edit',
+      description:
+        '编辑 AnimationTree 状态机中的状态属性：设置状态在编辑器中的位置，或设置混合参数。' +
+        NON_PERSIST,
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          project_path: { type: 'string', description: 'Godot 项目目录路径' },
+          node_path: { type: 'string', description: 'AnimationTree 节点路径' },
+          action: {
+            type: 'string',
+            enum: ['set_position', 'set_blend'],
+            description: '操作类型：set_position 设置状态位置，set_blend 设置混合参数',
+          },
+          state_name: { type: 'string', description: '状态名称（set_position 时必填）' },
+          position: {
+            type: 'object',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            description: '状态在编辑器中的位置（set_position 时必填）',
+          },
+          parameter_name: { type: 'string', description: '参数名称（set_blend 时必填）' },
+          value: { description: '参数值（set_blend 时必填，number 或 {x,y}）' },
+          load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+        },
+        required: ['project_path', 'node_path', 'action'],
       },
     },
   ];
@@ -288,6 +319,59 @@ func _initialize():
 `;
 }
 
+function genStateSetPosition(
+  nodePath: string,
+  stateName: string,
+  posX: number,
+  posY: number,
+): string {
+  return `${SCENE_TREE_HEADER}
+func _initialize():
+\t_mcp_load_main_scene()
+\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tif _tree == null or not (_tree is AnimationTree):
+\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_done()
+\t\treturn
+\tvar _sm: AnimationNodeStateMachine = _tree.tree_root
+\tif _sm == null or not (_sm is AnimationNodeStateMachine):
+\t\t_mcp_output("error", "Tree root is not a AnimationNodeStateMachine")
+\t\t_mcp_done()
+\t\treturn
+\tif not _sm.has_node("${gdEscape(stateName)}"):
+\t\t_mcp_output("error", "State not found: ${gdEscape(stateName)}")
+\t\t_mcp_done()
+\t\treturn
+\t_sm.set_node_position("${gdEscape(stateName)}", Vector2(${posX}, ${posY}))
+\t_mcp_output("result", {"state": "${gdEscape(stateName)}", "position": {"x": ${posX}, "y": ${posY}}})
+\t_mcp_done()
+`;
+}
+
+function genStateSetBlend(
+  nodePath: string,
+  paramName: string,
+  valueSrc: string,
+): string {
+  return `${SCENE_TREE_HEADER}
+func _initialize():
+\t_mcp_load_main_scene()
+\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tif _tree == null or not (_tree is AnimationTree):
+\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_done()
+\t\treturn
+\t_tree.set("${gdEscape(paramName)}", ${valueSrc})
+\t_mcp_output("result", {"parameter": "${gdEscape(paramName)}", "value": ${valueSrc}})
+\t_mcp_done()
+`;
+}
+
+export {
+  genStateSetPosition,
+  genStateSetBlend,
+};
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function ensureNumber(v: unknown, name: string): number {
@@ -392,6 +476,40 @@ export async function handleTool(
         break;
       }
 
+      case 'animtree_state_edit': {
+        const nodePath = normalizeNodePath(args.node_path as string);
+        const action = args.action as string;
+        if (!action) return opsErrorResult('INVALID_PARAMS', 'action is required');
+
+        if (action === 'set_position') {
+          const stateName = args.state_name as string;
+          const pos = args.position as { x?: number; y?: number } | undefined;
+          if (!stateName || !pos || pos.x === undefined || pos.y === undefined) {
+            return opsErrorResult('INVALID_PARAMS', 'state_name and position {x, y} required for set_position');
+          }
+          code = genStateSetPosition(nodePath, stateName, ensureNumber(pos.x, 'position.x'), ensureNumber(pos.y, 'position.y'));
+        } else if (action === 'set_blend') {
+          const paramName = args.parameter_name as string;
+          const value = args.value;
+          if (!paramName || value === undefined) {
+            return opsErrorResult('INVALID_PARAMS', 'parameter_name and value required for set_blend');
+          }
+          let valueSrc: string;
+          if (typeof value === 'number') {
+            valueSrc = String(value);
+          } else if (typeof value === 'object' && value !== null) {
+            const v = value as { x?: number; y?: number };
+            valueSrc = `Vector2(${ensureNumber(v.x, 'value.x')}, ${ensureNumber(v.y, 'value.y')})`;
+          } else {
+            return opsErrorResult('INVALID_PARAMS', 'value must be a number or {x, y} object');
+          }
+          code = genStateSetBlend(nodePath, paramName, valueSrc);
+        } else {
+          return opsErrorResult('INVALID_PARAMS', 'action must be "set_position" or "set_blend"');
+        }
+        break;
+      }
+
       default:
         return null;
     }
@@ -416,4 +534,5 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animtree_add_transition: { readonly: false, long_running: false },
   animtree_set_blend: { readonly: false, long_running: false },
   animtree_play: { readonly: false, long_running: false },
+  animtree_state_edit: { readonly: false, long_running: false },
 };

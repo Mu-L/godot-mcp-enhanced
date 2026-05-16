@@ -4,6 +4,41 @@ import type { ToolResult } from '../types.js';
 
 export const MARKER_RESULT = '___MCP_RESULT___';
 
+export const TYPE_WHITELIST = [
+  'Node3D', 'MeshInstance3D', 'StaticBody3D', 'RigidBody3D',
+  'CharacterBody3D', 'Camera3D', 'Light3D', 'DirectionalLight3D',
+  'OmniLight3D', 'SpotLight3D', 'CollisionShape3D', 'RayCast3D',
+  'Area3D', 'Marker3D', 'PathFollow3D', 'VisibleOnScreenNotifier3D',
+] as const;
+
+// ─── Helper Utilities ─────────────────────────────────────────────────────
+
+export function normalizeNodePath(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('NodePath cannot be empty');
+  if (trimmed.startsWith('res://')) throw new Error('NodePath must be a scene tree path (root/...), not a resource path (res://...)');
+  return trimmed.startsWith('/') ? trimmed : '/' + trimmed;
+}
+
+export function gdEscape(s: string): string {
+  return s
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/"/g, '\\"')
+    .replace(/\0/g, '');
+}
+
+export function validateVector3(v: unknown): { x: number; y: number; z: number } {
+  if (typeof v !== 'object' || v === null) throw new Error('Vector3 must be an object with x, y, z number fields');
+  const obj = v as Record<string, unknown>;
+  for (const key of ['x', 'y', 'z']) {
+    if (typeof obj[key] !== 'number' || !Number.isFinite(obj[key] as number)) throw new Error(`Vector3 field "${key}" must be a finite number`);
+  }
+  return { x: obj.x as number, y: obj.y as number, z: obj.z as number };
+}
+
 export const SCENE_TREE_HEADER = `extends SceneTree
 
 var _mcp_root: Node = null

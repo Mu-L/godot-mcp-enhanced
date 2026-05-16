@@ -15,6 +15,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
 
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface OutputEntry {

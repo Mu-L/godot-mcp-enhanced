@@ -10,9 +10,53 @@ import { textResult } from '../types.js';
 import { validatePath, resolveWithinRoot, parseMcpScriptOutput, normalizeUserProjectPath, checkVersionMismatch } from '../helpers.js';
 import { analyzeOutput, type AnalysisResult } from '../error-analyzer.js';
 
+// ─── Known base class methods/properties whitelist ───────────────────────────
+// The Godot headless parser cannot resolve inherited methods from base classes
+// (Node, Node2D, Control, CharacterBody, etc.), so legitimate calls are
+// incorrectly flagged as "not found in base self". This whitelist filters them.
+
+const KNOWN_BASE_METHODS: Set<string> = new Set([
+  // Node 核心
+  'add_child', 'remove_child', 'get_child', 'get_children', 'get_child_count',
+  'get_parent', 'get_tree', 'get_node', 'find_child', 'find_children',
+  'has_node', 'is_inside_tree', 'is_node_ready', 'queue_free', 'free',
+  'call_deferred', 'set_deferred', 'emit_signal', 'connect', 'disconnect',
+  'is_connected', 'get_name', 'set_name',
+  // 生命周期
+  '_ready', '_process', '_physics_process', '_input', '_unhandled_input',
+  '_unhandled_key_input', '_enter_tree', '_exit_tree',
+  // Node2D / Control
+  'position', 'rotation', 'scale', 'visible', 'modulate', 'z_index',
+  'get_global_mouse_position', 'get_viewport', 'get_viewport_rect',
+  'set_process', 'set_physics_process', 'set_process_input',
+  // CanvasItem 绘制
+  'draw_rect', 'draw_circle', 'draw_string', 'draw_line', 'queue_redraw',
+  'get_canvas_item', 'get_global_transform',
+  // CharacterBody
+  'move_and_slide', 'move_and_collide', 'velocity', 'floor',
+  'is_on_floor', 'is_on_wall', 'is_on_ceiling',
+  // PhysicsBody / RigidBody
+  'linear_velocity', 'angular_velocity', 'mass', 'bounce', 'friction',
+  'gravity_scale', 'apply_impulse', 'apply_force',
+  // Navigation
+  'get_rid', 'get_region',
+  // Shader / Material
+  'set_shader_parameter', 'canvas_item',
+  // Timer
+  'wait_time', 'autostart', 'one_shot',
+  // Resource / Object
+  'get_path', 'resource_path', 'get_resource', 'duplicate',
+]);
+
+export interface BatchValidateResult {
+  file: string;
+  errors: string[];
+  filtered_count?: number;
+}
+
 interface ExtendedAnalysisResult extends AnalysisResult {
   version_warning?: string;
-  precheck_errors?: Array<{ file: string; errors: string[] }>;
+  precheck_errors?: BatchValidateResult[];
   scene_tree?: unknown;
 }
 
@@ -57,7 +101,7 @@ export async function batchValidateScripts(
   projectPath: string,
   scriptFiles: string[],
   globalTimeoutMs: number = 15000
-): Promise<Array<{ file: string; errors: string[] }>> {
+): Promise<BatchValidateResult[]> {
   if (scriptFiles.length === 0) return [];
 
   let effectiveGodotPath = godotPath;
@@ -119,8 +163,23 @@ export async function batchValidateScripts(
   // Autoload errors (e.g. DataRegistry, PlayerData not available in headless) are
   // intentionally NOT filtered — users should know their scripts depend on autoloads.
   const isErrorFalsePositive = (line: string): boolean => {
+    // ScriptBus internal
     if (line.includes('not found in base self') && line.includes('ScriptBus')) return true;
+    // Godot engine noise
     if (line.includes('Condition') && line.includes('is true')) return true;
+
+    // 规则 1: 已知基类方法/属性 — "not found in base self" 但方法是合法继承的
+    if (line.includes('not found in base self')) {
+      for (const method of KNOWN_BASE_METHODS) {
+        if (line.includes('.' + method) || line.includes(method + '(')) return true;
+      }
+    }
+
+    // 规则 2: 虚拟方法签名不匹配 — _process/_ready 等重写签名差异
+    if (/Parse Error.*\b(_ready|_process|_physics_process|_input|_unhandled_input|_enter_tree|_exit_tree)\b/.test(line)) {
+      if (/signature|not found in base/.test(line)) return true;
+    }
+
     return false;
   };
 
@@ -158,6 +217,8 @@ export async function batchValidateScripts(
     return [{ file: '<validator>', errors: [output] }];
   }
 
+  let filteredCount = 0;
+
   try {
     const outputLines = output.split('\n');
 
@@ -174,8 +235,13 @@ export async function batchValidateScripts(
     let lastParseError = '';
     for (const line of outputLines) {
       const trimmed = line.trim();
-      if (trimmed.includes('Parse Error:') && !isErrorFalsePositive(trimmed)) {
-        lastParseError = trimmed;
+      if (trimmed.includes('Parse Error:')) {
+        if (isErrorFalsePositive(trimmed)) {
+          filteredCount++;
+          lastParseError = '';
+        } else {
+          lastParseError = trimmed;
+        }
       } else if (trimmed.startsWith('at:') && trimmed.includes('res://') && lastParseError) {
         for (const rel of scriptRels) {
           const normalizedRel = rel.replace(/\\/g, '/');
@@ -196,7 +262,16 @@ export async function batchValidateScripts(
     try { rmSync(validatorPath, { force: true }); } catch {}
   }
 
-  return Array.from(results.entries()).map(([file, errors]) => ({ file, errors }));
+  const finalResults: Array<{ file: string; errors: string[]; filtered_count?: number }> =
+    Array.from(results.entries()).map(([file, errors]) => ({ file, errors }));
+  if (filteredCount > 0) {
+    if (finalResults.length > 0) {
+      finalResults[0].filtered_count = filteredCount;
+    } else {
+      finalResults.push({ file: '<filtered>', errors: [], filtered_count: filteredCount });
+    }
+  }
+  return finalResults;
 }
 
 // ─── Common API pitfall scanner ─────────────────────────────────────────────
@@ -411,7 +486,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       const versionWarning = await checkVersionMismatch(projectPath, godot);
 
-      const precheckErrors: Array<{ file: string; errors: string[] }> = [];
+      const precheckErrors: BatchValidateResult[] = [];
       try {
         const allScripts = collectFilesByExt(projectPath, ['.gd']);
         const scriptsToCheck = allScripts.slice(0, 10);
@@ -640,7 +715,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       // Batch Godot parser validation
       const BATCH_SIZE = 20;
-      const allBatchResults: Array<{ file: string; errors: string[] }> = [];
+      const allBatchResults: BatchValidateResult[] = [];
       for (let i = 0; i < scriptsToValidate.length; i += BATCH_SIZE) {
         const batch = scriptsToValidate.slice(i, i + BATCH_SIZE);
         const batchResults = await batchValidateScripts(godot, p, batch, Math.min(perScriptTimeout * Math.max(batch.length, 5), 60) * 1000);
@@ -651,6 +726,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const results: Array<{ file: string; has_errors: boolean; errors: string[]; warnings?: string[] }> = [];
       let totalErrors = 0;
       let totalWarnings = 0;
+      let totalFiltered = 0;
+      for (const r of allBatchResults) {
+        if (r.filtered_count) totalFiltered += r.filtered_count;
+      }
       for (const sf of scriptsToValidate) {
         const rel = relOf(sf);
         const errs = errorMap.get(rel) || [];
@@ -699,6 +778,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         scripts: results,
         summary: summaryMsg,
       };
+
+      if (totalFiltered > 0) {
+        scriptsSummary.filtered_count = totalFiltered;
+      }
 
       if (shaderResults.length > 0) {
         scriptsSummary.shaders = shaderResults;

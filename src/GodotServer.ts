@@ -26,7 +26,9 @@ import * as scene from './tools/scene.js';
 import * as script from './tools/script.js';
 import * as validation from './tools/validation.js';
 import * as docs from './tools/docs.js';
-import * as godotOps from './tools/godot-ops.js';
+import * as node3dOps from './tools/node-3d-ops.js';
+import * as physicsOps from './tools/physics-ops.js';
+import * as audioOps from './tools/audio-ops.js';
 import * as tilemapOps from './tools/tilemap-ops.js';
 import * as materialOps from './tools/material-ops.js';
 import * as gameBridge from './tools/game-bridge.js';
@@ -38,13 +40,17 @@ import * as testFramework from './tools/test-framework.js';
 import * as animtreeOps from './tools/animtree.js';
 import * as navigationOps from './tools/navigation.js';
 import * as particlesOps from './tools/particles.js';
+import * as signalOps from './tools/signal-ops.js';
+import * as batchTools from './tools/batch-tools.js';
+import * as uiOps from './tools/ui-tools.js';
+import * as recordingOps from './tools/recording.js';
 import { requiresConfirmation, createPendingToken, consumeToken } from './guard.js';
 import { registerTools } from './core/tool-registry.js';
 import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 
-const toolModules = [runtime, screenshot, project, scene, script, validation, docs, godotOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps];
+const toolModules = [runtime, screenshot, project, scene, script, validation, docs, node3dOps, physicsOps, audioOps, tilemapOps, materialOps, gameBridge, workflow, animationOps, profilerOps, spatialOps, testFramework, animtreeOps, navigationOps, particlesOps, signalOps, batchTools, uiOps, recordingOps];
 
 // 注册工具标签
 const allMeta: Array<{ name: string; readonly: boolean; long_running: boolean }> = [];
@@ -71,6 +77,16 @@ const POSIX_CANDIDATES = [
 ];
 
 let godotPath: string | null = null;
+
+/** Clear the cached Godot binary path (useful for testing or after path changes). */
+export function clearGodotPathCache(): void {
+  godotPath = null;
+}
+
+/** Get the currently cached Godot binary path, or null if not yet resolved. */
+export function getCachedGodotPath(): string | null {
+  return godotPath;
+}
 
 function findInDirectory(dir: string): string | null {
   if (!existsSync(dir)) return null;
@@ -178,7 +194,7 @@ export class GodotServer {
     this.connectionMode = options.connectionMode ?? 'headless';
     this.noFallback = options.noFallback ?? false;
     this.server = new Server(
-      { name: 'godot-mcp-enhanced', version: '0.7.0' },
+      { name: 'godot-mcp-enhanced', version: '0.9.0' },
       { capabilities: { tools: {}, resources: {} } }
     );
     this.setupHandlers();
