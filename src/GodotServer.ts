@@ -195,7 +195,7 @@ export class GodotServer {
     this.connectionMode = options.connectionMode ?? 'headless';
     this.noFallback = options.noFallback ?? false;
     this.server = new Server(
-      { name: 'godot-mcp-enhanced', version: '0.9.0' },
+      { name: 'godot-mcp-enhanced', version: '0.10.0' },
       { capabilities: { tools: {}, resources: {} } }
     );
     this.setupHandlers();
