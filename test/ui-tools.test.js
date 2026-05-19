@@ -10,6 +10,7 @@ import {
   genUiSetThemeScript,
   genUiContainerAddScript,
   genUiDrawRecipeScript,
+  genUiBuildLayoutScript,
   genThemeCreateScript,
   genThemeSetPropertyScript,
   colorToGd,
@@ -378,6 +379,92 @@ describe('genUiDrawRecipeScript', () => {
     const ops = [{ kind: 'rect', position: [0, 0], size: [1, 1], color: [1, 1, 1] }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
     assert.ok(script.includes('if not node is Control:'));
+  });
+});
+
+// ─── genUiBuildLayoutScript ────────────────────────────────────────────────
+
+describe('genUiBuildLayoutScript', () => {
+  it('generates single node creation', () => {
+    const tree = { type: 'Button', name: 'MyButton' };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    assert.ok(script.includes('ClassDB.instantiate("Button")'));
+    assert.ok(script.includes('node.name = "MyButton"'));
+    assert.ok(script.includes('parent.add_child(node)'));
+    assert.ok(script.includes('_mcp_output("layout_built"'));
+  });
+
+  it('generates nested children', () => {
+    const tree = {
+      type: 'VBoxContainer', name: 'VBox',
+      children: [
+        { type: 'Button', name: 'Btn1' },
+        { type: 'Label', name: 'Lbl1' },
+      ],
+    };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    assert.ok(script.includes('ClassDB.instantiate("VBoxContainer")'));
+    assert.ok(script.includes('ClassDB.instantiate("Button")'));
+    assert.ok(script.includes('ClassDB.instantiate("Label")'));
+    assert.ok(script.includes('node.name = "Btn1"'));
+    assert.ok(script.includes('node.name = "Lbl1"'));
+  });
+
+  it('includes anchor_preset', () => {
+    const tree = { type: 'Panel', name: 'Bg', anchor_preset: 'full_rect' };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    assert.ok(script.includes('set_anchors_preset(15)'));
+  });
+
+  it('includes properties', () => {
+    const tree = { type: 'Label', name: 'Title', properties: { text: 'Hello' } };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    assert.ok(script.includes('node.set("text", "Hello")'));
+  });
+
+  it('throws for type not in whitelist', () => {
+    assert.throws(
+      () => genUiBuildLayoutScript('/scene.tscn', 'root', { type: 'Node3D', name: 'X' }),
+      /INVALID_CONTROL_TYPE/,
+    );
+  });
+
+  it('throws for empty name', () => {
+    assert.throws(
+      () => genUiBuildLayoutScript('/scene.tscn', 'root', { type: 'Button', name: '' }),
+      /name is required/,
+    );
+  });
+
+  it('throws for unknown anchor_preset', () => {
+    assert.throws(
+      () => genUiBuildLayoutScript('/scene.tscn', 'root', { type: 'Button', name: 'X', anchor_preset: 'invalid' }),
+      /INVALID_ANCHOR_PRESET/,
+    );
+  });
+
+  it('throws for recursion depth > 10', () => {
+    let tree = { type: 'Panel', name: 'L0', children: [] };
+    let current = tree;
+    for (let i = 1; i <= 11; i++) {
+      current.children = [{ type: 'Panel', name: `L${i}`, children: [] }];
+      current = current.children[0];
+    }
+    assert.throws(
+      () => genUiBuildLayoutScript('/scene.tscn', 'root', tree),
+      /Maximum nesting depth/,
+    );
+  });
+
+  it('allows depth exactly 10', () => {
+    let tree = { type: 'Panel', name: 'L0', children: [] };
+    let current = tree;
+    for (let i = 1; i <= 9; i++) {
+      current.children = [{ type: 'Panel', name: `L${i}`, children: [] }];
+      current = current.children[0];
+    }
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    assert.ok(script.includes('ClassDB.instantiate'));
   });
 });
 

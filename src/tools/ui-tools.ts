@@ -478,6 +478,97 @@ ${drawLines || '\t\tpass'}
 `;
 }
 
+// ─── ui_build_layout ─────────────────────────────────────────────────────────
+
+export type UiNodeSpec = {
+  type: string;
+  name: string;
+  properties?: Record<string, unknown>;
+  anchor_preset?: string;
+  children?: UiNodeSpec[];
+};
+
+const MAX_NESTING_DEPTH = 10;
+
+function validateUiNodeSpec(spec: UiNodeSpec, depth: number): void {
+  if (depth > MAX_NESTING_DEPTH) {
+    throw new Error(`Maximum nesting depth is ${MAX_NESTING_DEPTH}, exceeded at node "${spec.name}"`);
+  }
+  if (!CONTROL_TYPES.includes(spec.type as typeof CONTROL_TYPES[number])) {
+    throw new Error(`INVALID_CONTROL_TYPE: "${spec.type}" is not a whitelisted Control type`);
+  }
+  if (!spec.name) {
+    throw new Error('name is required for each UiNodeSpec');
+  }
+  if (spec.anchor_preset && !(spec.anchor_preset in ANCHOR_PRESETS)) {
+    throw new Error(`INVALID_ANCHOR_PRESET: "${spec.anchor_preset}"`);
+  }
+  if (spec.children) {
+    for (const child of spec.children) {
+      validateUiNodeSpec(child, depth + 1);
+    }
+  }
+}
+
+let _savedCounter = 0;
+
+function uiNodeToGd(spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string): string {
+  const anchorLine = spec.anchor_preset
+    ? `\n${indent}node.set_anchors_preset(${ANCHOR_PRESETS[spec.anchor_preset]})`
+    : '';
+  const propLines = spec.properties && Object.keys(spec.properties).length > 0
+    ? '\n' + Object.entries(spec.properties).map(
+        ([k, v]) => `${indent}node.set("${gdEscape(k)}", ${serializePropertyValue(v)})`
+      ).join('\n')
+    : '';
+
+  let lines = `${indent}node = ClassDB.instantiate("${gdEscape(spec.type)}")
+${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
+
+  if (spec.children && spec.children.length > 0) {
+    const savedIdx = _savedCounter++;
+    const savedVar = `_saved_${savedIdx}`;
+    lines += `\n${indent}var ${savedVar} = node`;
+    for (const child of spec.children) {
+      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent);
+    }
+    lines += `\n${indent}node = ${savedVar}`;
+  }
+
+  lines += `\n${indent}${parentVar}.add_child(node)
+${indent}node.owner = ${ownerVar}`;
+
+  return lines;
+}
+
+export function genUiBuildLayoutScript(
+  scenePath: string,
+  parentPath: string,
+  tree: UiNodeSpec,
+): string {
+  validateUiNodeSpec(tree, 1);
+
+  _savedCounter = 0;
+  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t');
+
+  return `${SCENE_TREE_HEADER}
+func _initialize():
+\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\t\t_mcp_done()
+\t\treturn
+\tvar root = _mcp_get_scene_node("${gdEscape(parentPath)}")
+\tif root == null:
+\t\t_mcp_output("error", "Parent not found: ${gdEscape(parentPath)}")
+\t\t_mcp_done()
+\t\treturn
+\tvar parent = root
+\tvar node: Node
+${buildBlock}
+\t_mcp_output("layout_built", {"parent": "${gdEscape(parentPath)}", "root_type": "${gdEscape(tree.type)}", "root_name": "${gdEscape(tree.name)}"})
+\t_mcp_done()
+`;
+}
+
 // ─── theme_create ──────────────────────────────────────────────────────────
 
 export function genThemeCreateScript(
