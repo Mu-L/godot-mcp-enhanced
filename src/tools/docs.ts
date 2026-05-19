@@ -8,6 +8,37 @@ import {
   getInheritanceChain,
 } from '../godot-docs.js';
 
+// ─── Deprecated property annotations (Godot 4.6) ────────────────────────────
+
+const DEPRECATED_PROPERTIES: Record<string, Record<string, { removed: boolean; replacement?: string }>> = {
+  "Environment": {
+    "adjustments_enabled": { removed: false, replacement: "adjustment_enabled" },
+    "adjustments_brightness": { removed: false, replacement: "adjustment_brightness" },
+    "adjustments_contrast": { removed: false, replacement: "adjustment_contrast" },
+    "adjustments_saturation": { removed: false, replacement: "adjustment_saturation" },
+    "tone_mapper": { removed: false, replacement: "tonemap_mode" },
+    "physically_based_lights_enabled": { removed: true },
+  },
+  "Node3D": {
+    "visibility_range_begin": { removed: false, replacement: "GeometryInstance3D.visibility_range_begin" },
+    "visibility_range_end": { removed: false, replacement: "GeometryInstance3D.visibility_range_end" },
+  },
+  "SoftBody3D": {
+    "mass": { removed: false, replacement: "total_mass" },
+    "linear_damping": { removed: false, replacement: "damping_coefficient" },
+  },
+  "RigidBody3D": {
+    "bounce": { removed: true, replacement: "PhysicsMaterial.bounce via physics_material_override" },
+    "friction": { removed: true, replacement: "PhysicsMaterial.friction via physics_material_override" },
+  },
+  "CylinderMesh": {
+    "radius": { removed: true, replacement: "top_radius 和 bottom_radius 分别设置" },
+  },
+  "FogMaterial": {
+    "albedo_color": { removed: false, replacement: "albedo" },
+  },
+};
+
 const TOOL_NAMES = [
   'get_class_info',
   'search_classes',
@@ -82,6 +113,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
       if (!info) {
         return textResult(`Class not found: ${className}`);
       }
+      const classDeprecated = DEPRECATED_PROPERTIES[className];
+      const deprecated_warnings = classDeprecated
+        ? Object.entries(classDeprecated).map(([name, info]) => ({
+            property: name,
+            removed: info.removed,
+            replacement: info.replacement ?? null,
+          }))
+        : [];
+
       const result = {
         name: info.name,
         inherits: info.inherits,
@@ -94,11 +134,20 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
           description: m.description,
         })),
         properties_count: info.properties.length,
-        properties: info.properties.map(p => ({
-          name: p.name,
-          type: p.type,
-          description: p.description,
-        })),
+        properties: info.properties.map(p => {
+          const deprecated = DEPRECATED_PROPERTIES[className]?.[p.name];
+          return {
+            name: p.name,
+            type: p.type,
+            description: p.description,
+            deprecated_notes: deprecated
+              ? (deprecated.removed
+                ? `已移除 (Godot 4.6)${deprecated.replacement ? '，替代: ' + deprecated.replacement : ''}`
+                : `已重命名 (Godot 4.6): 使用 ${deprecated.replacement}`)
+              : null,
+          };
+        }),
+        deprecated_warnings,
         signals_count: info.signals.length,
         signals: info.signals.map(s => ({
           name: s.name,
