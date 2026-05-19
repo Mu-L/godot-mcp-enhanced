@@ -152,7 +152,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const lintParts: string[] = [];
       for (const f of files) {
         if (f.path.endsWith('.gd') && !skipped.includes(normalizeUserProjectPath(f.path)) && !failed.some(e => e.path === normalizeUserProjectPath(f.path))) {
-          const lintOutput = lintGDScript(f.content as string, true);
+          const lintOutput = lintGDScript(f.content as string);
           const fmt = formatLintResults(lintOutput);
           if (fmt) lintParts.push(`[${f.path}]${fmt}`);
         }

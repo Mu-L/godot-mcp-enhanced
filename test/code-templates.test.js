@@ -15,7 +15,7 @@ describe('Code Templates', () => {
       const tpl = TEMPLATES.find(t => t.id === tt.id);
       assert.ok(tpl);
       const code = tpl.generate({});
-      const result = lintGDScript(code, true);
+      const result = lintGDScript(code);
       for (const ruleId of tt.rules) {
         const found = result.errors.find(e => e.rule === ruleId) || result.warnings.find(w => w.rule === ruleId);
         assert.ok(!found, `${tt.id} should not trigger ${ruleId}`);

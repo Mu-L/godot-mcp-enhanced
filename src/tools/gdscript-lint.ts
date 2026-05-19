@@ -22,8 +22,6 @@ export interface LintResult {
 
 export interface LintContext {
   precedingLines: string[];
-  functionBody?: string;
-  functionName?: string;
 }
 
 export interface LintOutput {
@@ -146,10 +144,6 @@ function extractContext(code: string, matchIndex: number): LintContext {
   const precedingLines = lines.slice(startLine, matchLine);
 
   return { precedingLines };
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean {
@@ -297,7 +291,7 @@ const RULES: LintRule[] = [
 
 // ─── Main Lint Function ────────────────────────────────────────────────────
 
-export function lintGDScript(code: string, skipSemantic: boolean = false): LintOutput {
+export function lintGDScript(code: string): LintOutput {
   const errors: LintResult[] = [];
   const warnings: LintResult[] = [];
   const lines = code.split('\n');
@@ -307,7 +301,7 @@ export function lintGDScript(code: string, skipSemantic: boolean = false): LintO
     if (rule.isCallOrder) {
       lintCallOrder(rule, functions, errors, warnings);
     } else {
-      lintRegex(rule, code, lines, errors, warnings, skipSemantic);
+      lintRegex(rule, code, lines, errors, warnings);
     }
   }
 
@@ -363,6 +357,8 @@ function lintCallOrder(
         break;
       }
       case "L016": {
+        // L016: Only detects variable-based patterns: add_child(var) followed by var.method()
+        // Does not detect inline: add_child(SomeClass.new()) — no variable to access
         const acReg = /add_child\s*\(\s*(\w+)\s*\)/g;
         let acMatch;
         while ((acMatch = acReg.exec(body)) !== null) {
@@ -386,8 +382,12 @@ function lintRegex(
   lines: string[],
   errors: LintResult[],
   warnings: LintResult[],
-  skipSemantic: boolean,
 ): void {
+  // Precompute line start offsets
+  const lineOffsets = new Uint32Array(lines.length + 1);
+  for (let i = 0; i < lines.length; i++) {
+    lineOffsets[i + 1] = lineOffsets[i] + lines[i].length + 1;
+  }
   const globalPattern = rule.pattern.global
     ? rule.pattern
     : new RegExp(rule.pattern.source, 'g');
@@ -398,12 +398,7 @@ function lintRegex(
     const lineNum = getLineNumber(code, matchIndex);
     const lineText = lines[lineNum - 1] || '';
 
-    // 计算 match 在当前行内的偏移
-    let lineStart = 0;
-    for (let i = 0; i < lineNum - 1; i++) {
-      lineStart += (lines[i] || '').length + 1;
-    }
-    const lineOffset = matchIndex - lineStart;
+    const lineOffset = matchIndex - lineOffsets[lineNum - 1];
 
     if (isInCommentOrString(lineText, Math.max(0, lineOffset))) continue;
 

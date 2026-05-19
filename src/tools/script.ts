@@ -267,7 +267,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       let lintSection = '';
       if (sp.endsWith('.gd')) {
-        const lintOutput = lintGDScript(content, true);
+        const lintOutput = lintGDScript(content);
         lintSection = formatLintResults(lintOutput);
       }
       return textResult(`Script written to ${sp} (${content.split('\n').length} lines)${lintSection}`);
@@ -331,7 +331,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           let editLintSection = '';
           if (fullPath.endsWith('.gd')) {
             const editedContent = readFileSync(fullPath, 'utf-8');
-            editLintSection = formatLintResults(lintGDScript(editedContent, true));
+            editLintSection = formatLintResults(lintGDScript(editedContent));
           }
 
           return textResult(`Edited ${fullPath}: replaced all ${count} occurrences of search text.${dw}${editLintSection}`);
@@ -370,7 +370,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         let editLintSection = '';
         if (fullPath.endsWith('.gd')) {
           const editedContent = readFileSync(fullPath, 'utf-8');
-          editLintSection = formatLintResults(lintGDScript(editedContent, true));
+          editLintSection = formatLintResults(lintGDScript(editedContent));
         }
 
         return textResult(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).${dw}${editLintSection}`);
@@ -468,7 +468,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       let editLintSection = '';
       if (fullPath.endsWith('.gd')) {
         const editedContent = readFileSync(fullPath, 'utf-8');
-        editLintSection = formatLintResults(lintGDScript(editedContent, true));
+        editLintSection = formatLintResults(lintGDScript(editedContent));
       }
 
       return textResult(`${diffHeader}\n${diffBody}${ctxBefore}${ctxAfter}${warnings}${skipNote}${editLintSection}`);
