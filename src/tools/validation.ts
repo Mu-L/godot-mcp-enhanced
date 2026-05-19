@@ -37,7 +37,7 @@ const KNOWN_BASE_METHODS: Set<string> = new Set([
   'move_and_slide', 'move_and_collide', 'velocity', 'floor',
   'is_on_floor', 'is_on_wall', 'is_on_ceiling',
   // PhysicsBody / RigidBody
-  'linear_velocity', 'angular_velocity', 'mass', 'bounce', 'friction',
+  'linear_velocity', 'angular_velocity', 'mass',
   'gravity_scale', 'apply_impulse', 'apply_force',
   // Navigation
   'get_rid', 'get_region',

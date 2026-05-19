@@ -237,4 +237,17 @@ describe('GDScript Lint', () => {
       assert.ok(!lintGDScript(code, true).warnings.some(w => w.rule === 'L016'));
     });
   });
+
+  describe('KNOWN_BASE_METHODS cleanup', () => {
+    it('RigidBody3D.mass 不触发 L006', () => {
+      assert.ok(!lintGDScript('var body := RigidBody3D.new()\nbody.mass = 2.0', true).errors.some(e => e.rule === 'L006'));
+    });
+    it('bounce 由 lint 接管', () => {
+      assert.ok(lintGDScript('var rb := RigidBody3D.new()\nrb.bounce = 0.4', true).errors.some(e => e.rule === 'L002'));
+    });
+    it('friction 清理后不崩溃', () => {
+      const r = lintGDScript('var rb := RigidBody3D.new()\nrb.friction = 0.3', true);
+      assert.ok(r.meta.rules_count > 0);
+    });
+  });
 });
