@@ -46,6 +46,12 @@ describe('TOOL_NAMES', () => {
   it('includes theme_set_property', () => {
     assert.ok(TOOL_NAMES.includes('theme_set_property'));
   });
+  it('includes ui_draw_recipe', () => {
+    assert.ok(TOOL_NAMES.includes('ui_draw_recipe'));
+  });
+  it('includes ui_build_layout', () => {
+    assert.ok(TOOL_NAMES.includes('ui_build_layout'));
+  });
 });
 
 // ─── genUiCreateControlScript ───────────────────────────────────────────────
@@ -638,6 +644,23 @@ describe('getToolDefinitions', () => {
     assert.ok(enumValues.includes('color'));
     assert.ok(enumValues.includes('constant'));
     assert.ok(enumValues.includes('stylebox'));
+  });
+  it('ui_draw_recipe has ops with kind enum', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'ui_draw_recipe');
+    assert.ok(def);
+    const kindEnum = def.inputSchema.properties.ops.items.properties.kind.enum;
+    assert.strictEqual(kindEnum.length, 7);
+    assert.ok(kindEnum.includes('rect'));
+    assert.ok(kindEnum.includes('string'));
+  });
+  it('ui_build_layout has tree with type enum', () => {
+    const defs = getToolDefinitions();
+    const def = defs.find(d => d.name === 'ui_build_layout');
+    assert.ok(def);
+    const typeEnum = def.inputSchema.properties.tree.properties.type.enum;
+    assert.ok(typeEnum.includes('Button'));
+    assert.ok(typeEnum.includes('VBoxContainer'));
   });
 });
 
