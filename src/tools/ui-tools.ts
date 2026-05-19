@@ -690,9 +690,9 @@ function applyAlignSelf(align: string, isRow: boolean, indent: string): string {
     }
   } else if (align === 'center') {
     if (isRow) {
-      return `\n${indent}node.size_flags_vertical = node.size_flags_vertical | Control.SIZE_SHRINK_CENTER`;
+      return `\n${indent}node.size_flags_vertical = (node.size_flags_vertical & ~Control.SIZE_EXPAND & ~Control.SIZE_FILL) | Control.SIZE_SHRINK_CENTER`;
     } else {
-      return `\n${indent}node.size_flags_horizontal = node.size_flags_horizontal | Control.SIZE_SHRINK_CENTER`;
+      return `\n${indent}node.size_flags_horizontal = (node.size_flags_horizontal & ~Control.SIZE_EXPAND & ~Control.SIZE_FILL) | Control.SIZE_SHRINK_CENTER`;
     }
   }
   return '';
@@ -848,7 +848,11 @@ export function genUiBuildLayoutScript(
   const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings);
 
   const warningLines = warnings.length > 0
-    ? `\n\t_mcp_output("warnings", ${JSON.stringify(warnings.map(w => ({ field: "layout", message: w })))})`
+    ? `\n\t_mcp_output("warnings", ${JSON.stringify(warnings.map(w => {
+      const dot = w.indexOf('.');
+      const field = dot > 0 ? w.substring(0, dot) : 'layout';
+      return { field, message: w };
+    }))})`
     : '';
 
   const rootType = tree.layout ? resolveFlexContainer(tree.layout).containerType : tree.type;
