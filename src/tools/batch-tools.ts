@@ -7,6 +7,7 @@ import { textResult } from '../types.js';
 import { validatePath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';
 import { analyzeOutput } from '../error-analyzer.js';
 import { batchValidateScripts } from './validation.js';
+import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { parseTscn } from '../tscn-parser.js';
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
@@ -148,7 +149,17 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
       }
 
-      return textResult(JSON.stringify(result, null, 2));
+      const lintParts: string[] = [];
+      for (const f of files) {
+        if (f.path.endsWith('.gd') && !skipped.includes(normalizeUserProjectPath(f.path)) && !failed.some(e => e.path === normalizeUserProjectPath(f.path))) {
+          const lintOutput = lintGDScript(f.content as string, true);
+          const fmt = formatLintResults(lintOutput);
+          if (fmt) lintParts.push(`[${f.path}]${fmt}`);
+        }
+      }
+      const lintSummary = lintParts.length > 0 ? '\n\nLint Results:\n' + lintParts.join('\n') : '';
+
+      return textResult(JSON.stringify(result, null, 2) + lintSummary);
     }
 
     case 'batch_run_verify': {
