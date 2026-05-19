@@ -167,7 +167,88 @@ const LINT_VERSION = {
 
 // ─── RULES (populated in Tasks 2-4) ────────────────────────────────────────
 
-const RULES: LintRule[] = [];
+const RULES: LintRule[] = [
+  // L003: CylinderMesh.radius
+  {
+    id: "L003",
+    severity: "error",
+    pattern: /CylinderMesh\w*\.radius\s*=/,
+    message: "CylinderMesh.radius 在 Godot 4 中不存在，需分别设置 top_radius 和 bottom_radius",
+    suggestion: "使用 mesh.top_radius = 0.5 和 mesh.bottom_radius = 0.5 分别设置",
+  },
+  // L004: Environment.adjustments_*
+  {
+    id: "L004",
+    severity: "error",
+    pattern: /\.adjustments_\w+\s*=/,
+    message: "Environment 的 adjustments_* 属性在 Godot 4 中不带 s，应为 adjustment_*",
+    suggestion: "将 adjustments_enabled → adjustment_enabled, adjustments_brightness → adjustment_brightness 等",
+  },
+  // L005: Environment.tone_mapper
+  {
+    id: "L005",
+    severity: "error",
+    pattern: /\.tone_mapper\s*=/,
+    message: "Environment.tone_mapper 在 Godot 4 中已重命名为 tonemap_mode",
+    suggestion: "使用 env.tonemap_mode = Environment.TONE_MAPPER_LINEAR",
+  },
+  // L006: SoftBody3D.mass
+  {
+    id: "L006",
+    severity: "error",
+    pattern: /SoftBody3D\w*\.mass\s*=/,
+    message: "SoftBody3D.mass 在 Godot 4 中已重命名为 total_mass",
+    suggestion: "使用 softbody.total_mass = 2.0",
+  },
+  // L008: ArrayMesh.create_triangle_shape
+  {
+    id: "L008",
+    severity: "error",
+    pattern: /\.create_triangle_shape\s*\(/,
+    message: "ArrayMesh.create_triangle_shape() 在 Godot 4 中不存在，应为 create_triangle_mesh()",
+    suggestion: "使用 mesh.create_triangle_mesh()",
+  },
+  // L009: Node.get_child_or_null
+  {
+    id: "L009",
+    severity: "error",
+    pattern: /\bget_child_or_null\s*\(/,
+    message: "Node.get_child_or_null() 在 Godot 4.x 中已移除，使用 get_child() 或 find_child()",
+    suggestion: "使用 get_child(index) 或 find_child(\"name\")",
+  },
+  // L010: FogMaterial.albedo_color
+  {
+    id: "L010",
+    severity: "error",
+    pattern: /FogMaterial\w*\.albedo_color\s*=/,
+    message: "FogMaterial.albedo_color 在 Godot 4 中已重命名为 albedo",
+    suggestion: "使用 fog.albedo = Color.RED",
+  },
+  // L011: Environment.physically_based_lights_enabled
+  {
+    id: "L011",
+    severity: "error",
+    pattern: /\.physically_based_lights_enabled\s*=/,
+    message: "Environment.physically_based_lights_enabled 在 Godot 4 中已移除",
+    suggestion: "此属性已移除，无直接替代方案",
+  },
+  // L012: Line2D.dash_pattern non-typed array
+  {
+    id: "L012",
+    severity: "error",
+    pattern: /\.dash_pattern\s*=\s*\[/,
+    message: "Line2D.dash_pattern 需要 PackedFloat32Array 类型，不能使用普通数组字面量",
+    suggestion: "使用 line.dash_pattern = PackedFloat32Array([1.0, 2.0])",
+  },
+  // L013: CharacterBody3D.body_entered
+  {
+    id: "L013",
+    severity: "error",
+    pattern: /CharacterBody\w*\.body_entered/,
+    message: "CharacterBody3D 不提供 body_entered 信号，应使用 Area3D 子节点进行碰撞检测",
+    suggestion: "添加 Area3D 子节点并连接其 body_entered/body_exited 信号",
+  },
+];
 
 // ─── Main Lint Function ────────────────────────────────────────────────────
 
