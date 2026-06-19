@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { readEditorSecret, waitForEditorSecret } from '../src/core/editor-auth.js';
+
+// Windows: restrictFileWindows 调 icacls 收紧+读回验证 ACL。测试 tmpdir 下 icacls 真实
+// spawn 失败(ENOENT/权限)→ readEditorSecret 误返 null(非生产 bug,生产在用户项目目录正常)。
+// mock execFileSync 让 ACL 验证通过,从而测 readEditorSecret/waitForEditorSecret 的读取逻辑。
+// _TEST_USER 匹配 userInfo().username(Windows process.env.USERNAME = 系统用户名)。
+const { _TEST_USER } = vi.hoisted(() => ({ _TEST_USER: process.env.USERNAME || process.env.USER || 'testuser' }));
+vi.mock('child_process', () => ({
+  execFileSync: vi.fn((_cmd, args) => Array.isArray(args) && args.length === 1 ? `${args[0]} ${_TEST_USER}:(R)` : ''),
+}));
 
 let tempDir = null;
 
