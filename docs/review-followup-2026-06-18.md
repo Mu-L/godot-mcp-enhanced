@@ -75,7 +75,10 @@ mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + i
 - **editor-auth ×5**:**已修复**(commit 88f3e1c):vi.mock child_process 让 restrictFileWindows 的
   icacls ACL 验证在测试 tmpdir 通过(真实 spawn 失败致 readEditorSecret 误 null)。
   隔离 ACL 安全检查,测读取/等待逻辑。9 passed。非生产 bug(生产 icacls 在用户项目目录正常)。
-- **e2e ×2**:Godot 真实超时(edit_node 10s)+性能(P3-skip 18.3s>15s)。
+- **e2e ×2**(P3-skip/edit_node):**实测推翻"环境慢"判断**(P3-import 首次 3.3s / edit_node 3.1s → Godot 根本不慢,10s testTimeout 绰绰有余)。真因 Windows 偶发卡顿 flaky。两次核验区分:
+  - ✅ **确定真 bug**(值得独立修,但**非 38s 主因**):gdscript-executor `close` 裸 rm 残留(line 1194,fire-and-forget rm EPERM 被吞)+ `retryRm` `_staging_` 二次删除失败(line 590)→ staging 目录累积。`cleanupOldSessions` 有 MAX_CLEANUP_PER_RUN=10 × 最坏 1.2s ≈ **12s 上限,解释不了 38s**。
+  - ❓ **未证实 38s 归因**:`runImport`(line 1007,spawn `--headless --import` 60s timeout)是漏掉的嫌疑 — 待验证 `needsImport` 在 P3-skip 是否误返回 true 触发重复 import。**根治方向:验证 runImport,非后台化 cleanup**(后台化只消 ≤12s)。
+  - 止血:P3-skip 放宽 15s→60s + FIXME 注释(commit 待提交)。详见 `D:\workspace\review\.claude\reviews\2026-06-19-godot-mcp-e2e-flaky-verification.md`。
 - MISSING_PARAM 全量扫描为空 → 非 B2 elicitation 回归。
 
 ---
