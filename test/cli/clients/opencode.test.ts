@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -81,5 +81,20 @@ describe('OpenCodeAdapter', () => {
     });
     expect(mcpAddCalls.length).toBe(0);
     expect(existsSync(join(TEST_DIR, 'opencode.json'))).toBe(true);
+  });
+
+  it('configure backs up corrupted opencode.json before overwriting (F3)', async () => {
+    const corrupt = '{ "mcp": { broken';
+    writeFileSync(join(TEST_DIR, 'opencode.json'), corrupt);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
+    await new OpenCodeAdapter().configure(TEST_DIR, '/godot', 'npx', ['godot-mcp-enhanced']);
+    const backups = readdirSync(TEST_DIR).filter(f => f.startsWith('opencode.json.corrupt.') && f.endsWith('.bak'));
+    expect(backups.length).toBe(1);
+    expect(readFileSync(join(TEST_DIR, backups[0]!), 'utf-8')).toBe(corrupt);
+    const cfg = JSON.parse(readFileSync(join(TEST_DIR, 'opencode.json'), 'utf-8'));
+    expect(cfg.mcp.godot.command).toEqual(['npx', 'godot-mcp-enhanced']);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

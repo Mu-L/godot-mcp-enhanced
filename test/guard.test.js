@@ -115,6 +115,27 @@ describe('createPendingToken + consumeToken', () => {
     const result = consumeToken('nonexistent_token_12345');
     expect(result).toBe(null);
   });
+
+  // S2: 截断(>10KB)的 execute_gdscript code 必须被标记,confirm 消费时据此拒绝执行
+  it('marks wasTruncated when an arg exceeds 10KB (S2)', () => {
+    const hugeCode = 'a'.repeat(11_000);
+    const token = createPendingToken('script', { action: 'execute_gdscript', code: hugeCode });
+    const result = consumeToken(token);
+    expect(result).toBeTruthy();
+    expect(result.wasTruncated).toBe(true);
+    // 截断后的 code 含 [truncated N chars] 标记,不再是原始完整内容
+    expect(typeof result.args.code).toBe('string');
+    expect(result.args.code.length).toBeLessThan(hugeCode.length);
+    expect(result.args.code).toMatch(/\[truncated \d+ chars\]/);
+  });
+
+  it('does NOT mark wasTruncated for small args (S2)', () => {
+    const token = createPendingToken('script', { action: 'execute_gdscript', code: 'print("hi")' });
+    const result = consumeToken(token);
+    expect(result).toBeTruthy();
+    expect(result.wasTruncated).toBeUndefined();
+    expect(result.args.code).toBe('print("hi")');
+  });
 });
 
 // ─── Property-based tests ───────────────────────────────────────────────

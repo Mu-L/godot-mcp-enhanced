@@ -358,6 +358,20 @@ describe('ToolDispatcher.handleCall', () => {
     expect(text).toContain('Invalid or expired');
   });
 
+  // [T6b] consumeToken 返回 wasTruncated → 拒绝执行(S2,ARGS_TRUNCATED)
+  it('refuses execution when token args were truncated (ARGS_TRUNCATED) (S2)', async () => {
+    mockConsumeToken.mockReturnValue({
+      toolName: 'script',
+      args: { action: 'execute_gdscript', code: 'a'.repeat(11_000) },
+      wasTruncated: true,
+    });
+    const dispatcher = createDispatcherForHandleCall();
+    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'truncated-token' } } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('ARGS_TRUNCATED');
+  });
+
   // [T7] confirm 分支二次 readOnlyGuard 检查
   it('re-checks readOnlyGuard for confirmed tool', async () => {
     const guard = createMockGuard(false);

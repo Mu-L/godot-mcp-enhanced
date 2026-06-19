@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { ClaudeCodeAdapter } from '../../../src/cli/clients/claude-code.js';
@@ -62,5 +62,24 @@ describe('ClaudeCodeAdapter', () => {
     expect(settings.otherSetting).toBe(true);
     expect(settings.mcpServers.other.command).toBe('other');
     expect(settings.mcpServers.godot.command).toBe('npx');
+  });
+
+  it('configure backs up corrupted settings.json before overwriting (F3)', async () => {
+    const claudeDir = join(testDir, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    const settingsPath = join(claudeDir, 'settings.json');
+    const corrupt = '{ "mcpServers": { broken';
+    writeFileSync(settingsPath, corrupt);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await adapter.configure(testDir, '/godot', 'npx', ['godot-mcp-enhanced']);
+    // 原始损坏内容已备份(不丢失用户数据)
+    const backups = readdirSync(claudeDir).filter(f => f.startsWith('settings.json.corrupt.') && f.endsWith('.bak'));
+    expect(backups.length).toBe(1);
+    expect(readFileSync(join(claudeDir, backups[0]!), 'utf-8')).toBe(corrupt);
+    // 新文件是合法 JSON 且含 godot
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    expect(settings.mcpServers.godot.command).toBe('npx');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

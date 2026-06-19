@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { CursorAdapter } from '../../../src/cli/clients/cursor.js';
@@ -57,5 +57,22 @@ describe('CursorAdapter', () => {
   it('isConfigured returns true after configure', async () => {
     await adapter.configure(testDir, '/godot', 'npx', ['godot-mcp-enhanced']);
     expect(await adapter.isConfigured(testDir)).toBe(true);
+  });
+
+  it('configure backs up corrupted mcp.json before overwriting (F3)', async () => {
+    const cursorDir = join(testDir, '.cursor');
+    mkdirSync(cursorDir, { recursive: true });
+    const mcpPath = join(cursorDir, 'mcp.json');
+    const corrupt = '{ "mcpServers": { broken';
+    writeFileSync(mcpPath, corrupt);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await adapter.configure(testDir, '/godot', 'npx', ['godot-mcp-enhanced']);
+    const backups = readdirSync(cursorDir).filter(f => f.startsWith('mcp.json.corrupt.') && f.endsWith('.bak'));
+    expect(backups.length).toBe(1);
+    expect(readFileSync(join(cursorDir, backups[0]!), 'utf-8')).toBe(corrupt);
+    const config = JSON.parse(readFileSync(mcpPath, 'utf-8'));
+    expect(config.mcpServers.godot.command).toBe('npx');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

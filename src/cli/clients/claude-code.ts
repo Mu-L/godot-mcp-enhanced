@@ -3,6 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
+import { readJsonConfigWithBackup } from './json-config.js';
 
 export class ClaudeCodeAdapter implements ClientAdapter {
   name = 'Claude Code';
@@ -24,10 +25,8 @@ export class ClaudeCodeAdapter implements ClientAdapter {
     const claudeDir = join(projectDir, '.claude');
     const settingsPath = join(claudeDir, 'settings.json');
     if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
-    let settings: Record<string, unknown> = {};
-    if (existsSync(settingsPath)) {
-      try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')); } catch { /* ignore */ }
-    }
+    // F3: 损坏 JSON 时备份原文件 + warn,不静默覆盖用户配置
+    const settings = readJsonConfigWithBackup(settingsPath);
     if (!settings.mcpServers) settings.mcpServers = {};
     (settings.mcpServers as Record<string, unknown>).godot = {
       command: mcpCommand,

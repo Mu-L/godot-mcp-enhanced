@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
+import { readJsonConfigWithBackup } from './json-config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,10 +32,8 @@ export class OpenCodeAdapter implements ClientAdapter {
 
   async configure(projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {
     const configPath = join(projectDir, 'opencode.json');
-    let config: Record<string, unknown> = {};
-    if (existsSync(configPath)) {
-      try { config = JSON.parse(readFileSync(configPath, 'utf-8')); } catch { /* ignore */ }
-    }
+    // F3: 损坏 JSON 时备份原文件 + warn,不静默覆盖用户配置
+    const config = readJsonConfigWithBackup(configPath);
     if (!config.mcp) config.mcp = {};
     // opencode local MCP 配置:command 数组 + environment 对象(见 mcp.ts local 分支)
     (config.mcp as Record<string, unknown>).godot = {

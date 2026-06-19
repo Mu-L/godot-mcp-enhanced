@@ -321,9 +321,13 @@ export async function killOrphanGodotProcesses(projectDir: string): Promise<numb
       const ps = spawn('powershell', [
         '-NoProfile', '-Command',
         // I-01 fix: use ('*'+$path+'*') instead of "*$path*" to avoid $ expansion in -like
+        // D4 fix: -like treats '['/']'/'*'/'?' as wildcards → path containing them mismatches.
+        //         Switch the path test to literal .Contains($path); keep '-like ''*--path*'''
+        //         (literal, no wildcard chars). '$_.CommandLine -and' guards null/empty
+        //         (-and short-circuits before .Contains so null CommandLine won't throw).
         `$path = '${safePath}'; ` +
         `Get-CimInstance Win32_Process -Filter "Name LIKE 'Godot%'" | ` +
-        `Where-Object { $_.CommandLine -like '*--path*' -and $_.CommandLine -like ('*' + $path + '*') } | ` +
+        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) } | ` +
         `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 

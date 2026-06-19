@@ -491,4 +491,22 @@ describe('killOrphanGodotProcesses', () => {
     const count = await killOrphanGodotProcesses('/some/project');
     expect(count).toBe(0);
   });
+
+  it('Windows: uses literal .Contains($path) for matching, not -like wildcard (D4)', async () => {
+    // 非 Windows 走 pgrep 分支,不 spawn powershell — 仅 Windows 验证命令字符串
+    if (process.platform !== 'win32') return;
+    spawn.mockClear();
+    // 路径含 [ ] 会让 -like 通配符误判;修复后用 .Contains 精确匹配
+    const weirdPath = 'D:/my[game]/proj';
+    await killOrphanGodotProcesses(weirdPath);
+    const psCall = spawn.mock.calls.find(c => c[0] === 'powershell');
+    expect(psCall).toBeDefined();
+    const cmd = psCall[1].find(a => typeof a === 'string' && a.includes('Where-Object'));
+    expect(cmd).toBeDefined();
+    // D4:路径匹配用 .Contains($path) 字面量,不再用 -like ('*'+$path+'*') 通配符
+    expect(cmd).toContain('.Contains($path)');
+    expect(cmd).not.toMatch(/-like\s+\('\*'\s*\+\s*\$path/);
+    // $path 值被注入(escapePsSingleQuote 仅转义单引号,方括号原样保留)
+    expect(cmd).toContain(weirdPath);
+  });
 });
