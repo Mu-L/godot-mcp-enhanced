@@ -153,7 +153,7 @@ function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean 
 const LINT_VERSION = {
   godot_target: "4.7",
   last_reviewed: "2026-06-19",
-  rules_count: 22,
+  rules_count: 24,
 };
 
 // ─── RULES (populated in Tasks 2-4) ────────────────────────────────────────
@@ -345,6 +345,22 @@ const RULES: LintRule[] = [
       const recent = context.precedingLines.slice(-5).join('\n');
       return recent.includes('_process') || recent.includes('_physics_process');
     },
+  },
+  // L023: RichTextLabel ImageUpdateMask 枚举重命名 (Godot 4.7, GH-112617)
+  {
+    id: "L023",
+    severity: "error",
+    pattern: /ImageUpdateMask\.UPDATE_WIDTH_IN_PERCENT/,
+    message: "RichTextLabel.ImageUpdateMask.UPDATE_WIDTH_IN_PERCENT 在 Godot 4.7 已重命名为 UPDATE_WIDTH_UNIT",
+    suggestion: "使用 ImageUpdateMask.UPDATE_WIDTH_UNIT(Godot 4.7+)",
+  },
+  // L024: AudioEffectSpectrumAnalyzer.tap_back_pos 移除 (Godot 4.7, GH-114355)
+  {
+    id: "L024",
+    severity: "error",
+    pattern: /\.tap_back_pos\b/,
+    message: "AudioEffectSpectrumAnalyzer.tap_back_pos 在 Godot 4.7 已移除",
+    suggestion: "移除 tap_back_pos 用法(Godot 4.7 迁移指南 GH-114355)",
   },
 ];
 
