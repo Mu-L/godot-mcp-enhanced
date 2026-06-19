@@ -1086,6 +1086,30 @@ describe('ToolDispatcher: findGodot override propagation (CR-1/CR-2)', () => {
     expect(resolved).toBe('/pending/godot.exe');
   });
 
+  // [G1] C-CONC-1: 并发派发时 findGodot override 必须隔离(局部变量,不串)。
+  // 模拟 MCP SDK Promise.resolve().then 并发派发多个 tools/call。若用实例字段存 override,
+  // 后发调用会覆盖先发 → 两调用 ctx.findGodot 都返回同一值(串)。局部变量沿调用链传递则隔离。
+  it('concurrent dispatches isolate findGodot override (G1, C-CONC-1)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    // 用 project_path + findGodotSpy(无 godot_path → 走项目感知 findGodot,不触发 validate 真实 spawn)
+    const findGodotSpy = vi.fn((p?: string) => Promise.resolve(`/godot/for/${p ?? 'default'}`));
+    const dispatcher = makeDispatcher({ readOnlyGuard: guard, findGodot: findGodotSpy });
+
+    await Promise.all([
+      dispatcher.handleCall({ params: { name: 'scene', arguments: { project_path: '/proj/A' } } }),
+      dispatcher.handleCall({ params: { name: 'scene', arguments: { project_path: '/proj/B' } } }),
+    ]);
+
+    expect(mockModule.handleTool).toHaveBeenCalledTimes(2);
+    // 各调用的 ctx.findGodot 返回各自的 override(基于该调用 project_path)— 不串
+    const results = await Promise.all(
+      mockModule.handleTool.mock.calls.map(c => (c[2] as { findGodot: () => Promise<string> }).findGodot()),
+    );
+    expect(results.sort()).toEqual(['/godot/for//proj/A', '/godot/for//proj/B']);
+  });
+
   // [FG4] 无 godot_path 无 project_path → findGodot 以 undefined 调用(回退默认查找逻辑)
   it('falls back to default findGodot(undefined) when no godot_path and no project_path', async () => {
     const guard = createMockGuard(false);

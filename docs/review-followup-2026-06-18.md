@@ -54,6 +54,14 @@ push back: **C2**(SubResource.id 类型统一方向歧义+消费者/引用风险
   **F6**(doctor.ts Grep 无 opencode,报告路径误判)。
 **P4**(G1/G2 测试加固): 留后续。
 
+### ✅ P4 本会话处理（2026-06-19）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| G1 | 并发派发 findGodot override 隔离测试 | ToolDispatcher.test, C-CONC-1(Promise.all 两调用不串 override) |
+
+push back: **G2**(已有 `path-security.test.ts` + `security-paths.test.js` 覆盖 path 安全;deny-by-default 专项测试需 env 操控 UNRESTRICTED/ALLOWED_ROOTS 较复杂,留后续)。
+
 ### ⏸ C4 push back（2026-06-19）
 
 mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + id 映射重写 + 碰撞分配)。
