@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import fc from 'fast-check';
 import { parseTscn, parseTscnSummary } from '../src/tscn-parser.js';
 
@@ -10,6 +10,21 @@ function toSerializable(result) {
 }
 
 describe('parseTscn', () => {
+  it('warns when input has no [gd_scene] header (C1)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseTscn('[ext_resource type="Script" path="res://x.gd" id="1"]\n[node name="A" type="Node"]');
+    expect(result.header).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no [gd_scene] header'));
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn for valid input with [gd_scene] header (C1)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    parseTscn('[gd_scene load_steps=1 format=2]\n[node name="A" type="Node"]');
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('[gd_scene] header'));
+    warnSpy.mockRestore();
+  });
+
   it('parses a minimal scene with one node', () => {
     const content = `[gd_scene load_steps=2 format=3]
 
