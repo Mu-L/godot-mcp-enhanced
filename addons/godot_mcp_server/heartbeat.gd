@@ -64,6 +64,12 @@ func pause_for_operation(timeout_sec: float, peer_id: int = -1) -> void:
 
 func resume() -> void:
 	_is_paused = false
-	for key in _peer_activity:
-		_peer_activity[key].activity = 0.0
-		_peer_activity[key].ping = 0.0
+	# E5: 仅重置被 pause 的 peer(_operation_peer_id),不波及其他 peer 的活动/ping 计时
+	if _operation_peer_id >= 0 and _peer_activity.has(_operation_peer_id):
+		_peer_activity[_operation_peer_id].activity = 0.0
+		_peer_activity[_operation_peer_id].ping = 0.0
+	else:
+		for key in _peer_activity:
+			_peer_activity[key].activity = 0.0
+			_peer_activity[key].ping = 0.0
+	_operation_peer_id = -1
