@@ -153,7 +153,6 @@ function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean 
 const LINT_VERSION = {
   godot_target: "4.7",
   last_reviewed: "2026-06-19",
-  rules_count: 24,
 };
 
 // ─── RULES (populated in Tasks 2-4) ────────────────────────────────────────
@@ -361,6 +360,14 @@ const RULES: LintRule[] = [
     pattern: /\.tap_back_pos\b/,
     message: "AudioEffectSpectrumAnalyzer.tap_back_pos 在 Godot 4.7 已移除",
     suggestion: "移除 tap_back_pos 用法(Godot 4.7 迁移指南 GH-114355)",
+  },
+  // L025: Control.accessibility_live 枚举命名空间变更 (Godot 4.7, GH-116839)
+  {
+    id: "L025",
+    severity: "error",
+    pattern: /DisplayServer\.ACCESSIBILITY_LIVE/,
+    message: "Control.accessibility_live 在 Godot 4.7 改用 AccessibilityServer 命名空间(DisplayServer.ACCESSIBILITY_LIVE_* 已移除)",
+    suggestion: "使用 AccessibilityServer.ACCESSIBILITY_LIVE_*(Godot 4.7+,GH-116839)",
   },
 ];
 

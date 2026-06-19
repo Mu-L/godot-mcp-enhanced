@@ -360,6 +360,45 @@ describe('GDScript Lint', () => {
       expect(!lintGDScript('# var node = get_node("Label")').warnings.some(w => w.rule === 'L022')).toBeTruthy();
     });
   });
+
+  // L023
+  describe('L023 RichTextLabel ImageUpdateMask 重命名', () => {
+    it('命中: UPDATE_WIDTH_IN_PERCENT', () => {
+      expect(lintGDScript('label.image_mark = ImageUpdateMask.UPDATE_WIDTH_IN_PERCENT').errors.some(e => e.rule === 'L023')).toBeTruthy();
+    });
+    it('忽略: UPDATE_WIDTH_UNIT 合法(4.7)', () => {
+      expect(!lintGDScript('label.image_mark = ImageUpdateMask.UPDATE_WIDTH_UNIT').errors.some(e => e.rule === 'L023')).toBeTruthy();
+    });
+    it('边界: 注释中不触发', () => {
+      expect(!lintGDScript('# ImageUpdateMask.UPDATE_WIDTH_IN_PERCENT').errors.some(e => e.rule === 'L023')).toBeTruthy();
+    });
+  });
+
+  // L024
+  describe('L024 AudioEffectSpectrumAnalyzer.tap_back_pos 移除', () => {
+    it('命中: tap_back_pos 属性访问', () => {
+      expect(lintGDScript('var pos = analyzer.tap_back_pos').errors.some(e => e.rule === 'L024')).toBeTruthy();
+    });
+    it('忽略: tap_back_position(不同名,边界不触发)', () => {
+      expect(!lintGDScript('var pos = analyzer.tap_back_position').errors.some(e => e.rule === 'L024')).toBeTruthy();
+    });
+    it('边界: 注释中不触发', () => {
+      expect(!lintGDScript('# analyzer.tap_back_pos').errors.some(e => e.rule === 'L024')).toBeTruthy();
+    });
+  });
+
+  // L025
+  describe('L025 Control.accessibility_live 命名空间变更', () => {
+    it('命中: DisplayServer.ACCESSIBILITY_LIVE_*', () => {
+      expect(lintGDScript('control.accessibility_live = DisplayServer.ACCESSIBILITY_LIVE_POLITE').errors.some(e => e.rule === 'L025')).toBeTruthy();
+    });
+    it('忽略: AccessibilityServer.ACCESSIBILITY_LIVE_* 合法(4.7)', () => {
+      expect(!lintGDScript('control.accessibility_live = AccessibilityServer.ACCESSIBILITY_LIVE_POLITE').errors.some(e => e.rule === 'L025')).toBeTruthy();
+    });
+    it('边界: 注释中不触发', () => {
+      expect(!lintGDScript('# DisplayServer.ACCESSIBILITY_LIVE_POLITE').errors.some(e => e.rule === 'L025')).toBeTruthy();
+    });
+  });
 });
 
 describe('Property: gdscript-lint fuzz', () => {
