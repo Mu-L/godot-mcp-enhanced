@@ -30,6 +30,15 @@ export function forceKillTree(proc: ChildProcess): void {
       proc.kill();
     }
   } else {
+    // P1.2: POSIX 对等 Windows taskkill /T — 先 pkill -P 杀直接子进程(Godot 可能
+    // spawn 导入/资源工具子进程),再 kill 主进程。pkill 失败不阻断主进程 kill。
+    if (proc.pid) {
+      try {
+        spawn('pkill', ['-P', String(proc.pid)], { stdio: 'ignore' });
+      } catch (err) {
+        getLogger().debug('process-state', `pkill failed, falling back to proc.kill: ${err}`);
+      }
+    }
     proc.kill('SIGTERM');
   }
 }

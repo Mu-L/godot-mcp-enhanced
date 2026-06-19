@@ -252,6 +252,17 @@ describe('forceKillTree', () => {
       expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
     }
   });
+
+  it('kills child process tree via pkill -P on POSIX (P1.2)', () => {
+    // POSIX 分支在 win32 不执行(isWin 模块常量于加载时固化,无法本机翻转)。
+    // 本测试在 Linux/CI 上走 RED→GREEN;win32 下 skip。P1.2 真实验证依赖 CI Linux。
+    if (process.platform === 'win32') return;
+    const proc = makeMockProc({ killed: false, pid: 4242 });
+    forceKillTree(proc);
+    // 对等 Windows taskkill /T:先 pkill -P 杀直接子进程,再 kill 主进程
+    expect(spawn).toHaveBeenCalledWith('pkill', ['-P', '4242'], { stdio: 'ignore' });
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+  });
 });
 
 // ─── killProcess ─────────────────────────────────────────────────────────────
