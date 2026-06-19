@@ -41,6 +41,19 @@ push back: **D5**(acquireProcessSlot enqueueAsync 竞态概率极低+根治需�
 **E4**(UndoRedo 4 文件大改 + 一致性非 bug,应作独立 epic)。
 报告路径误判: EditorConnection 在 `src/core/`(报告少 `core/`)。
 
+### ✅ P3 本会话处理（2026-06-19, commit 487a50a）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| C3 | scene-merge parseSub regex CRLF 不健壮 → `\r?\n\[` lookahead | scene-merge.ts |
+| E5 | heartbeat resume() 重置所有 peer → 仅 `_operation_peer_id` | heartbeat.gd, validate 0 |
+
+push back: **C2**(SubResource.id 类型统一方向歧义+消费者/引用风险) /
+  **F4**(codex --args,memory `cli-clients-mcp-add-contracts` 已记"正确勿改") /
+  **F5**(config-parser 边界保护,防御性低价值) /
+  **F6**(doctor.ts Grep 无 opencode,报告路径误判)。
+**P4**(G1/G2 测试加固): 留后续。
+
 ### ⏸ C4 push back（2026-06-19）
 
 mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + id 映射重写 + 碰撞分配)。
