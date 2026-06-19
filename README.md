@@ -594,7 +594,7 @@ Client: ReadResource("godot://script/scripts/player.gd") → GDScript 源码
 
 ## 系统要求
 
-- Godot Engine 4.x（已测试 4.6+）
+- Godot Engine 4.x（已测试 4.7；4.6/4.5 向后兼容）
 - Node.js >= 18
 - GUT 插件（用于 `run_tests` 工具）
 

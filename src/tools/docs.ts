@@ -13,6 +13,13 @@ const TOOL_NAMES = ['docs'] as const;
 
 // ─── API Version hints (static, lightweight) ──────────────────────────────────
 
+const NEW_IN_47 = new Set([
+  'DrawableTexture',  // 4.7 新:shader 实时更新纹理(GPU 内存,类 blit_rect 但 GPU 加速)
+  'AreaLight3D',      // 4.7 新:矩形光源节点
+  'VirtualJoystick',  // 4.7 新:虚拟摇杆节点(触摸控制)
+  'RichTextLabel',    // 4.7 image API 显著变更(ImageUpdateMask.UPDATE_WIDTH_IN_PERCENT→UPDATE_WIDTH_UNIT、add_image/update_image 参数类型重命名)
+]);
+
 const NEW_IN_46 = new Set([
   'AnimatedSprite2D',  // 已有但 API 有变化
   'TileMapLayer',       // 替代 TileMap (4.6 正式)
@@ -43,6 +50,7 @@ const NEW_IN_44 = new Set([
 ]);
 
 function getVersionNote(className: string): string {
+  if (NEW_IN_47.has(className)) return 'New or significantly changed in Godot 4.7';
   if (NEW_IN_46.has(className)) return 'New or significantly changed in Godot 4.6';
   if (NEW_IN_45.has(className)) return 'New in Godot 4.5';
   if (NEW_IN_44.has(className)) return 'New in Godot 4.4';

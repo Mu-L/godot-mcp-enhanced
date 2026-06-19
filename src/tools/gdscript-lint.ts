@@ -151,8 +151,8 @@ function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean 
 // ─── Lint Metadata ──────────────────────────────────────────────────────────
 
 const LINT_VERSION = {
-  godot_target: "4.6",
-  last_reviewed: "2026-05-31",
+  godot_target: "4.7",
+  last_reviewed: "2026-06-19",
   rules_count: 22,
 };
 
