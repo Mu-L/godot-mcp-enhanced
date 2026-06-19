@@ -372,6 +372,37 @@ describe('ToolDispatcher.handleCall', () => {
     expect(text).toContain('ARGS_TRUNCATED');
   });
 
+  // [B2] elicitation middleware 强制顶层 required(elicitFn=null,纯校验)
+  it('rejects calls missing top-level required params with MISSING_PARAM (B2)', async () => {
+    mockGetAllToolDefinitions.mockReturnValue([
+      { name: 'scene', description: 'x', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } },
+      ...FIXTURE_TOOLS,
+    ]);
+    mockRequiresConfirmation.mockReturnValue(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall();
+    const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('MISSING_PARAM');
+    expect(text).toContain('action');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  it('passes through when required params are present (B2)', async () => {
+    mockGetAllToolDefinitions.mockReturnValue([
+      { name: 'scene', description: 'x', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } },
+      ...FIXTURE_TOOLS,
+    ]);
+    mockRequiresConfirmation.mockReturnValue(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall();
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'read_scene' } } });
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+
   // [T7] confirm 分支二次 readOnlyGuard 检查
   it('re-checks readOnlyGuard for confirmed tool', async () => {
     const guard = createMockGuard(false);
