@@ -15,6 +15,33 @@
 | F1 | generate-doc-db.js execSync 命令注入 → execFileSync 数组参数 | 35afe1b |
 | F2 | `.cursor/mcp.json` 本地路径 git 跟踪 → example 化 + gitignore | 35afe1b |
 
+### ✅ P1 本会话处理（2026-06-19, commit ddcd40c / 11ae93a / f162c46）
+
+| # | 标题 | 提交 | 说明 |
+|---|---|---|---|
+| F3 | cli clients 损坏JSON静默覆盖 → readJsonConfigWithBackup 备份+warn | ddcd40c | claude-code/cursor/opencode 三处 |
+| D4 | killOrphanGodotProcesses -like 通配符 → .Contains($path)+null 守卫 | ddcd40c | 路径含 `[`/`]` 误判 |
+| S2 | confirm_and_execute 截断 args 拒绝(代码已修) → 补测试 | ddcd40c | guard 单元 + dispatcher ARGS_TRUNCATED 端到端 |
+| B2 | 接线 elicitation 强制 required + 修 error 缺 isError | 11ae93a | 接线暴露 isError 既 bug(MCP 协议合规) |
+| C1 | parseTscn 无 `[gd_scene]` 头 warn(防御性) | f162c46 | sawGdSceneHeader 标志 |
+
+**报告误判澄清**:S2 实际已修(35afe1b 之后,仅缺测试);C4 文件已迁移到 `src/tools/scene/scene-merge.ts`;
+B2 审计确认 elicitFn 生产 null(无交互)+顶层 required 几乎全是 `['action']`(已被 validateCommonArgs 覆盖)。
+
+### ⏸ C4 push back（2026-06-19）
+
+mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + id 映射重写 + 碰撞分配)。
+报告说的"已有悬空"是输入质量(ours/theirs 自身悬空,Godot 不生成),极罕见。
+加全量引用校验需解析所有 node 引用比对定义,复杂低价值。报告自评低优先 → push back。
+
+### ⚠️ 全量测试环境失败（非本次回归,2026-06-19）
+
+全量 2693/2700 passed,7 failed 全环境:
+- **editor-auth ×5**:readEditorSecret 的 checkFilePermissions 在 Windows tmpdir 判权限不安全 → null。
+  疑似 editor-auth 模块 Windows 兼容问题(可能影响 Windows editor 模式),待单独排查。
+- **e2e ×2**:Godot 真实超时(edit_node 10s)+性能(P3-skip 18.3s>15s)。
+- MISSING_PARAM 全量扫描为空 → 非 B2 elicitation 回归。
+
 ---
 
 ## ⏸ push back（报告自述 / 技术理由，非阻断）
