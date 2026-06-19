@@ -60,7 +60,8 @@ push back: **C2**(SubResource.id 类型统一方向歧义+消费者/引用风险
 |---|---|---|
 | G1 | 并发派发 findGodot override 隔离测试 | ToolDispatcher.test, C-CONC-1(Promise.all 两调用不串 override) |
 
-push back: **G2**(已有 `path-security.test.ts` + `security-paths.test.js` 覆盖 path 安全;deny-by-default 专项测试需 env 操控 UNRESTRICTED/ALLOWED_ROOTS 较复杂,留后续)。
+push back: ~~G2~~ → **已做**(commit 88f3e1c):isPathInAllowedRoots deny-by-default 专项测试
+  (path-security.test.ts,无 ALLOWED+非 UNRESTRICTED → cwd 外路径返回 false,C-07)。12 passed。
 
 ### ⏸ C4 push back（2026-06-19）
 
@@ -71,8 +72,9 @@ mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + i
 ### ⚠️ 全量测试环境失败（非本次回归,2026-06-19）
 
 全量 2693/2700 passed,7 failed 全环境:
-- **editor-auth ×5**:readEditorSecret 的 checkFilePermissions 在 Windows tmpdir 判权限不安全 → null。
-  疑似 editor-auth 模块 Windows 兼容问题(可能影响 Windows editor 模式),待单独排查。
+- **editor-auth ×5**:**已修复**(commit 88f3e1c):vi.mock child_process 让 restrictFileWindows 的
+  icacls ACL 验证在测试 tmpdir 通过(真实 spawn 失败致 readEditorSecret 误 null)。
+  隔离 ACL 安全检查,测读取/等待逻辑。9 passed。非生产 bug(生产 icacls 在用户项目目录正常)。
 - **e2e ×2**:Godot 真实超时(edit_node 10s)+性能(P3-skip 18.3s>15s)。
 - MISSING_PARAM 全量扫描为空 → 非 B2 elicitation 回归。
 
