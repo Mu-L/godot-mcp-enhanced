@@ -28,6 +28,19 @@
 **报告误判澄清**:S2 实际已修(35afe1b 之后,仅缺测试);C4 文件已迁移到 `src/tools/scene/scene-merge.ts`;
 B2 审计确认 elicitFn 生产 null(无交互)+顶层 required 几乎全是 `['action']`(已被 validateCommonArgs 覆盖)。
 
+### ✅ P2 本会话处理（2026-06-19, commit c5f0ccf）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| E3 | recording `_recorded_events` 无限增长 OOM → 降采样(16ms)+上限(50000) | recording_commands.gd, validate 0 |
+| B1 | editor 绕过 response-limiter → 两返回点包 truncateResponse | ToolDispatcher, +测试 |
+| D2 | scheduleReconnect 无 jitter + 不检查 reconnectEnabled → jitter+检查 | EditorConnection |
+| D3 | `_disconnectHandler` 清 syncActive 错乱 → 不清(保留意图,重连恢复) | EditorToolExecutor |
+
+push back: **D5**(acquireProcessSlot enqueueAsync 竞态概率极低+根治需锁架构) /
+**E4**(UndoRedo 4 文件大改 + 一致性非 bug,应作独立 epic)。
+报告路径误判: EditorConnection 在 `src/core/`(报告少 `core/`)。
+
 ### ⏸ C4 push back（2026-06-19）
 
 mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + id 映射重写 + 碰撞分配)。
