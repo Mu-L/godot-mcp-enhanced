@@ -464,6 +464,26 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockExecutor.execute).toHaveBeenCalledWith('scene', expect.objectContaining({ action: 'add_node', project_path: '/default/project' }));
   });
 
+  // [B1] editor 模式大响应也经 truncateResponse(修复 editor 绕过 response-limiter)
+  it('truncates large editor responses via truncateResponse (B1)', async () => {
+    const prev = process.env.GODOT_MCP_RESPONSE_LIMIT;
+    process.env.GODOT_MCP_RESPONSE_LIMIT = 'true';
+    try {
+      const guard = createMockGuard(false);
+      const hugeText = 'x'.repeat(2.2 * 1024 * 1024); // >2MB 触发 truncateResponse warning 分支
+      const hugeResult = { content: [{ type: 'text' as const, text: hugeText }] };
+      const mockExecutor = { execute: vi.fn().mockResolvedValue(hugeResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+      const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+      dispatcher.setEditorExecutor(mockExecutor);
+      const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'read_scene' } } });
+      expect(result.content.length).toBeGreaterThan(1);
+      expect(result.content.some(c => 'text' in c && c.text.includes('exceeds 2MB'))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GODOT_MCP_RESPONSE_LIMIT;
+      else process.env.GODOT_MCP_RESPONSE_LIMIT = prev;
+    }
+  });
+
   // [T13] editor 模式 executor 为 null → fallback headless
   it('falls back to headless when executor is null in editor mode', async () => {
     const guard = createMockGuard(false);

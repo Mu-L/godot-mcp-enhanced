@@ -438,6 +438,7 @@ export class EditorConnection {
   }
 
   private scheduleReconnect(): void {
+    if (!this.reconnectEnabled) return;  // D2: disconnect()/exhaust 后不再重连(catch 分支调本方法时也要拦)
     if (this.reconnectTimer) return;
     if (this.reconnectAttempt >= this.maxReconnectAttempts) {
       getLogger().error('editor', `Max reconnect attempts (${this.maxReconnectAttempts}) reached, giving up`);
@@ -448,10 +449,12 @@ export class EditorConnection {
       for (const handler of this.reconnectExhaustedHandlers) handler();
       return;
     }
-    const delay = Math.min(
+    const base = Math.min(
       this.reconnectBaseMs * Math.pow(2, this.reconnectAttempt),
       this.maxReconnectMs,
     );
+    // D2: 加 jitter 防多实例同时重连风暴(thundering herd)
+    const delay = base + Math.floor(Math.random() * this.reconnectBaseMs);
     this.reconnectAttempt++;
     getLogger().warn('editor', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`);
     this.reconnectTimer = setTimeout(async () => {

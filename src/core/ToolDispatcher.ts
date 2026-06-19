@@ -284,7 +284,7 @@ export class ToolDispatcher {
           const content = hasDuration
             ? editorResult.content
             : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-          return this.attachFallbackWarning({ ...editorResult, content });
+          return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
         }
         return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride));
       }
@@ -319,7 +319,7 @@ export class ToolDispatcher {
         const content = hasDuration
           ? editorResult.content
           : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-        return this.attachFallbackWarning({ ...editorResult, content });
+        return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
       }
 
       // ── 5. headless dispatch ──
