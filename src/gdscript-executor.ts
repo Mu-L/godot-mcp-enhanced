@@ -533,9 +533,14 @@ async function cleanupOldSessions(): Promise<void> {
   // IMPORTANT-11: 单次清理上限防卡——累积多时每目录 retryRm 退避(最坏 1.2s)拖慢 gdscript 执行。
   // 超出目录下次 cleanup 兜底(1h TTL,不丢)。
   const MAX_CLEANUP_PER_RUN = 10;
+  // IMPORTANT-12 (38s flaky 根治): 单次 cleanup 总耗时上限。staging 累积时 retryRm 每目录最坏
+  // 1.2s 退避,仅 MAX_CLEANUP_PER_RUN=10 仍可阻塞 ~12s;累积更多(实测 31 个)叠加每次
+  // executeGdscript 触发的 cleanup 致 P3 偶发 38s。加 2s 预算,超时停止本次,残留下次兜底(1h TTL)。
+  const CLEANUP_BUDGET_MS = 2000;
   let processed = 0;
   for (const entry of entries) {
     if (processed >= MAX_CLEANUP_PER_RUN) break;
+    if (Date.now() - now > CLEANUP_BUDGET_MS) break;
     // I-02: Also clean up staging dirs (renamed by retryRm on Windows)
     if (!entry.startsWith(TMP_PREFIX) && !entry.startsWith('_staging_')) continue;
     try {
@@ -1191,7 +1196,9 @@ export async function executeGdscript(
       const stderr = Buffer.concat(stderrChunks).toString('utf-8');
       releaseShortRunningSlot();
       // Cleanup session directory (fire-and-forget async)
-      rm(sessionDir, { recursive: true, force: true }).catch(() => {});
+      // A-07: retryRm 处理 Windows EPERM(Godot 退出瞬间短暂持有 .gd 句柄)。原裸 rm 静默吞错致
+      // sessionDir 残留累积,实测触发 cleanupOldSessions 的 retryRm 退避阻塞主路径 38s flaky。
+      retryRm(sessionDir).catch(() => {});
 
       const rawOutput = stdout + stderr;
       const duration = Date.now() - startTime;
