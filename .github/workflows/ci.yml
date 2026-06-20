@@ -62,4 +62,11 @@ jobs:
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
       - name: Run E2E (real Godot integration)
-        run: npx vitest run test/e2e-full-tool-verification.test.ts
+        run: npx vitest run test/e2e-full-tool-verification.test.ts --reporter=json --outputFile=coverage/e2e-report.json
+      - name: Upload e2e-report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: coverage/e2e-report.json
+          if-no-files-found: warn
