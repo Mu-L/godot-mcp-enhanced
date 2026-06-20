@@ -307,6 +307,23 @@ describe('project-tools handleTool — create_project', () => {
     expect(existsSync(join(newProject, 'assets'))).toBe(true);
   });
 
+  it('derives config/features and hello string from godot_version param', async () => {
+    const ctx = createMockCtx();
+    const newProject = join(dir, 'VerProject');
+
+    const result = await callProject('create_project', {
+      project_path: newProject,
+      project_name: 'VerProject',
+      godot_version: '4.7',
+    }, ctx);
+
+    expect(result.content[0].text).toContain('Project created successfully');
+    const projectGodot = readFileSync(join(newProject, 'project.godot'), 'utf-8');
+    expect(projectGodot).toContain('config/features=PackedStringArray("4.7")');
+    const mainGd = readFileSync(join(newProject, 'scripts', 'main.gd'), 'utf-8');
+    expect(mainGd).toContain('Hello, Godot 4.7!');
+  });
+
   it('refuses to create if project.godot already exists', async () => {
     const ctx = createMockCtx();
     makeGodotProject(dir);

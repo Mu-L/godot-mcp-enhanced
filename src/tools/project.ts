@@ -154,6 +154,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
     case 'create_project': {
       const p = requireProjectPath(args);
+      // godot_version 接入:features / hello 串 / CI 模板统一从此参数派生(消除 "4.6" 硬编码漂移)。
+      // config_version=5 对所有 Godot 4.x 成立(4.7 仍为 5),不做投机性 bump。
+      const godotVersion = (args.godot_version as string) || '4.4';
       const projectName = (args.project_name as string) || basename(p);
       const renderer = (args.renderer as string) || 'forward_plus';
       const validRenderers = ['forward_plus', 'mobile', 'gl_compatibility'];
@@ -177,7 +180,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         '',
         'config/name="' + projectName.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"',
         'run/main_scene="res://scenes/main.tscn"',
-        'config/features=PackedStringArray("4.6")',
+        'config/features=PackedStringArray("' + godotVersion + '")',
         '',
         '[display]',
         '',
@@ -206,7 +209,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         'extends Node2D',
         '',
         'func _ready() -> void:',
-        "\tprint(\"Hello, Godot 4.6!\")",
+        '\tprint("Hello, Godot ' + godotVersion + '!")',
         '',
       ].join('\n');
       writeFileSync(join(p, 'scripts', 'main.gd'), mainGd, 'utf-8');
