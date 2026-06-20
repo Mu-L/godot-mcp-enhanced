@@ -6,7 +6,7 @@
 
 | 维度 | 权重 | 数据源 | 硬否决 |
 |---|---|---|---|
-| integration | 0.30 | test/e2e-full(M2) | < 80 |
+| integration | 0.30 | test/e2e-full(vitest json)✅ | < 80 |
 | coverage | 0.20 | coverage/lcov.info | — |
 | security | 0.20 | npm audit/AgentShield(M1.5) | < 60 |
 | flaky | 0.10 | 重跑矩阵(M3) | — |
