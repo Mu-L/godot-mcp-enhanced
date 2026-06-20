@@ -41,4 +41,20 @@ describe('generateScore', () => {
     const s = generateScore({ lcovPath: LCOV, outPath: OUT });
     expect(() => new Date(s.generatedAt).toISOString()).not.toThrow();
   });
+
+  it('有 e2e json → integration 维度有值,通过率 = passed/(passed+failed)', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n')); // coverage 100
+    const E2E = resolve(TMP, 'e2e.json');
+    writeFileSync(E2E, JSON.stringify({
+      numTotalTests: 40, numPassedTests: 36, numFailedTests: 4, numPendingTests: 0,
+    })); // integration 36/40 = 90
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, e2eReportPath: E2E });
+    expect(s.dimensions.integration.score).toBe(90);
+    expect(s.dimensions.integration.status).toBe('pass');
+    expect(s.unverified).not.toContain('integration');
+    expect(s.unverified).not.toContain('coverage');
+    // 仍 partial(security/flaky/performance/gdscript 4 维 na)
+    expect(s.partial).toBe(true);
+    expect(s.unverified).toHaveLength(4);
+  });
 });

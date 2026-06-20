@@ -9,7 +9,8 @@ const invoked = arg1 !== undefined && resolve(arg1) === entry;
 if (invoked) {
   const lcovPath = resolve(process.cwd(), 'coverage/lcov.info');
   const outPath = resolve(process.cwd(), 'coverage/score.json');
-  const score = generateScore({ lcovPath, outPath });
+  const e2eReportPath = resolve(process.cwd(), 'coverage/e2e-report.json');
+  const score = generateScore({ lcovPath, outPath, e2eReportPath });
   process.stdout.write(
     `score: ${score.total} pass=${score.pass} partial=${score.partial} unverified=${score.unverified.length} → ${outPath}\n`,
   );
