@@ -23,6 +23,17 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
       - run: npx vitest run --coverage
+      - name: Generate score.json (M1, non-blocking)
+        run: |
+          npm run build
+          npm run score || true
+        continue-on-error: true
+      - name: Upload score.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-json
+          path: coverage/score.json
+          if-no-files-found: warn
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
