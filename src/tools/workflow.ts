@@ -477,7 +477,12 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar instance: Node = packed.instantiate()
-\t_mcp_get_root().add_child(instance)
+\tvar _root: Node = _mcp_get_root()
+\tif _root == null:
+\t\t_mcp_output("error", "Scene root not available")
+\t\t_mcp_done()
+\t\treturn
+\t_root.add_child(instance)
 \tvar data := _snap(instance, ${maxDepth}, 0)
 \t_mcp_output("snapshot", data)
 \tinstance.queue_free()

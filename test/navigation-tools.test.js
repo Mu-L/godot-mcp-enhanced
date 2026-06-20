@@ -4,6 +4,9 @@ import {
   TOOL_META,
   handleTool,
   genNavQueryScript,
+  genCreateRegionScript,
+  genCreateAgentScript,
+  genCreateLinkScript,
 } from '../src/tools/navigation.js';
 
 const fakeCtx = { findGodot: async () => '/fake/godot' };
@@ -175,5 +178,29 @@ describe('genNavQueryScript', () => {
       { x: 0, y: 0, z: 0 },
     );
     expect(script.includes('Vector3(0, 0, 0)')).toBeTruthy();
+  });
+});
+
+// ─── null root guard (defect: gdscript-gen-null-root-deref 回归) ──────────────
+// _mcp_get_root() 可返回 null(gdscript-executor.ts:829)。set_owner 前必须判空,
+// 与 gdscript-templates.ts 既定模式(_mcp_load_scene 等)一致,不裸链 set_owner(_mcp_get_root())。
+
+describe('gen scripts — _mcp_get_root() null guard before set_owner', () => {
+  it('genCreateRegionScript 判空 root(不裸链 set_owner(_mcp_get_root()))', () => {
+    const script = genCreateRegionScript('NavReg', 'root', { x: 0, y: 0, z: 0 }, false);
+    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
+  });
+
+  it('genCreateAgentScript 判空 root', () => {
+    const script = genCreateAgentScript('Agent', 'root', { x: 0, y: 0, z: 0 }, 0.5, 1.0, false);
+    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
+  });
+
+  it('genCreateLinkScript 判空 root', () => {
+    const script = genCreateLinkScript('Link', 'root', { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, true);
+    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
   });
 });

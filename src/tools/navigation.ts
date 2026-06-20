@@ -28,7 +28,7 @@ const ACTIONS = [
 
 // ─── GDScript Generators ──────────────────────────────────────────────────
 
-function genCreateRegionScript(
+export function genCreateRegionScript(
   nodeName: string,
   parentPath: string,
   position: { x: number; y: number; z: number },
@@ -51,7 +51,9 @@ func _initialize():
 \t_nav.name = "${gdEscape(nodeName)}"
 \t_nav.position = Vector3(${ff(position.x)}, ${ff(position.y)}, ${ff(position.z)})
 \tparent.add_child(_nav)
-\t_nav.set_owner(_mcp_get_root())
+\tvar _root: Node = _mcp_get_root()
+\tif _root != null:
+\t\t_nav.set_owner(_root)
 \tvar _mesh = NavigationMesh.new()
 \t_nav.navigation_mesh = _mesh
 ${bakeBlock}
@@ -81,7 +83,7 @@ func _initialize():
 `;
 }
 
-function genCreateAgentScript(
+export function genCreateAgentScript(
   nodeName: string,
   parentPath: string,
   targetPosition: { x: number; y: number; z: number },
@@ -101,7 +103,9 @@ func _initialize():
 \tvar _agent = NavigationAgent3D.new()
 \t_agent.name = "${gdEscape(nodeName)}"
 \tparent.add_child(_agent)
-\t_agent.set_owner(_mcp_get_root())
+\tvar _root: Node = _mcp_get_root()
+\tif _root != null:
+\t\t_agent.set_owner(_root)
 \t_agent.target_position = Vector3(${targetPosition.x}, ${targetPosition.y}, ${targetPosition.z})
 \t_agent.path_desired_distance = ${pathDesiredDistance}
 \t_agent.target_desired_distance = ${targetDesiredDistance}
@@ -179,7 +183,7 @@ ${setBlock}
 `;
 }
 
-function genCreateLinkScript(
+export function genCreateLinkScript(
   nodeName: string,
   parentPath: string,
   startPosition: { x: number; y: number; z: number },
@@ -198,7 +202,9 @@ func _initialize():
 \tvar _link = NavigationLink3D.new()
 \t_link.name = "${gdEscape(nodeName)}"
 \tparent.add_child(_link)
-\t_link.set_owner(_mcp_get_root())
+\tvar _root: Node = _mcp_get_root()
+\tif _root != null:
+\t\t_link.set_owner(_root)
 \t_link.start_position = Vector3(${startPosition.x}, ${startPosition.y}, ${startPosition.z})
 \t_link.end_position = Vector3(${endPosition.x}, ${endPosition.y}, ${endPosition.z})
 \t_link.bidirectional = ${bidirectional}
