@@ -33,3 +33,11 @@ pass 线 = 75。n/a 维度权重按比例重分配给有值维度。
 - `npm run score:gate` 读 `coverage/score.json`,未过门禁(`total < 75` 或 `hardFails` 非空)→ exit 1
 - CI check job 接入 gate,质量回归阻断 PR 合并
 - partial(na 维)不阻断——只进报告,不影响门禁(M3c-e 接入前 3 维 na)
+
+## PR Comment(M3b-PR)
+
+- `npm run score:pr-comment` 读 `coverage/score.json` → 产 `coverage/pr-comment.md`(PR 专用摘要,比 score-report.md 简短)
+- CI 用 `marocchino/sticky-pull-comment@v2` 贴到 PR(更新同一条,不堆积)
+- gate 失败也贴(`if: always`,展示 fail 原因 + 各维分数,帮 review 定位回归)
+- comment 层 `continue-on-error`:与 gate status check 隔离(评论/sticky 失败不拖红 PR)
+- 已知 gap:score.json 缺失(score 步骤失败)时不贴评论(根因上游 M1 `continue-on-error`,留后续)

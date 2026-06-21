@@ -7,6 +7,9 @@ on:
 
 jobs:
   check:
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -33,6 +36,17 @@ jobs:
         continue-on-error: true
       - name: Score gate (M3b)
         run: npm run score:gate
+      - name: Score pr-comment (M3b-PR)
+        if: always()
+        continue-on-error: true
+        run: npm run score:pr-comment
+      - name: Sticky PR comment (M3b-PR)
+        if: always() && matrix.node-version == '22' && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-comment@v2
+        with:
+          header: scoring-pr-comment
+          path: coverage/pr-comment.md
       - name: Upload score.json
         if: always()
         uses: actions/upload-artifact@v4
