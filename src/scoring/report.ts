@@ -1,5 +1,5 @@
 import type { ScoreJson, DimensionName, DimensionResult } from './types.js';
-import { NA_SCORE } from './dimensions.js';
+import { NA_SCORE, DIM_ORDER } from './dimensions.js';
 
 const STATUS_BADGE: Record<string, string> = {
   pass: '✅ pass',
@@ -7,8 +7,6 @@ const STATUS_BADGE: Record<string, string> = {
   fail: '❌ fail',
   na: '⊘ na',
 };
-
-const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security', 'flaky', 'performance', 'gdscript'];
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;

@@ -21,3 +21,6 @@ export const PASS_LINE = 75;
 
 /** 未采集哨兵值 */
 export const NA_SCORE = -1;
+
+/** 维度渲染顺序(所有渲染器共用,避免 report/pr-comment 双真相源) */
+export const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security', 'flaky', 'performance', 'gdscript'];
