@@ -73,4 +73,13 @@ describe('generateScore', () => {
     expect(s.partial).toBe(true); // integration/flaky/performance/gdscript 仍 na
     expect(s.unverified).toHaveLength(4);
   });
+
+  it('写 score-report.md(M3b),内容含总分 + 标题', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT });
+    const reportPath = OUT.replace('score.json', 'score-report.md');
+    const md = readFileSync(reportPath, 'utf8');
+    expect(md).toContain('质量评分报告');
+    expect(md).toContain(String(s.total));
+  });
 });

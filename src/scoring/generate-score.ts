@@ -5,6 +5,7 @@ import { collectCoverage } from './collectors/coverage.js';
 import { collectIntegration } from './collectors/integration.js';
 import { collectSecurity } from './collectors/security.js';
 import { WEIGHTS, NA_SCORE } from './dimensions.js';
+import { renderScoreReport } from './report.js';
 
 export interface GenerateScoreOptions {
   lcovPath: string;
@@ -42,5 +43,7 @@ export function generateScore(opts: GenerateScoreOptions): ScoreJson {
     generatedAt: new Date().toISOString(),
   });
   writeFileSync(opts.outPath, JSON.stringify(score, null, 2) + '\n', 'utf8');
+  const reportPath = opts.outPath.replace(/score\.json$/, 'score-report.md');
+  writeFileSync(reportPath, renderScoreReport(score), 'utf8');
   return score;
 }
