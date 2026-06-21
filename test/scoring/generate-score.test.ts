@@ -57,4 +57,20 @@ describe('generateScore', () => {
     expect(s.partial).toBe(true);
     expect(s.unverified).toHaveLength(4);
   });
+
+  it('有 audit json → security 维度有值,severity 扣分', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n')); // coverage 100
+    const AUD = resolve(TMP, 'audit.json');
+    writeFileSync(AUD, JSON.stringify({
+      auditReportVersion: 2, vulnerabilities: {},
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0, total: 2 } },
+    })); // security 100-20=80
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, auditJsonPath: AUD });
+    expect(s.dimensions.security.score).toBe(80);
+    expect(s.dimensions.security.status).toBe('pass');
+    expect(s.unverified).not.toContain('security');
+    expect(s.unverified).not.toContain('coverage');
+    expect(s.partial).toBe(true); // integration/flaky/performance/gdscript 仍 na
+    expect(s.unverified).toHaveLength(4);
+  });
 });

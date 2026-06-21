@@ -32,6 +32,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "score": "node build/scoring/cli.js",
+    "audit:json": "npm audit --json --registry=https://registry.npmjs.org",
     "test:integration": "vitest run test/integration",
     "test:all": "vitest run",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",

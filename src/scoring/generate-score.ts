@@ -3,6 +3,7 @@ import type { DimensionName, DimensionResult, ScoreJson } from './types.js';
 import { computeScore } from './aggregate.js';
 import { collectCoverage } from './collectors/coverage.js';
 import { collectIntegration } from './collectors/integration.js';
+import { collectSecurity } from './collectors/security.js';
 import { WEIGHTS, NA_SCORE } from './dimensions.js';
 
 export interface GenerateScoreOptions {
@@ -11,6 +12,8 @@ export interface GenerateScoreOptions {
   godotVersion?: string;
   /** vitest --reporter=json 产出路径;缺失→integration 维度 na */
   e2eReportPath?: string;
+  /** npm audit --json 产出路径;缺失→security 维度 na */
+  auditJsonPath?: string;
 }
 
 /** n/a 维度占位(权重保留,供 aggregate 重分配) */
@@ -19,16 +22,17 @@ function na(name: DimensionName): DimensionResult {
 }
 
 /**
- * 组装 6 维(M1 coverage + M2 integration 有值),聚合,写 score.json。
+ * 组装 6 维(M1 coverage + M2 integration + M3a security 有值),聚合,写 score.json。
  * 返回 ScoreJson。后续里程碑只需替换对应 na() 为真实采集器结果。
  */
 export function generateScore(opts: GenerateScoreOptions): ScoreJson {
   const coverage = collectCoverage(opts.lcovPath);
   const integration = opts.e2eReportPath ? collectIntegration(opts.e2eReportPath) : na('integration');
+  const security = opts.auditJsonPath ? collectSecurity(opts.auditJsonPath) : na('security');
   const dims: Record<DimensionName, DimensionResult> = {
     integration,
     coverage,
-    security: na('security'),
+    security,
     flaky: na('flaky'),
     performance: na('performance'),
     gdscript: na('gdscript'),
