@@ -24,6 +24,11 @@ if (invoked) {
       console.error('score.json 解析失败,重新跑 npm run score');
       process.exit(1);
     }
+    // 结构守卫:防止合法 JSON 但结构异常(如 hardFails: null)
+    if (!score || typeof score.total !== 'number' || !Array.isArray(score.hardFails)) {
+      console.error('score.json 结构异常(total/hardFails 缺失或类型错),重新跑 npm run score');
+      process.exit(1);
+    }
     const { passed, reasons } = evaluateGate(score);
     if (!passed) {
       console.error('质量门禁未过:\n' + reasons.join('\n'));

@@ -70,7 +70,6 @@ describe('renderScoreReport', () => {
 
   it('未验证维度列出 + 标注 M3c-e', () => {
     const md = renderScoreReport(makeScore());
-    expect(md).toContain('flaky');
-    expect(md).toContain('M3c-e');
+    expect(md).toContain('flaky, performance, gdscript — M3c-e 接入');
   });
 });
