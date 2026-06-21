@@ -59,4 +59,14 @@ describe('evaluateGate', () => {
     expect(r.passed).toBe(true);
     expect(r.reasons).toHaveLength(0);
   });
+
+  it('evaluateGate.passed 与 score.pass 字段语义一致(防 aggregate.pass / evaluateGate 双真相源漂移)', () => {
+    // aggregate.pass = (total≥PASS_LINE && hardFails 空);evaluateGate.passed 同语义
+    expect(evaluateGate(makeScore({ total: 85.8, pass: true })).passed).toBe(true);
+    expect(evaluateGate(makeScore({ total: 50, pass: false })).passed).toBe(false);
+    expect(evaluateGate(makeScore({
+      total: 90, pass: false,
+      hardFails: [{ dimension: 'security', reason: 'r', threshold: 60, actual: 40 }],
+    })).passed).toBe(false);
+  });
 });

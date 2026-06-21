@@ -10,7 +10,7 @@ function makeScore(over: Partial<ScoreJson> = {}): ScoreJson {
     partial: true,
     generatedAt: '2026-06-21T02:06:03.000Z',
     dimensions: {
-      integration: { score: 100, weight: 0.3, status: 'pass', raw: { passed: 45, failed: 0, pending: 0, total: 45, ran: 45 } },
+      integration: { score: 100, weight: 0.3, status: 'pass', raw: { passed: 44, failed: 1, pending: 2, total: 47, ran: 45 } },
       coverage: { score: 70.2, weight: 0.2, status: 'pass', raw: { hit: 7945, found: 11325, pct: 70.15452538631347 } },
       security: { score: 80, weight: 0.2, status: 'pass', raw: { info: 0, low: 0, moderate: 0, high: 2, critical: 0, total: 2, deduction: 20 } },
       flaky: { score: -1, weight: 0.1, status: 'na' },
@@ -36,9 +36,9 @@ describe('renderScoreReport', () => {
     expect(md).toContain('FAIL');
   });
 
-  it('integration 关键指标用 ran(45/45 passed, 非 total)', () => {
+  it('integration 关键指标用 ran(44/45 passed, 非 total;区分 ran=45 与 total=47)', () => {
     const md = renderScoreReport(makeScore());
-    expect(md).toContain('45/45 passed');
+    expect(md).toContain('44/45 passed');
   });
 
   it('coverage 指标含 pct(round1) + hit/found', () => {
