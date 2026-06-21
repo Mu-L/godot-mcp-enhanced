@@ -1,0 +1,58 @@
+import { readFileSync, existsSync } from 'fs';
+import type { DimensionResult } from '../types.js';
+import { WEIGHTS, NA_SCORE } from '../dimensions.js';
+
+/** npm audit --json v2 的 severity 计数 */
+interface AuditVulnCounts {
+  info?: number;
+  low?: number;
+  moderate?: number;
+  high?: number;
+  critical?: number;
+  total?: number;
+}
+interface AuditReport {
+  metadata?: { vulnerabilities?: AuditVulnCounts };
+}
+
+/** 各 severity 的扣分权重 */
+const DEDUCTION: Record<keyof AuditVulnCounts, number> = {
+  critical: 30,
+  high: 10,
+  moderate: 5,
+  low: 2,
+  info: 0,
+  total: 0,
+};
+
+/**
+ * 解析 npm audit --json 产出,按漏洞 severity 加权扣分。
+ * score = max(0, 100 - Σ(count × deduction));critical -30 / high -10 / moderate -5 / low -2 / info 0。
+ * 状态分级:>=80 pass,[60,80) warn,<60 fail(对齐 security 硬否决线 60)。
+ * 文件缺失 / 解析失败 / 无 metadata → na。
+ */
+export function collectSecurity(auditJsonPath: string): DimensionResult {
+  if (!existsSync(auditJsonPath)) {
+    return { score: NA_SCORE, weight: WEIGHTS.security, status: 'na', detail: `audit json 不存在: ${auditJsonPath}` };
+  }
+  let report: AuditReport;
+  try {
+    report = JSON.parse(readFileSync(auditJsonPath, 'utf8'));
+  } catch (e) {
+    return { score: NA_SCORE, weight: WEIGHTS.security, status: 'na', detail: `audit json 解析失败: ${(e as Error).message}` };
+  }
+  const v = report.metadata?.vulnerabilities;
+  if (!v) {
+    return { score: NA_SCORE, weight: WEIGHTS.security, status: 'na', detail: 'audit json 无 metadata.vulnerabilities' };
+  }
+  const counts = { info: v.info ?? 0, low: v.low ?? 0, moderate: v.moderate ?? 0, high: v.high ?? 0, critical: v.critical ?? 0 };
+  const total = v.total ?? (counts.info + counts.low + counts.moderate + counts.high + counts.critical);
+  const deduction =
+    counts.critical * DEDUCTION.critical +
+    counts.high * DEDUCTION.high +
+    counts.moderate * DEDUCTION.moderate +
+    counts.low * DEDUCTION.low;
+  const score = Math.max(0, 100 - deduction);
+  const status: DimensionResult['status'] = score >= 80 ? 'pass' : score >= 60 ? 'warn' : 'fail';
+  return { score, weight: WEIGHTS.security, status, raw: { ...counts, total, deduction } };
+}
