@@ -1,8 +1,9 @@
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { generateScore } from './generate-score.js';
 import { evaluateGate } from './gate.js';
+import { renderPrComment } from './pr-comment.js';
 import type { ScoreJson } from './types.js';
 
 // CLI 入口:node build/scoring/cli.js [gate]
@@ -35,6 +36,26 @@ if (invoked) {
       process.exit(1);
     }
     process.stdout.write(`质量门禁通过: total=${score.total}\n`);
+  } else if (cmd === 'pr-comment') {
+    const scorePath = resolve(process.cwd(), 'coverage/score.json');
+    if (!existsSync(scorePath)) {
+      console.error('score.json 不存在,先跑 npm run score');
+      process.exit(1);
+    }
+    let score: ScoreJson;
+    try {
+      score = JSON.parse(readFileSync(scorePath, 'utf8'));
+    } catch {
+      console.error('score.json 解析失败,重新跑 npm run score');
+      process.exit(1);
+    }
+    if (!score || typeof score.total !== 'number' || !Array.isArray(score.hardFails)) {
+      console.error('score.json 结构异常(total/hardFails 缺失或类型错),重新跑 npm run score');
+      process.exit(1);
+    }
+    const outPath = resolve(process.cwd(), 'coverage/pr-comment.md');
+    writeFileSync(outPath, renderPrComment(score), 'utf8');
+    process.stdout.write(`PR comment 写入: ${outPath}\n`);
   } else {
     const lcovPath = resolve(process.cwd(), 'coverage/lcov.info');
     const outPath = resolve(process.cwd(), 'coverage/score.json');
