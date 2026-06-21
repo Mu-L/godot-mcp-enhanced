@@ -1,7 +1,7 @@
 # M3b: Scoring 报告与发版门禁
 
 - **日期**: 2026-06-21
-- **状态**: design(待用户审阅 → writing-plans)
+- **状态**: design(审查修订版 r2,待用户确认 → writing-plans)
 - **里程碑**: scoring M3b
 - **前置**: M1 coverage + M2 integration + M3a security(均已完成,`coverage/score.json` 已是完整数据底座)
 - **范围决策**: 方案 A = markdown 报告 + score:gate 门禁(PR 展示 / HTML dashboard 作为后续 M3b-PR / M3b-HTML)
@@ -51,7 +51,7 @@ src/scoring/
 ├─ cli.ts              [改] 串联 report;新增 gate 子命令
 └─ (aggregate / collectors / types / dimensions 不变)
 
-.github/workflows/ci.yml  [改] check job: npm run score 后加 npm run score:gate
+.github/workflows/ci.yml  [改] check job: score 步骤去 || true;新增 gate 步骤(不加 continue-on-error)
 package.json              [改] 加 score:gate script
 ```
 
@@ -65,7 +65,7 @@ npm run score ─→ generateScore(opts)
 
 npm run score:gate ─→ 读 score.json ─→ evaluateGate ─→ exit 0/1   [M3b 新]
 
-CI check job ─→ npm run score && npm run score:gate ─→ 失败则 PR check 红
+CI check job ─→ npm run score(去||true) && npm run score:gate ─→ 失败则 PR check 红
 ```
 
 ## 详细设计
@@ -104,12 +104,16 @@ flaky, performance, gdscript — M3c-e 接入
 ```
 
 各维"关键指标"按维度从 `raw` 提取(需类型 narrowing,实现细节 plan 阶段定):
-- integration → `${raw.passed}/${raw.total} passed`
+- integration → `${raw.passed}/${raw.ran} passed`(`ran = passed + failed`,排除 pending/skip;与 collector 的 `pct = passed/ran` 一致,**不用含 skip 的 `total`**)
 - coverage → `${raw.pct}% (${raw.hit}/${raw.found})`
 - security → `${raw.high + raw.critical} high/critical (-${raw.deduction})`
 - na 维 → "未接入(M3x)"
 
+**时间戳**:头部时间取自 `score.generatedAt`(已是 ISO),不重复 `new Date()`,保证报告时间与 score 时间一致。
+
 **容错**:未知 status 显示原值;raw 缺失显示 "—"。
+
+**产物追踪**:`coverage/score-report.md` 在 `coverage/` 下,已被 `.gitignore` 的 `coverage/` 覆盖(产物,无需 git 追踪)。
 
 ### gate.ts — evaluateGate
 
@@ -117,6 +121,7 @@ flaky, performance, gdscript — M3c-e 接入
 
 ```ts
 import type { ScoreJson } from './types.js';
+import { PASS_LINE } from './dimensions.js';
 
 export interface GateResult {
   passed: boolean;
@@ -125,7 +130,7 @@ export interface GateResult {
 
 export function evaluateGate(score: ScoreJson): GateResult {
   const reasons: string[] = [];
-  if (!score.pass) reasons.push(`总分 ${score.total} < 75(pass 线)`);
+  if (score.total < PASS_LINE) reasons.push(`总分 ${score.total} < ${PASS_LINE}(pass 线)`);
   for (const hf of score.hardFails) {
     reasons.push(`硬否决 ${hf.dimension}: ${hf.reason}(${hf.actual} < ${hf.threshold})`);
   }
@@ -133,7 +138,7 @@ export function evaluateGate(score: ScoreJson): GateResult {
 }
 ```
 
-规则:`passed = score.pass && hardFails.length === 0`。**partial 不阻断**(`unverified` 维度只影响报告完整度,不影响门禁)。
+规则:`passed = reasons.length === 0`(等价 total≥PASS_LINE 且无硬否决)。直接判 `score.total < PASS_LINE` 而非聚合 `score.pass`,以**区分"总分不足"与"硬否决"两种 fail 原因**(若用 `!score.pass` 会混淆二者,因 score.pass=false 可能源于任一)。用 `PASS_LINE` 常量(`dimensions.ts:20` 导出)而非硬编码 75。**partial 不阻断**(`unverified` 维度只影响报告完整度,不影响门禁)。
 
 ### cli.ts — gate 子命令
 
@@ -171,14 +176,23 @@ writeFileSync(reportPath, renderScoreReport(score), 'utf8');
 
 ### CI 接入
 
-`.github/workflows/ci.yml` check job,在 M3a 的 `npm run score` 步骤后加:
+**现状**(ci.yml:29-33):score 步骤是 `npm run score || true` + `continue-on-error: true`(双 non-blocking——`|| true` 吞掉 score 失败的 exit code,步骤伪装成功)。
+
+**改动**:
+1. score 步骤:去 `|| true`,**保留 `continue-on-error: true`**(仍允许 score 失败不阻断 CI 其他步骤,但诚实标记步骤失败)
+2. 新增 gate 步骤(**不加** continue-on-error,失败即阻断):
 
 ```yaml
-- name: Score gate
-  run: npm run score:gate
+  - name: Generate score.json (M1, non-blocking)
+    run: |
+      npm run build
+      npm run score          # ← 去掉 || true
+    continue-on-error: true   # ← 保留(允许 score 失败继续)
+  - name: Score gate
+    run: npm run score:gate   # ← 不加 continue-on-error(失败即阻断 PR)
 ```
 
-gate 失败 → check job 非 0 → PR check 红 → 阻断合并。
+**机制**:score 是 gate 的前提。score 生成失败 → score.json 缺失 → gate 读不到 → gate exit 1 → PR check 红 → 阻断合并。score 生成失败须**让 gate 抓到**,而非 `|| true` 静默吞掉 exit code。
 
 ### npm scripts
 
@@ -193,10 +207,11 @@ gate 失败 → check job 非 0 → PR check 红 → 阻断合并。
 | 文件 | 覆盖 |
 |---|---|
 | `test/scoring/report.test.ts` | renderScoreReport 各状态:pass / partial / hardFails 非空 / 全 na / 未知 status 容错 |
-| `test/scoring/gate.test.ts` | evaluateGate:pass+无hardFails→passed;pass=false→reasons 含总分;hardFails 非空→reasons 含维度;partial 不影响 passed |
-| `aggregate.test.ts`(已有) | pass 线 / hardFails / 权重重分配——gate 复用 `score.pass`,不重复测 |
+| `test/scoring/gate.test.ts` | evaluateGate 三种 reason 组合:total<PASS_LINE(纯总分不足)/ 纯硬否决(total≥线但 hardFails 非空)/ 两者皆有;partial(pass=true 且有 unverified)→ passed=true |
+| `test/scoring/cli-gate.test.ts`(新) | spawn 子进程跑 `cli.js gate`,断言 exit code 三分支:score.json 不存在→exit 1 / 解析失败(损坏 json)→exit 1 / 全过→exit 0 |
+| `aggregate.test.ts`(已有) | pass 线 / hardFails / 权重重分配——gate 复用 `PASS_LINE`/`hardFails`,不重复测聚合 |
 
-report / gate 均纯函数,单测无 IO。cli 的 gate 分支(exit code)用集成测试或手验。
+report / gate 均纯函数,单测无 IO。cli gate 的 exit code 用 `node:child_process` spawn 集成测试(成本低,覆盖 `process.exit` 分支)。
 
 ## 错误处理
 
@@ -210,11 +225,11 @@ report / gate 均纯函数,单测无 IO。cli 的 gate 分支(exit code)用集�
 ## 验收标准
 
 1. `npm run score` 产出 `coverage/score-report.md`,含总分/各维表格/硬否决/未验证
-2. `npm run score:gate` 在 pass+无hardFails 时 exit 0,否则 exit 1 + reasons
-3. CI check job 含 score gate 步骤
-4. `report.test.ts` + `gate.test.ts` 全过;全量测试不回归
+2. `npm run score:gate` 在 total≥PASS_LINE 且无 hardFails 时 exit 0,否则 exit 1 + reasons(区分总分不足/硬否决)
+3. CI check job:score 步骤去 `|| true`,新增 gate 步骤(不加 continue-on-error)
+4. `report.test.ts` + `gate.test.ts` + `cli-gate.test.ts` 全过;全量测试不回归
 5. tsc exit 0;eslint exit 0
-6. 端到端:当前 enhanced score.json(85.8 pass)→ gate 通过
+6. 端到端:当前 enhanced score.json(85.8 pass,hardFails=[])→ gate 通过
 
 ## 后续里程碑(不在 M3b)
 
@@ -224,5 +239,10 @@ report / gate 均纯函数,单测无 IO。cli 的 gate 分支(exit code)用集�
 
 ## 风险
 
-- **coverage 波动误伤**:gate 用综合 `total`(非单维),小波动不触发;仅 total<75 或硬否决才阻断
+- **coverage 波动误伤**:gate 用综合 `total`(非单维),小波动不触发;仅 total<PASS_LINE 或硬否决才阻断
 - **score.json 陈旧**:gate 读上次 score 产物,CI 每次 PR 重跑 score 保证新鲜;本地手动 gate 前需先 score
+
+## 修订记录
+
+- r1(初稿):gate 用 `!score.pass` + 硬编码 75;CI 仅"加 gate 步骤"未处理 score 现有 non-blocking
+- r2(审查修订):① CI score 步骤去 `|| true`(保留 continue-on-error),gate 不加 continue-on-error;② gate 改用 `PASS_LINE` 常量 + `score.total < PASS_LINE`,区分总分不足/硬否决;③ `passed = reasons.length === 0`(消除 `&& hardFails.length===0` 冗余);④ integration 指标用 `raw.ran` 不用含 skip 的 `total`;⑤ 时间戳取 `score.generatedAt` + 注明 score-report.md 已被 gitignore;补 cli exit code spawn 集成测试
