@@ -29,9 +29,12 @@ jobs:
       - name: Generate score.json (M1, non-blocking)
         run: |
           npm run build
-          npm run score || true
+          npm run score
         continue-on-error: true
+      - name: Score gate (M3b)
+        run: npm run score:gate
       - name: Upload score.json
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: score-json
