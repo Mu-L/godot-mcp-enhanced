@@ -24,7 +24,7 @@ jobs:
       - run: npm run build
       - run: npx vitest run --coverage
       - name: npm audit (M3a, non-blocking)
-        run: npm run audit:json > coverage/audit.json 2>/dev/null || true
+        run: npm run audit:json --silent > coverage/audit.json 2>/dev/null || true
         continue-on-error: true
       - name: Generate score.json (M1, non-blocking)
         run: |
