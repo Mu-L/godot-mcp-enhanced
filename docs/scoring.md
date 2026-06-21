@@ -8,7 +8,7 @@
 |---|---|---|---|
 | integration | 0.30 | test/e2e-full(vitest json)✅ | < 80 |
 | coverage | 0.20 | coverage/lcov.info | — |
-| security | 0.20 | npm audit/AgentShield(M1.5) | < 60 |
+| security | 0.20 | npm audit json✅ | < 60 |
 | flaky | 0.10 | 重跑矩阵(M3) | — |
 | performance | 0.10 | profiler 基准(M3) | — |
 | gdscript | 0.10 | GUT(M3) | — |
