@@ -25,7 +25,7 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run build
-      - run: npx vitest run --coverage
+      - run: npx vitest run --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
       - name: Install Godot 4.6.3 (M3c, job-isolated)
         run: |
           set -e
