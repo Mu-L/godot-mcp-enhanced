@@ -26,6 +26,20 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
       - run: npx vitest run --coverage
+      - name: Install Godot 4.6.3 (M3c, job-isolated)
+        run: |
+          set -e
+          curl -L --fail -o /tmp/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          mkdir -p /tmp/godot-bin
+          unzip -o /tmp/godot.zip -d /tmp/godot-bin
+          chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
+          echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Check gdscript (M3c, non-blocking)
+        run: npm run check:gdscript
+        continue-on-error: true
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: npm audit (M3a, non-blocking)
         run: npm run audit:json --silent > coverage/audit.json 2>/dev/null || true
         continue-on-error: true
