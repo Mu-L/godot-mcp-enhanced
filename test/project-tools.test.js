@@ -364,8 +364,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // hooks(1) + CLAUDE.md(1) + 6 rule files = 8
-    expect(parsed.actions.length).toBe(8);
+    // hooks(1) + CLAUDE.md(1) + 6 rule files + 1 manifest action = 9
+    expect(parsed.actions.length).toBe(9);
 
     // Verify settings.json
     const settingsPath = join(dir, '.claude', 'settings.json');
@@ -415,8 +415,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // CLAUDE.md(1) + 6 rule files = 7 (no hooks)
-    expect(parsed.actions.length).toBe(7);
+    // CLAUDE.md(1) + 6 rule files + 1 manifest action = 8 (no hooks)
+    expect(parsed.actions.length).toBe(8);
     expect(parsed.actions.some(a => a.includes('CLAUDE.md'))).toBe(true);
     expect(parsed.actions.some(a => a.includes('rules'))).toBe(true);
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);
@@ -443,12 +443,12 @@ describe('project-tools handleTool — setup_project_rules', () => {
     // First run: creates everything
     await callProject('setup_project_rules', { project_path: dir }, ctx);
 
-    // Second run: should skip hooks and CLAUDE.md (rules file skipped too)
+    // Second run: should skip hooks and CLAUDE.md (rules 已最新 → manifest 报"全部最新")
     const result = await callProject('setup_project_rules', { project_path: dir }, ctx);
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    expect(parsed.actions.length).toBe(2);
+    expect(parsed.actions.length).toBe(3);
     // hooks should be skipped, rules should be skipped
     expect(parsed.actions.some(a => a.includes('skipped'))).toBe(true);
   });
@@ -511,6 +511,32 @@ describe('project-tools handleTool — setup_project_rules', () => {
     const rules = readFileSync(rulesPath, 'utf-8');
     expect(rules).toContain('validate_scripts');
     expect(rules).toContain('verify_delivery');
+  });
+
+  it('godot-mcp.md contains concrete MCP version (T5/T6 gap)', async () => {
+    const ctx = createMockCtx();
+    await callProject('setup_project_rules', { project_path: dir }, ctx);
+
+    const rulesPath = join(dir, '.claude', 'rules', 'godot-mcp.md');
+    const rules = readFileSync(rulesPath, 'utf-8');
+    // 插值后必须是具体版本号（如 0.18.2+），不能残留 {{MCP_VERSION}}
+    expect(rules).not.toContain('{{MCP_VERSION}}');
+    expect(rules).toMatch(/适用于 godot-mcp-enhanced \d+\.\d+\.\d+\+/);
+  });
+
+  it('creates .godot-mcp-manifest.json with rules_installed_at_version (T6)', async () => {
+    const ctx = createMockCtx();
+    await callProject('setup_project_rules', { project_path: dir }, ctx);
+
+    const manifestPath = join(dir, '.claude', 'rules', '.godot-mcp-manifest.json');
+    expect(existsSync(manifestPath)).toBe(true);
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    expect(manifest.manifest_version).toBe(1);
+    expect(typeof manifest.rules_installed_at_version).toBe('string');
+    expect(manifest.rules_installed_at_version).toMatch(/^\d+\.\d+\.\d+/);
+    // adopt 后所有规则文件都该入 manifest
+    expect(manifest.rules['godot-mcp.md']).toBeDefined();
+    expect(manifest.rules['godot-mcp.md'].hash).toMatch(/^sha256:/);
   });
 
   it('does not overwrite existing godot-mcp.md', async () => {

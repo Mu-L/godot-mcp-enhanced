@@ -11,6 +11,10 @@ import {
   buildTypeGuide, buildBestPractices, mergeSections, SECTION_ORDER, GODOT_MCP_RULES,
 } from './claudemd-builder.js';
 import { DETAILED_RULE_TEMPLATES } from './rule-templates.js';
+import {
+  buildAdoptManifest, planReconcile, hashContent, countDeviations,
+  type RulesManifest, type RulesMode,
+} from './rules-manifest.js';
 import { validatePath, requireString, requireProjectPath, resolveWithinRoot, scanFiles, type GodotConfig } from '../helpers.js';
 import { getScaffoldFiles, PROJECT_TEMPLATES, handleTemplateAction } from './code-templates.js';
 import { getLogger } from '../core/logger.js';
@@ -53,6 +57,12 @@ export function getToolDefinitions(): Tool[] {
           renderer: { type: 'string', description: '渲染器："forward_plus"（默认）、"mobile"、"gl_compatibility"', default: 'forward_plus', enum: ['forward_plus', 'mobile', 'gl_compatibility'] },
           template: { type: 'string', description: '项目脚手架模板：2d-platformer / 3d-fps / visual-novel（默认空）', default: '' },
           hooks: { type: 'boolean', description: '创建 .claude/settings.json 的 PostToolUse hook（默认 true）', default: true },
+          rules_mode: {
+            type: 'string',
+            enum: ['check', 'update', 'overwrite'],
+            description: '规则文件 reconcile 模式：check（默认，只检测报告）/ update（覆盖版本过时且未动过的文件，保留用户动过的）/ overwrite（全覆盖含本地修改）',
+            default: 'check',
+          },
           claude_md: { type: 'boolean', description: '创建/追加 CLAUDE.md 验证规则（默认 true）', default: true },
           ci: { type: 'boolean', description: '生成 GitHub Actions CI workflow（默认 false）', default: false },
           godot_version: { type: 'string', description: 'CI 中使用的 Godot 版本（默认 4.4）', default: '4.4' },
@@ -428,26 +438,93 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         let mcpVersion = '0.16.0';
         try { mcpVersion = JSON.parse(readFileSync(mcpPkgPath, 'utf-8')).version || mcpVersion; } catch { /* fallback */ }
 
-        // Base rules: godot-mcp.md（与详细规则统一走 {{MCP_VERSION}} 插值）
-        const rulesPath = join(rulesDir, 'godot-mcp.md');
+        // ── 规则文件 manifest 驱动（spec §3.6）──
+        const manifestPath = join(rulesDir, '.godot-mcp-manifest.json');
+        const rulesMode: RulesMode = (args.rules_mode as RulesMode) || 'check';
+
+        // 当前模板内容（插值后），用于覆盖与偏离判断
         const baseContent = GODOT_MCP_RULES.replace(/\{\{MCP_VERSION\}\}/g, mcpVersion);
-        if (!existsSync(rulesPath)) {
-          writeAtomic(rulesPath, baseContent);
-          actions.push('rules: created .claude/rules/godot-mcp.md');
-        } else if (force) {
-          actions.push('rules: preserved godot-mcp.md (user modifications protected)');
+        const currentTemplates: Record<string, string> = { 'godot-mcp.md': baseContent };
+        for (const [filename, tpl] of Object.entries(DETAILED_RULE_TEMPLATES)) {
+          currentTemplates[filename] = tpl.replace(/\{\{MCP_VERSION\}\}/g, mcpVersion);
         }
 
-        // Detailed subsystem rules: godot-mcp-core.md, godot-mcp-bridge.md, etc.
-        const detailEntries = Object.entries(DETAILED_RULE_TEMPLATES).sort(([a], [b]) => a.localeCompare(b));
-        for (const [filename, content] of detailEntries) {
-          const detailPath = join(rulesDir, filename);
-          const resolved = content.replace(/\{\{MCP_VERSION\}\}/g, mcpVersion);
-          if (!existsSync(detailPath)) {
-            writeAtomic(detailPath, resolved);
+        // 读现有 manifest（损坏当无 manifest，spec §6：不覆盖任何规则文件）
+        let manifest: RulesManifest | null = null;
+        if (existsSync(manifestPath)) {
+          try {
+            manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as RulesManifest;
+          } catch {
+            actions.push('rules-manifest: 损坏，按无 manifest 处理（adopt，不覆盖任何规则文件）');
+            manifest = null;
+          }
+        }
+
+        // 确保所有规则文件存在（任意 rules_mode 都先创建缺失文件）
+        const allFilenames = ['godot-mcp.md', ...Object.keys(DETAILED_RULE_TEMPLATES)].sort();
+        const diskFiles: { filename: string; content: string; source: 'base' | 'detail' }[] = [];
+        for (const filename of allFilenames) {
+          const filePath = join(rulesDir, filename);
+          const source: 'base' | 'detail' = filename === 'godot-mcp.md' ? 'base' : 'detail';
+          if (!existsSync(filePath)) {
+            const tpl = currentTemplates[filename]!;
+            writeAtomic(filePath, tpl);
             actions.push(`rules: created .claude/rules/${filename}`);
-          } else if (force) {
-            actions.push(`rules: preserved ${filename} (user modifications protected)`);
+            diskFiles.push({ filename, content: tpl, source });
+          } else {
+            diskFiles.push({ filename, content: readFileSync(filePath, 'utf-8'), source });
+          }
+        }
+
+        if (manifest === null) {
+          // adopt（spec §5）：固化当前磁盘状态为基线
+          const adopted = buildAdoptManifest({
+            serverVersion: mcpVersion,
+            now: new Date().toISOString(),
+            files: diskFiles.map(f => ({ filename: f.filename, content: f.content, source: f.source })),
+          });
+          writeAtomic(manifestPath, JSON.stringify(adopted, null, 2));
+          const dev = countDeviations(adopted, Object.fromEntries(
+            diskFiles.map(f => [f.filename, hashContent(currentTemplates[f.filename]!)]),
+          ));
+          actions.push(`rules-manifest: 已采纳 ${diskFiles.length} 个文件（版本 ${mcpVersion}）`);
+          if (dev > 0) {
+            actions.push(`rules-manifest: ${dev} 个文件与当前模板不符（历史遗留或本地修改无法区分），如需对齐调 rules_mode=overwrite`);
+          }
+        } else {
+          // reconcile（spec §3.6）：按二维判定 + mode 决策
+          const plan = planReconcile({
+            manifest,
+            serverVersion: mcpVersion,
+            diskFiles: diskFiles.map(f => ({ filename: f.filename, content: f.content })),
+            currentTemplates,
+            mode: rulesMode,
+            now: new Date().toISOString(),
+          });
+          const written: string[] = [];
+          const warned: string[] = [];
+          for (const [filename, fp] of Object.entries(plan.actions)) {
+            if (fp.action === 'write' && fp.newContent !== undefined) {
+              writeAtomic(join(rulesDir, filename), fp.newContent);
+              written.push(filename);
+            } else if (fp.action === 'warn-keep') {
+              warned.push(filename);
+            }
+          }
+          if (plan.shouldWriteFiles) {
+            writeAtomic(manifestPath, JSON.stringify(plan.newManifest, null, 2));
+            if (written.length > 0) actions.push(`rules: 更新 ${written.length} 个文件（${written.join(', ')}）`);
+            if (warned.length > 0) actions.push(`rules: 保留 ${warned.length} 个用户动过的文件（${warned.join(', ')}）— 版本过时但本地有修改，未覆盖；如需强制对齐调 rules_mode=overwrite`);
+          } else {
+            // check 模式：报告分类
+            const byClass: Record<string, string[]> = {};
+            for (const [fn, fp] of Object.entries(plan.actions)) {
+              (byClass[fp.classification] ??= []).push(fn);
+            }
+            if (byClass['pure-upgrade']) actions.push(`rules: ${byClass['pure-upgrade'].length} 个文件可更新（版本过时）— 传 rules_mode=update 更新`);
+            if (byClass['stale-and-modified']) actions.push(`rules: ${byClass['stale-and-modified'].length} 个文件版本过时且本地已修改 — update 会保留，overwrite 会覆盖`);
+            if (byClass['local-modified']) actions.push(`rules: ${byClass['local-modified'].length} 个文件本地已修改（版本最新）`);
+            if (byClass['latest'] && Object.keys(byClass).length === 1) actions.push('rules: 全部最新');
           }
         }
       }
