@@ -28,9 +28,16 @@ describe('metric', () => {
     expect(dimMetric('gdscript', dim(90, 'pass', { errors: 0, warnings: 5 }))).toBe('0 err / 5 warn');
   });
 
-  it('dimMetric flaky/performance → —(无 case)', () => {
+  it('dimMetric flaky → —(无 case)', () => {
     expect(dimMetric('flaky', dim(-1, 'na'))).toBe('未接入');
-    expect(dimMetric('performance', dim(80, 'pass', { x: 1 }))).toBe('—');
+  });
+
+  it('dimMetric performance → wallclockMs/1000 s', () => {
+    expect(dimMetric('performance', dim(100, 'pass', { wallclockMs: 52909, testResults: 170 }))).toBe('52.9s');
+  });
+
+  it('dimMetric performance → wallclockMs 缺失默认 0s', () => {
+    expect(dimMetric('performance', dim(100, 'pass', { x: 1 }))).toBe('0s');
   });
 
   it('dimMetric na 维(score=-1 或 status=na)→ 未接入', () => {

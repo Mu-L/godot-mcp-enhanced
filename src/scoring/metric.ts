@@ -19,6 +19,8 @@ export function dimMetric(name: DimensionName, d: DimensionResult): string {
       return `${(raw.high ?? 0) + (raw.critical ?? 0)} high/critical (-${raw.deduction ?? 0})`;
     case 'gdscript':
       return `${raw.errors ?? 0} err / ${raw.warnings ?? 0} warn`;
+    case 'performance':
+      return `${round1((raw.wallclockMs ?? 0) / 1000)}s`;
     default:
       return '—';
   }
