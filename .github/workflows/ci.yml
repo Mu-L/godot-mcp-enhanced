@@ -54,6 +54,10 @@ jobs:
         if: always()
         continue-on-error: true
         run: npm run score:pr-comment
+      - name: Score html (M3b-HTML)
+        if: always()
+        continue-on-error: true
+        run: npm run score:html
       - name: Sticky PR comment (M3b-PR)
         if: always() && matrix.node-version == '22' && github.event_name == 'pull_request'
         continue-on-error: true
@@ -67,6 +71,13 @@ jobs:
         with:
           name: score-json
           path: coverage/score.json
+          if-no-files-found: warn
+      - name: Upload score-report.html
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-report-html
+          path: coverage/score-report.html
           if-no-files-found: warn
       - uses: codecov/codecov-action@v5
         with:
