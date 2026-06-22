@@ -126,3 +126,107 @@ export function classifyFile(p: ClassifyParams): FileClassification {
   if (!versionStale && !userModified) return 'latest';
   return 'local-modified';
 }
+
+// ─── reconcile 规划（spec §3.3 + §3.4 + §3.6）─────────────────────────────────
+
+/** 单个文件的 reconcile 动作 */
+export type FileAction = 'write' | 'keep' | 'warn-keep';
+
+export interface FilePlan {
+  classification: FileClassification;
+  action: FileAction;
+  /** action=write 时，要写入的新内容（来自当前模板） */
+  newContent?: string;
+}
+
+export interface PlanReconcileParams {
+  manifest: RulesManifest;
+  serverVersion: string;
+  diskFiles: { filename: string; content: string }[];
+  /** 当前模板内容（文件名 → 插值后的模板字符串）。update/overwrite 时覆盖用 */
+  currentTemplates?: Record<string, string>;
+  mode: RulesMode;
+  now: string;
+}
+
+export interface ReconcilePlan {
+  /** 文件名 → 动作计划 */
+  actions: Record<string, FilePlan>;
+  /** 是否需要写文件（check 模式为 false） */
+  shouldWriteFiles: boolean;
+  /** 更新后的 manifest（无论是否写文件都给出，供报告） */
+  newManifest: RulesManifest;
+}
+
+/**
+ * reconcile 规划的核心纯函数（spec §3.4）。
+ *
+ * 集成 classifyFile 的二维判定，按 mode 决策每个文件的动作：
+ * - check：所有文件 action=keep，shouldWriteFiles=false
+ * - update：pure-upgrade → write；stale-and-modified/local-modified → warn-keep（保留并警告）；latest → keep
+ * - overwrite：除 latest 外都 write（全覆盖）
+ *
+ * 关键不变式：update 模式下 stale-and-modified（版本过时 + 用户动过）的文件
+ * 必须 warn-keep（保留 + 警告），绝不能 write —— 否则吞用户修改。
+ */
+export function planReconcile(p: PlanReconcileParams): ReconcilePlan {
+  const actions: Record<string, FilePlan> = {};
+  const newRules: Record<string, RuleManifestEntry> = {};
+
+  for (const disk of p.diskFiles) {
+    const entry = p.manifest.rules[disk.filename];
+    // manifest 没记录的文件（用户新增？）→ 视为 local-modified，保守不动
+    const manifestHash = entry?.hash ?? '';
+    const installedVersion = entry ? p.manifest.rules_installed_at_version : p.serverVersion;
+    const classification = classifyFile({
+      installedVersion,
+      serverVersion: p.serverVersion,
+      diskHash: hashContent(disk.content),
+      manifestHash,
+    });
+
+    let action: FileAction = 'keep';
+    let newContent: string | undefined;
+    let resolvedHash = entry?.hash ?? hashContent(disk.content);
+
+    const templateContent = p.currentTemplates?.[disk.filename];
+    if (p.mode === 'overwrite') {
+      // 全覆盖（不管分类，除 latest 外都写；latest 写也无害但跳过省 IO）
+      if (classification !== 'latest' && templateContent !== undefined) {
+        action = 'write';
+        newContent = templateContent;
+        resolvedHash = hashContent(templateContent);
+      }
+    } else if (p.mode === 'update') {
+      if (classification === 'pure-upgrade' && templateContent !== undefined) {
+        action = 'write';
+        newContent = templateContent;
+        resolvedHash = hashContent(templateContent);
+      } else if (classification === 'stale-and-modified' || classification === 'local-modified') {
+        action = 'warn-keep';
+      }
+    }
+    // check 模式 action 保持 keep
+
+    actions[disk.filename] = { classification, action, newContent };
+    newRules[disk.filename] = {
+      source: entry?.source ?? 'detail',
+      hash: resolvedHash,
+    };
+  }
+
+  // 新 manifest 版本：若发生过任何 write（update/overwrite），版本推进到 server 版本
+  const anyWrite = Object.values(actions).some(a => a.action === 'write');
+  const newManifest: RulesManifest = {
+    manifest_version: p.manifest.manifest_version,
+    rules_installed_at_version: anyWrite ? p.serverVersion : p.manifest.rules_installed_at_version,
+    installed_at: p.now,
+    rules: newRules,
+  };
+
+  return {
+    actions,
+    shouldWriteFiles: p.mode === 'update' || p.mode === 'overwrite',
+    newManifest,
+  };
+}

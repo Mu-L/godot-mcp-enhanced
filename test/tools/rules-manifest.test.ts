@@ -117,3 +117,88 @@ describe('classifyFile（二维判定 spec §3.3）', () => {
     })).toBe('local-modified');
   });
 });
+
+import { planReconcile } from '../../src/tools/rules-manifest.js';
+import type { RulesManifest } from '../../src/tools/rules-manifest.js';
+
+function manifestAt(version: string, hashes: Record<string, string>): RulesManifest {
+  return {
+    manifest_version: 1,
+    rules_installed_at_version: version,
+    installed_at: '2026-06-22T10:00:00Z',
+    rules: Object.fromEntries(
+      Object.entries(hashes).map(([f, h]) => [f, { source: 'detail' as const, hash: h }]),
+    ),
+  };
+}
+
+describe('planReconcile', () => {
+  it('check 模式：只分类，所有文件 action=keep', () => {
+    const plan = planReconcile({
+      manifest: manifestAt('0.18.0', { 'a.md': hashContent('x') }),
+      serverVersion: '0.18.0',
+      diskFiles: [{ filename: 'a.md', content: 'x' }],
+      mode: 'check',
+      now: '2026-06-22T11:00:00Z',
+    });
+    expect(plan.actions['a.md'].action).toBe('keep');
+    expect(plan.shouldWriteFiles).toBe(false);
+  });
+
+  it('update 模式：覆盖 pure-upgrade，保留 stale-and-modified 并 warn', () => {
+    const manifest2 = manifestAt('0.16.0', {
+      'pure.md': hashContent('旧模板'),         // 未动过 → pure-upgrade
+      'stale.md': hashContent('旧模板'),         // 磁盘改过 → stale-and-modified
+    });
+    const plan = planReconcile({
+      manifest: manifest2,
+      serverVersion: '0.18.0',
+      diskFiles: [
+        { filename: 'pure.md', content: '旧模板' },      // 磁盘==manifest hash → 未动过
+        { filename: 'stale.md', content: '用户改过' },    // 磁盘≠manifest hash → 动过
+      ],
+      currentTemplates: { 'pure.md': '新模板', 'stale.md': '新模板' },
+      mode: 'update',
+      now: '2026-06-22T11:00:00Z',
+    });
+    expect(plan.actions['pure.md'].action).toBe('write');
+    expect(plan.actions['pure.md'].classification).toBe('pure-upgrade');
+    expect(plan.actions['stale.md'].action).toBe('warn-keep');
+    expect(plan.actions['stale.md'].classification).toBe('stale-and-modified');
+    expect(plan.shouldWriteFiles).toBe(true);
+  });
+
+  it('overwrite 模式：覆盖所有非 latest 文件（含 stale-and-modified）', () => {
+    const manifest2 = manifestAt('0.16.0', {
+      'pure.md': hashContent('旧模板'),
+      'stale.md': hashContent('旧模板'),
+    });
+    const plan = planReconcile({
+      manifest: manifest2,
+      serverVersion: '0.18.0',
+      diskFiles: [
+        { filename: 'pure.md', content: '旧模板' },
+        { filename: 'stale.md', content: '用户改过' },
+      ],
+      currentTemplates: { 'pure.md': '新模板', 'stale.md': '新模板' },
+      mode: 'overwrite',
+      now: '2026-06-22T11:00:00Z',
+    });
+    expect(plan.actions['pure.md'].action).toBe('write');
+    expect(plan.actions['stale.md'].action).toBe('write');
+  });
+
+  it('update 后 manifest 版本更新为 server 版本，被覆盖文件 hash 更新', () => {
+    const manifest2 = manifestAt('0.16.0', { 'pure.md': hashContent('旧模板') });
+    const plan = planReconcile({
+      manifest: manifest2,
+      serverVersion: '0.18.0',
+      diskFiles: [{ filename: 'pure.md', content: '旧模板' }],
+      currentTemplates: { 'pure.md': '新模板内容' },
+      mode: 'update',
+      now: '2026-06-22T11:00:00Z',
+    });
+    expect(plan.newManifest.rules_installed_at_version).toBe('0.18.0');
+    expect(plan.newManifest.rules['pure.md'].hash).toBe(hashContent('新模板内容'));
+  });
+});
