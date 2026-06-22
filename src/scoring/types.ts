@@ -51,3 +51,9 @@ export interface ScoreJson {
   unverified: DimensionName[];   // score===NA_SCORE 的维度
   hardFails: HardFail[];
 }
+
+/** collectPerformance 产出 / 消费的共享契约(单位 ms 锁死,wallclockMs 是 score 唯一输入) */
+export interface PerformanceReport {
+  wallclockMs: number;     // 全套 wall-clock = max(testResults[].endTime) - min(testResults[].startTime)
+  testResults: number;     // testResults 文件数(诊断)
+}

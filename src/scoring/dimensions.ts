@@ -28,3 +28,7 @@ export const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security'
 
 /** warnings 渐进扣分系数(初始占位 2,Task 7 基线校准) */
 export const WARN_PENALTY = 2;
+
+/** performance 绝对阈值(占位 90000/180000,Task 5 基线校准 round(W×1.5)/round(W×3)) */
+export const T_PASS_MS = 90000;
+export const T_WARN_MS = 180000;
