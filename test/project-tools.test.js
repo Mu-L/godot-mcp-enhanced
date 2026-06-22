@@ -539,18 +539,20 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(manifest.rules['godot-mcp.md'].hash).toMatch(/^sha256:/);
   });
 
-  it('does not overwrite existing godot-mcp.md', async () => {
+  it('does not overwrite existing rules when no manifest (adopt preserves disk, force is no-op for rules)', async () => {
     const ctx = createMockCtx();
     mkdirSync(join(dir, '.claude', 'rules'), { recursive: true });
     writeFileSync(join(dir, '.claude', 'rules', 'godot-mcp.md'), 'my custom rules', 'utf-8');
 
+    // force=true 传入但规则文件路径上为 no-op（spec §3.4 解耦）；
+    // 真正保护磁盘的是 adopt 分支（无 manifest → 固化当前磁盘状态，不覆盖）
     await callProject('setup_project_rules', { project_path: dir, force: true }, ctx);
 
     const rules = readFileSync(join(dir, '.claude', 'rules', 'godot-mcp.md'), 'utf-8');
     expect(rules).toBe('my custom rules');
   });
 
-  it('does not overwrite existing detailed rule files', async () => {
+  it('does not overwrite existing detailed rule files when no manifest (adopt preserves disk, force is no-op for rules)', async () => {
     const ctx = createMockCtx();
     mkdirSync(join(dir, '.claude', 'rules'), { recursive: true });
     // Pre-create a detailed rule file with custom content
@@ -562,6 +564,28 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(bridgeRules).toBe('my custom bridge rules');
     // Other detailed rules should still be created
     expect(existsSync(join(dir, '.claude', 'rules', 'godot-mcp-core.md'))).toBe(true);
+  });
+
+  it('treats corrupted manifest as missing (adopt, preserves all existing rule files)', async () => {
+    // spec §6：读 manifest 时 catch JSON.parse → manifest=null → 走 adopt 分支 → 不覆盖任何规则文件
+    const ctx = createMockCtx();
+    mkdirSync(join(dir, '.claude', 'rules'), { recursive: true });
+    // 预写损坏的 manifest（非法 JSON）
+    writeFileSync(join(dir, '.claude', 'rules', '.godot-mcp-manifest.json'), '{invalid json', 'utf-8');
+    // 预写一个已有的规则文件（用户内容，必须被保留）
+    writeFileSync(join(dir, '.claude', 'rules', 'godot-mcp.md'), '用户重要规则', 'utf-8');
+
+    const result = await callProject('setup_project_rules', { project_path: dir }, ctx);
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.actions).toBeDefined();
+
+    // 1) 用户的规则文件内容未被覆盖
+    const rules = readFileSync(join(dir, '.claude', 'rules', 'godot-mcp.md'), 'utf-8');
+    expect(rules).toBe('用户重要规则');
+
+    // 2) actions 报告应包含"损坏"字样（catch 分支日志）
+    expect(parsed.actions.some(a => typeof a === 'string' && a.includes('损坏'))).toBe(true);
   });
 
   it('setup_project_rules is non-readonly via TOOL_META', () => {
