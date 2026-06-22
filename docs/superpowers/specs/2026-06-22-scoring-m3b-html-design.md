@@ -47,7 +47,16 @@ HTML 结构:
 
 - **全字符集**:`& < > " '` 五个(`' "` 常被漏;纵深防御全转,即使当前只进文本节点)
 - **所有字符串插值都过 escapeHtml**:hardFails.reason / generatedAt / godotVersion / DimensionName / detail / dimMetric 返回值,全部
-- **数字直接插值**(total/score/weight),**status 是固定枚举映射 class 名**(不过 escape)
+- **数字直接插值**(total/score/weight),不进文本节点无注入风险
+- **status 白名单映射 class**(防属性注入,**R1**):**不把 `d.status` 原值拼进属性**——`class="status-${d.status}"` 直接拼会属性逃逸(异常 status 如 `fail"><img onerror=...>` 经 loadScore JSON.parse 读入未校验,进 class 属性 → onerror 执行 JS)。escapeHtml 硬约束"固定枚举才豁免"必须**显式保证**(白名单 + 固定 fallback),非假设输入合法。对齐 report.ts:5 STATUS_BADGE / pr-comment.ts:5 STATUS_ICON 的 `Record<string,string> ?? fallback` 模式(markdown 版 fallback 显示原值不执行故安全,HTML 版 fallback 必须固定 class):
+
+```ts
+const STATUS_CLASS: Record<string, string> = {
+  pass: 'status-pass', warn: 'status-warn', fail: 'status-fail', na: 'status-na',
+};
+// fallback 固定 class,不把 d.status 原值拼进属性(防 class 属性逃逸注入)
+const cls = STATUS_CLASS[d.status] ?? 'status-unknown';
+```
 - **`&` 必须先转**(否则 `<` 转出的 `&lt;` 里的 `&` 被二次转义成 `&amp;lt;`)。顺序:`& → < → > → " → '`
 
 ```ts
@@ -95,6 +104,7 @@ export function escapeHtml(s: string): string {
 - 硬否决/未验证渲染
 - **HTML 转义(XSS)**:detail 含 `<script>alert(1)</script>` → 输出含 `&lt;script&gt;`(**不含**原始 `<script>`)
 - **`&` 顺序锁**:detail 含单独 `&` → 输出 `&amp;`(锁 `&` 先转,不出现 `&amp;lt;` 二次转义)
+- **status 白名单(属性注入防护,**R1**)**:status 异常值(`fail"><img src=x onerror=alert(1)>`)→ class 是 `status-unknown`,输出**不含**原 `"`/`<`/`onerror`(防 class 属性逃逸注入)
 - 自包含:输出以 `<!DOCTYPE html>` 开头 + 含 `<style>`
 
 ### `escapeHtml` 单测
