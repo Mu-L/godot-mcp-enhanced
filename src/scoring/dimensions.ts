@@ -29,6 +29,12 @@ export const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security'
 /** warnings 渐进扣分系数(初始占位 2,Task 7 基线校准) */
 export const WARN_PENALTY = 2;
 
-/** performance 绝对阈值(占位 90000/180000,Task 5 基线校准 round(W×1.5)/round(W×3)) */
-export const T_PASS_MS = 90000;
-export const T_WARN_MS = 180000;
+/**
+ * performance 绝对阈值,Task 5 本地基线校准(ADVISORY 1 规则 round(W×1.5)/round(W×3))。
+ * W = 42685 ms(coverage/test-report.json wall-clock = max(endTime) - min(startTime))。
+ *
+ * 本地 ≠ CI runner 性能:CI 首跑后读 coverage/test-report.json 的 W_ci,若与本地差异大,
+ * 按 round(W_ci×1.5)/round(W_ci×3) 重算回填(CI 校准 follow-up)。
+ */
+export const T_PASS_MS = 64028;   // round(42685 × 1.5)
+export const T_WARN_MS = 128055;  // round(42685 × 3)
