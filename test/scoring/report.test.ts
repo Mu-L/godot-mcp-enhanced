@@ -72,4 +72,28 @@ describe('renderScoreReport', () => {
     const md = renderScoreReport(makeScore());
     expect(md).toContain('flaky, performance, gdscript — M3c-e 接入');
   });
+
+  it('gdscript 有值时关键指标显示 err/warn 计数', () => {
+    const md = renderScoreReport(makeScore({
+      dimensions: {
+        ...makeScore().dimensions,
+        gdscript: { score: 90, weight: 0.1, status: 'pass',
+                    raw: { errors: 0, warnings: 5, files: 19, details: [], detailsTotal: 5 } },
+      },
+      unverified: ['flaky', 'performance'],
+    }));
+    expect(md).toContain('0 err / 5 warn');
+  });
+
+  it('gdscript incomplete(score=0)仍显示 0 err / 0 warn', () => {
+    const md = renderScoreReport(makeScore({
+      dimensions: {
+        ...makeScore().dimensions,
+        gdscript: { score: 0, weight: 0.1, status: 'fail',
+                    raw: { errors: 0, warnings: 0, files: 5, details: [], detailsTotal: 0, incomplete: true } },
+      },
+      unverified: ['flaky', 'performance'],
+    }));
+    expect(md).toContain('0 err / 0 warn');
+  });
 });

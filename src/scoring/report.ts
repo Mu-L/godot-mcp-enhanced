@@ -24,6 +24,8 @@ function dimMetric(name: DimensionName, d: DimensionResult): string {
       return `${round1(raw.pct ?? 0)}% (${raw.hit ?? 0}/${raw.found ?? 0})`;
     case 'security':
       return `${(raw.high ?? 0) + (raw.critical ?? 0)} high/critical (-${raw.deduction ?? 0})`;
+    case 'gdscript':
+      return `${raw.errors ?? 0} err / ${raw.warnings ?? 0} warn`;
     default:
       return '—';
   }
