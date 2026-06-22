@@ -14,6 +14,7 @@ export const WEIGHTS: Record<DimensionName, number> = {
 export const HARD_FAILOUTS: Partial<Record<DimensionName, number>> = {
   security: 60,
   integration: 80,
+  gdscript: 60,
 };
 
 /** 总分 pass 线 */
@@ -24,3 +25,6 @@ export const NA_SCORE = -1;
 
 /** 维度渲染顺序(所有渲染器共用,避免 report/pr-comment 双真相源) */
 export const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security', 'flaky', 'performance', 'gdscript'];
+
+/** warnings 渐进扣分系数(初始占位 2,Task 7 基线校准) */
+export const WARN_PENALTY = 2;

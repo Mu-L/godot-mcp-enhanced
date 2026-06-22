@@ -11,9 +11,10 @@ describe('dimensions config', () => {
     expect(PASS_LINE).toBe(75);
   });
 
-  it('硬否决覆盖 security(60)与 integration(80)', () => {
+  it('硬否决覆盖 security(60)/ integration(80)/ gdscript(60)', () => {
     expect(HARD_FAILOUTS.security).toBe(60);
     expect(HARD_FAILOUTS.integration).toBe(80);
+    expect(HARD_FAILOUTS.gdscript).toBe(60);
   });
 
   it('NA_SCORE = -1(表示未采集)', () => {

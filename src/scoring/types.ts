@@ -29,6 +29,17 @@ export interface HardFail {
   actual: number;
 }
 
+/** check-gdscript 产出 / collectGdscript 消费的共享契约(TS 两侧锁字段) */
+export interface GdscriptReport {
+  errors: number;
+  warnings: number;
+  files: number;         // 检查的 .gd 文件数(断言用)
+  details: string[];     // 全部问题明细(errors 优先),≤20 条
+  detailsTotal: number;  // = errors + warnings(独立计数,不受截断影响)
+  incomplete?: boolean;  // check-gdscript 断言失败(setup 坏) → collector score=0
+  reason?: string;
+}
+
 /** 评分产物——PR gate / dashboard / 发版的单一事实源 */
 export interface ScoreJson {
   total: number;          // 0-100,一位小数
