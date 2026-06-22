@@ -1,5 +1,6 @@
-import type { ScoreJson, DimensionName, DimensionResult } from './types.js';
+import type { ScoreJson } from './types.js';
 import { NA_SCORE, DIM_ORDER } from './dimensions.js';
+import { dimMetric } from './metric.js';
 
 const STATUS_BADGE: Record<string, string> = {
   pass: '✅ pass',
@@ -7,29 +8,6 @@ const STATUS_BADGE: Record<string, string> = {
   fail: '❌ fail',
   na: '⊘ na',
 };
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
-/** 按维度从 raw 提取"关键指标";na 维返回"未接入",raw 缺失返回 "—" */
-function dimMetric(name: DimensionName, d: DimensionResult): string {
-  if (d.score === NA_SCORE || d.status === 'na') return '未接入';
-  const raw = d.raw as Record<string, number> | undefined;
-  if (!raw) return '—';
-  switch (name) {
-    case 'integration':
-      return `${raw.passed ?? 0}/${raw.ran ?? 0} passed`;
-    case 'coverage':
-      return `${round1(raw.pct ?? 0)}% (${raw.hit ?? 0}/${raw.found ?? 0})`;
-    case 'security':
-      return `${(raw.high ?? 0) + (raw.critical ?? 0)} high/critical (-${raw.deduction ?? 0})`;
-    case 'gdscript':
-      return `${raw.errors ?? 0} err / ${raw.warnings ?? 0} warn`;
-    default:
-      return '—';
-  }
-}
 
 /**
  * 渲染 score.json → 人读 markdown。
