@@ -49,3 +49,53 @@ export function hashContent(content: string): string {
   const hex = createHash('sha256').update(normalized, 'utf-8').digest('hex');
   return `sha256:${hex}`;
 }
+
+// ─── adopt ───────────────────────────────────────────────────────────────────
+
+/** adopt 输入：每个规则文件的当前磁盘内容 */
+export interface AdoptFileInput {
+  filename: string;
+  content: string;
+  source: 'base' | 'detail';
+}
+
+/** adopt 构建参数 */
+export interface BuildAdoptParams {
+  serverVersion: string;
+  now: string; // ISO 时间戳，注入以便测试
+  files: AdoptFileInput[];
+}
+
+/**
+ * 把当前磁盘状态固化为新 manifest 基线（spec §5）。
+ * 偏离模板的文件 hash 记实际内容（不报错），偏离计数由 countDeviations 单独算。
+ */
+export function buildAdoptManifest(params: BuildAdoptParams): RulesManifest {
+  const rules: Record<string, RuleManifestEntry> = {};
+  for (const f of params.files) {
+    rules[f.filename] = { source: f.source, hash: hashContent(f.content) };
+  }
+  return {
+    manifest_version: 1,
+    rules_installed_at_version: params.serverVersion,
+    installed_at: params.now,
+    rules,
+  };
+}
+
+/**
+ * 统计 manifest 中磁盘 hash ≠ 当前模板 hash 的文件数（spec §5 adopt 报告用）。
+ * @param manifest adopt 后的 manifest
+ * @param currentTemplateHashes 每个文件名 → 当前模板内容的 hash
+ */
+export function countDeviations(
+  manifest: RulesManifest,
+  currentTemplateHashes: Record<string, string>,
+): number {
+  let n = 0;
+  for (const [filename, entry] of Object.entries(manifest.rules)) {
+    const templateHash = currentTemplateHashes[filename];
+    if (templateHash !== undefined && entry.hash !== templateHash) n++;
+  }
+  return n;
+}
