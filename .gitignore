@@ -37,3 +37,5 @@ test/e2e-scene/*.png
 test/fixtures/**/.godot/
 test/fixtures/**/*.png
 test/fixtures/**/*.png.import
+# M3c: gdscript 检查项目运行时复制的 addon(保留 project.godot 源)
+test/fixtures/gdscript-check/addons/

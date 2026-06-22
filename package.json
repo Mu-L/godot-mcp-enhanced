@@ -34,6 +34,7 @@
     "score": "node build/scoring/cli.js",
     "score:gate": "node build/scoring/cli.js gate",
     "score:pr-comment": "node build/scoring/cli.js pr-comment",
+    "check:gdscript": "node build/scoring/check-gdscript.js",
     "audit:json": "npm audit --json --registry=https://registry.npmjs.org",
     "test:integration": "vitest run test/integration",
     "test:all": "vitest run",
