@@ -99,3 +99,30 @@ export function countDeviations(
   }
   return n;
 }
+
+// ─── 二维分类（spec §3.3，不级联）──────────────────────────────────────────────
+
+/** classifyFile 输入参数 */
+export interface ClassifyParams {
+  /** manifest 记录的安装时版本 */
+  installedVersion: string;
+  /** 当前 server 版本 */
+  serverVersion: string;
+  /** 当前磁盘文件内容的 hash */
+  diskHash: string;
+  /** manifest 记录的安装时 hash */
+  manifestHash: string;
+}
+
+/**
+ * 逐文件二维判定。版本与"是否动过"是两个独立维度，做笛卡尔积，不级联。
+ * 级联会吞用户修改（见 spec §3.3 "为什么二维而非级联"）。
+ */
+export function classifyFile(p: ClassifyParams): FileClassification {
+  const versionStale = p.installedVersion !== p.serverVersion;
+  const userModified = p.diskHash !== p.manifestHash;
+  if (versionStale && !userModified) return 'pure-upgrade';
+  if (versionStale && userModified) return 'stale-and-modified';
+  if (!versionStale && !userModified) return 'latest';
+  return 'local-modified';
+}

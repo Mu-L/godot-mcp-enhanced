@@ -82,3 +82,38 @@ describe('countDeviations', () => {
     expect(deviations).toBe(1);
   });
 });
+
+import { classifyFile } from '../../src/tools/rules-manifest.js';
+
+describe('classifyFile（二维判定 spec §3.3）', () => {
+  const sameHash = 'sha256:abc';
+  const diffHash = 'sha256:xyz';
+
+  it('过时 + 未动过 → pure-upgrade（update 应覆盖）', () => {
+    expect(classifyFile({
+      installedVersion: '0.16.0', serverVersion: '0.18.0',
+      diskHash: sameHash, manifestHash: sameHash,
+    })).toBe('pure-upgrade');
+  });
+
+  it('过时 + 动过 → stale-and-modified（update 必须保留并警告，不吞修改）', () => {
+    expect(classifyFile({
+      installedVersion: '0.16.0', serverVersion: '0.18.0',
+      diskHash: diffHash, manifestHash: sameHash,
+    })).toBe('stale-and-modified');
+  });
+
+  it('版本同 + 未动过 → latest', () => {
+    expect(classifyFile({
+      installedVersion: '0.18.0', serverVersion: '0.18.0',
+      diskHash: sameHash, manifestHash: sameHash,
+    })).toBe('latest');
+  });
+
+  it('版本同 + 动过 → local-modified', () => {
+    expect(classifyFile({
+      installedVersion: '0.18.0', serverVersion: '0.18.0',
+      diskHash: diffHash, manifestHash: sameHash,
+    })).toBe('local-modified');
+  });
+});
