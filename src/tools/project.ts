@@ -422,21 +422,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const rulesDir = join(p, '.claude', 'rules');
         mkdirSync(rulesDir, { recursive: true });
 
-        // Base rules: godot-mcp.md
+        // Read MCP version from package.json for template substitution
+        //（base 与详细规则统一走 {{MCP_VERSION}} 插值，放在 base 段之前避免 TDZ）
+        const mcpPkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+        let mcpVersion = '0.16.0';
+        try { mcpVersion = JSON.parse(readFileSync(mcpPkgPath, 'utf-8')).version || mcpVersion; } catch { /* fallback */ }
+
+        // Base rules: godot-mcp.md（与详细规则统一走 {{MCP_VERSION}} 插值）
         const rulesPath = join(rulesDir, 'godot-mcp.md');
+        const baseContent = GODOT_MCP_RULES.replace(/\{\{MCP_VERSION\}\}/g, mcpVersion);
         if (!existsSync(rulesPath)) {
-          writeAtomic(rulesPath, GODOT_MCP_RULES);
+          writeAtomic(rulesPath, baseContent);
           actions.push('rules: created .claude/rules/godot-mcp.md');
         } else if (force) {
           actions.push('rules: preserved godot-mcp.md (user modifications protected)');
         }
 
         // Detailed subsystem rules: godot-mcp-core.md, godot-mcp-bridge.md, etc.
-        // Read MCP version from package.json for template substitution
-        const mcpPkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
-        let mcpVersion = '0.16.0';
-        try { mcpVersion = JSON.parse(readFileSync(mcpPkgPath, 'utf-8')).version || mcpVersion; } catch { /* fallback */ }
-
         const detailEntries = Object.entries(DETAILED_RULE_TEMPLATES).sort(([a], [b]) => a.localeCompare(b));
         for (const [filename, content] of detailEntries) {
           const detailPath = join(rulesDir, filename);

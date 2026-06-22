@@ -20,7 +20,10 @@ export const SECTION_ORDER: string[] = [
 ];
 
 // godot-mcp.md 固定模板内容
+// {{MCP_VERSION}} 占位符由 setup_project_rules 在写入时插值（与 DETAILED_RULE_TEMPLATES 统一路径）
 export const GODOT_MCP_RULES = `# Godot MCP 开发规则
+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
 
 ## 通用原则
 - 标注"运行时操作"的工具仅影响当前进程，如需持久化请编辑 .tscn/.gd 文件

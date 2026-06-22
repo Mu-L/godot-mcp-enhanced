@@ -3,6 +3,9 @@
 //
 // ⚠️ 维护注意：本文件中的模板内容与 .claude/rules/godot-mcp-*.md 是两份独立副本。
 // 更新规则时，必须同步修改两处：(1) .claude/rules/ 下的实际文件 (2) 此处的模板。
+// 分发追踪由 .godot-mcp-manifest.json 解决（见 setup_project_rules 的 reconcile），
+// 但模板源与 .claude/rules/ 仍需保持一致 —— CI 的 check-rules-version-bump 脚本
+// 会在模板变更时强制要求 package.json 版本 bump。
 
 /**
  * 所有详细规则文件的映射：文件名 → 内容
