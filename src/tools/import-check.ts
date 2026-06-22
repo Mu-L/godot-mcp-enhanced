@@ -8,12 +8,10 @@
  * `godot --headless --import` to warm up the cache before execution.
  */
 
-import { spawn } from 'child_process';
 import { existsSync, statSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { forceKillTree } from '../core/process-state.js';
+import { runGodotHeadless } from '../core/godot-spawn.js';
 import { getLogger } from '../core/logger.js';
-import { buildSafeEnv } from '../helpers.js';
 
 // ─── Cache state ──────────────────────────────────────────────────────────────
 
@@ -102,59 +100,26 @@ export async function runImport(
   godotPath: string,
   timeoutMs: number = 60_000,
 ): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const proc = spawn(
-      godotPath,
-      ['--headless', '--import', '--path', projectPath],
-      { stdio: ['ignore', 'pipe', 'pipe'], env: buildSafeEnv() },
+  const result = await runGodotHeadless(
+    ['--headless', '--import', '--path', projectPath], godotPath, timeoutMs,
+  );
+  if (result.exitCode === null) {
+    throw new Error(
+      `Import warmup timed out after ${timeoutMs}ms for ${projectPath}. ` +
+      `stdout: ${result.stdout.slice(-500) || '(empty)'}; stderr: ${result.stderr.slice(-500) || '(empty)'}`,
     );
-
-    // C-PERF-01: Use Buffer[] to avoid O(n²) string concatenation
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      stdoutChunks.push(data);
-    });
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      stderrChunks.push(data);
-    });
-
-    const timer = setTimeout(() => {
-      forceKillTree(proc);
-      const stdoutTail = Buffer.concat(stdoutChunks).toString('utf-8').slice(-500);
-      const stderrTail = Buffer.concat(stderrChunks).toString('utf-8').slice(-500);
-      reject(new Error(
-        `Import warmup timed out after ${timeoutMs}ms for ${projectPath}. ` +
-        `stdout: ${stdoutTail || '(empty)'}; stderr: ${stderrTail || '(empty)'}`,
-      ));
-    }, timeoutMs);
-
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(new Error(`Import warmup failed to spawn: ${err.message}`));
-    });
-
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
-      const stderr = Buffer.concat(stderrChunks).toString('utf-8');
-      if (code === 0) {
-        // Update cache to reflect the fresh import
-        const latestMtime = scanLatestMtime(projectPath);
-        _lastCheckedAssetMtime = latestMtime || Date.now();
-        _lastCheckedProject = projectPath;
-        getLogger().info('import-check', `Import warmup completed for ${projectPath}`);
-        resolve();
-      } else {
-        reject(new Error(
-          `Import warmup exited with code ${code} for ${projectPath}. ` +
-          `stdout: ${stdout.slice(-500) || '(empty)'}; stderr: ${stderr.slice(-500) || '(empty)'}`,
-        ));
-      }
-    });
-  });
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Import warmup exited with code ${result.exitCode} for ${projectPath}. ` +
+      `stdout: ${result.stdout.slice(-500) || '(empty)'}; stderr: ${result.stderr.slice(-500) || '(empty)'}`,
+    );
+  }
+  // code === 0: 更新缓存
+  const latestMtime = scanLatestMtime(projectPath);
+  _lastCheckedAssetMtime = latestMtime || Date.now();
+  _lastCheckedProject = projectPath;
+  getLogger().info('import-check', `Import warmup completed for ${projectPath}`);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
