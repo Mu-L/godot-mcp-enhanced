@@ -82,4 +82,31 @@ describe('generateScore', () => {
     expect(md).toContain('质量评分报告');
     expect(md).toContain(String(s.total));
   });
+
+  it('有 gdscript report → gdscript 维度有值,incomplete→fail', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const GD = resolve(TMP, 'gd.json');
+    writeFileSync(GD, JSON.stringify({ errors: 0, warnings: 5, files: 19, details: [], detailsTotal: 5 }));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, gdscriptReportPath: GD });
+    expect(s.dimensions.gdscript.score).toBe(90); // 100-5*2
+    expect(s.dimensions.gdscript.status).toBe('pass');
+    expect(s.unverified).not.toContain('gdscript');
+  });
+
+  it('gdscript report incomplete → gdscript score=0 fail(hardFail)', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const GD = resolve(TMP, 'gd.json');
+    writeFileSync(GD, JSON.stringify({ errors: 0, warnings: 0, files: 0, details: [], detailsTotal: 0, incomplete: true, reason: 'GODOT_PATH 缺失' }));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, gdscriptReportPath: GD });
+    expect(s.dimensions.gdscript.score).toBe(0);
+    expect(s.hardFails.some(h => h.dimension === 'gdscript')).toBe(true);
+    expect(s.pass).toBe(false);
+  });
+
+  it('gdscript report 缺失 → gdscript 维度 na', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, gdscriptReportPath: resolve(TMP, 'nope.json') });
+    expect(s.dimensions.gdscript.status).toBe('na');
+    expect(s.unverified).toContain('gdscript');
+  });
 });

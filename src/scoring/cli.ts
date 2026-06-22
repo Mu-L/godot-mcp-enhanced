@@ -61,7 +61,8 @@ if (invoked) {
     const outPath = resolve(process.cwd(), 'coverage/score.json');
     const e2eReportPath = resolve(process.cwd(), 'coverage/e2e-report.json');
     const auditJsonPath = resolve(process.cwd(), 'coverage/audit.json');
-    const score = generateScore({ lcovPath, outPath, e2eReportPath, auditJsonPath });
+    const gdscriptReportPath = resolve(process.cwd(), 'coverage/gdscript-report.json');
+    const score = generateScore({ lcovPath, outPath, e2eReportPath, auditJsonPath, gdscriptReportPath });
     process.stdout.write(
       `score: ${score.total} pass=${score.pass} partial=${score.partial} unverified=${score.unverified.length} → ${outPath}\n`,
     );
