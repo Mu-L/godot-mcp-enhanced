@@ -5,6 +5,7 @@ import { collectCoverage } from './collectors/coverage.js';
 import { collectIntegration } from './collectors/integration.js';
 import { collectSecurity } from './collectors/security.js';
 import { collectGdscript } from './collectors/gdscript.js';
+import { collectPerformance } from './collectors/performance.js';
 import { WEIGHTS, NA_SCORE } from './dimensions.js';
 import { renderScoreReport } from './report.js';
 
@@ -18,6 +19,8 @@ export interface GenerateScoreOptions {
   auditJsonPath?: string;
   /** check-gdscript 产出路径;缺失→gdscript 维度 na */
   gdscriptReportPath?: string;
+  /** vitest --reporter=json 全套产出;缺失→performance 维度 na */
+  performanceReportPath?: string;
 }
 
 /** n/a 维度占位(权重保留,供 aggregate 重分配) */
@@ -26,7 +29,7 @@ function na(name: DimensionName): DimensionResult {
 }
 
 /**
- * 组装 6 维(M1 coverage + M2 integration + M3a security + M3c gdscript 有值),聚合,写 score.json。
+ * 组装 6 维(M1 coverage + M2 integration + M3a security + M3c gdscript + M3d performance 有值),聚合,写 score.json。
  * 返回 ScoreJson。后续里程碑只需替换对应 na() 为真实采集器结果。
  */
 export function generateScore(opts: GenerateScoreOptions): ScoreJson {
@@ -34,12 +37,13 @@ export function generateScore(opts: GenerateScoreOptions): ScoreJson {
   const integration = opts.e2eReportPath ? collectIntegration(opts.e2eReportPath) : na('integration');
   const security = opts.auditJsonPath ? collectSecurity(opts.auditJsonPath) : na('security');
   const gdscript = opts.gdscriptReportPath ? collectGdscript(opts.gdscriptReportPath) : na('gdscript');
+  const performance = opts.performanceReportPath ? collectPerformance(opts.performanceReportPath) : na('performance');
   const dims: Record<DimensionName, DimensionResult> = {
     integration,
     coverage,
     security,
     flaky: na('flaky'),
-    performance: na('performance'),
+    performance,
     gdscript,
   };
   const score = computeScore(dims, {

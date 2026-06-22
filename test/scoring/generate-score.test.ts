@@ -109,4 +109,24 @@ describe('generateScore', () => {
     expect(s.dimensions.gdscript.status).toBe('na');
     expect(s.unverified).toContain('gdscript');
   });
+
+  it('有 performance report → performance 维度有值', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const PERF = resolve(TMP, 'perf.json');
+    writeFileSync(PERF, JSON.stringify({
+      numTotalTests: 10, numPassedTests: 10, startTime: 0,
+      testResults: [{ name: 'a.test.ts', startTime: 0, endTime: 5000, status: 'passed', assertionResults: [] }],
+    }));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, performanceReportPath: PERF });
+    expect(s.dimensions.performance.score).toBe(100); // 5s ≤ T_PASS_MS
+    expect(s.dimensions.performance.status).toBe('pass');
+    expect(s.unverified).not.toContain('performance');
+  });
+
+  it('performance report 缺失 → performance 维度 na', () => {
+    writeFileSync(LCOV, ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'end_of_record'].join('\n'));
+    const s = generateScore({ lcovPath: LCOV, outPath: OUT, performanceReportPath: resolve(TMP, 'nope.json') });
+    expect(s.dimensions.performance.status).toBe('na');
+    expect(s.unverified).toContain('performance');
+  });
 });
