@@ -22,7 +22,7 @@ status: approved
 
 | 项 | 值 |
 |----|----|
-| 位置 | `D:\workspace\projects\rpg-mcp-pilot`(与 godot-test-project 同级,避开沙盒) |
+| 位置 | `D:\GitHub\rpg-mcp-pilot`(D:/GitHub 下,enhanced 同级,避开沙盒;原 D:/workspace/projects 被 MCP 白名单阻塞改此) |
 | Godot 版本 | 4.6(`create_project` godot_version=4.6) |
 | 渲染器 | `gl_compatibility`(2D 友好 + 跨版本稳) |
 | 版本控制 | `git init` + `.gitignore`(排 `.godot/`、`.import/`) |

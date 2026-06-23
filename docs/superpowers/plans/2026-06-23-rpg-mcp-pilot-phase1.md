@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **位置**:`D:\workspace\projects\rpg-mcp-pilot`(与 godot-test-project 同级,完全避开沙盒)
+- **位置**:`D:\GitHub\rpg-mcp-pilot`(D:/GitHub 下,enhanced 同级,避开沙盒;原 D:/workspace/projects 被 MCP 白名单阻塞改此)
 - **Godot 版本**:4.6.2 主验,路径 `D:\Godot\Godot_v4.6.2-stable_win64.exe`;4.7 抽验(执行时 `ls D:\Godot\` 取 `Godot_v4.7*.exe` 路径);4.5.1/4.6.3 可选
 - **渲染器**:`gl_compatibility`
 - **版本控制**:`git init` + `.gitignore`(排 `.godot/`、`.import/`)
@@ -27,9 +27,9 @@
 ### Task 1: 项目初始化 + autoload 注册手段实测
 
 **Files:**
-- Create: `D:\workspace\projects\rpg-mcp-pilot\project.godot`(via create_project)
-- Create: `D:\workspace\projects\rpg-mcp-pilot\.gitignore`
-- Create: `D:\workspace\projects\rpg-mcp-pilot\rpg\autoload\probe.gd`(探针,Task 2 删)
+- Create: `D:\GitHub\rpg-mcp-pilot\project.godot`(via create_project)
+- Create: `D:\GitHub\rpg-mcp-pilot\.gitignore`
+- Create: `D:\GitHub\rpg-mcp-pilot\rpg\autoload\probe.gd`(探针,Task 2 删)
 
 **Interfaces:**
 - Produces: 可运行的空 4.6 项目 + **确认的 autoload 注册手段**(write_config 是否支持 [autoload] 段,供 Task 2 用)
@@ -37,7 +37,7 @@
 - [ ] **Step 1: create_project**
 
 调用 `mcp__godot__project` `create_project`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `project_name`: `RPG MCP Pilot`
 - `renderer`: `gl_compatibility`
 - `godot_version`: `4.6`
@@ -61,7 +61,7 @@ Write `.gitignore`:
 - [ ] **Step 3: 写探针 autoload 脚本**
 
 调用 `mcp__godot__script` `write_script`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `script_path`: `rpg/autoload/probe.gd`
 - `content`:
 ```gdscript
@@ -74,7 +74,7 @@ func _ready() -> void:
 - [ ] **Step 4: 实测 write_config 注册 autoload(关键)**
 
 调用 `mcp__godot__project` `write_config`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `key`: `autoload/Probe`
 - `value`: `*res://rpg/autoload/probe.gd`
 
@@ -90,7 +90,7 @@ Probe="*res://rpg/autoload/probe.gd"
 - [ ] **Step 6: smoke(run_and_verify, autoload 假阳性预期不卡)**
 
 调用 `mcp__godot__validation` `run_and_verify`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `godot_path`: `D:\Godot\Godot_v4.6.2-stable_win64.exe`
 
 预期:可能报 Probe 相关 "not declared" 假阳性(pitfall),**不计为失败**;只看有无致命语法错(应无)。
@@ -233,7 +233,7 @@ func _physics_process(_delta: float) -> void:
 - [ ] **Step 2: create_scene player.tscn**
 
 `mcp__godot__scene` `create_scene`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `scene_path`: `scenes/player.tscn`
 - `root_node_type`: `CharacterBody2D`
 - `root_node_name`: `Player`
@@ -355,7 +355,7 @@ func _on_quit_pressed() -> void:
 - [ ] **Step 2: 真实运行 + 读启动日志(假设 A/B 判据)**
 
 `mcp__godot__runtime` `run_project`:
-- `project_path`: `D:/workspace/projects/rpg-mcp-pilot`
+- `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `godot_path`: `D:\Godot\Godot_v4.6.2-stable_win64.exe`
 - `timeout`: 15
 
@@ -387,7 +387,7 @@ GUI 运行中,人工操作:点「新游戏」→ 观察切到探索场景 → �
 
 - [ ] **Step 1: 装 bridge**
 
-`mcp__godot__game` `game_bridge_install`(`project_path`: `D:/workspace/projects/rpg-mcp-pilot`)。
+`mcp__godot__game` `game_bridge_install`(`project_path`: `D:/GitHub/rpg-mcp-pilot`)。
 
 - [ ] **Step 2: 运行项目 + ping**
 
