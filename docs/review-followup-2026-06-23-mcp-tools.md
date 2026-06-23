@@ -115,4 +115,6 @@
 
 **S5+S6**(`56499e0`)已修:`_cmd_call_method` env `GODOT_MCP_BRIDGE_EXTRA_METHODS` 扩展白名单(opt-in,默认只读安全)+ `_cmd_send_key` 补 `physical_keycode`(触发 physical 映射 input action)。验证:game-bridge 16✓ + godot parse 无错。
 
-**剩余 backlog**:S2/M1 已撤销(误判);M2/M3/M5/M6 待办(优先级中/低)。
+**M6**(`ce9c9ad`)已修:write_script 创建含 class_name 的 .gd 后自动触发 `--import` 重建 `.godot/global_script_class_cache`(根因:`ASSET_SCAN_DIRS=['assets','scenes','scripts']` 不扫 autoload/combat/data 等自定义目录,needsImport 漏检 → execute_gdscript 不 warm → 新 class_name not declared)。与 S3 配合闭环。验证:4 新测试 + script/executor 63✓。
+
+**剩余 backlog**:S2/M1 已撤销(误判);M2/M3/M5 待办(中/低,M2/M5 纯文档、M3 findGodot 缓存失效)。
