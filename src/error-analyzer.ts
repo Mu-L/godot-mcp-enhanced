@@ -30,6 +30,11 @@ export interface AnalyzeOptions {
   /** Autoload singleton names from project.godot [autoload] section.
    *  Errors referencing these names are reclassified as headless_limitation. */
   autoloadNames?: string[];
+  /** Global class_name names from .godot/global_script_class_cache.cfg (S3, 2026-06-23).
+   *  Errors referencing these are reclassified as headless_limitation — headless can't
+   *  resolve cross-file class_name, producing the same "Identifier X not found" false
+   *  positive as autoload. */
+  classNames?: string[];
 }
 
 // ===== Error pattern matchers =====
@@ -68,21 +73,24 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     },
   },
   {
-    // Autoload singleton not available in headless mode — must be BEFORE generic Identifier rule.
-    // Note: matches any "Identifier XXX" error where XXX is an autoload name, not limited to
-    // "not found" — this is intentional: headless can't instantiate autoloads, so any reference
-    // to them (method calls, property access, etc.) will fail and should be filtered.
+    // Autoload singleton / global class_name not available in headless mode — must be BEFORE generic Identifier rule.
+    // Note: matches any "Identifier XXX" error where XXX is an autoload name or global class_name,
+    // not limited to "not found" — this is intentional: headless can't instantiate autoloads or
+    // resolve cross-file class_name, so any reference to them (method calls, property access, etc.)
+    // will fail and should be filtered.
+    // S3 (2026-06-23): also matches class_name from .godot/global_script_class_cache.cfg.
     test: (msg, opts) => {
-      if (!opts?.autoloadNames?.length) return false;
+      if (!opts?.autoloadNames?.length && !opts?.classNames?.length) return false;
       const identMatch = msg.match(/Identifier\s+"(\w+)"/);
       if (!identMatch) return false;
-      return opts.autoloadNames.includes(identMatch[1]!);
+      const name = identMatch[1]!;
+      return (opts.autoloadNames?.includes(name) === true) || (opts.classNames?.includes(name) === true);
     },
     type: 'headless_limitation',
     suggestion: (msg) => {
       const identMatch = msg.match(/Identifier\s+"(\w+)"/);
-      const name = identMatch ? identMatch[1] : 'autoload';
-      return `"${name}" is an autoload singleton that is not available in headless mode. This error only occurs during headless validation (run_and_verify) and works correctly at runtime. Safe to ignore.`;
+      const name = identMatch ? identMatch[1] : 'global identifier';
+      return `"${name}" is an autoload singleton or global class_name not available in headless mode. This error only occurs during headless validation (run_and_verify) and works correctly at runtime. Safe to ignore.`;
     },
   },
   {

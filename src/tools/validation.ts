@@ -564,7 +564,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             analyzeOpts.autoloadNames = Object.keys(autoloadSection);
           }
         }
-      } catch (err) { getLogger().debug('validation', `read autoload config: ${err instanceof Error ? err.message : err}`); }
+        // S3 (2026-06-23): 读 global_script_class_cache.cfg 提取 class_name 全局类。
+        // headless 跨文件 class_name 解析失败同样报 "Identifier X not found",需与 autoload
+        // 同归 headless_limitation,否则干净项目被误诊为真实错误(见 review-followup S3)。
+        const classCachePath = join(projectPath, '.godot', 'global_script_class_cache.cfg');
+        if (existsSync(classCachePath)) {
+          const cacheContent = readFileSync(classCachePath, 'utf-8');
+          const classNames = [...cacheContent.matchAll(/"class":\s*&?"(\w+)"/g)].map(m => m[1] as string);
+          if (classNames.length > 0) analyzeOpts.classNames = classNames;
+        }
+      } catch (err) { getLogger().debug('validation', `read autoload/class config: ${err instanceof Error ? err.message : err}`); }
 
       const analysis = analyzeOutput(allOutput, analyzeOpts);
 
