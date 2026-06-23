@@ -462,4 +462,34 @@ describe('F-3: addNode property key validation & BLOCKED_PROPS', () => {
     expect(result.scene).toContain('offset_left = 10');
     expect(result.scene).toContain('visible = true');
   });
+
+  // S1 (2026-06-23): BLOCKED_PROPS 命中时不能静默 drop 后返回 success——
+  // 用户设 script 属性会被无提示丢弃,导致"看似成功但 script 未生效"的静默失败。
+  // 修复:收集被拦 key 到 blockedProps,由调用方前置明确警告。
+  it('S1: reports blocked property names instead of silently dropping them', () => {
+    const result = addNode(SIMPLE_SCENE, {
+      parent: '.', name: 'WithScript', type: 'Node2D',
+      properties: {
+        script: 'ExtResource("1")',
+        instance: 'ExtResource(1)',
+        position: { x: 5, y: 5 },
+      },
+    });
+    // 仍成功(合法属性正常写入,安全策略保留拦截)
+    expect(result.success).toBe(true);
+    expect(result.scene).toContain('position = Vector2(5, 5)');
+    // 必须明确报告被拦截的 key(而非静默)
+    expect(result.blockedProps).toBeDefined();
+    expect(result.blockedProps).toContain('script');
+    expect(result.blockedProps).toContain('instance');
+  });
+
+  it('S1: blockedProps undefined when no blocked properties present', () => {
+    const result = addNode(SIMPLE_SCENE, {
+      parent: '.', name: 'Clean', type: 'Node2D',
+      properties: { position: { x: 1, y: 2 } },
+    });
+    expect(result.success).toBe(true);
+    expect(result.blockedProps).toBeUndefined();
+  });
 });
