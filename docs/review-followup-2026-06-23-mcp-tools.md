@@ -37,6 +37,47 @@
 
 ---
 
+## 🔬 源码核查裁决(2026-06-23)
+
+对实操结论逐条做源码核查(调试归因铁律)。**2 条误判撤销,9 条确认(多数根因更精确),2 条降级。**
+
+### ❌ 撤销(实操误判,非工具缺陷)
+
+| # | 原结论 | 核查 | 证据 |
+|---|--------|------|------|
+| **S2** | add_node 生成 `parent="父名"`(错,应 `.`) | 撤销 | `scene\tools\scene\index.ts:152-161`(`root`/`/root`/`''` → `tscnParent='.'`)+ `src\tscn-editor-add.ts:330`(`parent='.'` → `parent="."`)正确处理 root 子节点。实操是手写 .tscn 写错,非工具 bug |
+| **M1** | write_config `main_scene` 被拒 | 撤销 | `src\tools\project-config.ts:25` 白名单**含 `run/main_scene`**。实操传错 key(`application/run/main_scene`),正确是 `run/main_scene`(section=[application], prop=run/main_scene) |
+
+### ✅ 确认(根因精确化,带 file:line)
+
+| # | 精确根因 | 证据 |
+|---|---------|------|
+| **S1** | BLOCKED_PROPS 安全设计(防脚本注入)拦 `script`,静默 `continue` + 返回 success 无提示 | `src\tools\scene\helpers.ts` BLOCKED_PROPS 含 `script`;`src\tools\scene\index.ts:313`(edit_node continue)/ `src\tscn-editor-add.ts:341`(add_node continue) |
+| **S3** | error-analyzer 只过滤 autoload 名,**不过滤 class_name 全局类**;`Identifier "X" not found` 命中 script_error 规则被判真实错误 | `src\error-analyzer.ts:75-87`(autoload 过滤,需调用方传 autoloadNames)/ `:89-96`(class_name 命中 script_error) |
+| **S4** | 三段叠加死循环:_ready 重生 + 写后收紧权限 + _exit_tree 删除 | `src\scripts\mcp_bridge.gd:183`(重生)/ `:284`(收紧)/ `:387-388`(删除) |
+| **S5** | ALLOWED_METHODS 全是只读查询方法,刻意禁状态修改(安全设计);emit_signal/_on_*/业务方法全拒 | `src\scripts\mcp_bridge.gd:55-61`(只读白名单)/ `:653`(非白名单拒) |
+| **S6** | InputEventKey 只设 `event.keycode`,不设 `physical_keycode`/`key_label`/`echo` → 物理 input map 不触发 | `src\scripts\mcp_bridge.gd:742-744` |
+| **M2** | autoload value 须 `res://` 开头(不带 `*`),写入时自动注入 `*`(反直觉但合理) | `src\tools\project-config.ts:90-96,162` |
+| **M3** | findGodot 优先级正确(GODOT_PATH env 第 2),但 `_pathCache` 固化首次结果 → 改 env 需重启 MCP。实操"默认 4.7"= GODOT_PATH env 未注入 + PATH godot=4.7 被缓存 | `src\core\godot-finder.ts:269-279`(GODOT_PATH)/ `:256-258,272`(缓存固化) |
+| **M5** | Node 进程 env 启动时固化,`getAllowedProjectPaths` 每次读 env 但 env 不变 → 改 settings 需重启 MCP | `src\core\path-utils.ts:198-201` |
+| **M6** | 无任何工具调 `runImport`;import-check 孤立;write_script/create 新 class_name 不重建 `.godot/global_script_class_cache` | `src\tools\import-check.ts:96-108`(runImport 孤立)/ grep runImport 调用点=0 |
+
+### 🟡 降级(部分真实)
+
+| # | 原结论 | 核查 |
+|---|--------|------|
+| **M4** | "timeout 语义不明" | 语义本清晰(`src\tools\runtime.ts:160-170` timeout=setTimeout 到期 `killProcess`,即自动停止秒数)。真问题:killProcess 异步 + GUI/bridge 握手时机错位 |
+| **click_button** | "button_path 空" | TS 侧正确(`src\tools\game-bridge.ts:673-682` text/path 二选一,缺则 INVALID_PARAMS)。"Cannot get path" 在 bridge 侧,次要 |
+
+### 统计与教训
+
+- 确认:9(S1/S3/S4/S5/S6/M2/M3/M5/M6)+ 轻问题 manage_tools `NOT_IMPLEMENTED`(`manage-tools.ts:134,138`)确认
+- 撤销:2(**S2 add_node parent、M1 write_config main_scene** = 我手写 .tscn / key 拼写错误,非工具缺陷)
+- 降级:2(M4 timeout 语义本清晰、click_button TS 侧 OK)
+- **教训**:实操暴露的"bug"必须源码复核——13 条里 2 条是我的手写错误被误归因为工具 bug(再次印证"估算vs实测"铁律)。真实 bug 里多条根因比实操时更精确(S3 class_name 未过滤 / S5 白名单=只读设计 / M3 缓存固化)。
+
+---
+
 ## 累积影响
 
 - **战斗交互自动验不可行**:bridge 限制叠加重生(S4 secret + S5 白名单 + S6 send_key + M4 GUI 时机),即使改固定 secret 仍卡运行时连接 → 最终接受"代码就位、运行时未自动验"
