@@ -104,3 +104,5 @@ Headless 模式下 2D 场景（CanvasItem 子类，如 ColorRect/TextureRect/\_d
 - **remove_node 路径格式**：使用 `父名#子名` 格式（如 `Main#ValidationLabel`），而非 `/` 分隔路径。先用 `query_scene_tree` 确认节点名。
 - **ui_build_layout 必须传 scene_path**：不传 `scene_path` 会报错 "Failed to load scene"。所有 `ui_build_layout` 调用必须包含 `scene_path` 参数。
 - **screenshot analyze 返回格式**：`screenshot(action=analyze)` 返回图片 base64 数据（非文字描述），需配合 `image_path` 参数指定本地 PNG/JPG 文件路径。它不会自动对截图做 AI 文字分析，而是将图片数据返回给调用方做视觉检查。
+- **findGodot 缓存 + env 固化（M3, v0.18.x+）**：`findGodot` 首次解析后缓存（`_pathCache`），且 Node 进程 env 启动时固化。改 `GODOT_PATH` 环境变量后**需重启 MCP 服务端**才生效（env 进程级 + 缓存双固化；若新 env 未注入则 fallback PATH 上的 godot）。项目级覆盖用 `.godot/mcp-godot.json` 的 `godot_path` 或 project.godot `[godot_mcp]` 段（优先于 env，且每项目独立缓存）。
+- **ALLOWED_PROJECT_PATHS 不热重载（M5, v0.18.x+）**：项目路径白名单从 `process.env.ALLOWED_PROJECT_PATHS` 读取（分号分隔），Node 进程 env 启动时由父进程注入并固化。改 settings.json 的 env 配置后**需重启 MCP 服务端（或宿主 Claude Code）**才生效——改完仍报 `PATH_NOT_ALLOWED` 多半是未重启。临时绕过：`GODOT_MCP_UNRESTRICTED=true`（仅本地开发）。
