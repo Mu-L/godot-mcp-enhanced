@@ -117,4 +117,6 @@
 
 **M6**(`ce9c9ad`)已修:write_script 创建含 class_name 的 .gd 后自动触发 `--import` 重建 `.godot/global_script_class_cache`(根因:`ASSET_SCAN_DIRS=['assets','scenes','scripts']` 不扫 autoload/combat/data 等自定义目录,needsImport 漏检 → execute_gdscript 不 warm → 新 class_name not declared)。与 S3 配合闭环。验证:4 新测试 + script/executor 63✓。
 
-**剩余 backlog**:S2/M1 已撤销(误判);M2/M3/M5 待办(中/低,M2/M5 纯文档、M3 findGodot 缓存失效)。
+**M2/M3/M5**(`199a9ab`)已修:M2 autoload value 误带 `*` 错误提示明示去掉(写入自动注入)+ M3/M5 core rule 陷阱段文档化(findGodot `_pathCache` 固化 / ALLOWED_PROJECT_PATHS env 启动固化,改 settings 需重启 MCP)。验证:project-config 29✓ + tsc 无错。
+
+**✅ backlog 全部处理完毕**:S1/S3/S4/S5/S6/M2/M3/M5/M6 已修(8 fix commit);S2/M1 撤销(核查证伪的误判)。剩余仅"手动 F5 集成验证"(S4/S5/S6 运行时交互)—— 自动验证受 bridge 链路自身限制,留给用户 F5 实测。
