@@ -100,3 +100,17 @@
 - 实操项目:`D:/GitHub/rpg-mcp-pilot`(Phase 1 骨架 + Phase 2 战斗,15 commit)
 - memory:`mcp-godot-scene-script-pitfalls`(7 条陷阱)/ `class-name-cache-import-rebuild` / `rpg-mcp-pilot-phase-status`(含 bridge 固定 secret hack)
 - 已知 pitfall memory(workspace-review):`autoload-classname-headless-pitfall`(headless 假性,本 backlog S3 印证)
+
+## ✅ 修复进展(2026-06-23,分支 `fix/mcp-tools-s1-s3-s4`)
+
+最高优先级三条已修(TDD:RED→GREEN,逐条 commit):
+
+| # | commit | 改动 | 验证 |
+|---|--------|------|------|
+| **S1** | `0635e63` | `AddNodeResult` 加 `blockedProps`;addNode/addNodes 收集被拦属性;add_node 写回后、edit_node executeGdscript 后**前置明确警告** + script 建议(不再静默 drop) | tscn-editor-add 48✓ + scene 集成 57✓ |
+| **S3** | `3e94bff` | error-analyzer `AnalyzeOptions` 加 `classNames`;autoload 过滤 pattern 扩展匹配 class_name(同归 headless_limitation);run_and_verify 读 `.godot/global_script_class_cache.cfg` 提取 class names 传入 | error-analyzer 32✓ + validation 54✓ |
+| **S4** | `16b59a6` | mcp_bridge.gd env `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`:secret 文件存在则复用(不重生/收紧)+ `_exit_tree` 不删除,打破死循环;bridge rule 加治本文档 | godot parse 无错(validate_scripts "no Parse Error") |
+
+全套 **2718 passed**。7 E2E fails(execute_gdscript/edit_node/create_3d_node/dev_loop)为真实 Godot spawn 环境 timeout,与本次改动无关(edit_node E2E 改 `visible` 非 blocked,S1 不影响)。
+
+**剩余 backlog**:S2/M1 已撤销(误判);S5/S6(白名单文档化 + send_key physical_keycode)+ M2/M3/M5/M6 待办(优先级中/低)。
