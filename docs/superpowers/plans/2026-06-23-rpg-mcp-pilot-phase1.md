@@ -17,7 +17,7 @@
 - **渲染器**:`gl_compatibility`
 - **版本控制**:`git init` + `.gitignore`(排 `.godot/`、`.import/`)
 - **验证判据(铁律)**:全程**真实运行**(`run_project` GUI / 人工 F5)作判据。`run_and_verify`(headless)**仅作 smoke**——对 autoload/class_name "Identifier not declared" 报假阳性(memory `autoload-classname-headless-pitfall.md`),headless 出现此类错误**不卡**,以真实运行为准
-- **autoload 注册**:MCP 无专门注册工具,用 `write_config(key="autoload/<Name>", value="*res://<path>")`;Task 1 首步实测格式,回退手编 `project.godot`
+- **autoload 注册**:MCP 无专门注册工具,用 `write_config(key="autoload/<Name>", value="res://<path>")`(**value 不带 `*`**——实测 write_config 自动注入 `*` singleton 前缀到磁盘,带 `*` 会被拒 "must start with res://");Task 1 已实证此契约
 - **bridge 分离**:核心验证(假设 A/B/C)严格先于 `game_bridge_install`(bridge 会注册 MCPBridge autoload,污染判读)
 - **exploration 底图**:`ColorRect` 占位,无 TileMap/TileSet
 - **无 unit test 框架**:Phase 1 骨架不引入测试框架(YAGNI),用「验收驱动」替代 TDD——每 task 定义可 F5/MCP 查询的验收条件
@@ -76,7 +76,7 @@ func _ready() -> void:
 调用 `mcp__godot__project` `write_config`:
 - `project_path`: `D:/GitHub/rpg-mcp-pilot`
 - `key`: `autoload/Probe`
-- `value`: `*res://rpg/autoload/probe.gd`
+- `value`: `res://rpg/autoload/probe.gd`（no `*`，write_config 自动注入 `*` 前缀）
 
 - [ ] **Step 5: 读回 project.godot 核对 [autoload] 段格式**
 
@@ -176,8 +176,8 @@ func change_state(new_state: GameState) -> void:
 - [ ] **Step 4: 注册 GameEvents/GameManager autoload**
 
 `write_config` 两次(沿用 Task 1 确认的手段):
-- `key`: `autoload/GameEvents`, `value`: `*res://rpg/autoload/game_events.gd`
-- `key`: `autoload/GameManager`, `value`: `*res://rpg/autoload/game_manager.gd`
+- `key`: `autoload/GameEvents`, `value`: `res://rpg/autoload/game_events.gd`（no `*`，自动注入）
+- `key`: `autoload/GameManager`, `value`: `res://rpg/autoload/game_manager.gd`（no `*`，自动注入）
 
 - [ ] **Step 5: 删 Probe(手编 project.godot)**
 
