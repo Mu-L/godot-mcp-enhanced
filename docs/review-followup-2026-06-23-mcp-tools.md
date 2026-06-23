@@ -113,4 +113,6 @@
 
 全套 **2718 passed**。7 E2E fails(execute_gdscript/edit_node/create_3d_node/dev_loop)为真实 Godot spawn 环境 timeout,与本次改动无关(edit_node E2E 改 `visible` 非 blocked,S1 不影响)。
 
-**剩余 backlog**:S2/M1 已撤销(误判);S5/S6(白名单文档化 + send_key physical_keycode)+ M2/M3/M5/M6 待办(优先级中/低)。
+**S5+S6**(`56499e0`)已修:`_cmd_call_method` env `GODOT_MCP_BRIDGE_EXTRA_METHODS` 扩展白名单(opt-in,默认只读安全)+ `_cmd_send_key` 补 `physical_keycode`(触发 physical 映射 input action)。验证:game-bridge 16✓ + godot parse 无错。
+
+**剩余 backlog**:S2/M1 已撤销(误判);M2/M3/M5/M6 待办(优先级中/低)。
