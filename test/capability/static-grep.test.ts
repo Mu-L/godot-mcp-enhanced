@@ -9,7 +9,7 @@ const ROOT = join(tmpdir(), `mcp-m1-staticgrep-${Date.now()}`);
 describe('static-grep', () => {
   it('GROUP_SOURCE_FILES covers all non-empty groups', () => {
     // 核验基线：module-loader 注册的 26 模块对应这些 group 主文件
-    expect(GROUP_SOURCE_FILES['scene']).toContain('scene.ts');
+    expect(GROUP_SOURCE_FILES['core']).toContain('scene.ts');
     expect(GROUP_SOURCE_FILES['animation']).toContain('animation-ops.ts');
     expect(GROUP_SOURCE_FILES['physics']).toEqual(['physics-ops.ts']);
   });

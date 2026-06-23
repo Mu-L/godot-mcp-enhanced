@@ -7,8 +7,7 @@ import { join } from 'path';
  * （M1 漂移检测会捕获 group 变更）。
  */
 export const GROUP_SOURCE_FILES: Record<string, string[]> = {
-  core: ['project.ts', 'script.ts', 'runtime.ts', 'validation.ts', 'manage-tools.ts'],
-  scene: ['scene.ts'],
+  core: ['project.ts', 'scene.ts', 'script.ts', 'runtime.ts', 'validation.ts', 'manage-tools.ts'],
   editor: ['editor-sync.ts'],
   bridge: ['game-bridge.ts'],
   animation: ['animation-ops.ts', 'animation-track.ts', 'animtree.ts'],
