@@ -204,7 +204,18 @@ func _start_server() -> void:
 	if not DirAccess.dir_exists_absolute(godot_dir):
 		DirAccess.make_dir_recursive_absolute(godot_dir)
 	_secret_file = godot_dir + "/mcp_bridge_%d.secret" % PORT
-	if not _write_secret_to_file(_secret_file):
+	# S4 (2026-06-23): 固定 secret 模式(本地测试,env GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)。
+	# secret 文件存在且有效则复用,跳过重生+写入,打破"重生→_restrict 收紧只读→下次写失败
+	# abort→_exit_tree 删除→MCP 端 5min TTL 缓存不同步"的死循环。默认 false 保持每次重生(安全)。
+	var _persistent_secret := OS.get_environment("GODOT_MCP_BRIDGE_PERSISTENT_SECRET").to_lower() == "true"
+	var _secret_reused := false
+	if _persistent_secret and FileAccess.file_exists(_secret_file):
+		var _existing := FileAccess.get_file_as_string(_secret_file)
+		if _existing.length() >= 32:
+			_secret = _existing
+			_secret_reused = true
+			print("[MCP Bridge] Reusing persistent secret (GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)")
+	if not _secret_reused and not _write_secret_to_file(_secret_file):
 		push_error("[MCP Bridge][SECURITY] Failed to write secret to %s — aborting Bridge startup. Check directory permissions." % _secret_file)
 		_server.stop()
 		_server = null
@@ -384,7 +395,9 @@ func _stop_server() -> void:
 	_auth_locked_until.clear()
 	if _server:
 		_server.stop()
-		if _secret_file != "" and FileAccess.file_exists(_secret_file):
+		# S4 (2026-06-23): 固定 secret 模式不删除(持久化供下次启动复用 + 与 MCP 端 TTL 缓存保持同步)
+		var _persistent_secret := OS.get_environment("GODOT_MCP_BRIDGE_PERSISTENT_SECRET").to_lower() == "true"
+		if not _persistent_secret and _secret_file != "" and FileAccess.file_exists(_secret_file):
 			DirAccess.remove_absolute(_secret_file)
 		_server = null
 
