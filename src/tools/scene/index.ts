@@ -305,7 +305,21 @@ export async function handleTool(
       if (result.timedOut) return errorResult('batch_add_nodes timed out after 60s.');
       if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
       if (result.exitCode !== 0) return errorResult(`batch_add_nodes failed (exit code ${result.exitCode}):\n${result.stdout}`);
-      return { content: [{ type: 'text', text: result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.` }] };
+      // IMPORTANT-1 (2026-06-23 审查修复): batch_add_nodes 走 GDScript ops(_is_safe_property 过滤),
+      // 不经 TS _addNodesInner(其 allBlocked 聚合在此路径不生效)。TS 侧前置收集 BLOCKED_PROPS 命中,
+      // 警告——与 add_node/edit_node 一致,避免 batch 路径静默 drop script 等(削弱 S1 完整性)。
+      const batchBlocked: string[] = [];
+      for (const n of nodes) {
+        if (n.properties) for (const k of Object.keys(n.properties)) {
+          if (BLOCKED_PROPS.has(k) && !batchBlocked.includes(k)) batchBlocked.push(k);
+        }
+      }
+      const batchOut = result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.`;
+      if (batchBlocked.length > 0) {
+        const hint = batchBlocked.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn ExtResource.' : '';
+        return { content: [{ type: 'text' as const, text: `⚠️ Blocked properties NOT written (security policy): ${batchBlocked.join(', ')}.${hint}\n${batchOut}` }] };
+      }
+      return { content: [{ type: 'text', text: batchOut }] };
     }
 
     case 'edit_node': {

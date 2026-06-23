@@ -207,6 +207,6 @@ game_query(method="ping")
 - **watch 自动断开**：事件达到 max_events 后自动断开信号连接并停止。
 - **find_ui_elements 最大返回**：默认 200，上限 500 条结果。
 - **click_button**：通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件。
-- **call_method 白名单只读（S5, v0.18.x+）**：`ALLOWED_METHODS` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。`emit_signal`/`_on_*` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 `set_node_property` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。
+- **call_method 白名单只读（S5, v0.18.x+）**：`ALLOWED_METHODS` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。`emit_signal`/`_on_*` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 `set_node_property` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。注：`_cmd_call_method` 仍有 `args.size() > 8` 拒绝限制（>8 参数的调用/emit_signal 会失败）。
 - **send_key 已支持 physical_keycode（S6, v0.18.x+）**：`_cmd_send_key` 同时设 `keycode` + `physical_keycode`，触发用物理键码映射的 input action（Godot 4 推荐 physical_keycode 映射）。早期版本只设 keycode，physical 映射项目（如 `ui_right` 用 physical）不触发。
 - **多用户环境不安全**：Bridge 使用 TCP 绑定 127.0.0.1 + 共享密钥认证。在单用户本地开发环境下足够安全，但在多用户共享系统（如远程开发服务器）上，localhost 通信可被同一机器上的其他用户嗅探。如需多用户隔离，考虑使用 Unix Domain Socket（仅文件权限控制访问）。
