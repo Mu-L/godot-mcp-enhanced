@@ -5,6 +5,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
+import { runImport } from './import-check.js';
 import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { getTemplateSuggestion } from './code-templates.js';
@@ -354,7 +355,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
     case 'write_script': {
       const scriptPath = args.script_path as string;
-      const sp = resolveWithinRoot(requireProjectPath(args), normalizeUserProjectPath(scriptPath));
+      const projectPath = requireProjectPath(args);
+      const sp = resolveWithinRoot(projectPath, normalizeUserProjectPath(scriptPath));
       const content = args.content as string;
       const overwrite = args.overwrite === true; // default false
 
@@ -364,6 +366,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       ensureDir(sp);
       writeFileSync(sp, content, 'utf-8');
+
+      // M6 (2026-06-23): 若 .gd 含 class_name,触发 import 重建 .godot/global_script_class_cache。
+      // ASSET_SCAN_DIRS 仅扫 assets/scenes/scripts,自定义目录(autoload/combat/data 等)的新 .gd
+      // 不被 needsImport 检测 → execute_gdscript 不 warm → 新 class_name "Identifier not declared"。
+      let importSection = '';
+      if (sp.endsWith('.gd')) {
+        const classMatch = content.match(/^\s*class_name\s+(\w+)/m);
+        if (classMatch) {
+          try {
+            const godot = await ctx.findGodot();
+            await runImport(projectPath, godot, 30_000);
+            importSection = `\n\n⚠️ 检测到 class_name '${classMatch[1]}'，已自动 --import 重建 .godot/global_script_class_cache。后续 execute_gdscript / F5 可直接引用。`;
+          } catch (err) {
+            importSection = `\n\n⚠️ 检测到 class_name '${classMatch[1]}' 但自动 --import 失败: ${err instanceof Error ? err.message : String(err)}。需手动 \`godot --headless --import --path <project>\` 重建 cache，否则后续可能 "Identifier not declared"。`;
+          }
+        }
+      }
 
       let lintSection = '';
       let templateHint = '';
@@ -386,7 +405,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
         }
       }
-      return textResult(`Script written to ${sp} (${content.split('\n').length} lines)${lintSection}${templateHint}`);
+      return textResult(`Script written to ${sp} (${content.split('\n').length} lines)${importSection}${lintSection}${templateHint}`);
     }
 
     case 'edit_script': {
