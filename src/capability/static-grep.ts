@@ -25,7 +25,7 @@ export const GROUP_SOURCE_FILES: Record<string, string[]> = {
 };
 
 /**
- * 危险 API 触达模式（spec §3.1）。对齐 defects.md 安全 DEFECT。
+ * 危险 API 触达模式（spec §3.1）。对齐 spec §3.1 危险 API 触达模式（OS.execute/str2var/bytes2var/ClassDB.instantiate/execute_gdscript/DirAccess.remove_absolute）。
  * 注：spawn-without-buildsafeenv 已 fixed，故不含裸 spawn（由专门审查覆盖）。
  */
 export const DANGER_PATTERNS: RegExp[] = [

@@ -5,7 +5,7 @@ import { registerAllModules } from '../../src/core/module-loader.js';
 import { getAllToolDefinitions, getGroupForTool, TOOL_GROUPS } from '../../src/core/tool-registry.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
 
-const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('extractCapabilities', () => {
   it('returns one record per registered tool with no duplicate names', () => {
@@ -33,7 +33,7 @@ describe('extractCapabilities', () => {
     // B. 执行特征
     expect(scene!.readonly).toBe(false);        // scene 含写工具
     expect(scene!.guarded).toBe(true);          // GUARDED['scene'] 存在
-    expect(['guarded', 'danger-api']).toContain(scene!.securityLevel); // scene 是 GUARDED 工具，非 safe
+    expect(scene!.securityLevel).toBe('danger-api'); // core 组（scene 工具 group=core）的 script.ts 含 execute_gdscript 命中 DANGER_PATTERNS → 组级保守标注 danger-api（spec §3.1）
     // C. 依赖条件
     expect(scene!.offlineCapable).toBe(false);  // scene 不在 OFFLINE_TOOLS
     expect(scene!.needsGodot).toBe(true);       // 非 offline
