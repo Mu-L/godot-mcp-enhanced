@@ -663,8 +663,18 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	var node := get_node_or_null(path)
 	if node == null:
 		return {"error": {"code": -1, "message": "Node not found: %s" % path}}
-	if not method in ALLOWED_METHODS:
-		return {"error": {"code": -2, "message": "Method not allowed: %s" % method}}
+	# S5 (2026-06-23): env GODOT_MCP_BRIDGE_EXTRA_METHODS 扩展白名单(opt-in,默认只读安全)。
+	# ALLOWED_METHODS 设计为只读(get/has_*/get_meta 等),防 call_method 任意执行;信任环境
+	# 可显式加方法(如 emit_signal)用此 env。注意 emit_signal 会触发已连接的任意回调,慎用。
+	var _extra_env := OS.get_environment("GODOT_MCP_BRIDGE_EXTRA_METHODS")
+	var _extra_ok := false
+	if _extra_env != "":
+		for _m in _extra_env.split(","):
+			if (_m as String).strip_edges() == method:
+				_extra_ok = true
+				break
+	if not method in ALLOWED_METHODS and not _extra_ok:
+		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):
 		return {"error": {"code": -3, "message": "Method not found: %s" % method}}
 	if args.size() > 8:
@@ -754,6 +764,9 @@ func _cmd_send_key(params: Dictionary) -> Variant:
 		return {"error": {"code": -1, "message": "Unknown key: %s" % key}}
 	var event := InputEventKey.new()
 	event.keycode = keycode
+	# S6 (2026-06-23): 同时设 physical_keycode,触发用物理键码映射的 input action。
+	# Godot 4 推荐 physical_keycode 映射;只设 keycode 在 physical 映射项目里不触发 ui_action。
+	event.physical_keycode = keycode
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	return {"success": true, "key": key}
