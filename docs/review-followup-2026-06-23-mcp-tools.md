@@ -222,3 +222,31 @@ systematic-debugging + TDD 修复(本会话)。
 
 **待可选运行时验证**(rebuild + 重启 MCP):`run_project(wait_for_bridge=true)` → bridgeMsg 应含 "Bridge ready"(不再 "process exited during probe")。
 
+---
+
+## 🔴 perCallCtx spread 真根因(纠正 198f7de 错误归因,2026-06-24)
+
+**运行时验证推翻 198f7de**:重启 MCP 后 `run_project(wait_for_bridge=true)` **仍报** `process exited [B:isCancelled+probeOnce-fail]`(非"Bridge ready"),但 ping pong=true + bridge Listening。systematic-debugging 四阶段 + 诊断日志(game-bridge.js isBridgeReady 循环 + runtime.js isCancelled 闭包,写 _diag_isReady.log)定位真根因。
+
+**真根因**:ToolDispatcher.ts:532 `const perCallCtx = { ...this.ctx, findGodot }` —— **spread 调用 ctx getter,把 dispatch 入口的 `_runningProcess`(null)冻结成普通属性快照**。ctx 有 4 个连 process-state 的 getter(runningProcess/outputBuffer/processStartTime/projectDir,ToolDispatcher.ts:82-89)。run_project 用 perCallCtx:`setRunningProcess(proc)`(runtime.ts:190)改 ps 模块 state(方法引用正常),但 `perCallCtx.runningProcess` 是 **null 快照**(不再连 ps)→ `isCancelled: runningProcess !== proc`(runtime.ts:196)**永远 true** → isBridgeReady 走 isCancelled 分支(781)→ 198f7de 的 probeOnce 只探测一次(788)→ bridge 启动慢(~2s)误报 process exited。
+
+诊断日志铁证:`runningPid=undefined procPid=14316 cancelled=true`(iter=1 即 true)。console.exe(v1/v2 诊断脚本)证明进程不 exit,推翻 prior"多 godot/ctx 覆盖"估算。
+
+**矛盾破解**:`get_debug_output running = ctx.runningProcess !== null`(runtime.ts:240)。`undefined !== null === true`,故 running=true 与 ctx.runningProcess=undefined 一致(不矛盾)。
+
+**198f7de 错误归因**:prior 以为 isCancelled"早退短路"(proc.killed || isCancelled 合并判断),拆分 + probeOnce。但 isCancelled **永远 true**(perCallCtx 快照),probeOnce 放大问题。其测试(game-bridge-isready.test.ts:81-85 `isCancelled:()=>true`)用 mock 绕过 ToolDispatcher perCallCtx 层 → **假绿**。
+
+**修复**(ToolDispatcher.ts):提取 `buildPerCallCtx(baseCtx, findGodotOverride)`(Object.create 继承原型 getter,非 spread)+ 替换 532。perCallCtx.runningProcess 走原型 getter → 连 ps 实时值 → isCancelled=false。Object.create 保留全部 4 个 getter(spread 只修 1 个不彻底)。
+
+**TDD**(test/core/ToolDispatcher.test.ts 加 buildPerCallCtx describe):RED 临时 spread → test1「保留 runningProcess getter」FAIL(快照 null ≠ 'PROC_A');GREEN Object.create → 3 test pass(runningProcess getter + findGodot 覆盖 + outputBuffer getter)。ToolDispatcher 63✓ + 全套非 E2E 2745✓ + tsc 0 + build 干净(诊断日志已清)。
+
+**运行时验证通过**(2026-06-24 重启 MCP 后):`run_project(wait_for_bridge=true)` → **"Bridge ready"** ✅(不再 process exited)。perCallCtx.runningProcess 连 ps,isCancelled=false,走正常 probeOnce 循环,bridge ~2-3s ready。
+
+**教训**(调试归因铁律再印证):
+1. **mock 要覆盖 bug 所在层**:198f7de mock `isCancelled:()=>true` 绕过 ToolDispatcher perCallCtx,集成路径零覆盖 → 假绿。bug 在调度层(ctx 构造),测试在工具层(isBridgeReady),层间断裂。
+2. **估算非实测**:prior"多 godot/ctx 覆盖"是静态推理。诊断脚本(v1/v2)实测推翻(console.exe 不 exit)。**估算绝不写成结论**。
+3. **JS 宽松比较陷阱**:`undefined !== null === true` 破解 running=true 矛盾。
+4. **spread 丢失 getter 是 JS 语义常识**,但藏在 ToolDispatcher 调度层,被 ctx getter 设计掩盖,需诊断日志才暴露。
+
+**相关**:memory `mcp-godot-scene-script-pitfalls` M4/manage_tools 段"进程早退短路"描述需纠正为"perCallCtx spread 丢失 getter"。198f7de 的 proc.killed 拆分 + isCancelled probeOnce 保留(合理防御,修复后 isCancelled 不触发但留作 ctx 覆盖兜底)。
+

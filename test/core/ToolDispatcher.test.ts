@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatcherOptions } from '../../src/core/ToolDispatcher.js';
-import { ToolDispatcher } from '../../src/core/ToolDispatcher.js';
+import { ToolDispatcher, buildPerCallCtx } from '../../src/core/ToolDispatcher.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
 import type { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
 import type { ToolResult } from '../../src/types.js';
@@ -1043,5 +1043,44 @@ describe('ToolDispatcher: findGodot override propagation (CR-1/CR-2)', () => {
     expect(findGodotSpy).toHaveBeenCalledWith(undefined);
 
     (skipProjectPath as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
+// ── buildPerCallCtx ─────────────────────────────────────────────────────────
+// [REGRESSION] spread {...this.ctx} 会把 ctx 上的 getter(runningProcess/outputBuffer 等,
+// 连 process-state 模块)展平成调用时刻快照。dispatch 入口 _runningProcess=null →
+// perCallCtx.runningProcess 冻结成 null → run_project isCancelled 永远 true →
+// wait_for_bridge 误报 "process exited during probe"。Object.create 继承原型 getter 修复。
+describe('buildPerCallCtx', () => {
+  it('保留 runningProcess getter — setRunningProcess 后 perCallCtx 反映新值(非 spread 快照)', () => {
+    let current: unknown = null;
+    const base = {
+      get runningProcess() { return current; },
+      setRunningProcess(p: unknown) { current = p; },
+      findGodot: vi.fn(),
+    } as unknown as Parameters<typeof buildPerCallCtx>[0];
+    const perCallCtx = buildPerCallCtx(base, undefined);
+    // 模拟 run_project: dispatch 后 setRunningProcess(proc) 改模块 state
+    (base as any).setRunningProcess('PROC_A');
+    expect((perCallCtx as any).runningProcess).toBe('PROC_A'); // spread 时为 null → fail
+  });
+
+  it('findGodot 覆盖: 有 override 用 override,无 override 继承 base', () => {
+    const baseFind = vi.fn();
+    const overrideFind = vi.fn();
+    const base = { findGodot: baseFind, runningProcess: null } as unknown as Parameters<typeof buildPerCallCtx>[0];
+    expect((buildPerCallCtx(base, overrideFind as any) as any).findGodot).toBe(overrideFind);
+    expect((buildPerCallCtx(base, undefined) as any).findGodot).toBe(baseFind);
+  });
+
+  it('保留其他 getter(outputBuffer)', () => {
+    let buf: string[] = ['old'];
+    const base = {
+      get outputBuffer() { return buf; },
+      findGodot: vi.fn(),
+    } as unknown as Parameters<typeof buildPerCallCtx>[0];
+    const perCallCtx = buildPerCallCtx(base, undefined);
+    buf.push('new');
+    expect((perCallCtx as any).outputBuffer).toEqual(['old', 'new']); // spread 时为 ['old'] 快照 → fail
   });
 });
