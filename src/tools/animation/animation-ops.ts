@@ -1,11 +1,11 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolContext, ToolResult } from '../types.js';
-import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, validateIdentifier } from './shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import type { ToolContext, ToolResult } from '../../types.js';
+import { requireProjectPath } from '../../helpers.js';
+import { executeGdscript } from '../../gdscript-executor.js';
+import { normalizeNodePath, gdEscape, validateIdentifier } from '../shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { LOOP_MODES, TRACK_TYPES, ensureNumber, valueToGd, argsToGd, animErrorMapper } from './animation-shared.js';
-import { handleIkAction } from './ik-tools.js';
+import { handleIkAction } from '../ik-tools.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
