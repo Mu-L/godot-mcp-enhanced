@@ -191,7 +191,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       let bridgeMsg = '';
       if (waitForBridge) {
-        const r = await isBridgeReady(p, bridgeTimeout * 1000, {
+        // M3: 显式命名 ms(isBridgeReady 接收 ms;bridgeTimeout 是秒,见 :130)
+        const bridgeTimeoutMs = bridgeTimeout * 1000;
+        const r = await isBridgeReady(p, bridgeTimeoutMs, {
           proc,
           isCancelled: () => ctx.runningProcess !== proc,
         });

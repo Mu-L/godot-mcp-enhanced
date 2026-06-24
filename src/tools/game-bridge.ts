@@ -746,10 +746,15 @@ function probeOnce(secretPath: string): Promise<boolean> {
     const timer = setTimeout(() => {
       if (!settled) { settled = true; sock.destroy(); resolve(false); }
     }, 1000);
+    // M2: 累积 buffer 按 \n 分割,防 auth 响应跨 TCP 包(partial)导致 JSON.parse 失败
+    let buffer = '';
     sock.on('data', (data: Buffer) => {
       if (settled) return;
+      buffer += data.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx === -1) return; // 等待完整行(bridge 响应以 \n 结尾)
       try {
-        const resp = JSON.parse(data.toString().trim());
+        const resp = JSON.parse(buffer.substring(0, idx).trim());
         if (resp?.result?.authenticated) {
           settled = true; clearTimeout(timer); sock.destroy(); resolve(true);
         }

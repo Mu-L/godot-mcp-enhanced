@@ -185,7 +185,9 @@ describe('buildConnectionStatus / buildReconnectEditor 工厂', () => {
   });
 
   it('buildReconnectEditor: 未连接 → 调 connect', async () => {
-    const ec = { isConnected: () => false, connect: vi.fn(async () => { ec.isConnected = () => true; }) };
+    // M6: 用变量替代改对象方法(原 ec.isConnected = () => true 闭包改方法,fragile)
+    let connected = false;
+    const ec = { isConnected: () => connected, connect: vi.fn(async () => { connected = true; }) };
     const fn = buildReconnectEditor(() => ec as any);
     const r = await fn();
     expect(ec.connect).toHaveBeenCalled();

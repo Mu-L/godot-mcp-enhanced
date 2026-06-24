@@ -93,7 +93,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 
 **行为说明**：
 - `reconnect` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
-- `sync` 返回结构：`{ groups: [{ name: "editor", requires: "editor", status: "connected" }, { name: "bridge", requires: "bridge", status: "disconnected" }, ...] }`
+- `sync` 返回结构：`{ groups: [{ name, requires, status }, ...], editor: { installed, connected, state }, bridge: { note } }`。其中 **status**:editor 组 = `connected`/`disconnected`(基于 editor 连接);bridge 组 = `probe-required`(用 `game_query(method=ping)` 探测);无 requires 组(core/animation/ui 等)= `n/a`。**editor.state**:连上时用 healthMonitor(工具调用健康),未连报 `disconnected`,未启动报 `null`。**editor.installed** = editorConn 是否注入(launch_editor 后 true)。
 
 ## 使用指南
 
