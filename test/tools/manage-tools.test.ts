@@ -167,6 +167,15 @@ describe('buildConnectionStatus / buildReconnectEditor 工厂', () => {
     expect(cs2.editor).toEqual({ installed: false, connected: false, state: null });
   });
 
+  it('buildConnectionStatus: editor 未连 + healthMonitor connected → state=disconnected [M5 防回归]', () => {
+    // M5: editor 未连时 state 不应报 healthMonitor 的 connected(工具健康 ≠ editor 连接)。
+    // 原 bug: state=healthMonitor.getState()='connected' 但 connected=false,运行时观察到误导。
+    const ec = { isConnected: () => false } as any;
+    const hm = { getState: () => 'connected' } as any;
+    const cs = buildConnectionStatus(ec, hm);
+    expect(cs.editor).toEqual({ installed: true, connected: false, state: 'disconnected' });
+  });
+
   it('buildReconnectEditor: 已连接 → 不调 connect', async () => {
     const ec = { isConnected: () => true, connect: vi.fn() };
     const fn = buildReconnectEditor(() => ec as any);

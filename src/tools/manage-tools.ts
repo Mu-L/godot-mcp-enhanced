@@ -168,13 +168,15 @@ async function handleReconnect(): Promise<ToolResult> {
 
 function handleSync(): ToolResult {
   const provider = _connectionStatusProvider;
+  // M1: provider() 提循环外。原 groups.map 内每 group 调一次 + editor/bridge 各一次(N+2),
+  // provider=buildConnectionStatus 同步无 I/O 故无害,但单次调用更清晰且避免重复构造。
+  const cs = provider ? provider() : null;
   const groups = Object.entries(TOOL_GROUPS).map(([name, def]) => {
     const requires = def.requires ?? [];
     let status: string;
-    if (!provider) {
+    if (!cs) {
       status = 'unknown (no provider)';
     } else {
-      const cs = provider();
       if (requires.includes('editor')) status = cs.editor.connected ? 'connected' : 'disconnected';
       else if (requires.includes('bridge')) status = 'probe-required';
       else status = 'n/a';
@@ -183,8 +185,8 @@ function handleSync(): ToolResult {
   });
   return textResult(JSON.stringify(opsSuccess({
     groups,
-    editor: provider?.().editor ?? null,
-    bridge: provider?.().bridge ?? null,
+    editor: cs?.editor ?? null,
+    bridge: cs?.bridge ?? null,
   })));
 }
 
@@ -234,7 +236,12 @@ export function buildConnectionStatus(
     editor: {
       installed: editorConn !== null,
       connected: editorConn?.isConnected() ?? false,
-      state: healthMonitor?.getState() ?? null,
+      // M5: state 结合 connected。healthMonitor 默认 'connected'(基于工具调用健康,非 editor 连接),
+      // 直接用作 editor.state 会在 editor 未连时报 "connected"(observed: state:"connected" 但 connected:false)。
+      // editor 连上时 state 才用 healthMonitor(工具健康);未连报 disconnected;未启动报 null。
+      state: (editorConn?.isConnected() ?? false)
+        ? (healthMonitor?.getState() ?? 'connected')
+        : (editorConn ? 'disconnected' : null),
     },
     bridge: { note: '每请求建连,无持久连接' },
   };
