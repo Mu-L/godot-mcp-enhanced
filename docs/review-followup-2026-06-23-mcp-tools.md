@@ -176,3 +176,35 @@
 
 **⚠️ 待重启宿主验证**(env 注入链 Layer 1/2 未确认):fix 已进 build/,但运行中的 MCP 服务端仍加载旧 build。重启后 `execute_gdscript` 探测 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET`:若仍空 = `~/.claude.json` env 未注入 MCP 服务端(需修宿主配置);若读到 = Layer 1/2/3 全通,重跑 M4/S4/S5/S6。
 
+---
+
+## ✅ Task 6 运行时验证全通过(2026-06-24 重启宿主后)
+
+重启后 `buildSafeEnv` 透传 fix 被运行中的 MCP 加载 + `~/.claude.json` env 注入生效,**Layer 1/2/3 全链路打通**,4 项运行时验证首次完整闭环(prior session 卡"运行时验证不可行"的根因 = env 在 spawn 边界被截断,修复后全部生效)。
+
+**env 探测**(`execute_gdscript` 在 godot 子进程读,项目 rpg-mcp-pilot):
+- `GODOT_MCP_BRIDGE_PERSISTENT_SECRET = true` ✅ 读到(Layer 1 ~/.claude.json 注入 + Layer 2 buildSafeEnv 透传 + Layer 3 spawn 继承)
+- `GODOT_MCP_BRIDGE_EXTRA_METHODS = emit_signal` ✅ 读到
+- `GODOT_MCP_UNRESTRICTED`/`ALLOW_EXECUTE_GDSCRIPT`/`ALLOWED_PROJECT_PATHS = ""` ✅ 安全隔离(服务端开关刻意不透传,子进程不能自行解锁)
+- `GODOT_PATH = ""`(白名单只有精确 `GODOT` 不含 `GODOT_PATH` → findGodot 走 PATH=4.7 跑 4.6 项目,非本次范围)
+
+**4 项验证**(GODOT_PATH 被 strip → findGodot fallback PATH=4.7 跑 4.6 项目):
+
+| # | 验证 | 证据 | 结果 |
+|---|------|------|------|
+| **M4** | bridge 稳定连接 | `game_query(ping)` → `pong=true/fps=120/scene=main_menu`;debug 日志 `[MCP Bridge] Listening on 127.0.0.1:9081` | ✅ |
+| **S4** | secret 持久化 | 日志 `[MCP Bridge] Reusing persistent secret (GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)`(prior session "无此打印→复用未触发",现首次出现);`.godot/mcp_bridge_9081.secret` 权限 `-rw-r--` 未收紧;bridge 未 abort | ✅ |
+| **S5** | emit_signal 白名单 | `call_method emit_signal ["combat_log","MCP S5 watch test"]` → `result:0`;`watch_poll` 捕获 combat_log 事件 `args:["MCP S5 watch test"]` | ✅ |
+| **S6** | send_key physical_keycode | `send_key "right"` → `watch_poll` 捕获 6 个 player_moved 事件,position.x `643.33→659.99`(+3.33/帧 = 200 SPEED × 1/60s,持续右移 y 不变);移动中触发 combat_encountered 遇敌 | ✅ |
+
+**🔴 新发现 bug:`run_project(wait_for_bridge)` 误报 process exited**:
+两次 `run_project(wait_for_bridge=true)` 都返回 `⚠ Bridge not ready (process exited during probe)`,但 `get_debug_output` 显示 `running: true` + `ping` `pong=true` + 日志 `Listening`。根因 = prior session(Task 1,`a534d7f`)加的 `isBridgeReady` "进程早退短路"优化在进程活着时**误判退出**。**M4 验证目标(bridge 可用)实质达成,但 `wait_for_bridge` 工具本身有 bug**——用户用 `wait_for_bridge=true` 会看到假失败,误以为 bridge 不可用。需单独修 `isBridgeReady` 探测逻辑(短连接探测的进程存活判据有误)。
+
+**次要发现**(文档补充,非 bug):
+- **send_key key 格式**:`mcp_bridge.gd:_key_from_string` 用**小写单字符/方向名**(`"d"`/`"right"`/`"space"`/`"enter"`),不认 `"Key_D"`(返回 `Unknown key`)。bridge rule 文档例子 `send_key Key_W` 不准,实际要 `"w"`。
+- **watch 信号路径**:信号在**声明节点**(GameEvents),不在 emit 调用方(Player)。watch `player_moved` 需 `node_path=/root/GameEvents`(player_controller `GameEvents.player_moved.emit`),`/root/Exploration/Player` 报 `Signal not found`。
+- **click_button "Cannot get path"** warning(`mcp_bridge.gd:1320`):已知次要,emit_signal("pressed") 仍工作(场景切换成功,button_path 返回空)。
+- **rpg-mcp-pilot 项目自身 bug**(非 MCP):`game_manager._on_player_moved` 参数不匹配(信号 emit 带 Vector2,回调 `Method expected 1 argument(s), but called with 0`)、`combat_engine.gd` enum int 警告。
+
+**结论**:S1-S6/M4/M6 backlog 全部修复 + 运行时验证通过(S2/M1 核查撤销)。**env 通路(buildSafeEnv 透传 GODOT_MCP_BRIDGE_*)是解锁运行时验证的关键**——prior session GDScript 侧 S4/S5/S6 fix 之前因 env 截断永不触发,修复后全部生效。唯一遗留:`run_project(wait_for_bridge)` 误报 bug(新发现,待修)。
+
