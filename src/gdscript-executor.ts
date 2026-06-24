@@ -534,8 +534,9 @@ async function cleanupOldSessions(): Promise<void> {
   // 超出目录下次 cleanup 兜底(1h TTL,不丢)。
   const MAX_CLEANUP_PER_RUN = 10;
   let processed = 0;
+  let attempts = 0; // 计尝试(含 EPERM 失败),防 staging 全 EPERM 时 for 全遍历阻塞主路径
   for (const entry of entries) {
-    if (processed >= MAX_CLEANUP_PER_RUN) break;
+    if (attempts >= MAX_CLEANUP_PER_RUN) break;
     // I-02: Also clean up staging dirs (renamed by retryRm on Windows)
     if (!entry.startsWith(TMP_PREFIX) && !entry.startsWith('_staging_')) continue;
     try {
@@ -552,6 +553,7 @@ async function cleanupOldSessions(): Promise<void> {
       }
       if (stat.isDirectory() && dirAge > maxAge) {
         // A-07: Retry rm on EPERM/EBUSY (Windows file locking) with backoff
+        attempts++;
         await retryRm(dirPath);
         processed++;
       }
