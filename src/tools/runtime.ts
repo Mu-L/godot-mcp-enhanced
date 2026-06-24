@@ -4,6 +4,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
+import { isBridgeReady } from './game-bridge.js';
 import { handleRecordingAction } from './recording.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -81,6 +82,8 @@ export function getToolDefinitions(): Tool[] {
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           timeout: { type: 'number', description: '自动停止秒数（默认 30）', default: 30 },
+          wait_for_bridge: { type: 'boolean', default: false, description: 'true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)' },
+          bridge_timeout: { type: 'number', default: 10, description: 'wait_for_bridge 轮询总预算(秒,默认 10)' },
           test_script: { type: 'string', description: '测试脚本或目录路径（默认 res://test/）', default: 'res://test/' },
           // ── Recording parameters (merged, v0.18.0) ──
           events_json: { type: 'string', description: '录制：JSON 格式的事件序列字符串' },
@@ -123,6 +126,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(`Error: Not a Godot project (no project.godot found): ${p}`);
       }
       const timeout = Math.max(5, Number(args.timeout) || 30);
+      const waitForBridge = args.wait_for_bridge === true;
+      const bridgeTimeout = Math.max(1, Number(args.bridge_timeout) || 10);
       const godot = await ctx.findGodot();
 
       // Version mismatch warning
@@ -184,7 +189,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       ctx.setRunningProcess(proc, true); // skip busy check — slot acquired via acquireProcessSlot above
 
-      return textResult(warnPrefix + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
+      let bridgeMsg = '';
+      if (waitForBridge) {
+        const r = await isBridgeReady(p, bridgeTimeout * 1000, {
+          proc,
+          isCancelled: () => ctx.runningProcess !== proc,
+        });
+        bridgeMsg = r.ready ? 'Bridge ready. ' : `⚠ Bridge not ready (${r.reason}). `;
+      }
+      return textResult(warnPrefix + bridgeMsg + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
     }
 
     case 'stop_project': {

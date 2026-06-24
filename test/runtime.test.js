@@ -49,6 +49,11 @@ vi.mock('path', async (importOriginal) => {
   };
 });
 
+vi.mock('../src/tools/game-bridge.js', () => ({
+  isBridgeReady: vi.fn(),
+  setBridgeProjectDir: vi.fn(),
+}));
+
 import {
   getToolDefinitions,
   handleTool,
@@ -56,6 +61,7 @@ import {
 } from '../src/tools/runtime.js';
 import { spawn } from 'child_process';
 import { killProcess, clearOutputBuffer } from '../src/core/process-state.js';
+import { isBridgeReady } from '../src/tools/game-bridge.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -350,5 +356,41 @@ describe('runtime handleTool — get_godot_version', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const spawnArgs = spawn.mock.calls[0];
     expect(spawnArgs[1]).toContain('--version');
+  });
+});
+
+// ─── handleTool — run_project wait_for_bridge ─────────────────────────────────────
+
+describe('runtime handleTool — run_project wait_for_bridge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function resultText(r) { return (r?.content?.[0]?.text) ?? ''; }
+
+  it('run_project 默认不探测 bridge', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockReset();
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p' }, ctx);
+    expect(isBridgeReady).not.toHaveBeenCalled();
+  });
+
+  it('run_project wait_for_bridge=true 且就绪 → 文本含 Bridge ready', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockResolvedValue({ ready: true, reason: 'bridge ready' });
+    const ctx = createMockCtx();
+    const r = await handleTool('runtime', { action: 'run_project', project_path: '/p', wait_for_bridge: true }, ctx);
+    expect(isBridgeReady).toHaveBeenCalledWith('/p', expect.any(Number), expect.objectContaining({ isCancelled: expect.any(Function) }));
+    expect(resultText(r)).toContain('Bridge ready');
+  });
+
+  it('run_project wait_for_bridge 但进程早退 → 文本含 not ready + process exited', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockResolvedValue({ ready: false, reason: 'process exited during probe' });
+    const ctx = createMockCtx();
+    const r = await handleTool('runtime', { action: 'run_project', project_path: '/p', wait_for_bridge: true, bridge_timeout: 10 }, ctx);
+    expect(resultText(r)).toContain('not ready');
+    expect(resultText(r)).toContain('process exited');
   });
 });
