@@ -3,7 +3,7 @@ import { resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
-import { validatePath, resolveWithinRoot, ensureDir, normalizeUserProjectPath, parseConfigValue, isPathInAllowedRoots, allowOutsideProjectPaths, _resetPathAllowWarned } from '../src/helpers.js';
+import { validatePath, resolveWithinRoot, ensureDir, normalizeUserProjectPath, parseConfigValue, isPathInAllowedRoots, allowOutsideProjectPaths, buildSafeEnv, _resetPathAllowWarned } from '../src/helpers.js';
 import { getLogger, resetLogger } from '../src/core/logger.js';
 
 // I-01: Reset logger singleton between tests to prevent state leakage
@@ -297,5 +297,60 @@ describe('isPathInAllowedRoots', () => {
     process.env.ALLOWED_PROJECT_PATHS = `${tmp};`;
     expect(isPathInAllowedRoots(tmp)).toBe(true);
     expect(isPathInAllowedRoots('/not/in/whitelist')).toBe(false);
+  });
+});
+
+// ─── buildSafeEnv ──────────────────────────────────────────────────────────
+
+describe('buildSafeEnv', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    // 隔离 env:复制一份再改,不污染其他测试
+    process.env = { ...originalEnv };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('透传 GODOT_MCP_BRIDGE_* env 给 godot 子进程(S4/S5 GDScript 修复依赖)', () => {
+    // mcp_bridge.gd 读这两个 env 启用 PERSISTENT_SECRET 复用 / EXTRA_METHODS 白名单扩展。
+    // 若 buildSafeEnv 截断,spawn 出的 godot 进程读不到,GDScript 修复永远不触发。
+    process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
+    process.env.GODOT_MCP_BRIDGE_EXTRA_METHODS = 'emit_signal';
+    const env = buildSafeEnv();
+    expect(env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET).toBe('true');
+    expect(env.GODOT_MCP_BRIDGE_EXTRA_METHODS).toBe('emit_signal');
+  });
+
+  it('透传 GODOT_MCP_BRIDGE_* 子命名空间,但不透传服务端安全开关', () => {
+    // 边界:只透传 mcp_bridge.gd 运行时配置(BRIDGE_ 子前缀);服务端安全开关
+    // (UNRESTRICTED/ALLOW_UNSAFE 等)必须隔离 —— 子进程不能自行解锁路径/沙箱限制。
+    process.env.GODOT_MCP_BRIDGE_FUTURE_FLAG = '1';
+    process.env.GODOT_MCP_UNRESTRICTED = 'true';
+    process.env.GODOT_MCP_ALLOW_UNSAFE = 'true';
+    const env = buildSafeEnv();
+    expect(env.GODOT_MCP_BRIDGE_FUTURE_FLAG).toBe('1');
+    expect(env.GODOT_MCP_UNRESTRICTED).toBeUndefined();
+    expect(env.GODOT_MCP_ALLOW_UNSAFE).toBeUndefined();
+  });
+
+  it('仍 strip 非 GODOT_MCP_* 凭据 env(I-04 安全不退化)', () => {
+    process.env.AWS_SECRET_ACCESS_KEY = 'leak-me';
+    process.env.DATABASE_URL = 'postgres://user:pass@host';
+    process.env.MY_CUSTOM_TOKEN = 'leak-me';
+    const env = buildSafeEnv();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.MY_CUSTOM_TOKEN).toBeUndefined();
+  });
+
+  it('仍保留 Godot 运行必需 env(PATH/HOME 等)', () => {
+    process.env.PATH = '/usr/bin';
+    process.env.HOME = '/home/user';
+    const env = buildSafeEnv();
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.HOME).toBe('/home/user');
   });
 });

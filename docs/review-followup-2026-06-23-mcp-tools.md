@@ -157,3 +157,22 @@
 
 **8 Minor 留后续**(详见 `.superpowers/sdd/progress.md`):M1 `handleSync` 的 `provider()` N+2 次重复调用(可提循环外,唯一稍实质)/ M2-M8 纯风格·文档·memory 描述,均不阻塞。
 
+---
+
+## 🔴 Task 6 运行时验证发现 buildSafeEnv 截断 env(2026-06-24)
+
+重启后 `manage_tools sync` 返回真实状态(非旧 `NOT_IMPLEMENTED`)+ build/ 全目录含 6 新符号 → **宿主正确加载新 build 确认**。但 `run_project(wait_for_bridge=true)` 探测失败:`Bridge not ready (process exited during probe)`。
+
+**systematic-debugging 四阶段定位根因**:
+- ERROR `[MCP Bridge][SECURITY] Failed to write secret ... — aborting`(mcp_bridge.gd:219)。mcp_bridge.gd:207-222 PERSISTENT_SECRET 复用逻辑**正确**(env=true + 文件存在 + ≥32B → 复用跳过写),但 debug output **无 "Reusing persistent secret" 打印** → 复用未触发 → 走写路径 → 撞旧版残留只读 `(R)` secret → abort。
+- `execute_gdscript` 探测 godot 子进程 env:`GODOT_MCP_BRIDGE_PERSISTENT_SECRET`/`EXTRA_METHODS`/`GODOT_PATH` **三全空**。
+- **根因**:`src/helpers.ts:126 buildSafeEnv()` 白名单(I-04 防凭据泄露)只保留 PATH/HOME/USERPROFILE/LOCALAPPDATA/APPDATA/TEMP/TMP/GODOT/SystemRoot/COMSPEC/OS/PATHEXT/DISPLAY/WAYLAND_DISPLAY/XDG_*/LD_LIBRARY_PATH 共 18 个,**strip 所有其他**。`GODOT_MCP_BRIDGE_*` 不在白名单 → spawn-helper.ts:34 + gdscript-executor.ts:1130 spawn godot 时被丢弃 → mcp_bridge.gd 读不到 → **GDScript 修复永远不触发**。
+
+**prior session 致命盲区**:S4/S5/S6 的 GDScript 修复 + ~/.claude.json env 注入都做了,但**从未验证 env 能穿透 spawn 边界**。buildSafeEnv 在 spawn 时截断了 env,修复永远无法生效——不是"没跑运行时验证",是"env 通路被阻断"。又一次"估算 vs 实测"(prior session 假设 env 能到 godot,实测推翻)。
+
+**fix(TDD)**:`buildSafeEnv` 透传 `GODOT_MCP_BRIDGE_*` 子命名空间(mcp_bridge.gd 运行时配置,非凭据)。**范围刻意窄**(`GODOT_MCP_BRIDGE_` 非 `GODOT_MCP_`)——第 1 次宽透传 `GODOT_MCP_*` 打破现有 `gdscript-executor-core.test.js:217` 安全测试(`does NOT leak GODOT_MCP_UNRESTRICTED`),回 Phase 1 精确化:服务端安全开关 `GODOT_MCP_UNRESTRICTED`/`GODOT_MCP_ALLOW_UNSAFE`/`ALLOW_EXECUTE_GDSCRIPT`/`ALLOWED_PROJECT_PATHS` 仍隔离(子进程不能自行解锁限制)。
+
+**验证**:helpers.test.js 4 新测试(RED 2 fail → GREEN)+ gdscript-executor-core.test.js 现有 UNRESTRICTED/ALLOW_EXECUTE_GDSCRIPT 安全测试仍 pass + 全套非 E2E **2692 passed (159 files)** + tsc 0 + eslint src 干净 + build/helpers.js 含新逻辑。
+
+**⚠️ 待重启宿主验证**(env 注入链 Layer 1/2 未确认):fix 已进 build/,但运行中的 MCP 服务端仍加载旧 build。重启后 `execute_gdscript` 探测 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET`:若仍空 = `~/.claude.json` env 未注入 MCP 服务端(需修宿主配置);若读到 = Layer 1/2/3 全通,重跑 M4/S4/S5/S6。
+
