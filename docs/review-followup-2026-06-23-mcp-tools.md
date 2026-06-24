@@ -206,5 +206,19 @@
 - **click_button "Cannot get path"** warning(`mcp_bridge.gd:1320`):已知次要,emit_signal("pressed") 仍工作(场景切换成功,button_path 返回空)。
 - **rpg-mcp-pilot 项目自身 bug**(非 MCP):`game_manager._on_player_moved` 参数不匹配(信号 emit 带 Vector2,回调 `Method expected 1 argument(s), but called with 0`)、`combat_engine.gd` enum int 警告。
 
-**结论**:S1-S6/M4/M6 backlog 全部修复 + 运行时验证通过(S2/M1 核查撤销)。**env 通路(buildSafeEnv 透传 GODOT_MCP_BRIDGE_*)是解锁运行时验证的关键**——prior session GDScript 侧 S4/S5/S6 fix 之前因 env 截断永不触发,修复后全部生效。唯一遗留:`run_project(wait_for_bridge)` 误报 bug(新发现,待修)。
+**结论**:S1-S6/M4/M6 backlog 全部修复 + 运行时验证通过(S2/M1 核查撤销)。**env 通路(buildSafeEnv 透传 GODOT_MCP_BRIDGE_*)是解锁运行时验证的关键**——prior session GDScript 侧 S4/S5/S6 fix 之前因 env 截断永不触发,修复后全部生效。`run_project(wait_for_bridge)` 误报 bug **已修**(见下)。
+
+---
+
+## ✅ run_project(wait_for_bridge) 误报 bug 修复(2026-06-24)
+
+systematic-debugging + TDD 修复(本会话)。
+
+**根因**(代码层确认):`isBridgeReady`(game-bridge.ts:778 原)`if (proc.killed || isCancelled()) return process exited` 早退短路**早于** probeOnce(:781-782)。`isCancelled = () => ctx.runningProcess !== proc`(runtime.ts:196),多次 run_project 时 ctx 互覆盖/前 proc 的 close 使 `ctx.runningProcess !== 当前 proc`,即使当前 bridge(某 godot)可用也立即报 process exited。矛盾证据:`get_debug_output running=true`(ctx.runningProcess≠null)+ isCancelled=true(ctx.runningProcess≠proc)→ ctx 是**另一 proc**(非 null 排除根因 B「proc 自身 exit 设 null → running=false」,确认根因 A「多 godot/ctx 覆盖」)。
+
+**修复**(game-bridge.ts:778):拆分 proc.killed 与 isCancelled——proc.killed 仍立即失败(proc 真死,bridge 同 proc 死);**isCancelled 时先 probeOnce 探测实际 bridge**(ctx 状态变化 ≠ bridge 不可用;多 godot/端口冲突场景另一 godot 仍服务 9081),可用则 ready,不可用才 process exited。
+
+**TDD**(game-bridge-isready.test.ts):RED(新)isCancelled=true + bridge 可用(mockCreate authSuccess)→ ready,修复前 fail(process exited);GREEN 拆分 :778 isCancelled 先 probeOnce;调整原 :74(加 mockCreate stuckSocket 表达 bridge 不可用分支);保留 :67-72(proc killed → process exited)。验证:game-bridge + runtime 27✓ + 全套非 E2E 2743✓ + tsc 0。E2E 6 fail(executeGdscript/workflow Godot spawn)为预存 flaky baseline(git diff 仅 game-bridge.ts + test)。
+
+**待可选运行时验证**(rebuild + 重启 MCP):`run_project(wait_for_bridge=true)` → bridgeMsg 应含 "Bridge ready"(不再 "process exited during probe")。
 

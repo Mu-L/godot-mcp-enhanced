@@ -71,9 +71,16 @@ describe('isBridgeReady', () => {
     expect(r.reason).toBe('process exited during probe');
   });
 
-  it('isCancelled 返回 true → 立即短路', async () => {
+  it('isCancelled=true 且 bridge 不可用 → process exited(不误判 ready)', async () => {
+    mockCreate.mockReturnValue(stuckSocket());
     const r = await isBridgeReady('/p', 5000, { isCancelled: () => true });
     expect(r.ready).toBe(false);
     expect(r.reason).toBe('process exited during probe');
+  });
+
+  it('isCancelled=true 但 bridge 仍可用(多 godot/ctx 被另一 proc 覆盖)→ ready,不误报 process exited', async () => {
+    mockCreate.mockReturnValue(authSuccessSocket());
+    const r = await isBridgeReady('/p', 5000, { isCancelled: () => true });
+    expect(r.ready).toBe(true);
   });
 });

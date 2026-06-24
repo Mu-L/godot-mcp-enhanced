@@ -775,7 +775,16 @@ export async function isBridgeReady(
   const interval = 500;
 
   for (;;) {
-    if (opts?.proc?.killed || opts?.isCancelled?.()) {
+    if (opts?.proc?.killed) {
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (opts?.isCancelled?.()) {
+      // ctx 状态变化(runningProcess !== proc)不等于 bridge 不可用:当前 proc 可能仍活。
+      // 多 godot/端口冲突场景:新 spawn 的 proc 因 bind 失败 exit 触发 close,但另一 godot 的 bridge
+      // 仍服务 9081。先 probeOnce 探测实际可用性,避免误报 process exited 而漏判 bridge ready。
+      if (existsSync(secretPath) && await probeOnce(secretPath)) {
+        return { ready: true, reason: 'bridge ready' };
+      }
       return { ready: false, reason: 'process exited during probe' };
     }
     if (existsSync(secretPath)) {
