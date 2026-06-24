@@ -1,7 +1,7 @@
 // src/dashboard/launcher.ts
 // Bridge 首次连接成功时，自动在新终端窗口启动 Dashboard TUI
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
@@ -10,6 +10,17 @@ const __dirname = dirname(__filename);
 
 /** 模块级标志：整个 MCP 进程生命周期只启动一次 */
 let _launched = false;
+
+/**
+ * spawn detached 子进程：挂 error 监听吞掉异步 ENOENT 等（防 uncaughtException 崩 MCP 进程），unref 不阻塞退出。
+ * 触发苛刻（powershell/cmd/node/osascript 必存，linux 有 spawnSync probe 兜底），但 TOCTOU/异常环境仍可能命中，
+ * 故每个 spawn 的 child 都必须挂 'error' 监听。
+ */
+function spawnDetached(cmd: string, args: readonly string[], opts: SpawnOptions): void {
+  const child = spawn(cmd, args as string[], opts);
+  child.on('error', () => {});
+  child.unref();
+}
 
 /**
  * 在新终端窗口中启动 Dashboard TUI。
@@ -37,7 +48,7 @@ export function launchDashboardOnce(): void {
         // IMPORTANT-1: PowerShell 单引号字面量转义(' → ''),防止安装路径含单引号
         // (如用户名 O'Brien)闭合 PS 字符串导致启动失败/命令注入
         const psPath = dashboardPath.replace(/'/g, "''");
-        spawn('powershell.exe', [
+        spawnDetached('powershell.exe', [
           '-WindowStyle', 'Hidden',
           '-Command',
           `Start-Process -FilePath 'node' -ArgumentList '${psPath}' -WindowStyle Normal`,
@@ -45,31 +56,31 @@ export function launchDashboardOnce(): void {
           detached: true,
           stdio: 'ignore',
           env: childEnv,
-        }).unref();
+        });
       } catch {
         // Fallback: cmd /c start
         try {
-          spawn('cmd', ['/c', 'start', '"godot-mcp-dashboard"', 'node', `"${dashboardPath}"`], {
+          spawnDetached('cmd', ['/c', 'start', '"godot-mcp-dashboard"', 'node', `"${dashboardPath}"`], {
             detached: true,
             stdio: 'ignore',
             windowsHide: false,
             env: childEnv,
-          }).unref();
+          });
         } catch {
-          spawn('node', [dashboardPath], {
+          spawnDetached('node', [dashboardPath], {
             detached: true,
             stdio: 'ignore',
             env: childEnv,
-          }).unref();
+          });
         }
       }
     } else if (platform === 'darwin') {
       // macOS: 使用 osascript 让 Terminal.app 执行
       // 用 quoted form of 防止路径中的特殊字符导致注入
-      spawn('osascript', ['-e', `tell application "Terminal"\ndo script "node " & quoted form of "${dashboardPath}"\nactivate\nend tell`], {
+      spawnDetached('osascript', ['-e', `tell application "Terminal"\ndo script "node " & quoted form of "${dashboardPath}"\nactivate\nend tell`], {
         detached: true,
         stdio: 'ignore',
-      }).unref();
+      });
     } else {
       // Linux: 尝试常见终端模拟器
       const cmd = `node "${dashboardPath}"`;
@@ -85,7 +96,7 @@ export function launchDashboardOnce(): void {
         const probe = spawnSync(bin, ['--version'], { stdio: 'ignore' });
         if (probe.error) continue;
         try {
-          spawn(bin, args, { detached: true, stdio: 'ignore' }).unref();
+          spawnDetached(bin, args, { detached: true, stdio: 'ignore' });
           break; // 成功 spawn 第一个可用终端后停止
         } catch {
           // 同步错误（极少见），尝试下一个

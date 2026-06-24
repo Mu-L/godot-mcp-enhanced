@@ -79,6 +79,9 @@ export class GodotServer {
   private editorConn: EditorConnection | null = null;
   private editorExecutor: EditorToolExecutor | null = null;
   private connectionMode: 'headless' | 'editor';
+  // 方案B: 供 rebuildEditorConnection() 重建降级后的 editor 连接(port 存实例,secret 重建时重读)
+  private editorPort: number | null = null;
+  private editorProjectPath: string | null = null;
   private noFallback: boolean;
   private agentCtx: AgentContextManager;
   private stateStore: FileStateStore | null = null;
@@ -142,7 +145,10 @@ export class GodotServer {
     // Connect manage-tools notification callback
     setOnGroupsChanged(() => this.sendToolListChanged());
     setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
-    setReconnectEditor(buildReconnectEditor(() => this.editorConn));
+    setReconnectEditor(buildReconnectEditor(
+      () => this.editorConn,
+      () => this.rebuildEditorConnection(), // 方案B: editor 降级后重建连接(重读 secret + new EditorConnection)
+    ));
 
     // ── MCP Prompts handlers (Phase 5b) ────────────────────────────────────────
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -287,7 +293,9 @@ export class GodotServer {
 
     if (this.connectionMode === 'editor') {
       const port = parseInt(process.env.GODOT_EDITOR_PORT ?? '9090', 10);
+      this.editorPort = port; // 方案B: 存实例字段供 rebuild 重建
       const projectPath = resolveProjectPath();
+      this.editorProjectPath = projectPath ?? null; // 方案B: 归一化 undefined → null
       let secret: string | undefined;
       if (projectPath) {
         secret = (await waitForEditorSecret(projectPath, EDITOR_SECRET_TIMEOUT_MS)) ?? undefined;
@@ -305,39 +313,74 @@ export class GodotServer {
         this.connectionMode = 'headless';
         this.dispatcher?.setConnectionMode('headless');
       } else {
-        this.editorConn = new EditorConnection({ port, reconnect: true, secret });
-        try {
-          await this.editorConn.connect();
-          this.editorExecutor = new EditorToolExecutor(this.editorConn);
-          this.dispatcher?.setEditorExecutor(this.editorExecutor);
-          // I-04: Use dedicated reconnect-exhausted handler instead of disconnect handler.
-          // The disconnect handler fires on every ws.close (including between reconnect attempts),
-          // which would prematurely degrade to headless. This handler only fires when all retries fail.
-          this.editorConn.addOnReconnectExhaustedHandler(() => {
-            getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
-            this.dispatcher?.markEditorFallback();
-            this.connectionMode = 'headless';
-            // I-04: Use atomic degradeToHeadless() to avoid two separate _pendingModeSwitch writes racing
-            this.dispatcher?.degradeToHeadless();
-            this.editorConn = null;
-          });
-          log('Editor: Connected to Godot plugin on port %d', port);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
+        // 建立连接 + executor 接线 + 降级 handler 提取到 establishEditorConnection(rebuild 复用)
+        const result = await this.establishEditorConnection(port, secret);
+        if (result.connected) {
+          log('Editor: %s', result.detail);
+        } else {
           if (this.noFallback) {
-            getLogger().error('auth', `Editor mode required but connection failed: ${msg}`);
+            getLogger().error('auth', `Editor mode required but connection failed: ${result.detail}`);
             getLogger().error('auth', 'Set GODOT_MCP_NO_FALLBACK=false to allow fallback, or install the plugin.');
             process.exit(1);
           }
-          getLogger().warn('godot-mcp', `Editor connection failed: ${msg}.`);
+          getLogger().warn('godot-mcp', `${result.detail}.`);
           getLogger().warn('godot-mcp', 'Running in Headless mode. UndoRedo disabled, no scene state persistence.');
           this.dispatcher?.markEditorFallback();
           this.connectionMode = 'headless';
           this.dispatcher?.setConnectionMode('headless');
-          this.editorConn = null;
         }
       }
     }
+  }
+
+  /**
+   * 建立 editor 连接:new EditorConnection + connect + executor 接线 + 挂降级 handler。
+   * 成功 → connectionMode='editor' + setConnectionMode('editor');失败 → 清理 editorConn,返回 {connected:false}。
+   * 不含 noFallback exit / headless 降级(那是 run() 初始化语义);rebuild 复用此方法(失败不 exit,保持 headless)。
+   * I-04: 降级用专用 reconnectExhausted handler(非 disconnect handler——后者每次 ws.close 触发会过早降级)。
+   */
+  private async establishEditorConnection(port: number, secret: string): Promise<{ connected: boolean; detail: string }> {
+    // 清理旧连接(rebuild 场景:降级后可能有残留或并发重建)
+    if (this.editorConn) {
+      try { this.editorConn.disconnect(); } catch { /* best-effort */ }
+      this.editorConn = null;
+    }
+    this.editorConn = new EditorConnection({ port, reconnect: true, secret });
+    try {
+      await this.editorConn.connect();
+      this.editorExecutor = new EditorToolExecutor(this.editorConn);
+      this.dispatcher?.setEditorExecutor(this.editorExecutor);
+      this.editorConn.addOnReconnectExhaustedHandler(() => {
+        getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
+        this.dispatcher?.markEditorFallback();
+        this.connectionMode = 'headless';
+        // I-04: atomic degradeToHeadless() 避免 two separate _pendingModeSwitch writes racing
+        this.dispatcher?.degradeToHeadless();
+        this.editorConn = null;
+      });
+      this.connectionMode = 'editor';
+      this.dispatcher?.setConnectionMode('editor');
+      return { connected: true, detail: `Connected to Godot plugin on port ${port}` };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.editorConn = null;
+      return { connected: false, detail: `Editor connection failed: ${msg}` };
+    }
+  }
+
+  /**
+   * 方案B: editor 降级后(editorConn=null),manage_tools reconnect 触发重建连接。
+   * 重新读 secret(editor 可能重启换密钥)+ establishEditorConnection。失败保持 headless(不 exit)。
+   */
+  private async rebuildEditorConnection(): Promise<{ connected: boolean; detail: string }> {
+    if (this.editorPort === null || !this.editorProjectPath) {
+      return { connected: false, detail: 'editor 连接信息丢失(未初始化),重启 MCP 服务端恢复' };
+    }
+    const secret = (await waitForEditorSecret(this.editorProjectPath, EDITOR_SECRET_TIMEOUT_MS)) ?? undefined;
+    if (!secret) {
+      return { connected: false, detail: '未找到 editor secret(插件未运行?),用 launch_editor / F5 启动编辑器后重试 reconnect' };
+    }
+    return this.establishEditorConnection(this.editorPort, secret);
   }
 
   /** 标记状态为脏，触发防抖刷盘。 */

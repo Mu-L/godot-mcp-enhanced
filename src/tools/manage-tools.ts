@@ -249,10 +249,24 @@ export function buildConnectionStatus(
 
 export function buildReconnectEditor(
   getEditor: () => EditorConnLike | null,
+  rebuild?: () => Promise<{ connected: boolean; detail: string }>,
 ): () => Promise<{ connected: boolean; detail: string }> {
   return async () => {
     const ec = getEditor();
-    if (!ec) return { connected: false, detail: 'editor 未安装,用 launch_editor / F5 启动编辑器' };
+    if (!ec) {
+      // 方案B: ec=null(editor 降级)且注入了 rebuild → 尝试重建连接(重新读 secret + new EditorConnection)。
+      if (rebuild) {
+        try {
+          return await rebuild();
+        } catch (e) {
+          return { connected: false, detail: `重建失败: ${e instanceof Error ? e.message : String(e)}` };
+        }
+      }
+      // 无 rebuild(向后兼容):中性表述 + 恢复指引。
+      // 审查 IMPORTANT-3: ec=null 无法区分"从未安装"与"曾连接后降级",故不断言"未安装"
+      // (降级时 editor 可能已装)。未启动→launch_editor/F5;降级→重启服务端。
+      return { connected: false, detail: 'editor 未连接(可能未启动或已降级到 headless)。用 launch_editor / F5 启动编辑器;若已在运行,重启 MCP 服务端恢复' };
+    }
     if (ec.isConnected()) return { connected: true, detail: '已连接' };
     try {
       await ec.connect();

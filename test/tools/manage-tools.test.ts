@@ -194,10 +194,31 @@ describe('buildConnectionStatus / buildReconnectEditor 工厂', () => {
     expect(r.connected).toBe(true);
   });
 
-  it('buildReconnectEditor: 无 editorConn → 提示 launch_editor', async () => {
+  it('buildReconnectEditor: 无 editorConn → 中性提示(含 launch_editor,不断言"未安装")', async () => {
+    // 审查 IMPORTANT-3: ec=null 可能是"从未安装"或"曾连接后降级到 headless"。buildReconnectEditor 无法区分,
+    // 故 detail 不应错误断言"未安装"(降级时 editor 可能已装),需中性表述 + 恢复指引。
     const fn = buildReconnectEditor(() => null);
     const r = await fn();
     expect(r.connected).toBe(false);
+    expect(r.detail).not.toContain('未安装');
     expect(r.detail).toContain('launch_editor');
+  });
+
+  it('buildReconnectEditor: 方案B ec=null + rebuild → 调 rebuild 重建连接', async () => {
+    // 方案B: editor 降级后 editorConn=null,manage_tools reconnect 应能重建而非报"未连接"。
+    // rebuild 由 GodotServer 注入(重新读 secret + new EditorConnection + connect + 接线)。
+    const rebuild = vi.fn(async () => ({ connected: true, detail: 'editor 连接已重建' }));
+    const fn = buildReconnectEditor(() => null, rebuild);
+    const r = await fn();
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ connected: true, detail: 'editor 连接已重建' });
+  });
+
+  it('buildReconnectEditor: 方案B rebuild 抛错 → 返回失败(不崩)', async () => {
+    const rebuild = vi.fn(async () => { throw new Error('secret expired'); });
+    const fn = buildReconnectEditor(() => null, rebuild);
+    const r = await fn();
+    expect(r.connected).toBe(false);
+    expect(r.detail).toContain('重建失败');
   });
 });
