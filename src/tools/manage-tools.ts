@@ -215,3 +215,43 @@ function handleMigrate(): ToolResult {
     unchanged,
   })));
 }
+
+// ─── 纯工厂(供 GodotServer 接线,可单测)────────────────────────────────────
+
+export interface EditorConnLike {
+  isConnected(): boolean;
+  connect(): Promise<void>;
+}
+export interface HealthMonitorLike {
+  getState(): ConnectionState;
+}
+
+export function buildConnectionStatus(
+  editorConn: EditorConnLike | null,
+  healthMonitor: HealthMonitorLike | null,
+): ConnectionStatus {
+  return {
+    editor: {
+      installed: editorConn !== null,
+      connected: editorConn?.isConnected() ?? false,
+      state: healthMonitor?.getState() ?? null,
+    },
+    bridge: { note: '每请求建连,无持久连接' },
+  };
+}
+
+export function buildReconnectEditor(
+  getEditor: () => EditorConnLike | null,
+): () => Promise<{ connected: boolean; detail: string }> {
+  return async () => {
+    const ec = getEditor();
+    if (!ec) return { connected: false, detail: 'editor 未安装,用 launch_editor / F5 启动编辑器' };
+    if (ec.isConnected()) return { connected: true, detail: '已连接' };
+    try {
+      await ec.connect();
+      return { connected: ec.isConnected(), detail: '手动重连完成' };
+    } catch (e) {
+      return { connected: false, detail: `重连失败: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  };
+}

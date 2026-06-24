@@ -57,7 +57,7 @@ vi.mock('../../src/guard.js', () => ({
   requiresConfirmation: vi.fn().mockReturnValue(false),
 }));
 
-import { handleTool, getToolDefinitions, setConnectionStatusProvider, setReconnectEditor } from '../../src/tools/manage-tools.js';
+import { handleTool, getToolDefinitions, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from '../../src/tools/manage-tools.js';
 
 describe('manage_tools', () => {
   beforeEach(() => {
@@ -152,5 +152,41 @@ describe('manage_tools', () => {
     expect(byName.animation.status).toBe('n/a');   // requires []
     expect(byName.bridge.status).toBe('probe-required'); // requires ['bridge']
     expect(data.data.editor.connected).toBe(true);
+  });
+});
+
+describe('buildConnectionStatus / buildReconnectEditor 工厂', () => {
+  it('buildConnectionStatus 映射 editorConn + healthMonitor', () => {
+    const ec = { isConnected: () => true } as any;
+    const hm = { getState: () => 'connected' } as any;
+    const cs = buildConnectionStatus(ec, hm);
+    expect(cs.editor).toEqual({ installed: true, connected: true, state: 'connected' });
+    expect(cs.bridge.note).toBeTruthy();
+
+    const cs2 = buildConnectionStatus(null, null);
+    expect(cs2.editor).toEqual({ installed: false, connected: false, state: null });
+  });
+
+  it('buildReconnectEditor: 已连接 → 不调 connect', async () => {
+    const ec = { isConnected: () => true, connect: vi.fn() };
+    const fn = buildReconnectEditor(() => ec as any);
+    const r = await fn();
+    expect(ec.connect).not.toHaveBeenCalled();
+    expect(r).toEqual({ connected: true, detail: '已连接' });
+  });
+
+  it('buildReconnectEditor: 未连接 → 调 connect', async () => {
+    const ec = { isConnected: () => false, connect: vi.fn(async () => { ec.isConnected = () => true; }) };
+    const fn = buildReconnectEditor(() => ec as any);
+    const r = await fn();
+    expect(ec.connect).toHaveBeenCalled();
+    expect(r.connected).toBe(true);
+  });
+
+  it('buildReconnectEditor: 无 editorConn → 提示 launch_editor', async () => {
+    const fn = buildReconnectEditor(() => null);
+    const r = await fn();
+    expect(r.connected).toBe(false);
+    expect(r.detail).toContain('launch_editor');
   });
 });

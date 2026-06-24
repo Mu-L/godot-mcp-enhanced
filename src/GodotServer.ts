@@ -35,7 +35,7 @@ import * as guard from './guard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
-import { setOnGroupsChanged } from './tools/manage-tools.js';
+import { setOnGroupsChanged, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from './tools/manage-tools.js';
 import { InstanceManager } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
@@ -141,6 +141,8 @@ export class GodotServer {
 
     // Connect manage-tools notification callback
     setOnGroupsChanged(() => this.sendToolListChanged());
+    setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
+    setReconnectEditor(buildReconnectEditor(() => this.editorConn));
 
     // ── MCP Prompts handlers (Phase 5b) ────────────────────────────────────────
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -383,6 +385,8 @@ export class GodotServer {
     this.agentCtx.destroy();
     await this.server.close();
     setOnGroupsChanged(null);
+    setConnectionStatusProvider(null);
+    setReconnectEditor(null);
     clearMcpServer();
     log('Server shut down');
   }
