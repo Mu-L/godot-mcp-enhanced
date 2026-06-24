@@ -36,6 +36,7 @@ backlog 次要项共 3 个子项,源码核查后范围收敛:
 - `wait_for_bridge=true`:spawn 游戏后,在 `bridge_timeout` 内轮询(每 500ms)bridge 是否就绪(secret 文件存在 + TCP auth 成功)。就绪 → 返回含 `bridge ready`;超时 → 返回 **warning**(`bridge 未在 {N}s 内就绪,后续 game_query 可能失败`),**不阻塞、不报错**
 - `wait_for_bridge=false`(默认)→ 行为完全不变,向后兼容
 - 非 bridge 项目传 true → secret 不存在 → 立即 warning(`未安装 bridge,跳过探测`),不报错
+- **进程早退失败模式**:`timeout < bridge_timeout`(如 timeout=3/bridge_timeout=10)时游戏被 autoStopTimer 提前杀,isBridgeReady 短路返回 `process exited during probe`,run_project 给 warning(`游戏进程在探测期间退出`),不傻等满 bridge_timeout
 
 返回文本(成功):`Running project at {p} (timeout: {N}s). Bridge ready. Use get_debug_output...`
 返回文本(超时):`Running project at {p} (timeout: {N}s). ⚠ Bridge not ready after {M}s — game_query may fail. Use...`
@@ -44,17 +45,22 @@ backlog 次要项共 3 个子项,源码核查后范围收敛:
 
 **`src/tools/game-bridge.ts`** — 新增导出函数:
 ```ts
-export async function isBridgeReady(projectDir: string, timeoutMs: number): Promise<{ ready: boolean; reason: string }>
+export async function isBridgeReady(
+  projectDir: string,
+  timeoutMs: number,
+  opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
+): Promise<{ ready: boolean; reason: string }>
 ```
 - 用**独立短 socket** 探测(不碰模块级 `_socket` / `_socketAuthenticated` / `_socketBuffer`,避免污染后续真实请求的连接缓存)
+- **零接触缓存**:用传入 projectDir 自拼 `join(projectDir, '.godot', 'mcp_bridge_' + BRIDGE_PORT + '.secret')` 自读 secret,全程不碰模块级 `_projectDir` / `_cachedSecret` / `_cachedSecretAt`(自读不污染缓存)
 - 流程:在 timeoutMs 内每 500ms 重试 —— secret 文件存在? → 尝试 TCP createConnection 到 9081 + 发 auth + 等 `result.authenticated` → 成功即 ready=true 并立即 `socket.destroy()`
+- **进程早退短路**(真实失败模式:用户传 `timeout=3` + `wait_for_bridge=true`,游戏 3s 被 autoStopTimer 杀 `runtime.ts:163-169`,探测却傻等 `bridge_timeout=10`s):run_project 传 `{ proc, isCancelled: () => ctx.runningProcess !== proc }`,轮询每轮检查 `opts.proc?.killed` / `opts.isCancelled?.()`,命中即 ready=false、reason=`process exited during probe` 提前返回,不等满 timeoutMs
 - secret 不存在 → ready=false,reason=`secret not found (bridge not installed?)`
-- 连接/ auth 失败 → 继续重试直到 timeoutMs
-- 复用现有 `BRIDGE_PORT`/`BRIDGE_HOST`/secret 读取逻辑(`readBridgeSecret`/`findBridgeSecretPath`)
+- 连接/auth 失败 → 继续重试直到 timeoutMs
 
 **`src/tools/runtime.ts` run_project case**(`:120-188`):
 - 解析新参数:`const waitForBridge = args.wait_for_bridge === true; const bridgeTimeout = Math.max(1, Number(args.bridge_timeout) || 10);`
-- spawn 游戏后、返回前:`if (waitForBridge) { const r = await isBridgeReady(p, bridgeTimeout * 1000); warnPrefix += r.ready ? 'Bridge ready. ' : `⚠ Bridge not ready (${r.reason}). `; }`
+- spawn 游戏后、返回前:`if (waitForBridge) { const r = await isBridgeReady(p, bridgeTimeout * 1000, { proc, isCancelled: () => ctx.runningProcess !== proc }); warnPrefix += r.ready ? 'Bridge ready. ' : `⚠ Bridge not ready (${r.reason}). `; }`
 - 注:探测在 `ctx.setRunningProcess(proc, true)` 之后、return 之前,不阻塞游戏进程
 
 **`src/tools/runtime.ts` 工具 schema**:run_project 的 inputSchema 加 `wait_for_bridge` / `bridge_timeout` 两个可选属性 + 描述。
@@ -62,6 +68,8 @@ export async function isBridgeReady(projectDir: string, timeoutMs: number): Prom
 ### 2.3 为什么独立连接不污染
 
 `_doConnect`(game-bridge.ts:121)会 set 模块级 `_socket`。若 isBridgeReady 复用它,探测后留下的 socket 状态会干扰下一个真实 `game_query`。故 isBridgeReady 用独立 `createConnection`,auth 验证后立即 destroy,模块状态零接触。
+
+**接受的重复**:handshake 逻辑(createConnection + auth JSON + 等 `result.authenticated`)与 `_doConnect`(game-bridge.ts:121)有约 20 行偶然重复。语义不同 —— `_doConnect` 建持久连接并注册 close/error monitor,isBridgeReady 即建即毁 —— 故予以接受。`_doConnect` 零改动(守住 §1 非目标"不重构")。
 
 ---
 
@@ -103,19 +111,19 @@ export function setReconnectEditor(fn: (() => Promise<{ connected: boolean; deta
 
 ### 3.3 sync action
 
-当前 `manage-tools.ts:133-135` 返回 NOT_IMPLEMENTED。改为返回每个 active group 的 `requires` 实际状态:
+当前 `manage-tools.ts:133-135` 返回 NOT_IMPLEMENTED。改为返回每个 active group 的 `requires`(类型 `('bridge'|'editor'|'headless')[]`,tool-registry.ts:128)实际状态:
 ```
 {
   groups: [
-    { name, active, requires: "editor"|"bridge"|null, status: "connected"|"disconnected"|"probe-required"|"n/a" }
+    { name, active, requires: [...], status: "connected"|"disconnected"|"probe-required"|"n/a" }
   ],
   editor: { installed, connected, state },
   bridge: { note }
 }
 ```
-- editor 组 → `status = provider.editor.connected ? "connected" : "disconnected"`
-- bridge 组 → `status = "probe-required"`(需 game_query ping)
-- 无 requires 的组(core/headless)→ `status = "n/a"`
+- `requires` 含 `'editor'` → `status = provider.editor.connected ? "connected" : "disconnected"`
+- `requires` 含 `'bridge'` → `status = "probe-required"`(需 game_query ping)
+- `requires` 为空数组(core/animation/audio/visual/physics/navigation/ui/tilemap/signal/profiler/code 等)→ `status = "n/a"`
 - provider 不存在 → 回退到 list_groups 行为 + warning
 
 ### 3.4 schema 更新
@@ -161,8 +169,8 @@ export function setReconnectEditor(fn: (() => Promise<{ connected: boolean; deta
 ### 5.1 单元测试(TDD:RED→GREEN)
 
 **M4**:
-- `game-bridge.test.ts`:isBridgeReady 三态 —— ready(secret 存在 + mock TCP auth 成功)/ secret 不存在 reason / 超时 reason;断言**不触碰模块级 _socket**(探测前后 `_socket === null`)
-- `runtime.test.ts`(或 run_project 集成):mock isBridgeReady 返回 ready/timeout/no-secret,断言 run_project 返回文本含对应 success/warning;`wait_for_bridge=false`(默认)不调 isBridgeReady
+- `game-bridge.test.ts`:isBridgeReady 四态 —— ready(secret 存在 + mock TCP auth 成功)/ secret 不存在 reason / 超时 reason / 进程早退短路 reason(`opts.isCancelled` 或 `opts.proc.killed` 命中即提前返回,不等满 timeoutMs);**零接触断言(进 TDD RED 用例)**:探测前后三者均不变 —— `_socket === null && _projectDir 未改 && _cachedSecret 未改`(自读 secret 不污染缓存,承诺强于"不碰 _socket")
+- `runtime.test.ts`(或 run_project 集成):mock isBridgeReady 返回 ready/timeout/no-secret/process-exited,断言 run_project 返回文本含对应 success/warning;`wait_for_bridge=false`(默认)不调 isBridgeReady;进程早退用例:`timeout=3, bridge_timeout=10` 且 isCancelled 在进程被杀后返回 true → isBridgeReady 提前返回 `process exited during probe`,run_project warning 含相关字样
 
 **manage_tools**:
 - `manage-tools.test.ts`:注入 mock provider + reconnectEditor;reconnect 三分支(已连接 / 重连成功 / 无 provider);sync 状态映射(editor connected/disconnected、bridge probe-required、core n/a);provider 不存在时回退
