@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
-import { findInstanceNode, detachInstance, nodePathToNameAndParent } from '../../tscn-editor.js';
+import { findInstanceNode, detachInstance, nodePathToNameAndParent } from '../../tscn/tscn-editor.js';
 import { executeGdscript } from '../../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, toSnakeCase, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { gdScriptSetLine, TRY_SET_HELPER, BLOCKED_PROPS } from './helpers.js';

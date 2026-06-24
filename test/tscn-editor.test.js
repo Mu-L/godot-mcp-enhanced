@@ -1,5 +1,5 @@
 import { expect } from 'vitest';
-import { findInstanceNode, detachInstance, nodePathToNameAndParent } from '../src/tscn-editor.js';
+import { findInstanceNode, detachInstance, nodePathToNameAndParent } from '../src/tscn/tscn-editor.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

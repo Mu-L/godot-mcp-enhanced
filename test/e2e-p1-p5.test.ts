@@ -14,7 +14,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import { executeGdscript } from '../src/gdscript-executor.js';
-import { addNode, addNodes } from '../src/tscn-editor.js';
+import { addNode, addNodes } from '../src/tscn/tscn-editor.js';
 import { captureScreenshot, getBlankHint } from '../src/screenshot.js';
 import { generateCommitScript } from '../src/tools/scene-commit.js';
 import { parseCommitResult } from '../src/tools/scene-commit-tool.js';

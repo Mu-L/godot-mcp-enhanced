@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeTscnAttr, formatTscnValue } from '../src/tscn-editor-shared.js';
+import { escapeTscnAttr, formatTscnValue } from '../src/tscn/tscn-editor-shared.js';
 
 // I-1: escapeTscnAttr 必须与 escapeTscnValue 一致地拒绝换行符。
 // 当前 add 白名单(^[A-Za-z0-9_]+$)与 detach 严格相等阻挡了换行进入,但根因(转义函数本身
