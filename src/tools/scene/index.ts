@@ -16,7 +16,7 @@ import { ACTIONS, requireScenePath, gdScriptSetLine, TRY_SET_HELPER, writeAtomic
 import { handleInstanceScene, handleSetInstanceProperty, handleDetachInstance } from './scene-instance.js';
 import { mergeTscn, checkSceneHealth } from './scene-merge.js';
 import { handleCreate3dNode } from '../node-3d-ops.js';
-import { handleCommitAction } from '../scene-commit-tool.js';
+import { handleCommitAction } from './scene-commit-tool.js';
 
 export { mergeTscn, checkSceneHealth };
 

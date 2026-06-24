@@ -1,6 +1,6 @@
 // test/scene-commit.test.ts
 import { describe, it, expect } from 'vitest';
-import { generateCommitScript, COMMIT_OPERATIONS, validateCommitOperations } from '../src/tools/scene-commit.js';
+import { generateCommitScript, COMMIT_OPERATIONS, validateCommitOperations } from '../src/tools/scene/scene-commit.js';
 
 describe('validateCommitOperations (IMPORTANT-7)', () => {
   it('returns null for all-valid operations', () => {

@@ -2,7 +2,7 @@
 // Generates a single GDScript that loads a scene, executes multiple operations,
 // optionally saves, and reports structured results via COMMIT_RESULT prefix.
 
-import { gdEscape } from './shared/value-serializer.js';
+import { gdEscape } from '../shared/value-serializer.js';
 
 export const COMMIT_OPERATIONS = [
   'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
