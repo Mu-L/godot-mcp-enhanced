@@ -310,8 +310,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     }
 
     // Check file existence
+    // 修复: scope=script 的 scriptPaths 是 resolveWithinRoot 解析后的绝对路径(:292),
+    // join(projectPath, 绝对路径) 会拼接成 projectPath/绝对路径(重复 projectPath) → 恒 not found。
+    // (Node path.join 不像 resolve, 不处理绝对路径覆盖, 直接拼接)
+    // 绝对路径直接 existsSync, 相对路径(scope=full 的 scanFiles 相对)才 join。
     for (const sp of scriptPaths) {
-      if (!existsSync(join(projectPath, sp))) {
+      const fullPath = isAbsolute(sp) ? sp : join(projectPath, sp);
+      if (!existsSync(fullPath)) {
         issues.push({ severity: 'error', location: sp, message: `Script file not found: ${sp}` });
       }
     }
