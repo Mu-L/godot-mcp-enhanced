@@ -6,6 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
+import type { ConnectionState } from '../types.js';
 import {
   TOOL_GROUPS,
   setActiveGroups,
@@ -17,12 +18,33 @@ import { opsSuccess, opsError } from './shared.js';
 
 type ManageAction = 'list_groups' | 'activate' | 'deactivate' | 'sync' | 'reconnect' | 'migrate';
 
+export interface ConnectionStatus {
+  editor: { installed: boolean; connected: boolean; state: ConnectionState | null };
+  bridge: { note: string };
+}
+
 /** Optional callback fired when groups change (set by GodotServer). */
 let _onGroupsChanged: (() => void) | null = null;
+
+/** Connection status provider (set by GodotServer). */
+let _connectionStatusProvider: (() => ConnectionStatus) | null = null;
+
+/** Reconnect editor handler (set by GodotServer). */
+let _reconnectEditor: (() => Promise<{ connected: boolean; detail: string }>) | null = null;
 
 /** Set notification callback (called by GodotServer). */
 export function setOnGroupsChanged(fn: (() => void) | null): void {
   _onGroupsChanged = fn;
+}
+
+/** Set connection status provider (called by GodotServer). */
+export function setConnectionStatusProvider(fn: (() => ConnectionStatus) | null): void {
+  _connectionStatusProvider = fn;
+}
+
+/** Set reconnect editor handler (called by GodotServer). */
+export function setReconnectEditor(fn: (() => Promise<{ connected: boolean; detail: string }>) | null): void {
+  _reconnectEditor = fn;
 }
 
 export function getToolDefinitions(): Tool[] {
@@ -66,7 +88,7 @@ export async function handleTool(
     case 'activate': return handleActivate(args);
     case 'deactivate': return handleDeactivate(args);
     case 'sync': return handleSync();
-    case 'reconnect': return handleReconnect();
+    case 'reconnect': return await handleReconnect();
     case 'migrate': return handleMigrate();
     default:
       return textResult(JSON.stringify(opsError('INVALID_ACTION', `Unknown action: ${action}`)));
@@ -130,12 +152,40 @@ function handleDeactivate(args: Record<string, unknown>): ToolResult {
   })));
 }
 
-function handleSync(): ToolResult {
-  return textResult(JSON.stringify(opsError('NOT_IMPLEMENTED', 'Connection-aware sync is not yet implemented. Active groups are always in sync.')));
+async function handleReconnect(): Promise<ToolResult> {
+  let editor: { reconnected: boolean; detail: string } | null;
+  if (_reconnectEditor) {
+    const r = await _reconnectEditor();
+    editor = { reconnected: r.connected, detail: r.detail };
+  } else {
+    editor = null;
+  }
+  return textResult(JSON.stringify(opsSuccess({
+    editor,
+    bridge: { reconnected: false, detail: 'bridge 每请求建连,无需重连;用 game_query(method=ping) 探测' },
+  })));
 }
 
-function handleReconnect(): ToolResult {
-  return textResult(JSON.stringify(opsError('NOT_IMPLEMENTED', 'Auto-reconnect is not yet implemented. Check that the game/editor is running.')));
+function handleSync(): ToolResult {
+  const provider = _connectionStatusProvider;
+  const groups = Object.entries(TOOL_GROUPS).map(([name, def]) => {
+    const requires = def.requires ?? [];
+    let status: string;
+    if (!provider) {
+      status = 'unknown (no provider)';
+    } else {
+      const cs = provider();
+      if (requires.includes('editor')) status = cs.editor.connected ? 'connected' : 'disconnected';
+      else if (requires.includes('bridge')) status = 'probe-required';
+      else status = 'n/a';
+    }
+    return { name, requires, status };
+  });
+  return textResult(JSON.stringify(opsSuccess({
+    groups,
+    editor: provider?.().editor ?? null,
+    bridge: provider?.().bridge ?? null,
+  })));
 }
 
 export const TOOL_META = {

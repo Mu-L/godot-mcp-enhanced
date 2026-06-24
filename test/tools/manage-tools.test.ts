@@ -57,12 +57,14 @@ vi.mock('../../src/guard.js', () => ({
   requiresConfirmation: vi.fn().mockReturnValue(false),
 }));
 
-import { handleTool, getToolDefinitions } from '../../src/tools/manage-tools.js';
+import { handleTool, getToolDefinitions, setConnectionStatusProvider, setReconnectEditor } from '../../src/tools/manage-tools.js';
 
 describe('manage_tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetActiveGroups.mockReturnValue(new Set(['core', 'animation', 'bridge']));
+    setConnectionStatusProvider(null);
+    setReconnectEditor(null);
   });
 
   it('getToolDefinitions returns single tool with action enum', () => {
@@ -115,17 +117,40 @@ describe('manage_tools', () => {
     expect(data.success).toBe(true);
   });
 
-  it('sync returns NOT_IMPLEMENTED', async () => {
-    const result = await handleTool('manage_tools', { action: 'sync' }, {} as any);
-    const data = JSON.parse((result!.content as any)[0].text);
-    expect(data.success).toBe(false);
-    expect(data.error_code).toBe('NOT_IMPLEMENTED');
-  });
-
-  it('reconnect returns NOT_IMPLEMENTED', async () => {
+  it('reconnect 无 provider → editor=null + bridge no-op 说明', async () => {
     const result = await handleTool('manage_tools', { action: 'reconnect' }, {} as any);
     const data = JSON.parse((result!.content as any)[0].text);
-    expect(data.success).toBe(false);
-    expect(data.error_code).toBe('NOT_IMPLEMENTED');
+    expect(data.success).toBe(true);
+    expect(data.data.editor).toBeNull();
+    expect(data.data.bridge.detail).toContain('无需重连');
+  });
+
+  it('reconnect 注入 reconnectEditor → 返回其结果', async () => {
+    setReconnectEditor(async () => ({ connected: true, detail: '手动重连完成' }));
+    const result = await handleTool('manage_tools', { action: 'reconnect' }, {} as any);
+    const data = JSON.parse((result!.content as any)[0].text);
+    expect(data.data.editor).toEqual({ reconnected: true, detail: '手动重连完成' });
+  });
+
+  it('sync 无 provider → status 为 unknown', async () => {
+    const result = await handleTool('manage_tools', { action: 'sync' }, {} as any);
+    const data = JSON.parse((result!.content as any)[0].text);
+    const bridgeGroup = data.data.groups.find((g: any) => g.name === 'bridge');
+    expect(bridgeGroup.status).toContain('unknown');
+  });
+
+  it('sync 注入 provider → requires 映射状态', async () => {
+    setConnectionStatusProvider(() => ({
+      editor: { installed: true, connected: true, state: 'connected' },
+      bridge: { note: '每请求建连' },
+    }));
+    const result = await handleTool('manage_tools', { action: 'sync' }, {} as any);
+    const data = JSON.parse((result!.content as any)[0].text);
+    // mock TOOL_GROUPS 含 core(requires [])/animation([])/bridge(['bridge'])
+    const byName = Object.fromEntries(data.data.groups.map((g: any) => [g.name, g]));
+    expect(byName.core.status).toBe('n/a');        // requires []
+    expect(byName.animation.status).toBe('n/a');   // requires []
+    expect(byName.bridge.status).toBe('probe-required'); // requires ['bridge']
+    expect(data.data.editor.connected).toBe(true);
   });
 });
