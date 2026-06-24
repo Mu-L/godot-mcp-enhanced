@@ -120,3 +120,16 @@
 **M2/M3/M5**(`199a9ab`)已修:M2 autoload value 误带 `*` 错误提示明示去掉(写入自动注入)+ M3/M5 core rule 陷阱段文档化(findGodot `_pathCache` 固化 / ALLOWED_PROJECT_PATHS env 启动固化,改 settings 需重启 MCP)。验证:project-config 29✓ + tsc 无错。
 
 **✅ backlog 全部处理完毕**:S1/S3/S4/S5/S6/M2/M3/M5/M6 已修(8 fix commit);S2/M1 撤销(核查证伪的误判)。剩余仅"手动 F5 集成验证"(S4/S5/S6 运行时交互)—— 自动验证受 bridge 链路自身限制,留给用户 F5 实测。
+
+---
+
+## ✅ 次要项收尾(2026-06-24,分支 `fix/mcp-tools-s1-s3-s4`)
+
+| # | commit | 改动 | 验证 |
+|---|--------|------|------|
+| **M4** | `a534d7f` (Task 1) + `3dfe7d3` (Task 2) | `run_project` 加 `wait_for_bridge`(默认 false) + `bridge_timeout`(默认 10s);`game-bridge.isBridgeReady` 独立短连接零接触探测 Bridge 就绪 + 进程早退短路优化 | game-bridge-isready 5✓ + runtime wait_for_bridge 3✓ |
+| **manage_tools** | `9673a1a` (Task 3) + `a05362f` (Task 4) | `setConnectionStatusProvider`/`setReconnectEditor` 注入 + `buildConnectionStatus`/`buildReconnectEditor` 工厂;`reconnect` 触发 EditorConnection.connect(bridge 无持久连接→no-op);`sync` 返回各组 `requires` 连接状态 | manage-tools 13✓ (9 from Task 3 + 4 factory tests from Task 4) |
+| 默认引擎 | — | 剔除(= M3 文档化已覆盖,`godot-finder` 已 GODOT_PATH 优先) | — |
+
+**S4/S5/S6 运行时验证**:待专门验证会话(需重启 MCP 注入 env)。
+

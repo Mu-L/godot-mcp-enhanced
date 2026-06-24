@@ -81,6 +81,20 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | `find_ui_elements` | 查找可见 Control 节点（pattern / type / visible_only / limit） |
 | `click_button` | 点击按钮（text 或 path） |
 
+### 工具组管理 — manage_tools
+
+| action | 说明 |
+|--------|------|
+| `list_groups` | 列出所有工具组及其启用/停用状态 |
+| `activate` | 启用指定工具组（按名称） |
+| `deactivate` | 停用指定工具组（按名称） |
+| `sync` | 返回各工具组的 `requires` 连接状态（editor/bridge/headless） |
+| `reconnect` | 触发 EditorConnection 重新连接（bridge 无持久连接，no-op） |
+
+**行为说明**：
+- `reconnect` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
+- `sync` 返回结构：`{ groups: [{ name: "editor", requires: "editor", status: "connected" }, { name: "bridge", requires: "bridge", status: "disconnected" }, ...] }`
+
 ## 使用指南
 
 ### 安装流程

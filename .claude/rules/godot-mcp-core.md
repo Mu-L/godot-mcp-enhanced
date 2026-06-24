@@ -67,6 +67,8 @@ godot-mcp-enhanced 提供 130+ 工具，通过三层架构操作 Godot：
 
 - **run_and_verify**：一键 headless 运行 + 错误分析 + 可选场景树快照。适合快速检查。**自动读取 project.godot 的 autoload 配置**，将 autoload 单例相关的"Identifier not found"错误标记为 headless_limitation 而非真实错误，减少误报。
 - **手动组合**：run_project + get_debug_output + stop_project。适合需要精细控制运行时长的场景。
+  - `run_project` 支持 `wait_for_bridge` 参数（默认 false）：true 时等待 Bridge 就绪再返回（用 `game-bridge.isBridgeReady` 零接触探测）。
+  - `run_project` 支持 `bridge_timeout` 参数（默认 10 秒）：等待 Bridge 就绪的最大超时时间。
 
 ## 运行时 vs 持久化
 
