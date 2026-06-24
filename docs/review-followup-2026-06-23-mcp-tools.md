@@ -136,7 +136,20 @@
 - 非 E2E 全套 **2668/2668 全绿** + tsc 0(E2E 3 文件 = Godot spawn 环境已知 flaky,非本次回归)。
 - 收尾:finishing Option 3,保留分支 `fix/mcp-tools-s1-s3-s4`(领先 origin/master 36 commit,跨多会话,待批次发布)。
 
-**Task 6 待运行时验证**(独立会话,重启 MCP 注入 env `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true` + `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal`):
+**⚠ 运行环境发现与配置修正(2026-06-24 重启会话)**:
+
+重启后 `manage_tools sync` 仍返回 `NOT_IMPLEMENTED: "Connection-aware sync is not yet implemented"` 旧文案。排查发现**根因不是代码,而是宿主跑错仓库副本**(调试归因铁律:磁盘 build 新 + 运行旧文案 = 运行进程≠磁盘):
+
+- 宿主 `~/.claude.json` 的 godot.args **原本指向 `D:/GitHub/godot-ai-kit/enhanced/build/index.js`**(= v0.18.2 发布点 `9153517`,2026-06-20 旧 build,**零 backlog 修复**),而非本会话一直在改的 `D:/GitHub/godot-mcp-enhanced`。进程列表铁证:运行的是 `node D:/GitHub/godot-ai-kit/enhanced/build/index.js`,无任何进程加载 mcp-enhanced/build。
+- 因此整个 S1-S6/M4 backlog(36 commit,在 mcp-enhanced 分支 `fix/mcp-tools-s1-s3-s4`)的**单元测试 2718 全绿,但从未被运行的 MCP 加载过**——Task 6 是首次运行时验证,立刻撞上"运行=旧副本"。sync 旧文案来自 ai-kit/enhanced/build/tools/manage-tools.js(Task 3 改造前的代码)。
+- S4/S5 env 原本也改错文件(`mcp-enhanced/.claude/settings.json`,宿主不读它;宿主只读 `~/.claude.json` 顶层 mcpServers)。
+- memory `godot-ai-kit-fork-relationship`(6天前)记"权威=ai-kit,勿在 mcp-enhanced 做新工作",但 prior-session 的整个 backlog 全在 mcp-enhanced 做 —— **矛盾待厘清**。
+
+**已修正(本会话,node 脚本原子改写 + JSON.parse 验证)**:`~/.claude.json` godot 段 args → `D:/GitHub/godot-mcp-enhanced/build/index.js`;env 加 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true` + `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal`(DEBUG/GODOT_PATH(4.7)/GODOT_SKILL_LIBRARIES 保留)。**需重启宿主 Claude Code**(MCP stdio 子进程才会重 spawn 加载新 build + 注入 env)。重启后先跑 `manage_tools sync` 确认返回真实 requires 状态(非 NOT_IMPLEMENTED),再走下面 checklist。
+
+> 注:这是**临时验证配置**(用户选路 A,2026-06-24)。验证通过后需决策代码归属:① 同步 mcp-enhanced 的 36 commit 到 ai-kit/enhanced(遵循 memory"权威=ai-kit");② 宿主配置永久指向 mcp-enhanced。env 注入的是**全局 godot mcpServer**(影响所有项目),验证完视情况是否保留。
+
+**Task 6 待运行时验证**(重启宿主后,env 已注入 `~/.claude.json`):
 - **M4**:`run_project(wait_for_bridge=true)` → 紧接 `game_query(method=ping)` 立即成功(无需手动等)
 - **S4**:跨 5min TTL 后 ping + `.godot/mcp_bridge_9081.secret` 不被收紧/删除(PERSISTENT_SECRET 生效)
 - **S5**:`call_method(emit_signal)` 触发 GameEvents 信号(EXTRA_METHODS 生效)
