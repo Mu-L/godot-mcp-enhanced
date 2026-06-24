@@ -131,5 +131,16 @@
 | **manage_tools** | `9673a1a` (Task 3) + `a05362f` (Task 4) | `setConnectionStatusProvider`/`setReconnectEditor` 注入 + `buildConnectionStatus`/`buildReconnectEditor` 工厂;`reconnect` 触发 EditorConnection.connect(bridge 无持久连接→no-op);`sync` 返回各组 `requires` 连接状态 | manage-tools 13✓ (9 from Task 3 + 4 factory tests from Task 4) |
 | 默认引擎 | — | 剔除(= M3 文档化已覆盖,`godot-finder` 已 GODOT_PATH 优先) | — |
 
-**S4/S5/S6 运行时验证**:待专门验证会话(需重启 MCP 注入 env)。
+**最终验证(2026-06-24)**:
+- final review(opus,`0f3f6b8..8403610`):**Ready to merge**(0 Critical / 0 Important / 8 Minor 全可后续)。跨 task 契约无裂缝 —— `isBridgeReady` 签名 ↔ `run_project` 调用、setter ↔ `build*` 工厂、GodotServer 闭包延迟读 `() => this.editorConn` 正确处理 `:308/:322/:337/:364` 重赋值、向后兼容(`wait_for_bridge` 默认 false → `isBridgeReady` 不调)。零接触 grep 确认 `isBridgeReady`/`probeOnce` 无对 `_projectDir`/`_cachedSecret`/`_socket` 赋值。
+- 非 E2E 全套 **2668/2668 全绿** + tsc 0(E2E 3 文件 = Godot spawn 环境已知 flaky,非本次回归)。
+- 收尾:finishing Option 3,保留分支 `fix/mcp-tools-s1-s3-s4`(领先 origin/master 36 commit,跨多会话,待批次发布)。
+
+**Task 6 待运行时验证**(独立会话,重启 MCP 注入 env `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true` + `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal`):
+- **M4**:`run_project(wait_for_bridge=true)` → 紧接 `game_query(method=ping)` 立即成功(无需手动等)
+- **S4**:跨 5min TTL 后 ping + `.godot/mcp_bridge_9081.secret` 不被收紧/删除(PERSISTENT_SECRET 生效)
+- **S5**:`call_method(emit_signal)` 触发 GameEvents 信号(EXTRA_METHODS 生效)
+- **S6**:`send_key` physical_keycode 触发 input action(Player 移动)
+
+**8 Minor 留后续**(详见 `.superpowers/sdd/progress.md`):M1 `handleSync` 的 `provider()` N+2 次重复调用(可提循环外,唯一稍实质)/ M2-M8 纯风格·文档·memory 描述,均不阻塞。
 
