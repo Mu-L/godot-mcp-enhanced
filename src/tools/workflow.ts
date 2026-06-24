@@ -536,7 +536,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const missing: string[] = [];
 
       for (const s of scripts) {
-        const full = join(projectPath, s);
+        // issue #12: 兼容 res:// 前缀(strip → 项目相对),与 read_script 路径解析一致
+        const rel = s.startsWith('res://') ? s.slice(6) : s;
+        const full = join(projectPath, rel);
         if (existsSync(full)) {
           fullPaths.push(full);
         } else {

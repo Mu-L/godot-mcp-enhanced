@@ -199,7 +199,9 @@ export class ToolDispatcher {
 
     try {
       // ── 0.5. Default project_path injection ──
-      if (!args.project_path && !skipProjectPath(name)) {
+      // issue #11: list_projects/list_templates 是搜索/列表语义,不需 project_path。
+      // skipProjectPath 按工具名(无法区分 project 工具的 action),故此处 action 级豁免。
+      if (!args.project_path && !skipProjectPath(name) && !(name === 'project' && (args.action === 'list_projects' || args.action === 'list_templates'))) {
         const resolved = resolveProjectPath();
         if (!resolved) {
           return opsErrorResult(
