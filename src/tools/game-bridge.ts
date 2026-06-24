@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, chmo
 import { join, dirname } from 'path';
 import { userInfo } from 'os';
 import { execFileSync } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, getErrorMessage } from '../types.js';
@@ -713,4 +714,87 @@ export function resetBridgeState(): void {
   _socketBuffer = '';
   _connectionLock = null;
   _sendLock = Promise.resolve();
+}
+
+// ─── Bridge readiness probe (M4) ────────────────────────────────────────────
+// 零接触:自读 secret + 独立短 socket,绝不碰模块级 _projectDir/_cachedSecret/_socket。
+// 供 run_project(wait_for_bridge=true) 使用。
+
+export interface BridgeReadyResult {
+  ready: boolean;
+  reason: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, ms)));
+}
+
+/** 单次 TCP auth 探测(独立 socket,即建即毁)。成功返回 true。 */
+function probeOnce(secretPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let secret: string;
+    try {
+      secret = readFileSync(secretPath, 'utf-8').trim();
+    } catch {
+      resolve(false);
+      return;
+    }
+    const sock = createConnection({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
+      sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
+    });
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; sock.destroy(); resolve(false); }
+    }, 1000);
+    sock.on('data', (data: Buffer) => {
+      if (settled) return;
+      try {
+        const resp = JSON.parse(data.toString().trim());
+        if (resp?.result?.authenticated) {
+          settled = true; clearTimeout(timer); sock.destroy(); resolve(true);
+        }
+      } catch { /* 部分/非 JSON 数据,忽略 */ }
+    });
+    sock.on('error', () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(false); }
+    });
+  });
+}
+
+/**
+ * 探测 bridge autoload 是否已启动并接受 auth。轮询直到就绪/进程退出/超时。
+ * 全程零接触模块级缓存:secret 由 projectDir 自拼路径自读。
+ */
+export async function isBridgeReady(
+  projectDir: string,
+  timeoutMs: number,
+  opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
+): Promise<BridgeReadyResult> {
+  const secretPath = join(projectDir, '.godot', `mcp_bridge_${BRIDGE_PORT}.secret`);
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const interval = 500;
+
+  for (;;) {
+    if (opts?.proc?.killed || opts?.isCancelled?.()) {
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (existsSync(secretPath)) {
+      if (await probeOnce(secretPath)) return { ready: true, reason: 'bridge ready' };
+    }
+    if (Date.now() >= deadline) {
+      return existsSync(secretPath)
+        ? { ready: false, reason: 'bridge auth did not succeed within timeout' }
+        : { ready: false, reason: 'secret not found (bridge not installed?)' };
+    }
+    await sleep(Math.min(interval, deadline - Date.now()));
+  }
+}
+
+/** 测试专用:模块缓存快照,用于断言 isBridgeReady 零接触。 */
+export function _testBridgeCacheState(): {
+  projectDir: string | null;
+  cachedSecret: string | null;
+  socketNotNull: boolean;
+} {
+  return { projectDir: _projectDir, cachedSecret: _cachedSecret, socketNotNull: _socket !== null };
 }
