@@ -87,7 +87,7 @@ export function getToolDefinitions(): Tool[] {
           test_script: { type: 'string', description: '测试脚本或目录路径（默认 res://test/）', default: 'res://test/' },
           // ── Recording parameters (merged, v0.18.0) ──
           events_json: { type: 'string', description: '录制：JSON 格式的事件序列字符串' },
-          file_name: { type: 'string', description: '录制：录制文件名（仅接受 recording_*.json 格式）' },
+          file_name: { type: 'string', description: '录制保存:始终自动命名 recording_YYYYMMDD_HHmmss.json(file_name 入参被忽略);但 file_name 须匹配 recording_*.json 格式(否则 INVALID_FILE_NAME),禁止含 / \\\\ ..' },
           speed: { type: 'number', description: '录制：回放速度倍率（默认 1.0）' },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
           godot_path: { type: 'string', description: '覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）' },

@@ -134,6 +134,13 @@ describe('runtime getToolDefinitions', () => {
     expect(def.inputSchema).toBeDefined();
     expect(def.inputSchema.type).toBe('object');
   });
+
+  it('T-3: recording_save file_name schema 描述准确(说明自动命名/入参忽略)', () => {
+    // 原描述"录制文件名"误导用户可指定,实际行为忽略入参、始终自动时间戳命名。
+    const desc = getToolDefinitions()[0].inputSchema.properties.file_name.description;
+    expect(desc).toMatch(/自动命名|入参被忽略/);
+    expect(desc).toMatch(/recording_\*\.json/);  // 保留格式约束说明
+  });
 });
 
 // ─── TOOL_META ──────────────────────────────────────────────────────────────

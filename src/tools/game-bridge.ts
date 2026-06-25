@@ -266,6 +266,11 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
             const resp = JSON.parse(line) as BridgeResponse;
             if (resp.id != null && resp.id !== id) continue;
             sock.removeListener('data', onData);
+            // N-1 (2026-06-24 审查): 成功 resolve 后移除本次 once 监听器。持久 _socket 上 error/close
+            // 健康时永不触发,once 不移除 → 每请求泄漏 2 listener → 长连接累积至 MaxListenersExceededWarning。
+            // reject 路径(onError/onClose/timeout)由 once 自动移除 + _invalidateSocket 废弃 sock,不累积。
+            sock.removeListener('error', onError);
+            sock.removeListener('close', onClose);
             // If bridge returns auth error, invalidate cached secret
             if (resp.error?.code === -32001 || resp.error?.code === -32002) {
               _cachedSecret = null;
@@ -472,6 +477,17 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
   }
 }
 
+/** T-1 (2026-06-24 审查): game_write/wait/query 的 path 参数须 /root/ 绝对路径(文档 godot-mcp-bridge.md
+ *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
+ *  返回错误消息或 null(校验通过)。 */
+function validateBridgePath(params: Record<string, unknown>): string | null {
+  const p = params.path;
+  if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
+    return `path must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed paths; see godot-mcp-bridge.md.`;
+  }
+  return null;
+}
+
 /** Shared helper: set project dir, send to bridge, format response. */
 async function bridgeAction(method: string, params: Record<string, unknown>, ctx: ToolContext, timeout: number): Promise<ToolResult> {
   ensureProjectDir(ctx, params);
@@ -591,6 +607,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           : {};
         const rawTimeout = clampTimeoutMs(args.timeout);
         const timeout = Math.min(rawTimeout, 60000);
+        const pathErr = validateBridgePath(params);
+        if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);  // T-1: path /root/ 前置校验
         const response = await sendToBridge(method, params, timeout);
         if (response.error) {
           // Clear cached secret on auth failure so next call re-reads from disk
@@ -617,6 +635,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           : {};
         const totalMs = clampTimeoutMs(args.timeout);
         const intervalMs = clampTimeoutMs(args.interval_ms, 50, 2000, 200);
+
+        const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
+        if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
 
         const result = await pollWaitCondition(
           method as 'wait_for_node' | 'wait_for_property',

@@ -38,6 +38,7 @@ function bridgeSocket(kind: 'error' | 'result'): EventEmitter {
     });
   });
   (sock as any).destroy = vi.fn();
+  (sock as any).writable = true;  // 模拟已连接 Socket.writable → _ensureConnection :207 复用 _socket(复现 N-1 once 累积)
   return sock;
 }
 
@@ -55,7 +56,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExists.mockReturnValue(true);
   mockRead.mockReturnValue('test-secret');
-  // setBridgeProjectDir 内部调 _invalidateSocket(:233),清上个测试的 _socket 缓存 + 设 _projectDir
+  // setBridgeProjectDir 同路径时直接 return(:228)不清状态,先用不同路径强制 _invalidateSocket,
+  // 再设回 '/p'。确保每个测试 _socket 缓存清空(跨测试 _socket 复用会污染,如 N-1 累积测试)。
+  setBridgeProjectDir('/__reset__');
   setBridgeProjectDir('/p');
 });
 
@@ -82,6 +85,62 @@ describe('T-2: bridge error → isError=true (不误判成功)', () => {
   });
 
   it('bridge 成功 (result) → isError 不为 true (回归守护)', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
+});
+
+describe('N-1: sendToBridge once 监听器不泄漏', () => {
+  it('多次成功调用后 error/close listener 不累积(只留 _doConnect 持久监听)', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    for (let i = 0; i < 12; i++) {
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    }
+    const sock = mockCreate.mock.results[0].value;
+    // _doConnect :169-170 注册持久 close/error 各 1。sendToBridge 每次 once error/close,
+    // 成功 resolve 后(修复)移除。修复前:12 次累积 → listenerCount 13,触发 MaxListenersExceededWarning(默认 10)。
+    expect(sock.listenerCount('error')).toBeLessThan(5);
+    expect(sock.listenerCount('close')).toBeLessThan(5);
+  });
+});
+
+describe('T-1: game path /root/ 前置校验', () => {
+  it('game_write set_node_property path 非 /root/ → isError=true + 提示 /root/', async () => {
+    setupBridgeSocket('result');  // 修复前会走到 sendToBridge(避免 throw),修复后 path 校验提前 return
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_write', method: 'set_node_property',
+      params: { path: 'Player', property: 'position', value: { x: 1 } },
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('/root/');
+  });
+
+  it('game_write path 合法(/root/Player) → 不因 path 报错', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_write', method: 'set_node_property',
+      params: { path: '/root/Player', property: 'position', value: { x: 1 } },
+    }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
+
+  it('game_wait wait_for_node path 非 /root/ → isError=true', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_wait', method: 'wait_for_node',
+      params: { path: 'Player' }, timeout: 100, interval_ms: 100,
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('/root/');
+  });
+
+  it('game_query ping 无 path → 不校验(回归守护)', async () => {
     setupBridgeSocket('result');
     const ctx = { projectDir: '/p' } as any;
     const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
