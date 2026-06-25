@@ -53,7 +53,7 @@ describe('game-bridge signal watch', () => {
       const result = await handleTool('game', {
         project_path: '/tmp/test-watch',
         action: 'watch_start',
-        node_path: 'root/Button',
+        node_path: '/root/Button',
         signal_name: 'pressed',
       }, { opsScript: '' });
       expect(result).toBeDefined();

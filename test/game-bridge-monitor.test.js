@@ -71,7 +71,7 @@ describe('game-bridge monitor', () => {
       const result = await handleTool('game', {
         project_path: '/tmp/test-monitor',
         action: 'monitor_start',
-        node_path: 'root/Player',
+        node_path: '/root/Player',
         properties: ['position'],
       }, { opsScript: '' });
       expect(result).toBeDefined();

@@ -147,3 +147,43 @@ describe('T-1: game path /root/ 前置校验', () => {
     expect(result.isError).not.toBe(true);
   });
 });
+
+describe('I-1: bridgeAction 节点路径校验 (monitor/watch/click_button)', () => {
+  it('monitor_start node_path 非 /root/ → isError=true', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'monitor_start', node_path: 'Player', properties: ['position'],
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('/root/');
+  });
+
+  it('click_button path 非 /root/ → isError=true', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'click_button', path: 'UI/Button',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('/root/');
+  });
+
+  it('monitor_start node_path 合法(/root/Player) → 不因 path 报错', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'monitor_start', node_path: '/root/Player', properties: ['position'],
+    }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
+
+  it('find_ui_elements pattern 无节点路径 → 不校验(回归守护)', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'find_ui_elements', type: 'Button', pattern: 'Start',
+    }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
+});

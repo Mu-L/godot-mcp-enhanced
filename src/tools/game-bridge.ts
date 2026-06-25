@@ -481,9 +481,13 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
  *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
  *  返回错误消息或 null(校验通过)。 */
 function validateBridgePath(params: Record<string, unknown>): string | null {
-  const p = params.path;
-  if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
-    return `path must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed paths; see godot-mcp-bridge.md.`;
+  // I-1 (审查反馈): 节点路径字段名混用——game_write/wait/query 用 path,monitor/watch 用 node_path,
+  // click_button 用 path。统一检查两者。无节点路径的方法(ping/get_tree/find_ui_elements 的 pattern)不校验。
+  for (const key of ['path', 'node_path'] as const) {
+    const p = params[key];
+    if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
+      return `${key} must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed node paths; see godot-mcp-bridge.md.`;
+    }
   }
   return null;
 }
@@ -491,6 +495,8 @@ function validateBridgePath(params: Record<string, unknown>): string | null {
 /** Shared helper: set project dir, send to bridge, format response. */
 async function bridgeAction(method: string, params: Record<string, unknown>, ctx: ToolContext, timeout: number): Promise<ToolResult> {
   ensureProjectDir(ctx, params);
+  const pathErr = validateBridgePath(params);  // I-1(审查): 覆盖 monitor/watch/click_button 的 node_path/path
+  if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
   const resp = await sendToBridge(method, params, timeout);
   // T-2 (2026-06-24 审查): bridge 返回 error 时(密钥失效 -32001/-32002/方法不存在等)用 errorResult
   // (isError=true),否则 MCP 客户端误判成功吞掉错误。原 textResult 默认 isError=false。

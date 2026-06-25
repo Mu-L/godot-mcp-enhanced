@@ -236,6 +236,8 @@ export function isPathInAllowedRoots(requestedPath: string): boolean {
   // allowlist 外任意文件。两层 realpath 后:requestedPath 的 junction 解析到外部 → 不在
   // allowlist → 拒绝;allowlist 条目若本身是 junction 也解析到真实目标,避免合法访问被误拒。
   // safeRealPath 对不存在路径向上找存在祖先再 realpath(尾部字面拼接),兼顾"待创建新文件"场景。
+  // TOCTOU(I-3 审查补注):同 resolveWithinRoot(:150 注释),safeRealPath 归一化后到实际写文件前,
+  // 父段仍可能被换 symlink。本检查是本地单用户信任场景的安全边界,非多用户/不可信输入硬隔离。
   const requested = normalize(safeRealPath(resolvePath(requestedPath)));
   const allowed = getAllowedProjectPaths();
   if (allowed.length === 0) {
@@ -253,7 +255,15 @@ export function isPathInAllowedRoots(requestedPath: string): boolean {
     return requested === cwd || requested.startsWith(ensureSep(cwd));
   }
   return allowed.some(p => {
-    const normP = normalize(safeRealPath(resolvePath(p)));
+    let normP: string;
+    try {
+      normP = normalize(safeRealPath(resolvePath(p)));
+    } catch (err) {
+      // I-4 (审查反馈): allowlist 条目祖先 realpathSync 失败(权限/reparse)时 safeRealPath :128 throw,
+      // 原冒泡到 ToolDispatcher:464 导致整个校验抛错。该条目视为不匹配,不影响其他条目。
+      getLogger().warn('security', `Allowlist entry realpath failed, skipping: ${p} — ${err instanceof Error ? err.message : err}`);
+      return false;
+    }
     return requested === normP || requested.startsWith(ensureSep(normP));
   });
 }
