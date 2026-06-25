@@ -92,3 +92,4 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **forward 机制**：未明确处理的工具名会自动转发到编辑器插件，可能产生意外行为。
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
+- **editor 插件 4.7 不兼容（v0.18.x+ 已知限制）**：enhanced 自带 editor 插件（`addons/godot_mcp_server`）在 Godot 4.7 下**自身编译失败**（`commands/command_helpers.gd` 用了 `Vector2/Vector3.from_string()` 等 4.6 已移除 API；`plugin.gd`/`websocket_server.gd`/`status_panel.gd` 的 `_ready`/`_exit_tree` parent virtual 未定义）。后果：4.7 GUI 编辑器启动后插件编译失败 → WebSocket 13100 未启动 → `editor_get_scene_tree` 返回 `EDITOR_NOT_CONNECTED`。**4.5/4.6 editor 模式正常，4.7 待适配（enhanced 待办）**。headless 工具在 4.7 正常（不受影响）。跨版本验证时 editor 模式整行跳过，矩阵标注「4.7 插件不兼容」。
