@@ -35,7 +35,7 @@
 ```
                  ┌──────────────────────────────────────────┐
                  │  干净靶子项目（全新，无 autoload 互引）     │
-                 │  D:\workspace\projects\mcp-verify-3d       │
+                 │  D:\GitHub\mcp-verify-3d       │
                  └──────────────────┬───────────────────────┘
                                     │
             ┌───────────────────────┴────────────────────────┐
@@ -141,9 +141,9 @@ Main (Node3D)
 
 ## 7. 跨版本执行机制（方案 C）
 
-**单项目 + 每版本清缓存。** 一个项目目录 `D:\workspace\projects\mcp-verify-3d`，维护一份游戏代码；切版本时：
+**单项目 + 每版本清缓存。** 一个项目目录 `D:\GitHub\mcp-verify-3d`，维护一份游戏代码；切版本时：
 
-1. **切 godot_path**：写 `D:\workspace\projects\mcp-verify-3d\.godot\mcp-godot.json`，设 `{"godot_path": "D:\\godot\\Godot_v4.X.Y-stable_win64.exe"}`（项目级覆盖，优先于 env，每项目独立缓存 —— 见 core 规则 M3）。
+1. **切 godot_path**：写 `D:\GitHub\mcp-verify-3d\.godot\mcp-godot.json`，设 `{"godot_path": "D:\\godot\\Godot_v4.X.Y-stable_win64.exe"}`（项目级覆盖，优先于 env，每项目独立缓存 —— 见 core 规则 M3）。
 2. **清缓存（保留 mcp-godot.json）**：删 `.godot\imported\` 和 `.godot\global_script_class_cache.cfg`，**保留 `mcp-godot.json`**。避免 4.6↔4.7 缓存格式互踩。
 3. **重跑该版本全套**：主干 + 探针 + Bridge。
 
@@ -170,7 +170,7 @@ Main (Node3D)
 1. **兼容矩阵（核心产出）**：`D:\workspace\Obsidian\godot-mcp-enhanced\系统文档\跨版本验证矩阵-2026-06-25.md`
    - 行 = 工具/子系统/业务步骤，列 = 4 个版本，格 = ✅通过 / ❌失败（附错误摘要）/ ⏭️跳过（附原因）
    - 末尾「结论与已知限制」段
-2. **可玩游戏**：`D:\workspace\projects\mcp-verify-3d\` —— 4 版本都能 run_and_verify 通过、能 Bridge 操控的小游戏
+2. **可玩游戏**：`D:\GitHub\mcp-verify-3d\` —— 4 版本都能 run_and_verify 通过、能 Bridge 操控的小游戏
 3. **开发日志**：`D:\workspace\Obsidian\godot-mcp-enhanced\开发日志\2026-06-25 跨版本验证 3D 干净靶子.md` —— 含 properties/callouts/过程记录
 
 ## 10. 验收标准

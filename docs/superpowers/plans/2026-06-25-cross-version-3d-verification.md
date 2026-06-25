@@ -6,7 +6,7 @@
 
 **Goal:** 用 MCP 工具从零构建一个可玩的 3D 硬币收集游戏 + 6 项子系统探针 + Bridge 全套，在 4 个 Godot 版本（4.5.1/4.6.2/4.6.3/4.7）下端到端验证 godot-mcp-enhanced 的功能与业务可用性，产出兼容矩阵。
 
-**Architecture:** 单项目 `D:\workspace\projects\mcp-verify-3d`（无 autoload 互引，规避 Godot #89399）。先在 4.6.3 打通全链路建绿色基线，再用方案 C（切 `.godot/mcp-godot.json` + 清缓存）跨 4 版本循环，每版本重跑主干+探针+Bridge 填矩阵。Editor 模式跳过（4.7 插件不兼容）。
+**Architecture:** 单项目 `D:\GitHub\mcp-verify-3d`（无 autoload 互引，规避 Godot #89399）。先在 4.6.3 打通全链路建绿色基线，再用方案 C（切 `.godot/mcp-godot.json` + 清缓存）跨 4 版本循环，每版本重跑主干+探针+Bridge 填矩阵。Editor 模式跳过（4.7 插件不兼容）。
 
 **Tech Stack:** Godot 4.5.1/4.6.2/4.6.3/4.7（`D:\godot\Godot_v4.X.Y-stable_win64.exe`）、godot-mcp-enhanced v0.18.2 MCP 工具、GDScript。
 
@@ -15,7 +15,7 @@
 （每个任务的隐含前提，从 spec 第 8 节逐条搬入）
 
 - **Godot 二进制**：4.5.1=`D:\godot\Godot_v4.5.1-stable_win64.exe`；4.6.2=`D:\godot\Godot_v4.6.2-stable_win64.exe`；4.6.3=`D:\godot\Godot_v4.6.3-stable_win64.exe`；4.7=`D:\godot\Godot_v4.7-stable_win64.exe`。
-- **项目路径**：`D:\workspace\projects\mcp-verify-3d`（独立 Godot 项目，不属于 enhanced 仓库）。
+- **项目路径**：`D:\GitHub\mcp-verify-3d`（独立 Godot 项目，不属于 enhanced 仓库）。
 - **无 autoload**：项目不注册任何 autoload，计分走 group `coins_collector` + 信号（规避 #89399）。
 - **输入键对齐（C1）**：player.gd 读 `ui_left/right/up/down`（Godot 4 默认绑方向键）；Bridge 必须发方向键（LEFT/RIGHT/UP/DOWN），**绝不发 WASD**。
 - **Area3D layer/mask（A1）**：Player（CharacterBody3D）与 Coin（Area3D）保持默认 `collision_layer=1 / collision_mask=1`，不得改动，否则 `body_entered` 不触发、计分链断。
@@ -27,7 +27,7 @@
 
 ## File Structure
 
-**被测游戏项目**（`D:\workspace\projects\mcp-verify-3d\`）：
+**被测游戏项目**（`D:\GitHub\mcp-verify-3d\`）：
 - `project.godot` — 项目配置（renderer=forward_plus，无 autoload）
 - `.godot/mcp-godot.json` — 版本切换器（每版本改 `godot_path`）
 - `Main.tscn` — 主场景（Node3D root：Camera3D/Light/Ground/Player/Coins/Coin/UI/ScoreLabel）
@@ -50,18 +50,18 @@
 ### Task 1: 建项目 + 4.6.3 基线 godot_path
 
 **Files:**
-- Create: `D:\workspace\projects\mcp-verify-3d\project.godot`（由工具生成）
-- Create: `D:\workspace\projects\mcp-verify-3d\.godot\mcp-godot.json`
+- Create: `D:\GitHub\mcp-verify-3d\project.godot`（由工具生成）
+- Create: `D:\GitHub\mcp-verify-3d\.godot\mcp-godot.json`
 
 **验证 gate:** 项目目录存在 + project.godot 含 `[renderer]` forward_plus + `get_godot_version` 返回 4.6.3。
 
 - [ ] **Step 1: 建项目**
 
-MCP 调用：`project(action="create_project", project_path="D:/workspace/projects/mcp-verify-3d", project_name="mcp-verify-3d", renderer="forward_plus", template="", hooks=false, claude_md=false, ci=false)`
+MCP 调用：`project(action="create_project", project_path="D:/GitHub/mcp-verify-3d", project_name="mcp-verify-3d", renderer="forward_plus", template="", hooks=false, claude_md=false, ci=false)`
 
 - [ ] **Step 2: 写 4.6.3 godot_path 覆盖**
 
-写文件 `D:\workspace\projects\mcp-verify-3d\.godot\mcp-godot.json`（手动 Write，内容如下）：
+写文件 `D:\GitHub\mcp-verify-3d\.godot\mcp-godot.json`（手动 Write，内容如下）：
 
 ```json
 {"godot_path": "D:\\godot\\Godot_v4.6.3-stable_win64.exe"}
@@ -69,7 +69,7 @@ MCP 调用：`project(action="create_project", project_path="D:/workspace/projec
 
 - [ ] **Step 3: 验证版本绑定生效**
 
-MCP 调用：`runtime(action="get_godot_version", project_path="D:/workspace/projects/mcp-verify-3d")`
+MCP 调用：`runtime(action="get_godot_version", project_path="D:/GitHub/mcp-verify-3d")`
 Expected: 返回 `4.6.3.stable.*`（证明项目级 godot_path 覆盖 env）。
 
 - [ ] **Step 4: 记矩阵**
@@ -81,14 +81,14 @@ Expected: 返回 `4.6.3.stable.*`（证明项目级 godot_path 覆盖 env）。
 ### Task 2: 主干场景骨架（create_scene + add_node）
 
 **Files:**
-- Create/Modify: `D:\workspace\projects\mcp-verify-3d\Main.tscn`
+- Create/Modify: `D:\GitHub\mcp-verify-3d\Main.tscn`
 
 **Consumes:** Task 1 的项目。
 **验证 gate:** `read_scene` 读回 Main 含 Camera3D/DirectionalLight3D/UI/ScoreLabel/Coins，无 Ground/Player/Coin（Task 3 加）。
 
 - [ ] **Step 1: 建空主场景**
 
-MCP：`scene(action="create_scene", project_path="D:/workspace/projects/mcp-verify-3d", scene_path="res://Main.tscn", root_node_type="Node3D", root_node_name="Main")`
+MCP：`scene(action="create_scene", project_path="D:/GitHub/mcp-verify-3d", scene_path="res://Main.tscn", root_node_type="Node3D", root_node_name="Main")`
 
 - [ ] **Step 2: add_node 加 Camera3D**
 
@@ -112,7 +112,7 @@ MCP：`scene(action="save_scene", project_path="...", scene_path="res://Main.tsc
 
 - [ ] **Step 7: read_scene 验证**
 
-MCP：`scene(action="read_scene", scene_path="D:/workspace/projects/mcp-verify-3d/Main.tscn", summary_only=true)`
+MCP：`scene(action="read_scene", scene_path="D:/GitHub/mcp-verify-3d/Main.tscn", summary_only=true)`
 Expected: children 含 Camera3D/DirectionalLight3D/UI/Coins。
 
 - [ ] **Step 8: 记矩阵**
@@ -124,7 +124,7 @@ Expected: children 含 Camera3D/DirectionalLight3D/UI/Coins。
 ### Task 3: 主干复杂节点 + 业务脚本（execute_gdscript + write_script）
 
 **Files:**
-- Modify: `D:\workspace\projects\mcp-verify-3d\Main.tscn`（加 Ground/Player/Coin）
+- Modify: `D:\GitHub\mcp-verify-3d\Main.tscn`（加 Ground/Player/Coin）
 - Create: `player.gd` / `coin.gd` / `main.gd`
 
 **Consumes:** Task 2 的 Main.tscn。
@@ -273,7 +273,7 @@ Expected: 无 GDScript parse error、无场景错误、无 #89399 式 autoload �
 
 - [ ] **Step 2: screenshot（3D headless 应正常）**
 
-MCP：`screenshot(action="capture", project_path="...", scene="res://Main.tscn", output_path="D:/workspace/projects/mcp-verify-3d/baseline-4.6.3.png")`
+MCP：`screenshot(action="capture", project_path="...", scene="res://Main.tscn", output_path="D:/GitHub/mcp-verify-3d/baseline-4.6.3.png")`
 Expected: 非 BLANK_DETECTED。若 BLANK，记 ⚠️（3D 通常不空白；若空白按 core 规则用 Bridge take_screenshot 替代）。
 
 - [ ] **Step 3: 运行时工具批验证（headless 一次性 execute_gdscript）**
