@@ -645,6 +645,17 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
 
+        // I-2 (审查 follow-up): wait_for_property 还需 property + value(T-1 只校验 path)。
+        // wait_for_node 只需 path,不校验。
+        if (method === 'wait_for_property') {
+          if (typeof params.property !== 'string' || !params.property) {
+            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a non-empty "property" string in params');
+          }
+          if (params.value === undefined) {
+            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a "value" in params');
+          }
+        }
+
         const result = await pollWaitCondition(
           method as 'wait_for_node' | 'wait_for_property',
           () => sendToBridge(method, params, Math.min(intervalMs * 2, totalMs)),

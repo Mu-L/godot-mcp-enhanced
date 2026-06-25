@@ -6,6 +6,7 @@ import type { EditorToolExecutor } from './EditorToolExecutor.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware } from './middleware.js';
 import { HealthMonitor } from './health-monitor.js';
+import { isFeatureEnabled } from './feature-flags.js';
 import {
   requiresConfirmation,
   createPendingToken,
@@ -161,8 +162,8 @@ export class ToolDispatcher {
       }
     }
 
-    // activeGroups 过滤（Phase 1 动态管理）
-    if (process.env.GODOT_MCP_TOOL_GROUPS !== 'false') {
+    // activeGroups 过滤（Phase 1 动态管理）。A-3(审查): 改用 flag 系统(原直接读 env 绕过 isFeatureEnabled)
+    if (isFeatureEnabled('TOOL_GROUPS')) {
       allTools = allTools.filter(t => isToolAllowed(t.name));
       log('activeGroups filter: %d tools available', allTools.length);
     }

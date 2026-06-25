@@ -187,3 +187,40 @@ describe('I-1: bridgeAction 节点路径校验 (monitor/watch/click_button)', ()
     expect(result.isError).not.toBe(true);
   });
 });
+
+describe('I-2: wait_for_property property/value 校验', () => {
+  it('wait_for_property 缺 property → isError=true', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_wait', method: 'wait_for_property',
+      params: { path: '/root/Player' },  // 缺 property
+      timeout: 100, interval_ms: 100,
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('property');
+  });
+
+  it('wait_for_property 缺 value → isError=true', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_wait', method: 'wait_for_property',
+      params: { path: '/root/Player', property: 'health' },  // 缺 value
+      timeout: 100, interval_ms: 100,
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('value');
+  });
+
+  it('wait_for_node 不需 property(回归守护)', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', {
+      action: 'game_wait', method: 'wait_for_node',
+      params: { path: '/root/Player' },
+      timeout: 100, interval_ms: 100,
+    }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
+});

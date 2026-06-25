@@ -1,14 +1,13 @@
 // src/core/feature-flags.ts
 
-/** Feature flag definitions: key → { env var, default value } */
+// A-3 (2026-06-24 审查): 删除 3 个死 flag——PATH_SECURITY/OFFLINE_MODE/ADVANCED_PROXY。
+// 全 src 零引用(路径安全硬编码启用、另两个无对应功能),仅占 getAllFeatureFlags 的 log 输出 → 误导。
+// TOOL_GROUPS 保留并接线到 ToolDispatcher(原直接读 env 绕过 flag 系统,见 ToolDispatcher:165)。
 const FEATURES = {
   TOOL_GROUPS:     { env: 'GODOT_MCP_TOOL_GROUPS',     default: true },
-  PATH_SECURITY:   { env: 'GODOT_MCP_PATH_SECURITY',   default: true },
   MULTI_INSTANCE:  { env: 'GODOT_MCP_MULTI_INSTANCE',   default: false },
-  ADVANCED_PROXY:  { env: 'GODOT_MCP_ADVANCED_PROXY',   default: false },
   RESPONSE_LIMIT:  { env: 'GODOT_MCP_RESPONSE_LIMIT',   default: true },
   HEALTH_MONITOR:  { env: 'GODOT_MCP_HEALTH_MONITOR',   default: true },
-  OFFLINE_MODE:    { env: 'GODOT_MCP_OFFLINE_MODE',     default: true },
   ELICITATION:     { env: 'GODOT_MCP_ELICITATION',      default: true },
 } as const;
 
