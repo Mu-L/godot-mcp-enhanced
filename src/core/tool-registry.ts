@@ -221,17 +221,6 @@ export function getActiveGroups(): ReadonlySet<string> {
   return activeGroups;
 }
 
-/** Initialize active groups from a profile name. */
-export function initActiveGroupsFromProfile(profile: string): void {
-  const groups = PROFILES[profile];
-  if (groups) {
-    activeGroups = new Set(groups);
-  } else {
-    const parsed = profile.split(',').map(g => g.trim()).filter(Boolean);
-    activeGroups = new Set(parsed.length > 0 ? parsed : Object.keys(TOOL_GROUPS));
-  }
-}
-
 /** Check if a tool is allowed under current active groups. */
 export function isToolAllowed(toolName: string): boolean {
   if (ALWAYS_ALLOWED.has(toolName)) return true;

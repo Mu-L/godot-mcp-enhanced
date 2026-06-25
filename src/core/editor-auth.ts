@@ -1,5 +1,5 @@
 // src/core/editor-auth.ts
-import { readFileSync, chmodSync, statSync, existsSync } from 'fs';
+import { readFileSync, chmodSync, statSync, existsSync, lstatSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execFileSync } from 'child_process';
@@ -66,6 +66,13 @@ function checkFilePermissions(filePath: string): boolean {
 export function readEditorSecret(projectPath: string): string | null {
   const secretPath = join(projectPath, '.godot', SECRET_FILE_NAME);
   try {
+    // Imp-9 (2026-06-24 审查): symlink 检查——与 game-bridge 一致(文档声称 editor-auth 也有,实际原缺)。
+    // symlink 自身权限可能 OK 但指向任意文件,拒绝读取防绕过权限检查。
+    const lstat = lstatSync(secretPath);
+    if (lstat.isSymbolicLink()) {
+      getLogger().error('security', `Editor secret file ${secretPath} is a symlink — refusing to read.`);
+      return null;
+    }
     // Check permissions BEFORE reading — reject insecure files before content enters memory.
     if (!checkFilePermissions(secretPath)) {
       getLogger().error('security', `Refusing to use editor secret with insecure permissions: ${secretPath}`);

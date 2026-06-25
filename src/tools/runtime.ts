@@ -175,14 +175,20 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       proc.on('close', () => {
-        setProcessBusy(false);
-        ctx.setRunningProcess(null);
+        // Imp-4 (2026-06-24 审查): 守卫同 autoStopTimer(:169),避免进程被替换后误清新进程的 busy/running 状态
+        if (ctx.runningProcess === proc) {
+          setProcessBusy(false);
+          ctx.setRunningProcess(null);
+        }
         if (autoStopTimer) clearTimeout(autoStopTimer);
       });
 
       proc.on('error', (err) => {
-        setProcessBusy(false);
-        ctx.setRunningProcess(null);
+        // Imp-4: 同上守卫
+        if (ctx.runningProcess === proc) {
+          setProcessBusy(false);
+          ctx.setRunningProcess(null);
+        }
         if (autoStopTimer) clearTimeout(autoStopTimer);
         appendOutput([`Spawn error: ${err.message}`]);
       });

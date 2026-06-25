@@ -295,6 +295,29 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool handler ───────────────────────────────────────────────────────────
 
+/** M6 (write_script 2026-06-23 / edit_script 2026-06-24): 若 .gd 的 class_name 新增或变化,
+ *  触发 --import 重建 .godot/global_script_class_cache。否则自定义目录新 class_name 不被
+ *  needsImport 检测 → execute_gdscript 不 warm → 后续 "Identifier not declared"。
+ *  write_script 传 contentBefore=null(新文件,after 有 class_name 即触发);
+ *  edit_script 传 rawFile(编辑前),仅 class_name 变化才触发(避免每次 edit 都 30s import)。 */
+async function ensureClassNameImport(
+  projectPath: string, filePath: string, contentBefore: string | null, contentAfter: string, ctx: ToolContext,
+): Promise<string> {
+  if (!filePath.endsWith('.gd')) return '';
+  const classOf = (s: string): string | null => s.match(/^\s*class_name\s+(\w+)/m)?.[1] ?? null;
+  const before = contentBefore == null ? null : classOf(contentBefore);
+  const after = classOf(contentAfter);
+  if (!after) return '';            // 编辑后无 class_name
+  if (before === after) return '';  // class_name 未变化
+  try {
+    const godot = await ctx.findGodot();
+    await runImport(projectPath, godot, 30_000);
+    return `\n\n⚠️ 检测到 class_name '${after}'，已自动 --import 重建 .godot/global_script_class_cache。后续 execute_gdscript / F5 可直接引用。`;
+  } catch (err) {
+    return `\n\n⚠️ 检测到 class_name '${after}' 但自动 --import 失败: ${err instanceof Error ? err.message : String(err)}。需手动 \`godot --headless --import --path <project>\` 重建 cache，否则后续可能 "Identifier not declared"。`;
+  }
+}
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'script') return null;
 
@@ -367,22 +390,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       ensureDir(sp);
       writeFileSync(sp, content, 'utf-8');
 
-      // M6 (2026-06-23): 若 .gd 含 class_name,触发 import 重建 .godot/global_script_class_cache。
-      // ASSET_SCAN_DIRS 仅扫 assets/scenes/scripts,自定义目录(autoload/combat/data 等)的新 .gd
-      // 不被 needsImport 检测 → execute_gdscript 不 warm → 新 class_name "Identifier not declared"。
-      let importSection = '';
-      if (sp.endsWith('.gd')) {
-        const classMatch = content.match(/^\s*class_name\s+(\w+)/m);
-        if (classMatch) {
-          try {
-            const godot = await ctx.findGodot();
-            await runImport(projectPath, godot, 30_000);
-            importSection = `\n\n⚠️ 检测到 class_name '${classMatch[1]}'，已自动 --import 重建 .godot/global_script_class_cache。后续 execute_gdscript / F5 可直接引用。`;
-          } catch (err) {
-            importSection = `\n\n⚠️ 检测到 class_name '${classMatch[1]}' 但自动 --import 失败: ${err instanceof Error ? err.message : String(err)}。需手动 \`godot --headless --import --path <project>\` 重建 cache，否则后续可能 "Identifier not declared"。`;
-          }
-        }
-      }
+      // M6: 提取为 ensureClassNameImport(与 edit_script 共用,Imp-8 补齐 edit_script)。contentBefore=null 表示新文件。
+      const importSection = await ensureClassNameImport(projectPath, sp, null, content, ctx);
 
       let lintSection = '';
       let templateHint = '';
@@ -484,7 +493,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             editLintSection = formatLintResults(lintGDScript(editedContent));
           }
 
-          return textResult(`Edited ${fullPath}: replaced all ${count} occurrences of search text.${dw}${editLintSection}`);
+          // M6 (Imp-8): class_name 新增/变化时重建 cache(与 write_script 一致)
+          const importSection = await ensureClassNameImport(projectPath, fullPath, rawFile, finalContent, ctx);
+
+          return textResult(`Edited ${fullPath}: replaced all ${count} occurrences of search text.${dw}${editLintSection}${importSection}`);
         }
 
         let pos = 0;
@@ -523,7 +535,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           editLintSection = formatLintResults(lintGDScript(editedContent));
         }
 
-        return textResult(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).${dw}${editLintSection}`);
+        // M6 (Imp-8): class_name 新增/变化时重建 cache(与 write_script 一致)
+        const importSection = await ensureClassNameImport(projectPath, fullPath, rawFile, finalContent, ctx);
+
+        return textResult(`Edited ${fullPath}: replaced occurrence ${occurrence} of search text (${foundCount} total matches found).${dw}${editLintSection}${importSection}`);
       }
 
       // Line-number mode
@@ -658,7 +673,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         editLintSection = formatLintResults(lintGDScript(editedContent));
       }
 
-      return textResult(`${diffHeader}\n${diffBody}${ctxBefore}${ctxAfter}${warnings}${skipNote}${editLintSection}`);
+      // M6 (Imp-8): class_name 新增/变化时重建 cache(与 write_script 一致)
+      const importSection = await ensureClassNameImport(projectPath, fullPath, rawFile, result, ctx);
+
+      return textResult(`${diffHeader}\n${diffBody}${ctxBefore}${ctxAfter}${warnings}${skipNote}${editLintSection}${importSection}`);
     }
 
     case 'generate_test': {

@@ -27,59 +27,8 @@ describe('game-bridge monitor', () => {
     });
   });
 
-  describe('monitor.start command generation', () => {
-    it('should use default interval_frames of 10', () => {
-      const params = { node_path: 'root/Player', properties: ['position'] };
-      const interval = params.interval_frames ?? 10;
-      expect(interval).toBe(10);
-    });
-
-    it('should accept custom interval_frames', () => {
-      const params = { node_path: 'root/Player', properties: ['health'], interval_frames: 5 };
-      expect(params.interval_frames).toBe(5);
-    });
-  });
-
-  describe('monitor response validation', () => {
-    it('should validate monitor.start response schema', () => {
-      const response = {
-        monitoring: true,
-        node_path: 'root/Player',
-        properties: ['position', 'health'],
-        interval_frames: 5,
-      };
-      expect(response.monitoring).toBe(true);
-      expect(response.properties).toBeInstanceOf(Array);
-    });
-
-    it('should validate monitor.poll response with samples', () => {
-      const response = {
-        monitoring: true,
-        node_path: 'root/Player',
-        samples: [
-          { frame: 100, time: 1.667, values: { position: { x: 10, y: 0 } } },
-          { frame: 110, time: 1.833, values: { position: { x: 12, y: 0 } } },
-        ],
-        sample_count: 2,
-      };
-      expect(response.samples).toHaveLength(2);
-      expect(response.sample_count).toBe(2);
-    });
-
-    it('should validate monitor.stop returns final data', () => {
-      const response = {
-        monitoring: false,
-        samples: [
-          { frame: 100, time: 1.667, values: { health: 100 } },
-          { frame: 110, time: 1.833, values: { health: 85 } },
-        ],
-        total_frames: 200,
-        duration_seconds: 3.33,
-      };
-      expect(response.monitoring).toBe(false);
-      expect(response.total_frames).toBeGreaterThan(0);
-    });
-  });
+  // Imp-13 (2026-06-24 审查): 删除假测试——monitor.start command generation(自构造 params 断言 ?? 运算符)
+  // 和 monitor response validation(自构造 response 断言其字段),均不调产品代码、恒真零保护。保留 tool registration + handler。
 
   describe('monitor handler', () => {
     it('should return null for non-game tools', async () => {
@@ -125,7 +74,6 @@ describe('game-bridge monitor', () => {
         node_path: 'root/Player',
         properties: ['position'],
       }, { opsScript: '' });
-      // Bridge 不可用时会返回连接错误
       expect(result).toBeDefined();
       expect(result.content[0].text).toContain('Error');
     });

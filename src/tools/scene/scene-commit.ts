@@ -3,6 +3,7 @@
 // optionally saves, and reports structured results via COMMIT_RESULT prefix.
 
 import { gdEscape } from '../shared/value-serializer.js';
+import { BLOCKED_PROPS } from './helpers.js';
 
 export const COMMIT_OPERATIONS = [
   'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
@@ -209,6 +210,13 @@ ${errAction}
     }
     case 'node_property': {
       const p = gdEscape(op.path);
+      // Imp-1 (2026-06-24 审查): node_property 直接赋值绕过 edit_node 的 S1 拦截(实测持久化)。
+      // 命中 BLOCKED_PROPS 返回明确警告,与 edit_node S1 一致(不静默 drop)。
+      if (BLOCKED_PROPS.has(op.property)) {
+        return `
+\t# --- Op ${idx}: node_property ---
+\t_results.append({"op": "node_property", "path": "${p}", "property": "${gdEscape(op.property)}", "ok": false, "error": "⚠️ Property '${gdEscape(op.property)}' is blocked (BLOCKED_PROPS security policy). Use edit_node or remove it from the operation."})`;
+      }
       if (!isSafeIdentifier(op.property)) {
         return `
 \t# --- Op ${idx}: node_property ---
@@ -232,7 +240,7 @@ ${errAction}
       }
       const propLines = op.properties
         ? Object.entries(op.properties)
-          .filter(([k]) => isSafeIdentifier(k))
+          .filter(([k]) => isSafeIdentifier(k) && !BLOCKED_PROPS.has(k))  // Imp-1: 过滤 BLOCKED_PROPS(script/owner/name 等)防注入;name 由 op.name 单独设(下方 GDScript 先执行),过滤 properties.name 防覆盖
           .map(([k, v]) => `\t\tchild${idx}.${k} = ${serializeGdValue(v)}`)
           .join('\n') + '\n'
         : '';
