@@ -180,11 +180,12 @@ export const FIXED_DEFECTS: DefectEntry[] = [
 export const OPEN_DEFECTS: DefectEntry[] = [
   // 原 fixed，实测真未修（M2 Task 2 闭环）
   { key: 'godot-version-hardcoded-create-project', status: 'open', severity: 'IMPORTANT', dimension: 'Compatibility',
-    // 收窄：去掉 config_version=5（4.x 全程=5，非缺陷，defects.md note 行403 明确），只查
-    // PackedStringArray("4.6")（features 硬编码，真缺陷残留）。detect=1, baseline=1。
+    // 收窄：去掉 config_version=5（4.x 全程=5，永真命中非缺陷，defects.md note 行403 明确），
+    // 只查 features 漂移信号：PackedStringArray("4.6")（project.godot features 硬编码，行190）
+    // + Hello, Godot 4.6（main.gd print 串硬编码，行219）。master 实测=2，baseline=2。
     // defects.md note 称半 fixed 维持 IMPORTANT。
-    baseline: 1,
-    detect: () => countMatchesInFile('src/tools/project.ts', /PackedStringArray\(["']4\.6["']\)/g) },
+    baseline: 2,
+    detect: () => countMatchesInFile('src/tools/project.ts', /PackedStringArray\(["']4\.6["']\)|Hello,\s*Godot\s*4\.6/g) },
   { key: 'api-db-version-stale', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
     // 实测 extension_api.json header 仍 4.6.2（version_minor:6, version_full_name=4.6.2.stable.official），
     // 未升 4.7。defects.md note 行435 称已升 4.7 与实测矛盾，fixed 状态存疑。detect 保持（正确命中 4.6.2）。
