@@ -290,8 +290,8 @@ describe('isPathInAllowedRoots — C-1 junction/symlink bypass', () => {
   });
 
   it('I-4: allowlist 含不存在条目不影响其他条目匹配', () => {
-    // 不存在条目 safeRealPath 向上到根成功(不抛),返回原路径 → 不匹配 → false;
-    // 存在条目正常匹配。守护多条目 allowlist 的坏条目不污染整体 + I-4 try/catch(祖先权限失败时该条 false 不冒泡)。
+    // 守护多条目 allowlist 坏条目不污染整体。不存在条目 safeRealPath 向上到根成功(不抛 :128),返回原路径 → 不匹配 → false;
+    // 存在条目正常匹配。注(审查#4):I-4 的 :128 throw catch 分支需祖先权限拒绝场景(跨平台难造),此处覆盖"不匹配"分支。
     const root = makeRoot();
     process.env.ALLOWED_PROJECT_PATHS = join(tmpdir(), 'mcp-nonexistent-zzz') + ';' + root;
     expect(isPathInAllowedRoots(join(root, 'scenes', 'main.tscn'))).toBe(true);

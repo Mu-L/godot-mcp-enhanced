@@ -1,8 +1,9 @@
 // src/core/feature-flags.ts
 
 // A-3 (2026-06-24 审查): 删除 3 个死 flag——PATH_SECURITY/OFFLINE_MODE/ADVANCED_PROXY。
-// 全 src 零引用(路径安全硬编码启用、另两个无对应功能),仅占 getAllFeatureFlags 的 log 输出 → 误导。
+// src 内零引用 + scripts/verify-features.mjs 已同步(路径安全硬编码启用、另两个无对应功能)。
 // TOOL_GROUPS 保留并接线到 ToolDispatcher(原直接读 env 绕过 flag 系统,见 ToolDispatcher:165)。
+// 注(审查#2):接线使 TOOL_GROUPS 语义收紧——原 env!=='false'(非标准值默认开)→ isFeatureEnabled(只认 'true',非标准值默认关)。
 const FEATURES = {
   TOOL_GROUPS:     { env: 'GODOT_MCP_TOOL_GROUPS',     default: true },
   MULTI_INSTANCE:  { env: 'GODOT_MCP_MULTI_INSTANCE',   default: false },

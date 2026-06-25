@@ -186,6 +186,13 @@ describe('I-1: bridgeAction 节点路径校验 (monitor/watch/click_button)', ()
     }, ctx);
     expect(result.isError).not.toBe(true);
   });
+
+  it('click_button 仅 text(空 path) → 不因 path 校验报错(审查#3 回归守护)', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    const result = await handleTool('game', { action: 'click_button', text: 'Start' }, ctx);
+    expect(result.isError).not.toBe(true);
+  });
 });
 
 describe('I-2: wait_for_property property/value 校验', () => {

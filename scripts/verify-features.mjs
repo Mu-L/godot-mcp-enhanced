@@ -330,8 +330,8 @@ const { isFeatureEnabled } = await import('../build/core/feature-flags.js');
 
 {
   const flags = [
-    'TOOL_GROUPS', 'PATH_SECURITY', 'MULTI_INSTANCE', 'ADVANCED_PROXY',
-    'RESPONSE_LIMIT', 'HEALTH_MONITOR', 'OFFLINE_MODE', 'ELICITATION',
+    'TOOL_GROUPS', 'MULTI_INSTANCE',
+    'RESPONSE_LIMIT', 'HEALTH_MONITOR', 'ELICITATION',
   ];
   for (const f of flags) {
     delete process.env[`GODOT_MCP_${f}`];
