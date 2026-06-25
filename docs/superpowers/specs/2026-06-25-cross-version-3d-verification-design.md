@@ -19,7 +19,7 @@
 ### 2.1 包含
 
 - **主干**：用 MCP 工具从零构建一个 3D 硬币收集小游戏（可玩、有计分、有特效）。
-- **子系统探针**：对小游戏用不上的工具（tilemap / animation / animtree / nav / material / shader / profiler）写最小探针。
+- **子系统探针**：对小游戏用不上的工具（tilemap / animation / animtree / nav / material（含 shader 写入）/ profiler）写最小探针，共 **6 项**（shader 并入 material 的判据，与 §5/§10 一致）。
 - **Bridge 运行时验证**：游戏运行后，4 版本各跑一遍 Bridge 全套（查询/输入/等待/监控/信号/UI 发现/录制）。
 - **跨版本**：4.5.1 / 4.6.2 / 4.6.3 / 4.7 全测（Headless 主干 + 子系统探针 + Bridge）。
 - **产出**：兼容矩阵 + 可玩游戏 + 开发日志。
@@ -105,14 +105,19 @@ Main (Node3D)
 
 每个探针是一个最小的 `execute_gdscript` 片段或专门工具调用，在干净项目里跑，4 版本各一次：
 
-| 子系统 | 探针动作 | 通过判据 |
+| 子系统 | 探针动作 | 通过判据（收紧） |
 |--------|----------|----------|
-| `tilemap` | `tilemap_read` + `tilemap_set_cell` + `tilemap_fill_rect`（临时 2D 场景） | 读写值一致 |
-| `animation` | `animation`(list_players/get_keyframes) + `animation_track`(add_track/add_keyframe) | 关键帧落地 |
-| `animtree` | `animtree_create` + `animtree_add_state` + `animtree_add_transition` | 状态机节点创建 |
-| `nav` | `nav_create_region` + `nav_create_agent` + `nav_query_path` | 路径查询返回非空 |
-| `material` | `material_read` + `material_set_params` + `material_shader_write` | 材质/着色器写入可读回 |
-| `profiler` | `profiler`(snapshot) + `profiler`(get_active_processes) | 返回 FPS/进程列表 |
+| `tilemap` | `tilemap_read` + `tilemap_set_cell` + `tilemap_fill_rect`（临时 2D 场景） | `_mcp_output` 返回值与写入逐字段一致 |
+| `animation` | `animation`(list_players/get_keyframes) + `animation_track`(add_track/add_keyframe) | track_type 读回 = 传入值（防 `as` 静默回落成 0）；关键帧时间/值逐字段一致 |
+| `animtree` | `animtree_create` + `animtree_add_state` + `animtree_add_transition` | 状态/转换节点 `_mcp_output` 明确返回创建成功 |
+| `nav` | `nav_create_region` + `nav_create_agent` + `nav_query_path` | region/agent `_mcp_output` 返回路径非空且节点存在 |
+| `material` | `material_read` + `material_set_params` + `material_shader_write` | 写入 params/code 读回与传入逐字段一致（防 `as string` 透传 undefined 成空串） |
+| `profiler` | `profiler`(snapshot) + `profiler`(get_active_processes) | `_mcp_output` 返回 FPS/进程列表（非 null/空对象） |
+
+> **探针判据卫生（承接 defects.md 两条 open DEFECT，见 §8）**：
+> - 所有探针判据统一为「`_mcp_output` 明确返回预期值」，**不接受笼统「调用成功」** —— 后者无法识破 enhanced 缺陷导致的静默无输出。
+> - 若探针返回 null-root 错误（`_mcp_get_root()`/`get_tree().root` 相关崩溃，命中 `DEFECT ... gdscript-gen-null-root-deref`），矩阵**不填 ❌，改填 ⏭️ 并标注 DEFECT 名**，避免污染「4.x 子系统不可用」的版本结论 —— 根因是 enhanced 代码生成缺陷，非版本业务问题。
+> - `material`/`animation`/`nav` 三探针判据额外收紧为「写入值与传入值逐字段一致」，识破 `DEFECT ... ts-args-as-cast-no-validation`（`args.x as string` 裸断言静默回落默认值，当前 341 处）造成的假通过。
 
 ## 6. Bridge 运行时验证（每版本一套）
 
@@ -123,7 +128,7 @@ Main (Node3D)
 | 安装 | `game_bridge_install` | autoload 注册、端口 9081 |
 | 连通 | `game_query`(ping) | Bridge connected |
 | 查询 | `game_query`(get_tree / find_nodes / get_node_properties / take_screenshot) | 找到 Player/Coins，截图非空 |
-| 输入 | `game_input`(send_key: W/A/S/D) | Player 位置变化 |
+| 输入 | `game_input`(send_key: 方向键 LEFT/RIGHT/UP/DOWN) | Player 位置变化（方向键触发 ui_*，见下注） |
 | 等待 | `game_wait`(wait_for_property: 分数变化) | 收集硬币后分数 +1 |
 | 监控 | `monitor_start`→`monitor_poll`→`monitor_stop` | position 时间线采样 |
 | 信号 | `watch_start`→`watch_poll`→`watch_stop` | collected 事件捕获 |
@@ -131,6 +136,8 @@ Main (Node3D)
 | 录制 | `recording_start`→输入→`recording_stop`→`recording_save`→`recording_play` | 事件录制与回放 |
 
 > Bridge 密钥权限循环风险（S4 之前）：若遇到 secret 文件只读导致启动失败，按 `.claude/rules/godot-mcp-bridge.md` 处理（icacls 恢复写权限，或设 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`）。
+
+> **输入键对齐（C1 修正）**：player.gd 读 `ui_left/right/up/down`，Godot 4 默认 InputMap 把这些 action 绑到**方向键**（KEY_LEFT/RIGHT/UP/DOWN），WASD **不在** ui_* 默认绑定里。故 Bridge 必须发**方向键**而非 WASD，否则 player 不响应 → `wait_for_property(分数)` 永远等不到 → Bridge 输入/等待两步在 4 版本上集体假失败，被误判为「Bridge 输入失效」。刻意不配 InputMap 以保持 §4.1 零配置简洁；如未来想用 WASD，则需 §4.1 改配 InputMap + Bridge 同步发 WASD。
 
 ## 7. 跨版本执行机制（方案 C）
 
@@ -155,6 +162,8 @@ Main (Node3D)
 | Bridge 密钥权限循环 | 见第 6 节注，按 bridge 规则处理 |
 | MCP 默认引擎实测为 4.7 | 用 `.godot/mcp-godot.json` 项目级强制覆盖，不依赖 env |
 | `validate_project` 盲区 | 不把它作为「能否启动」判据，必须用 `run_and_verify` |
+| `gdscript-gen-null-root-deref`（enhanced CRITICAL, open, last-seen 2026-06-24） | §5 全部探针 + §4.2 `execute_gdscript` 在 headless 可能静默崩溃、`_mcp_output` 不返回（复发点 nav/workflow 未补守卫）；命中则矩阵标 ⏭️+DEFECT 名，**不填 ❌**，避免污染版本结论 |
+| `ts-args-as-cast-no-validation`（enhanced IMPORTANT, open, 341 处） | §5 material/animation/nav 探针工具被 defects note 点名（`material-ops.ts`/`animation-track.ts:295`/`navigation.ts`）；判据收紧为「逐字段一致」识破 `args.x as string` 静默回落 |
 
 ## 9. 产出物
 
@@ -172,6 +181,8 @@ Main (Node3D)
 - [ ] Bridge 全套 9 步在 4 版本的结果全部记入矩阵
 - [ ] 任何 ❌ 都附最小复现 + 错误摘要 + 初判（enhanced 缺陷 / Godot 上游 / 环境问题）
 - [ ] Editor 模式行统一标注跳过原因
+- [ ] **4.6.3 绿色基线 gate**：主干 + 探针 + Bridge 在切版本循环前已单独全绿（`run_and_verify` 无错 + 探针均 `_mcp_output` 返回预期值 + Bridge 9 步通过），作为跨版本循环的前置门槛
+- [ ] 矩阵所有 ❌ 已**三分类归因**（enhanced 缺陷 / Godot 上游 / 环境），命中 open DEFECT 标注 DEFECT 名（⏭️），新发现已补 `DEFECT.project.godot-mcp-enhanced.*` 条目到 defects.md
 - [ ] 兼容矩阵 + 开发日志落盘，路径符合第 9 节
 
 ## 11. 高层执行顺序
