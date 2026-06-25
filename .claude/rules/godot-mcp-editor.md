@@ -92,4 +92,5 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **forward 机制**：未明确处理的工具名会自动转发到编辑器插件，可能产生意外行为。
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
-- **editor 插件 4.7 不兼容（v0.18.x+ 已知限制）**：enhanced 自带 editor 插件（`addons/godot_mcp_server`）在 Godot 4.7 下**自身编译失败**（`commands/command_helpers.gd` 用了 `Vector2/Vector3.from_string()` 等 4.6 已移除 API；`plugin.gd`/`websocket_server.gd`/`status_panel.gd` 的 `_ready`/`_exit_tree` parent virtual 未定义）。后果：4.7 GUI 编辑器启动后插件编译失败 → WebSocket 13100 未启动 → `editor_get_scene_tree` 返回 `EDITOR_NOT_CONNECTED`。**4.5/4.6 editor 模式正常，4.7 待适配（enhanced 待办）**。headless 工具在 4.7 正常（不受影响）。跨版本验证时 editor 模式整行跳过，矩阵标注「4.7 插件不兼容」。
+- **editor 插件 4.7 已兼容（v0.18.x+，实测 2026-06-26）**：早期记忆称 4.7 编译失败（Vector.from_string 等 4.6 API 移除），但 master 已迁移（Vector→`_count_number_components`，`Color.from_string` 4.7 保留）。实测 4.7 `--check-only` 6 文件（command_helpers/websocket_server/plugin/status_panel/command_handler/editor_guards）**全编译通过**。headless 工具 4.7 也正常。
+- **editor 模式 WebSocket 端口 9090-9094（非 13100）**：`addons/godot_mcp_server/websocket_server.gd:3` `BASE_PORT=9090`。`editor_get_scene_tree` 返回 `EDITOR_NOT_CONNECTED` 通常是**端口/key/未就绪**问题（非编译）：需 `mcp_editor.key` icacls 权限 + 等 editor GUI 就绪（插件 WebSocket 监听 9090）+ MCP 端连对端口。详见 [[godot-editor-plugin-e2e-verification]]。
