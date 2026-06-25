@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 import type { ChildProcess } from 'child_process';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
-import { textResult, getErrorMessage } from '../types.js';
+import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
@@ -476,7 +476,12 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
 async function bridgeAction(method: string, params: Record<string, unknown>, ctx: ToolContext, timeout: number): Promise<ToolResult> {
   ensureProjectDir(ctx, params);
   const resp = await sendToBridge(method, params, timeout);
-  return textResult(JSON.stringify(resp.result ?? resp.error, null, 2));
+  // T-2 (2026-06-24 审查): bridge 返回 error 时(密钥失效 -32001/-32002/方法不存在等)用 errorResult
+  // (isError=true),否则 MCP 客户端误判成功吞掉错误。原 textResult 默认 isError=false。
+  if (resp.error) {
+    return errorResult(`Bridge error (${resp.error.code}): ${resp.error.message}`);
+  }
+  return textResult(JSON.stringify(resp.result, null, 2));
 }
 
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
@@ -593,7 +598,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (response.error.code === -32001 || response.error.code === -32002) {
             _cachedSecret = null;
           }
-          return textResult(`Bridge error (${response.error.code}): ${response.error.message}`);
+          return errorResult(`Bridge error (${response.error.code}): ${response.error.message}`);  // T-2: textResult→errorResult(isError=true)
         }
         return textResult(JSON.stringify(response.result, null, 2));
       }
@@ -625,7 +630,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (code === -32001 || code === -32002) {
             _cachedSecret = null;
           }
-          return textResult(`Bridge error (${code}): ${(result.error as { message?: string }).message ?? 'wait failed'}`);
+          return errorResult(`Bridge error (${code}): ${(result.error as { message?: string }).message ?? 'wait failed'}`);  // T-2: textResult→errorResult(isError=true)
         }
         return textResult(JSON.stringify(result, null, 2));
       }
