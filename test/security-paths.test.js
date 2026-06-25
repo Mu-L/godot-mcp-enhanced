@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 import { resolve, join } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolveWithinRoot } from '../src/helpers.js';
 import { isPathInAllowedRoots, _resetPathAllowWarned } from '../src/core/path-utils.js';
@@ -205,6 +205,87 @@ describe('isPathInAllowedRoots — C-SEC-1 path traversal', () => {
   it('still accepts the root itself', () => {
     const root = makeRoot();
     process.env.ALLOWED_PROJECT_PATHS = root;
+    expect(isPathInAllowedRoots(root)).toBe(true);
+  });
+});
+
+// ─── isPathInAllowedRoots — C-1 junction/symlink bypass (2026-06-24 审查 Critical) ─
+
+describe('isPathInAllowedRoots — C-1 junction/symlink bypass', () => {
+  // C-1: allowlist 内建 junction/symlink 指向外部目录,诱导 agent 传 reparse 子路径。
+  // 修复前:isPathInAllowedRoots 只 normalize,reparse 不解析 → startsWith(root) 放行;
+  //   下游 resolveWithinRoot 把 base realpath 成 reparse 目标 → 读写 allowlist 外任意文件。
+  // 修复后:requestedPath 与 allowlist 条目都 realpath → reparse 解析到外部 → 不匹配 → 拒绝。
+  let savedAllowed;
+  let savedUnrestricted;
+  let tmpRoots = [];
+
+  beforeEach(() => {
+    savedAllowed = process.env.ALLOWED_PROJECT_PATHS;
+    savedUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
+    delete process.env.GODOT_MCP_UNRESTRICTED;
+    _resetPathAllowWarned();
+    tmpRoots = [];
+  });
+
+  afterEach(() => {
+    if (savedAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
+    else process.env.ALLOWED_PROJECT_PATHS = savedAllowed;
+    if (savedUnrestricted === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
+    else process.env.GODOT_MCP_UNRESTRICTED = savedUnrestricted;
+    _resetPathAllowWarned();
+    for (const r of tmpRoots) {
+      try { rmSync(r, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  const makeRoot = () => {
+    const r = mkdtempSync(join(tmpdir(), 'mcp-c1-'));
+    tmpRoots.push(r);
+    return r;
+  };
+
+  // 跨平台目录 reparse 点:Windows 用 junction(普通用户权限即可,区别于 symlink);
+  // Unix 用 symlink(dir)。Windows symlink 需管理员/开发者模式,用 junction 保证 CI 稳定。
+  const linkDir = (target, linkPath) => {
+    symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+  };
+
+  it('C-1: rejects path escaping root via junction/symlink nested inside allowlist', () => {
+    const root = makeRoot();      // allowlist 内合法根
+    const outside = makeRoot();   // allowlist 外目标目录
+    process.env.ALLOWED_PROJECT_PATHS = root;
+    const evilLink = join(root, 'evil');
+    linkDir(outside, evilLink);   // root/evil → outside
+    // 修复前:normalize(root/evil/secret) 不解析 junction → startsWith(root) → true(放行,BUG)
+    expect(isPathInAllowedRoots(join(evilLink, 'secret.txt'))).toBe(false);
+  });
+
+  it('C-1: rejects when requested path is the junction/symlink itself', () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    process.env.ALLOWED_PROJECT_PATHS = root;
+    const evilLink = join(root, 'evil');
+    linkDir(outside, evilLink);
+    expect(isPathInAllowedRoots(evilLink)).toBe(false);
+  });
+
+  it('C-1: allowlist entry that is itself a junction resolves to its real target', () => {
+    // allowlist 写 junction 路径(指向 realRoot),实际文件在 realRoot 下。
+    // allowlist 条目也要 realpath,否则 requestedPath(realpath=realRoot/x)与 allowlist(junction 字面)不匹配 → 误拒。
+    const realRoot = makeRoot();
+    const linkParent = mkdtempSync(join(tmpdir(), 'mcp-c1-linkparent-'));
+    tmpRoots.push(linkParent);
+    const linkRoot = join(linkParent, 'linkroot');
+    linkDir(realRoot, linkRoot);
+    process.env.ALLOWED_PROJECT_PATHS = linkRoot;  // allowlist = junction 路径
+    expect(isPathInAllowedRoots(join(realRoot, 'scenes', 'main.tscn'))).toBe(true);
+  });
+
+  it('C-1: legitimate child path (no reparse point) still allowed — regression guard', () => {
+    const root = makeRoot();
+    process.env.ALLOWED_PROJECT_PATHS = root;
+    expect(isPathInAllowedRoots(join(root, 'scenes', 'main.tscn'))).toBe(true);
     expect(isPathInAllowedRoots(root)).toBe(true);
   });
 });
