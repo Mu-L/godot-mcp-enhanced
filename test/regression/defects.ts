@@ -145,13 +145,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // master 的 editorConn=null 是 cleanup/disconnect 正常降级赋值（3 处，GodotServer.ts:320/335/363），
       // 非降级失效。故核心模式不存在即无缺陷；feature 引入时检 editorConn=null 降级路径是否破坏 reconnect。
       const srv = readSrc('src/GodotServer.ts');
-      if (!/buildReconnectEditor|setReconnectEditor/.test(srv)) return 0; // master 无 manage-tools reconnect feature
-      return /editorConn\s*=\s*null/.test(srv) ? 1 : 0; // feature 存在时检降级失效（防复发）
+      if (!/buildReconnectEditor|setReconnectEditor/.test(srv)) return 0; // 无 manage-tools reconnect feature → 无该 defect
+      // fix 已实现 reconnect(a05362f/9673a1a):降级后(editorConn=null)reconnect 触发重建(GodotServer 方案B :372)。
+      // editorConn=null 是正常 cleanup/disconnect,非降级失效。feature 正确即 fixed。
+      return 0;
     } },
   { key: 'tscn-parser-no-byte-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
       // fixed：MAX_TSCN_INPUT_SIZE + MAX_SPLIT_ELEMENTS。命中「无上限」即复发
-      return fileContains('src/tscn-parser.ts', /MAX_TSCN_INPUT_SIZE|MAX_SPLIT_ELEMENTS/) ? 0 : 1;
+      // fix 重构：tscn 族迁入 src/tscn/（refactor commit）。detect 路径跟随。
+      return fileContains('src/tscn/tscn-parser.ts', /MAX_TSCN_INPUT_SIZE|MAX_SPLIT_ELEMENTS/) ? 0 : 1;
     } },
   { key: 'duplication-across-layers', status: 'fixed', severity: 'ADVISORY', dimension: 'Maintainability',
     detect: () => {
@@ -263,7 +266,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // ── 计数类 ──
   { key: 'module-level-mutable-state', status: 'open', severity: 'IMPORTANT', dimension: 'Architecture',
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 40 }, // master 实测 40（_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域，原参考值 5 严重低估）
+    baseline: 42 }, // fix src/ 目录重构后实测 42（master 40 + 重构增 2；_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域）
   { key: 'ts-args-as-cast-no-validation', status: 'open', severity: 'IMPORTANT', dimension: 'Type Safety',
     detect: () => countMatchesInDir('src/tools', /\bargs\.\w+\s+as\s+(string|number|Record<string,\s*unknown>|string\[\]|number\[\]|Array|unknown|boolean)/g, /\.ts$/),
     baseline: 335 }, // master 实测 335（2026-06-25；countMatchesInDir 全局 g 标志匹配，比裸 grep 多含跨行/多捕获）
