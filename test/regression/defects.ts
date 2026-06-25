@@ -180,18 +180,27 @@ export const FIXED_DEFECTS: DefectEntry[] = [
 export const OPEN_DEFECTS: DefectEntry[] = [
   // 原 fixed，实测真未修（M2 Task 2 闭环）
   { key: 'godot-version-hardcoded-create-project', status: 'open', severity: 'IMPORTANT', dimension: 'Compatibility',
-    baseline: 2,
-    detect: () => countMatchesInFile('src/tools/project.ts', /config_version\s*=\s*5|PackedStringArray\(["']4\.6["']\)/g) },
+    // 收窄：去掉 config_version=5（4.x 全程=5，非缺陷，defects.md note 行403 明确），只查
+    // PackedStringArray("4.6")（features 硬编码，真缺陷残留）。detect=1, baseline=1。
+    // defects.md note 称半 fixed 维持 IMPORTANT。
+    baseline: 1,
+    detect: () => countMatchesInFile('src/tools/project.ts', /PackedStringArray\(["']4\.6["']\)/g) },
   { key: 'api-db-version-stale', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
+    // 实测 extension_api.json header 仍 4.6.2（version_minor:6, version_full_name=4.6.2.stable.official），
+    // 未升 4.7。defects.md note 行435 称已升 4.7 与实测矛盾，fixed 状态存疑。detect 保持（正确命中 4.6.2）。
     baseline: 1,
     detect: () => {
       const hdr = readSrc('docs/api/extension_api.json').slice(0, 2000);
       return /4\.6\.\d+\.stable\.official|"version_minor"\s*:\s*6/.test(hdr) ? 1 : 0;
     } },
   { key: 'lint-rule-no-targeted-test', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
+    // 终核：gdscript-lint.ts 规则仅 L001-L022（无 L023/L024），测试仅 L003-L013。
+    // 规则与测试均缺失，defects.md note 行453 称有 10 处与实测矛盾。detect=1, baseline=1。
     baseline: 1,
     detect: () => fileContains('test/gdscript-lint.test.js', /L023|L024/) ? 0 : 1 },
   { key: 'lint-missing-4-7-accessibility-breaking', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
+    // 实测 gdscript-lint.ts 无 accessibility/ACCESSIBILITY/L025/GH-116839。defects.md note 行463 称
+    // gdscript-lint.ts:364 有 L025 accessibility 规则与实测矛盾。detect=1, baseline=1。
     baseline: 1,
     detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
 ];
