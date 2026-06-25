@@ -204,5 +204,138 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // gdscript-lint.ts:364 有 L025 accessibility 规则与实测矛盾。detect=1, baseline=1。
     baseline: 1,
     detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // OPEN（16 条，Task 3）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
+  // baseline = master 实测锁定值（plan Step 2 实测覆盖参考值）。Minor①：所有闭包正则为内联非复用字面量。
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
+  { key: 'gdscript-gen-null-root-deref', status: 'open', severity: 'CRITICAL', dimension: 'Correctness',
+    detect: () => countMatchesInDir('src/tools', /_mcp_get_root\(\)\.|get_tree\(\)\.root|get_tree\(\)\.current_scene/g, /\.ts$/)
+           + countMatchesInDir('addons', /_mcp_get_root\(\)\.|get_tree\(\)\.root/g, /\.gd$/),
+    baseline: 1 }, // master 实测=1（Step 2 锁定）
+  { key: 'secret-file-toctou-race', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // 计数：非原子密钥读取路径数（existsSync(secret) 与 readFileSync(secret) 分离，每对一次 TOCTOU）
+      const a = readSrc('src/core/editor-auth.ts');
+      const exists = a.match(/existsSync\([^)]*secret/gi)?.length ?? 0;
+      const reads = a.match(/readFileSync\([^)]*secret/gi)?.length ?? 0;
+      return Math.min(exists, reads);
+    },
+    baseline: 1 }, // editor-auth:115-122 三步分离（参考）
+  { key: 'multi-instance-hmac-send-only', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // §6 反向转正：缺失接线点数 = 期望(1: instance-router 接收侧) − 实际 verifyApiToken 调用。
+      // EXPECTED=1 贴合 defects.md fix-forward「接收侧(实例路由)调用 verifyApiToken」(行 499)；
+      // GodotServer 顶层校验冗余、非该 DEFECT 要求（审查修订：原 EXPECTED=2 超出 fix-forward）。
+      const EXPECTED = 1;
+      const actual = countMatchesInFile('src/core/instance-router.ts', /verifyApiToken\(/g);
+      return Math.max(0, EXPECTED - actual);
+    },
+    baseline: 1 }, // 当前 0 生产调用 → 缺失 1（参考，Step 2 实测覆盖）
+  { key: 'reconnect-degrade-fail', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      // 计数：降级失效特征数（闭包捕获 editorConn + 置 null + port/secret 局部变量丢失）
+      const srv = readSrc('src/GodotServer.ts');
+      let n = 0;
+      if (/buildReconnectEditor|setReconnectEditor/.test(srv)) n++;
+      if (/editorConn\s*=\s*null/.test(srv)) n++;
+      if (/const\s+(port|secret)\b[\s\S]{0,200}\brun\s*\(/m.test(srv)) n++;
+      return n;
+    },
+    baseline: 1 }, // master 实测=1（Step 2 锁定）
+  // ── 计数类 ──
+  { key: 'module-level-mutable-state', status: 'open', severity: 'IMPORTANT', dimension: 'Architecture',
+    detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
+    baseline: 40 }, // master 实测 40（_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域，原参考值 5 严重低估）
+  { key: 'ts-args-as-cast-no-validation', status: 'open', severity: 'IMPORTANT', dimension: 'Type Safety',
+    detect: () => countMatchesInDir('src/tools', /\bargs\.\w+\s+as\s+(string|number|Record<string,\s*unknown>|string\[\]|number\[\]|Array|unknown|boolean)/g, /\.ts$/),
+    baseline: 335 }, // master 实测 335（2026-06-25；countMatchesInDir 全局 g 标志匹配，比裸 grep 多含跨行/多捕获）
+  { key: 'version-hardcoded-drift', status: 'open', severity: 'IMPORTANT', dimension: 'Maintainability',
+    detect: () => countMatchesInFile('src/tools/code-templates.ts', /["']4\.6["']/g),
+    baseline: 11 }, // code-templates 11 处 verifiedGodotVersion（参考）
+  { key: 'launcher-no-error-listener', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const n = countMatchesInFile('src/dashboard/launcher.ts', /\.unref\(\)/g);
+      const guarded = countMatchesInFile('src/dashboard/launcher.ts', /\.on\(['"]error['"]/g);
+      return Math.max(0, n - guarded);
+    },
+    baseline: 5 },
+  // ── 存在性类（§6 计数化：返回命中处数/缺失项数，非 0/1）──
+  { key: 'secret-cache-and-perm-weak', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // 计数：不达标项数（TTL>60s 计 1 + Win 跳过 chmod 处数）
+      let n = 0;
+      const g = readSrc('src/tools/game-bridge.ts');
+      if (/SECRET_CACHE_TTL\s*=\s*\d+\s*\*\s*60\s*\*\s*1000|SECRET_CACHE_TTL\s*>\s*60000/.test(g)) n++;
+      const a = readSrc('src/core/editor-auth.ts');
+      n += a.match(/platform\s*!==\s*['"]win32['"]/g)?.length ?? 0;
+      return n;
+    },
+    baseline: 1 }, // master 实测=1（仅 TTL 命中；editor-auth 已无 platform!=='win32' 模式）
+  { key: 'websocket-auth-once-plaintext', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // 计数：弱认证特征数（明文 ws 处数 + 缺 per-msg HMAC）
+      // 明文 ws 含两种写法：引号字面量 'ws://' 与模板字符串 `ws://${...}`（EditorConnection:149 实测后者）
+      const c = readSrc('src/core/EditorConnection.ts');
+      let n = c.match(/['"`]ws:\/\/|new WebSocket\(['"`]ws:/g)?.length ?? 0;
+      if (n > 0 && !/per.?message.*hmac|hmac.*per.?message/i.test(c)) n++; // 有 ws 但无 per-msg HMAC
+      return n;
+    },
+    baseline: 2 }, // EditorConnection:149 模板字符串明文 ws + 无 HMAC（Step 2 实测锁定）
+  { key: 'regex-danger-api-bypassable', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    // 计数：朴素正则/黑名单【弱点】特征点数（本质黑名单未根除，维持 open）。
+    // 审查修订：剔除 stripLiterals/randomizeMarkers/MARKER_RESULT——这些是 defects.md note(行 366) 的【加固】特征，
+    // 计入会让"加防护"推高度量、触发恶化误报（逼开发者别加固）。只计黑名单弱点密度。
+    detect: () => countMatchesInFile('src/gdscript-executor.ts', /DANGEROUS_API_TOKENS|DANGEROUS_PATTERNS/g),
+    baseline: 11 }, // master 实测 11（DANGEROUS_API_TOKENS 3 + DANGEROUS_PATTERNS 8 全部引用处，非仅定义点）
+  { key: 'godotpath-env-validation-weak', status: 'open', severity: 'ADVISORY', dimension: 'Security',
+    detect: () => {
+      // 计数：缺失的强校验项数（期望：所有者 + 签名/authenticode + 版本）
+      const f = readSrc('src/core/godot-finder.ts');
+      let missing = 0;
+      if (!/signature|authenticode/i.test(f)) missing++;
+      if (!/owner|getuid|\buid\b/i.test(f)) missing++;
+      if (!/validateGodotBinary[\s\S]{0,300}--version/.test(f)) missing++;
+      return missing;
+    },
+    baseline: 1 }, // master 实测=1（缺所有者/uid；signature 或 validateGodotBinary 已部分命中）
+  { key: 'plugin-no-super-call', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      // 计数：无 super() 的生命周期覆写函数数（全域 addons/godot_mcp_server/）。
+      // 审查修订：正则须匹配 _ready/_process（无 _tree 后缀）——原 (enter|exit|ready)_tree? 漏 _ready/_process
+      // （defects.md note 行 473：status_panel.gd:8 _ready、websocket_server.gd _ready/_process/_exit_tree 缺 super）。
+      let total = 0;
+      for (const rel of ['addons/godot_mcp_server/plugin.gd', 'addons/godot_mcp_server/websocket_server.gd', 'addons/godot_mcp_server/ui/status_panel.gd']) {
+        const f = readSrc(rel);
+        const funcs = f.match(/func _(?:enter_tree|exit_tree|ready|process|physics_process)\(\)[\s\S]*?(?=\nfunc |\n#|$)/g) ?? [];
+        total += funcs.filter(b => !/super\(\)/.test(b)).length;
+      }
+      return total;
+    },
+    baseline: 5 }, // master 实测=5（Step 2 锁定）
+  { key: 'recording-no-touch-events', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
+    detect: () => {
+      // 计数：缺失的触屏事件类型数（期望 ScreenTouch + ScreenDrag 共 2 类）
+      const f = readSrc('addons/godot_mcp_server/commands/recording_commands.gd');
+      let missing = 0;
+      if (!/InputEventScreenTouch/.test(f)) missing++;
+      if (!/InputEventScreenDrag/.test(f)) missing++;
+      return missing;
+    },
+    baseline: 2 }, // 缺 ScreenTouch + ScreenDrag（参考）
+  { key: 'normalizeargs-depth-limit', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
+    // 计数：硬编码深度上限处数（MAX_NORMALIZE_DEPTH=5 / depth>5）
+    detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /MAX_NORMALIZE_DEPTH\s*=\s*5\b|depth\s*>\s*5\b/g),
+    baseline: 1 }, // ToolDispatcher:410（参考）
+  { key: 'edit-node-blocked-props-json-pollution', status: 'open', severity: 'ADVISORY', dimension: 'Completeness',
+    detect: () => {
+      // 计数：BLOCKED_PROPS 命中分支 text 前置拼接处数（破坏 content[0].text JSON）
+      // master 实测=0：scene/index:313 已重构为 `if (BLOCKED_PROPS.has(key)) continue` 短路，不再 text:warn 前置拼接。
+      // detect 忠实原污染模式；baseline=0 防该特定 JSON 破坏形态复发（BLOCKED_PROPS 机制本身仍在）。
+      const f = readSrc('src/tools/scene/index.ts');
+      return f.match(/BLOCKED_PROPS[\s\S]{0,400}text:\s*warn[\s\S]{0,200}content\[0\]\.text|content\[0\]\.text\s*=\s*warn/g)?.length ?? 0;
+    },
+    baseline: 0 }, // master 实测=0（Step 2 锁定；特定污染形态已消除，仅防复发）
 ];
 
