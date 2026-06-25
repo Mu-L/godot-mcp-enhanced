@@ -1,11 +1,12 @@
 // test/capability/matrix-integrity.test.ts
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { registerAllModules } from '../../src/core/module-loader.js';
 import { getAllToolDefinitions } from '../../src/core/tool-registry.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
+import { GROUP_SOURCE_FILES, scanDangerApi } from '../../src/capability/static-grep.js';
 
 // test/capability/ → 项目根：去掉文件名 + capability/ + test/ = 上 3 级。
 // 注：new URL('../', fileUrl) 第一个 ../ 仅移除文件名，故用 '../../' 等价"目录上 3 级"。
@@ -35,7 +36,15 @@ describe('capability matrix integrity (spec §10 L1)', () => {
     registerAllModules();
     const caps = extractCapabilities(PROJECT_ROOT);
     const danger = caps.filter(c => c.securityLevel === 'danger-api');
-    // 每个 danger-api 工具都有 group（可追溯到源文件）
-    for (const c of danger) expect(c.group).not.toBe('unknown');
+    // 每个 danger-api 工具都有 group（可追溯到源文件）+ 源文件真实存在且能扫到 danger API
+    // R1-I-2: 防 GROUP_SOURCE_FILES 路径过时（重构未跟）导致 danger 组 silent 漏扫
+    for (const c of danger) {
+      expect(c.group, `${c.name} group=unknown`).not.toBe('unknown');
+      const files = GROUP_SOURCE_FILES[c.group] ?? [];
+      const existsCount = files.filter(f => existsSync(join(PROJECT_ROOT, 'src', 'tools', f))).length;
+      expect(existsCount, `${c.name} (group=${c.group}): GROUP_SOURCE_FILES 列的文件全不存在 —— 路径过时(重构未跟?)`).toBeGreaterThan(0);
+      const hits = scanDangerApi(files, PROJECT_ROOT);
+      expect(hits.length, `${c.name} (group=${c.group}): 源文件存在但 scanDangerApi 无命中`).toBeGreaterThan(0);
+    }
   });
 });

@@ -4,14 +4,16 @@
 
 ## 概览
 - 工具总数：28
-- securityLevel：danger-api 5 / guarded 3 / safe 20
+- securityLevel：danger-api 7 / guarded 3 / safe 18
 - L2 覆盖：covered 0 / partial 0 / none 28
 
 ## danger-api 工具（L2 安全回归优先）
+- `manage_tools` (core)
 - `project` (core)
 - `runtime` (core)
 - `scene` (core)
 - `script` (core)
+- `ui` (ui)
 - `validation` (core)
 
 ## 覆盖缺口（L2=none）
@@ -27,7 +29,7 @@
 - `godot_list_instances` (multi_instance)
 - `godot_select_instance` (multi_instance)
 - `load_skill` (code)
-- `manage_tools` (unknown)
+- `manage_tools` (core)
 - `material` (visual)
 - `nav` (navigation)
 - `particles` (visual)
@@ -47,4 +49,4 @@
 ## gdScriptImpl 说明
 - editor 侧：addons/godot_mcp_server/commands/*_commands.gd 按 group 匹配
 - headless 侧：恒为 exists=false（GDScript 由 gdscript-executor 运行时生成，无静态 1:1 文件）
-- editor 侧：粗粒度探测（DEFAULT_GROUP_COMMANDS 键粒度），core/visual/profiler 等组当前 exists=false，M1 后续完善；不影响 drift 检测（Task 7 靠契约 diff）
+- editor 侧局限：粗粒度探测（DEFAULT_GROUP_COMMANDS 键粒度），core/visual/profiler 等组当前 exists=false，M1 后续完善；不影响 drift 检测（Task 7 靠契约 diff）

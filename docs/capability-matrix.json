@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T15:32:51.389Z",
+  "generatedAt": "2026-06-25T16:43:03.675Z",
   "tools": [
     {
       "name": "animation",
@@ -1217,7 +1217,7 @@
     },
     {
       "name": "manage_tools",
-      "group": "unknown",
+      "group": "core",
       "description": "动态管理工具组的启用/停用状态。始终可用，不可被禁用。支持 list_groups（列出所有组）、activate（启用组）、deactivate（停用组）、sync（同步连接状态）、reconnect（手动重连）。",
       "inputSchema": {
         "type": "object",
@@ -1255,7 +1255,7 @@
       "readonly": true,
       "longRunning": false,
       "guarded": false,
-      "securityLevel": "safe",
+      "securityLevel": "danger-api",
       "groupRequires": [],
       "offlineCapable": true,
       "needsGodot": false,
@@ -2379,6 +2379,16 @@
             "description": "自动停止秒数（默认 30）",
             "default": 30
           },
+          "wait_for_bridge": {
+            "type": "boolean",
+            "default": false,
+            "description": "true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)"
+          },
+          "bridge_timeout": {
+            "type": "number",
+            "default": 10,
+            "description": "wait_for_bridge 轮询总预算(秒,默认 10)"
+          },
           "test_script": {
             "type": "string",
             "description": "测试脚本或目录路径（默认 res://test/）",
@@ -2390,7 +2400,7 @@
           },
           "file_name": {
             "type": "string",
-            "description": "录制：录制文件名（仅接受 recording_*.json 格式）"
+            "description": "录制保存:始终自动命名 recording_YYYYMMDD_HHmmss.json(file_name 入参被忽略);但 file_name 须匹配 recording_*.json 格式(否则 INVALID_FILE_NAME),禁止含 / \\\\ .."
           },
           "speed": {
             "type": "number",
@@ -2415,6 +2425,8 @@
       "optionalParams": [
         "project_path",
         "timeout",
+        "wait_for_bridge",
+        "bridge_timeout",
         "test_script",
         "events_json",
         "file_name",
@@ -4050,7 +4062,7 @@
       "readonly": false,
       "longRunning": false,
       "guarded": false,
-      "securityLevel": "safe",
+      "securityLevel": "danger-api",
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -4102,6 +4114,23 @@
           "project_path": {
             "type": "string",
             "description": "Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "scene",
+              "script",
+              "full"
+            ],
+            "description": "验证范围(verify_delivery 必填): scene/script/full。其他 action 忽略"
+          },
+          "scene_path": {
+            "type": "string",
+            "description": "场景路径(scope=scene,相对项目,verify_delivery)"
+          },
+          "script_path": {
+            "type": "string",
+            "description": "脚本路径(scope=script,相对项目,verify_delivery)"
           },
           "scene": {
             "type": "string",
@@ -4198,6 +4227,9 @@
       ],
       "optionalParams": [
         "project_path",
+        "scope",
+        "scene_path",
+        "script_path",
         "scene",
         "timeout",
         "capture_tree",

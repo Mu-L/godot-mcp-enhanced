@@ -17,7 +17,8 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
 
   const defs = getAllToolDefinitions();
   return defs.map(tool => {
-    const group = getGroupForTool(tool.name) ?? 'unknown';
+    // R2-I-1: manage_tools 在 ALWAYS_ALLOWED 但不在 TOOL_GROUPS → 兜底归 core（语义：操作 tool-registry 内存状态，core 组 protected）。
+    const group = getGroupForTool(tool.name) ?? (tool.name === 'manage_tools' ? 'core' : 'unknown');
     const meta = getToolMeta(tool.name);
     const readonly = meta?.readonly ?? false;
     const longRunning = meta?.long_running ?? false;
