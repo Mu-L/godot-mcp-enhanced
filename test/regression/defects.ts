@@ -1,7 +1,9 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 17 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发）。
-// OPEN_DEFECTS 4 条：原 defects.md 标 fixed 但实测真未修（M2 Task 2 spec §8 闭环），含 baseline。
-// Task 3 将追加其余 open 条目。detect 谓词忠实复现 defects.md 行 196-460。
+// FIXED_DEFECTS 19 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发）。
+//   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
+//   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
+// OPEN_DEFECTS 18 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
+// detect 谓词忠实复现 defects.md 行 196-538。
 import { countMatchesInFile, countMatchesInDir, fileContains, readSrc, PROJECT_ROOT } from './detect-helpers.js';
 // ts-gdscript-tool-drift 复用 M1
 import { diffMatrices } from '../../src/capability/diff-matrix.js';
@@ -30,10 +32,12 @@ function ensureTsDriftReady(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FIXED（17 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
+// FIXED（19 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
 // 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
 // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect != 0，
 // 按 spec §8 闭环改 status='open' 移到 OPEN_DEFECTS。
+// Task 3 review 闭环 +2：reconnect-degrade-fail / edit-node-blocked-props-json-pollution
+// （master 实测 detect=0，defects.md open 基于 fix 分支 manage-tools commit，移 FIXED 防复发）。
 // ═══════════════════════════════════════════════════════════════════════════════
 export const FIXED_DEFECTS: DefectEntry[] = [
   // ── CRITICAL 安全（行 196-264）──
@@ -134,6 +138,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasDispatch = /\bdispatchTool\b|normalizeArgs\s*\(/.test(srv);
       return hasDispatch ? 1 : 0;
     } },
+  { key: 'reconnect-degrade-fail', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      // Task 3 review I-1：defects.md:526 detect 核心模式 buildReconnectEditor|setReconnectEditor 在 master
+      // 不存在（该缺陷是 fix 分支 manage-tools feature 引入，commit a05362f/9673a1a；master 无该 feature）。
+      // master 的 editorConn=null 是 cleanup/disconnect 正常降级赋值（3 处，GodotServer.ts:320/335/363），
+      // 非降级失效。故核心模式不存在即无缺陷；feature 引入时检 editorConn=null 降级路径是否破坏 reconnect。
+      const srv = readSrc('src/GodotServer.ts');
+      if (!/buildReconnectEditor|setReconnectEditor/.test(srv)) return 0; // master 无 manage-tools reconnect feature
+      return /editorConn\s*=\s*null/.test(srv) ? 1 : 0; // feature 存在时检降级失效（防复发）
+    } },
   { key: 'tscn-parser-no-byte-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
       // fixed：MAX_TSCN_INPUT_SIZE + MAX_SPLIT_ELEMENTS。命中「无上限」即复发
@@ -169,6 +183,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => {
       // fixed：DrawableTexture → DrawableTexture2D。命中旧拼错即复发
       return countMatchesInFile('src/tools/docs.ts', /'DrawableTexture'/g);
+    } },
+  { key: 'edit-node-blocked-props-json-pollution', status: 'fixed', severity: 'ADVISORY', dimension: 'Completeness',
+    detect: () => {
+      // Task 3 review I-3：master scene/index.ts:313 已重构为 `if (BLOCKED_PROPS.has(key)) continue` 短路，
+      // 不再 text:warn 前置拼接破坏 content[0].text JSON。defects.md open 基于 fix 分支（master 实测 detect=0）。
+      // 移到 FIXED（硬断言 ===0），detect 忠实原污染模式，防该 JSON 破坏形态复发。
+      const f = readSrc('src/tools/scene/index.ts');
+      return f.match(/BLOCKED_PROPS[\s\S]{0,400}text:\s*warn[\s\S]{0,200}content\[0\]\.text|content\[0\]\.text\s*=\s*warn/g)?.length ?? 0;
     } },
 ];
 
@@ -206,8 +228,11 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // OPEN（16 条，Task 3）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
+  // OPEN（14 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
   // baseline = master 实测锁定值（plan Step 2 实测覆盖参考值）。Minor①：所有闭包正则为内联非复用字面量。
+  // Task 3 review 闭环：-2（reconnect-degrade-fail + edit-node-blocked-props-json-pollution 移 FIXED）。
+  // Task 3 review I-2：multi-instance-hmac EXPECTED 恢复 2（spec Named risk；master 0 调用 → detect=2 baseline=2）。
+  // OPEN 总计 18 条（4 闭环 + 14 Task 3）。
   // ═══════════════════════════════════════════════════════════════════════════════
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
   { key: 'gdscript-gen-null-root-deref', status: 'open', severity: 'CRITICAL', dimension: 'Correctness',
@@ -225,25 +250,16 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     baseline: 1 }, // editor-auth:115-122 三步分离（参考）
   { key: 'multi-instance-hmac-send-only', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
-      // §6 反向转正：缺失接线点数 = 期望(1: instance-router 接收侧) − 实际 verifyApiToken 调用。
-      // EXPECTED=1 贴合 defects.md fix-forward「接收侧(实例路由)调用 verifyApiToken」(行 499)；
-      // GodotServer 顶层校验冗余、非该 DEFECT 要求（审查修订：原 EXPECTED=2 超出 fix-forward）。
-      const EXPECTED = 1;
-      const actual = countMatchesInFile('src/core/instance-router.ts', /verifyApiToken\(/g);
-      return Math.max(0, EXPECTED - actual);
+      // §6 反向转正：缺失接线点数 = 期望(2: instance-router 接收侧 + GodotServer 顶层) − 实际生产调用。
+      // EXPECTED=2 贴合 spec Named risk + defects.md fix-forward「接收侧(实例路由)调用 verifyApiToken」
+      // (行 499) + GodotServer 顶层校验（行 503）两调用点。Task 3 review I-2：恢复 EXPECTED=2
+      // （implementer 单方面改 1 违背 spec；master 实测 0 生产调用 → detect=2，保留 open 防恶化）。
+      const EXPECTED = 2;
+      const router = countMatchesInFile('src/core/instance-router.ts', /verifyApiToken\(/g);
+      const server = countMatchesInFile('src/GodotServer.ts', /verifyApiToken\(/g);
+      return Math.max(0, EXPECTED - (router + server));
     },
-    baseline: 1 }, // 当前 0 生产调用 → 缺失 1（参考，Step 2 实测覆盖）
-  { key: 'reconnect-degrade-fail', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
-    detect: () => {
-      // 计数：降级失效特征数（闭包捕获 editorConn + 置 null + port/secret 局部变量丢失）
-      const srv = readSrc('src/GodotServer.ts');
-      let n = 0;
-      if (/buildReconnectEditor|setReconnectEditor/.test(srv)) n++;
-      if (/editorConn\s*=\s*null/.test(srv)) n++;
-      if (/const\s+(port|secret)\b[\s\S]{0,200}\brun\s*\(/m.test(srv)) n++;
-      return n;
-    },
-    baseline: 1 }, // master 实测=1（Step 2 锁定）
+    baseline: 2 }, // master 实测 0 生产调用 → 缺失 2（instance-router 接收侧 + GodotServer 顶层均未接线）
   // ── 计数类 ──
   { key: 'module-level-mutable-state', status: 'open', severity: 'IMPORTANT', dimension: 'Architecture',
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
@@ -328,14 +344,5 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // 计数：硬编码深度上限处数（MAX_NORMALIZE_DEPTH=5 / depth>5）
     detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /MAX_NORMALIZE_DEPTH\s*=\s*5\b|depth\s*>\s*5\b/g),
     baseline: 1 }, // ToolDispatcher:410（参考）
-  { key: 'edit-node-blocked-props-json-pollution', status: 'open', severity: 'ADVISORY', dimension: 'Completeness',
-    detect: () => {
-      // 计数：BLOCKED_PROPS 命中分支 text 前置拼接处数（破坏 content[0].text JSON）
-      // master 实测=0：scene/index:313 已重构为 `if (BLOCKED_PROPS.has(key)) continue` 短路，不再 text:warn 前置拼接。
-      // detect 忠实原污染模式；baseline=0 防该特定 JSON 破坏形态复发（BLOCKED_PROPS 机制本身仍在）。
-      const f = readSrc('src/tools/scene/index.ts');
-      return f.match(/BLOCKED_PROPS[\s\S]{0,400}text:\s*warn[\s\S]{0,200}content\[0\]\.text|content\[0\]\.text\s*=\s*warn/g)?.length ?? 0;
-    },
-    baseline: 0 }, // master 实测=0（Step 2 锁定；特定污染形态已消除，仅防复发）
 ];
 
