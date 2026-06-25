@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { readEditorSecret, waitForEditorSecret } from '../src/core/editor-auth.js';
 
@@ -84,5 +84,46 @@ describe('waitForEditorSecret', () => {
 
     const result = await waitForEditorSecret(projectPath, 2000);
     expect(result).toBe('delayed-secret');
+  });
+});
+
+// ─── editor-auth symlink rejection (S-1 + Imp-9 Q-2) ──────────────────────────
+
+// 探测能否创建文件 symlink(Windows 需管理员/开发者模式;Linux/macOS 普通用户可)。
+// 模块加载时探测,供 describe.skipIf 静态判断——不支持的平台整个 describe 跳过,不误报。
+let _symlinkProbeDir;
+let SYMLINK_SUPPORTED = false;
+try {
+  _symlinkProbeDir = mkdtempSync(join(tmpdir(), 'sym-probe-'));
+  const _t = join(_symlinkProbeDir, 't');
+  const _l = join(_symlinkProbeDir, 'l');
+  writeFileSync(_t, 'x');
+  symlinkSync(_t, _l);  // 文件 symlink(mcp_editor.key 是文件,不能用 junction)
+  SYMLINK_SUPPORTED = true;
+} catch {
+  // 平台不支持文件 symlink(如 Windows 未开启开发者模式)——describe 整体跳过
+} finally {
+  try { if (_symlinkProbeDir) rmSync(_symlinkProbeDir, { recursive: true, force: true }); } catch { /* best effort */ }
+}
+
+describe.skipIf(!SYMLINK_SUPPORTED)('editor-auth symlink rejection (S-1 + Imp-9 Q-2)', () => {
+  const createSymlinkedSecret = (projectPath, content) => {
+    // mcp_editor.key 作为 symlink 指向权限正常的目标文件(模拟攻击者把 key 指向任意可读文件,
+    // 绕过 checkFilePermissions:statSync follow symlink 看到目标权限可能 OK)。
+    const target = join(projectPath, 'secret-target');
+    writeFileSync(target, content);
+    mkdirSync(join(projectPath, '.godot'), { recursive: true });
+    symlinkSync(target, join(projectPath, '.godot', 'mcp_editor.key'));
+  };
+
+  it('readEditorSecret rejects symlinked secret file (Imp-9)', () => {
+    createSymlinkedSecret(tempDir, 'symlinked-secret');
+    expect(readEditorSecret(tempDir)).toBeNull();
+  });
+
+  it('waitForEditorSecret rejects symlinked secret file (S-1)', async () => {
+    createSymlinkedSecret(tempDir, 'symlinked-secret-wait');
+    const result = await waitForEditorSecret(tempDir, 1000);
+    expect(result).toBeNull();
   });
 });
