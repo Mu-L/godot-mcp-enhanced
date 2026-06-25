@@ -3,8 +3,8 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
-const DEFAULT_ROOT: string = fileURLToPath(new URL('../../../', import.meta.url));
-/** 项目根（绝对）。默认从 test/regression/ 上三级定位 godot-mcp-enhanced 根。
+const DEFAULT_ROOT: string = fileURLToPath(new URL('../../', import.meta.url));
+/** 项目根（绝对）。默认从 test/regression/ 上两级定位 godot-mcp-enhanced 根。
  *  ESM live binding：_setProjectRootForTest 赋值后，import 侧（defects.ts）与函数内读取均见最新值；真实 string（非 Proxy），可安全传 extractCapabilities。 */
 export let PROJECT_ROOT: string = DEFAULT_ROOT;
 /** @internal 测试用：覆盖项目根到 tmp fixture。传 undefined 恢复默认。 */
