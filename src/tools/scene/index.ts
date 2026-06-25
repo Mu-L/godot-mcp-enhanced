@@ -6,17 +6,17 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult, errorResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, parseMcpScriptOutput } from '../../helpers.js';
-import { parseTscn, parseTscnSummary } from '../../tscn-parser.js';
+import { parseTscn, parseTscnSummary } from '../../tscn/tscn-parser.js';
 import { executeGdscript } from '../../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, toSnakeCase, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult, sanitizeResPath } from '../shared.js';
-import { addNode } from '../../tscn-editor.js';
+import { addNode } from '../../tscn/tscn-editor.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { spawnGodot } from '../spawn-helper.js';
 import { ACTIONS, requireScenePath, gdScriptSetLine, TRY_SET_HELPER, writeAtomic, BLOCKED_PROPS } from './helpers.js';
 import { handleInstanceScene, handleSetInstanceProperty, handleDetachInstance } from './scene-instance.js';
 import { mergeTscn, checkSceneHealth } from './scene-merge.js';
 import { handleCreate3dNode } from '../node-3d-ops.js';
-import { handleCommitAction } from '../scene-commit-tool.js';
+import { handleCommitAction } from './scene-commit-tool.js';
 
 export { mergeTscn, checkSceneHealth };
 
@@ -196,6 +196,13 @@ export async function handleTool(
       if (result.scene) {
         writeFileSync(absPath, result.scene, 'utf-8');
       }
+      // S1 (2026-06-23): BLOCKED_PROPS 命中时前置明确警告(避免"设 script 看似成功但未落盘"的静默失败)
+      if (result.blockedProps && result.blockedProps.length > 0) {
+        const hint = result.blockedProps.includes('script')
+          ? ' For scripts use quick_scene script_path, or add an [ext_resource] + "script = ExtResource(...)" line via Write .tscn.'
+          : '';
+        return textResult(`⚠️ Blocked properties NOT written (security policy): ${result.blockedProps.join(', ')}.${hint}\n${result.message}`);
+      }
       return textResult(result.message);
     }
 
@@ -298,7 +305,21 @@ export async function handleTool(
       if (result.timedOut) return errorResult('batch_add_nodes timed out after 60s.');
       if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
       if (result.exitCode !== 0) return errorResult(`batch_add_nodes failed (exit code ${result.exitCode}):\n${result.stdout}`);
-      return { content: [{ type: 'text', text: result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.` }] };
+      // IMPORTANT-1 (2026-06-23 审查修复): batch_add_nodes 走 GDScript ops(_is_safe_property 过滤),
+      // 不经 TS _addNodesInner(其 allBlocked 聚合在此路径不生效)。TS 侧前置收集 BLOCKED_PROPS 命中,
+      // 警告——与 add_node/edit_node 一致,避免 batch 路径静默 drop script 等(削弱 S1 完整性)。
+      const batchBlocked: string[] = [];
+      for (const n of nodes) {
+        if (n.properties) for (const k of Object.keys(n.properties)) {
+          if (BLOCKED_PROPS.has(k) && !batchBlocked.includes(k)) batchBlocked.push(k);
+        }
+      }
+      const batchOut = result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.`;
+      if (batchBlocked.length > 0) {
+        const hint = batchBlocked.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn ExtResource.' : '';
+        return { content: [{ type: 'text' as const, text: `⚠️ Blocked properties NOT written (security policy): ${batchBlocked.join(', ')}.${hint}\n${batchOut}` }] };
+      }
+      return { content: [{ type: 'text', text: batchOut }] };
     }
 
     case 'edit_node': {
@@ -309,12 +330,22 @@ export async function handleTool(
         const properties = args.properties as Record<string, unknown>;
         if (!properties || typeof properties !== 'object' || Object.keys(properties).length === 0) return opsErrorResult('INVALID_PARAMS', '"properties" must be a non-empty object.');
         let propLines = '';
+        const blockedKeys: string[] = []; // S1: 收集被拦属性,前置明确警告(避免静默失败)
         for (const [key, value] of Object.entries(properties)) {
-          if (BLOCKED_PROPS.has(key)) continue; // C-SEC-06: block dangerous props (script, owner, name, etc.)
+          if (BLOCKED_PROPS.has(key)) { blockedKeys.push(key); continue; } // C-SEC-06 + S1: 不再静默 continue
           const gdKey = toSnakeCase(key); if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(gdKey)) return textResult(`Error: Invalid property name: "${key}"`); propLines += `\n\t${gdScriptSetLine(gdKey, value)}`; }
         const script = `${SCENE_TREE_HEADER}\n${TRY_SET_HELPER}\nfunc _initialize():\n\tif not _mcp_load_scene("${gdEscape(scenePath)}"):\n\t\t_mcp_done()\n\t\treturn\n\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")\n\tif node == null:\n\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")\n\t\t_mcp_done()\n\t\treturn${propLines}\n\t_mcp_output("edited", {"node": "${gdEscape(nodePath)}"})\n\t_mcp_done()\n`;
         const godot = await ctx.findGodot(); const loadAutoloads = args.load_autoloads !== false;
-        return parseGdscriptResult(await executeGdscript({ godotPath: godot, projectPath: p, code: script, timeout: 30, loadAutoloads }), [], (msg) => msg.includes('not found') ? 'NODE_NOT_FOUND' : 'SCRIPT_EXEC_FAILED', { suggestion: 'Use query_scene_tree to list available nodes, or inspect_node to check a specific path.' });
+        const editResult = parseGdscriptResult(await executeGdscript({ godotPath: godot, projectPath: p, code: script, timeout: 30, loadAutoloads }), [], (msg) => msg.includes('not found') ? 'NODE_NOT_FOUND' : 'SCRIPT_EXEC_FAILED', { suggestion: 'Use query_scene_tree to list available nodes, or inspect_node to check a specific path.' });
+        // S1 (2026-06-23): BLOCKED_PROPS 命中时前置明确警告(避免"设 script 看似成功但未生效"的静默失败)
+        if (blockedKeys.length > 0) {
+          const hint = blockedKeys.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn with [ext_resource].' : '';
+          const warn = `⚠️ Blocked properties NOT applied (security policy): ${blockedKeys.join(', ')}.${hint}\n`;
+          const firstContent = editResult.content?.[0];
+          const text = firstContent?.type === 'text' ? firstContent.text : '';
+          return { ...editResult, content: [{ type: 'text' as const, text: warn + text }] };
+        }
+        return editResult;
       } finally { releaseShortRunningSlot(); }
     }
 

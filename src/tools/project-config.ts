@@ -90,7 +90,9 @@ export function validateConfigValue(key: string, value: string): { valid: boolea
   if (isAutoload) {
     // Autoload value must be a res:// path (the * prefix is added at write time)
     if (!value.startsWith('res://')) {
-      return { valid: false, error: `Autoload value must start with res://, got: "${value}"` }
+      // M2 (2026-06-23): 若误带前导 *(Godot project.godot autoload 惯例),提示去掉——写入时自动注入
+      const starHint = value.startsWith('*') ? ' — omit the leading "*" (it is auto-injected at write time)' : ''
+      return { valid: false, error: `Autoload value must start with res://, got: "${value}"${starHint}` }
     }
     return { valid: true }
   }

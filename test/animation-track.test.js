@@ -10,7 +10,7 @@ import {
   genAnimationKeyframeRemove,
   genAnimationKeyframeUpdate,
   genAnimationCurve,
-} from '../src/tools/animation-track.js';
+} from '../src/tools/animation/animation-track.js';
 
 const fakeCtx = { findGodot: async () => '/fake/godot' };
 

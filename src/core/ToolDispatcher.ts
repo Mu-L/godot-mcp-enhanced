@@ -6,6 +6,7 @@ import type { EditorToolExecutor } from './EditorToolExecutor.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware } from './middleware.js';
 import { HealthMonitor } from './health-monitor.js';
+import { isFeatureEnabled } from './feature-flags.js';
 import {
   requiresConfirmation,
   createPendingToken,
@@ -161,8 +162,8 @@ export class ToolDispatcher {
       }
     }
 
-    // activeGroups 过滤（Phase 1 动态管理）
-    if (process.env.GODOT_MCP_TOOL_GROUPS !== 'false') {
+    // activeGroups 过滤（Phase 1 动态管理）。A-3(审查): 改用 flag 系统(原直接读 env 绕过 isFeatureEnabled)
+    if (isFeatureEnabled('TOOL_GROUPS')) {
       allTools = allTools.filter(t => isToolAllowed(t.name));
       log('activeGroups filter: %d tools available', allTools.length);
     }
@@ -199,7 +200,9 @@ export class ToolDispatcher {
 
     try {
       // ── 0.5. Default project_path injection ──
-      if (!args.project_path && !skipProjectPath(name)) {
+      // issue #11: list_projects/list_templates 是搜索/列表语义,不需 project_path。
+      // skipProjectPath 按工具名(无法区分 project 工具的 action),故此处 action 级豁免。
+      if (!args.project_path && !skipProjectPath(name) && !(name === 'project' && (args.action === 'list_projects' || args.action === 'list_templates'))) {
         const resolved = resolveProjectPath();
         if (!resolved) {
           return opsErrorResult(
@@ -529,7 +532,8 @@ export class ToolDispatcher {
     let result: ToolResult | null;
     try {
       // C-CONC-1: per-call findGodot 经参数传入(局部变量),避免实例字段被并发请求覆盖
-      const perCallCtx = { ...this.ctx, findGodot: findGodotOverride ?? this.ctx.findGodot };
+      // 用 buildPerCallCtx(Object.create)而非 spread,保留 ctx getter(见该函数注释)
+      const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride);
       result = await targetMod.handleTool(effectiveToolName, effectiveArgs, perCallCtx);
     } catch (err) {
       const duration = Date.now() - startTime;
@@ -580,4 +584,24 @@ export class ToolDispatcher {
     }
     return false;
   }
+}
+
+/**
+ * 构建每次工具调用的 ctx 副本(覆盖 findGodot)。
+ *
+ * 必须用 Object.create(继承 this.ctx 原型),而非 spread {...this.ctx}:ctx 上的
+ * runningProcess/outputBuffer/processStartTime/projectDir 是连 process-state 模块的 getter,
+ * spread 会把它们展平成调用时刻的快照。dispatch 入口 _runningProcess=null,spread 后
+ * perCallCtx.runningProcess 被冻结成 null —— 即便 run_project 内 setRunningProcess(proc) 改了
+ * 模块 state,perCallCtx.runningProcess 仍为 null,isCancelled(runningProcess !== proc)永远 true,
+ * 导致 wait_for_bridge 误报 "process exited during probe"。Object.create 让 perCallCtx 继承 getter,
+ * runningProcess 实时反映模块 state。
+ */
+export function buildPerCallCtx(
+  baseCtx: ToolContext,
+  findGodotOverride?: (projectPath?: string) => Promise<string>,
+): ToolContext {
+  const perCallCtx = Object.create(baseCtx) as ToolContext;
+  perCallCtx.findGodot = findGodotOverride ?? baseCtx.findGodot;
+  return perCallCtx;
 }

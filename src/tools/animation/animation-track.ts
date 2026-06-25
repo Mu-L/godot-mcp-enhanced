@@ -1,9 +1,9 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolContext, ToolResult } from '../types.js';
-import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape } from './shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import type { ToolContext, ToolResult } from '../../types.js';
+import { requireProjectPath } from '../../helpers.js';
+import { executeGdscript } from '../../gdscript-executor.js';
+import { normalizeNodePath, gdEscape } from '../shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { TRACK_TYPES, ensureNumber, valueToGd, animErrorMapper } from './animation-shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────

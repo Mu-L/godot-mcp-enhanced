@@ -105,4 +105,37 @@ describe('launchDashboardOnce', () => {
     mod.launchDashboardOnce(); // 清除后应能启动(_launched 未被首次禁用置位)
     expect(cp.spawn).toHaveBeenCalled();
   });
+
+  // 审查 IMPORTANT: spawn().unref() 无 error 监听 → ENOENT 触发 uncaughtException 崩进程。
+  // 触发苛刻(powershell/cmd/node/osascript 必存,linux 有 spawnSync probe 兜底),但 TOCTOU/异常环境
+  // 仍可能命中。防御性加固:每个 spawn 的 child 必须挂 'error' 监听吞掉异步错误。
+  function hasErrorListener(results: { value: unknown }[]): boolean {
+    return results.some((r) => {
+      const on = ((r.value as { on?: unknown } | null)?.on) as
+        | { mock?: { calls?: unknown[][] } }
+        | undefined;
+      return !!on?.mock?.calls?.some((c) => c[0] === 'error');
+    });
+  }
+
+  it('win32: attaches error listener on spawned child (prevents ENOENT uncaughtException)', async () => {
+    setPlatform('win32');
+    const cp = await import('child_process');
+    const { launchDashboardOnce } = await import('../../src/dashboard/launcher.js');
+    launchDashboardOnce();
+    const results = vi.mocked(cp.spawn).mock.results;
+    expect(results.length).toBeGreaterThan(0);
+    expect(hasErrorListener(results as unknown as { value: unknown }[])).toBe(true);
+  });
+
+  it('linux: attaches error listener on spawned terminal (prevents ENOENT uncaughtException)', async () => {
+    setPlatform('linux');
+    const cp = await import('child_process');
+    vi.mocked(cp.spawnSync).mockReturnValue({ error: null, status: 0, stdout: '', stderr: '' });
+    const { launchDashboardOnce } = await import('../../src/dashboard/launcher.js');
+    launchDashboardOnce();
+    const results = vi.mocked(cp.spawn).mock.results;
+    expect(results.length).toBeGreaterThan(0);
+    expect(hasErrorListener(results as unknown as { value: unknown }[])).toBe(true);
+  });
 });

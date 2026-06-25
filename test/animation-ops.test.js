@@ -14,7 +14,7 @@ vi.mock('../src/helpers.js', () => ({
 
 import { executeGdscript } from '../src/gdscript-executor.js';
 import { requireProjectPath } from '../src/helpers.js';
-import { TOOL_NAMES, getToolDefinitions, handleTool, TOOL_META } from '../src/tools/animation-ops.js';
+import { TOOL_NAMES, getToolDefinitions, handleTool, TOOL_META } from '../src/tools/animation/animation-ops.js';
 
 function createMockCtx() {
   return {

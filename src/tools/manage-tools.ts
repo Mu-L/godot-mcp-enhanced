@@ -6,6 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
+import type { ConnectionState } from '../types.js';
 import {
   TOOL_GROUPS,
   setActiveGroups,
@@ -17,12 +18,33 @@ import { opsSuccess, opsError } from './shared.js';
 
 type ManageAction = 'list_groups' | 'activate' | 'deactivate' | 'sync' | 'reconnect' | 'migrate';
 
+export interface ConnectionStatus {
+  editor: { installed: boolean; connected: boolean; state: ConnectionState | null };
+  bridge: { note: string };
+}
+
 /** Optional callback fired when groups change (set by GodotServer). */
 let _onGroupsChanged: (() => void) | null = null;
+
+/** Connection status provider (set by GodotServer). */
+let _connectionStatusProvider: (() => ConnectionStatus) | null = null;
+
+/** Reconnect editor handler (set by GodotServer). */
+let _reconnectEditor: (() => Promise<{ connected: boolean; detail: string }>) | null = null;
 
 /** Set notification callback (called by GodotServer). */
 export function setOnGroupsChanged(fn: (() => void) | null): void {
   _onGroupsChanged = fn;
+}
+
+/** Set connection status provider (called by GodotServer). */
+export function setConnectionStatusProvider(fn: (() => ConnectionStatus) | null): void {
+  _connectionStatusProvider = fn;
+}
+
+/** Set reconnect editor handler (called by GodotServer). */
+export function setReconnectEditor(fn: (() => Promise<{ connected: boolean; detail: string }>) | null): void {
+  _reconnectEditor = fn;
 }
 
 export function getToolDefinitions(): Tool[] {
@@ -66,7 +88,7 @@ export async function handleTool(
     case 'activate': return handleActivate(args);
     case 'deactivate': return handleDeactivate(args);
     case 'sync': return handleSync();
-    case 'reconnect': return handleReconnect();
+    case 'reconnect': return await handleReconnect();
     case 'migrate': return handleMigrate();
     default:
       return textResult(JSON.stringify(opsError('INVALID_ACTION', `Unknown action: ${action}`)));
@@ -130,12 +152,42 @@ function handleDeactivate(args: Record<string, unknown>): ToolResult {
   })));
 }
 
-function handleSync(): ToolResult {
-  return textResult(JSON.stringify(opsError('NOT_IMPLEMENTED', 'Connection-aware sync is not yet implemented. Active groups are always in sync.')));
+async function handleReconnect(): Promise<ToolResult> {
+  let editor: { reconnected: boolean; detail: string } | null;
+  if (_reconnectEditor) {
+    const r = await _reconnectEditor();
+    editor = { reconnected: r.connected, detail: r.detail };
+  } else {
+    editor = null;
+  }
+  return textResult(JSON.stringify(opsSuccess({
+    editor,
+    bridge: { reconnected: false, detail: 'bridge 每请求建连,无需重连;用 game_query(method=ping) 探测' },
+  })));
 }
 
-function handleReconnect(): ToolResult {
-  return textResult(JSON.stringify(opsError('NOT_IMPLEMENTED', 'Auto-reconnect is not yet implemented. Check that the game/editor is running.')));
+function handleSync(): ToolResult {
+  const provider = _connectionStatusProvider;
+  // M1: provider() 提循环外。原 groups.map 内每 group 调一次 + editor/bridge 各一次(N+2),
+  // provider=buildConnectionStatus 同步无 I/O 故无害,但单次调用更清晰且避免重复构造。
+  const cs = provider ? provider() : null;
+  const groups = Object.entries(TOOL_GROUPS).map(([name, def]) => {
+    const requires = def.requires ?? [];
+    let status: string;
+    if (!cs) {
+      status = 'unknown (no provider)';
+    } else {
+      if (requires.includes('editor')) status = cs.editor.connected ? 'connected' : 'disconnected';
+      else if (requires.includes('bridge')) status = 'probe-required';
+      else status = 'n/a';
+    }
+    return { name, requires, status };
+  });
+  return textResult(JSON.stringify(opsSuccess({
+    groups,
+    editor: cs?.editor ?? null,
+    bridge: cs?.bridge ?? null,
+  })));
 }
 
 export const TOOL_META = {
@@ -164,4 +216,63 @@ function handleMigrate(): ToolResult {
     removed,
     unchanged,
   })));
+}
+
+// ─── 纯工厂(供 GodotServer 接线,可单测)────────────────────────────────────
+
+export interface EditorConnLike {
+  isConnected(): boolean;
+  connect(): Promise<void>;
+}
+export interface HealthMonitorLike {
+  getState(): ConnectionState;
+}
+
+export function buildConnectionStatus(
+  editorConn: EditorConnLike | null,
+  healthMonitor: HealthMonitorLike | null,
+): ConnectionStatus {
+  return {
+    editor: {
+      installed: editorConn !== null,
+      connected: editorConn?.isConnected() ?? false,
+      // M5: state 结合 connected。healthMonitor 默认 'connected'(基于工具调用健康,非 editor 连接),
+      // 直接用作 editor.state 会在 editor 未连时报 "connected"(observed: state:"connected" 但 connected:false)。
+      // editor 连上时 state 才用 healthMonitor(工具健康);未连报 disconnected;未启动报 null。
+      state: (editorConn?.isConnected() ?? false)
+        ? (healthMonitor?.getState() ?? 'connected')
+        : (editorConn ? 'disconnected' : null),
+    },
+    bridge: { note: '每请求建连,无持久连接' },
+  };
+}
+
+export function buildReconnectEditor(
+  getEditor: () => EditorConnLike | null,
+  rebuild?: () => Promise<{ connected: boolean; detail: string }>,
+): () => Promise<{ connected: boolean; detail: string }> {
+  return async () => {
+    const ec = getEditor();
+    if (!ec) {
+      // 方案B: ec=null(editor 降级)且注入了 rebuild → 尝试重建连接(重新读 secret + new EditorConnection)。
+      if (rebuild) {
+        try {
+          return await rebuild();
+        } catch (e) {
+          return { connected: false, detail: `重建失败: ${e instanceof Error ? e.message : String(e)}` };
+        }
+      }
+      // 无 rebuild(向后兼容):中性表述 + 恢复指引。
+      // 审查 IMPORTANT-3: ec=null 无法区分"从未安装"与"曾连接后降级",故不断言"未安装"
+      // (降级时 editor 可能已装)。未启动→launch_editor/F5;降级→重启服务端。
+      return { connected: false, detail: 'editor 未连接(可能未启动或已降级到 headless)。用 launch_editor / F5 启动编辑器;若已在运行,重启 MCP 服务端恢复' };
+    }
+    if (ec.isConnected()) return { connected: true, detail: '已连接' };
+    try {
+      await ec.connect();
+      return { connected: ec.isConnected(), detail: '手动重连完成' };
+    } catch (e) {
+      return { connected: false, detail: `重连失败: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  };
 }

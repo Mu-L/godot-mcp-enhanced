@@ -7,7 +7,7 @@ import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensure
 import { analyzeOutput } from '../error-analyzer.js';
 import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
-import { parseTscn } from '../tscn-parser.js';
+import { parseTscn } from '../tscn/tscn-parser.js';
 import { spawnGodot } from './spawn-helper.js';
 
 // ─── Tool definitions ──────────────────────────────────────────────────────

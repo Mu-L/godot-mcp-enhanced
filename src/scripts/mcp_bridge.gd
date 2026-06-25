@@ -204,7 +204,18 @@ func _start_server() -> void:
 	if not DirAccess.dir_exists_absolute(godot_dir):
 		DirAccess.make_dir_recursive_absolute(godot_dir)
 	_secret_file = godot_dir + "/mcp_bridge_%d.secret" % PORT
-	if not _write_secret_to_file(_secret_file):
+	# S4 (2026-06-23): 固定 secret 模式(本地测试,env GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)。
+	# secret 文件存在且有效则复用,跳过重生+写入,打破"重生→_restrict 收紧只读→下次写失败
+	# abort→_exit_tree 删除→MCP 端 5min TTL 缓存不同步"的死循环。默认 false 保持每次重生(安全)。
+	var _persistent_secret := OS.get_environment("GODOT_MCP_BRIDGE_PERSISTENT_SECRET").to_lower() == "true"
+	var _secret_reused := false
+	if _persistent_secret and FileAccess.file_exists(_secret_file):
+		var _existing := FileAccess.get_file_as_string(_secret_file)
+		if _existing.length() >= 32:
+			_secret = _existing
+			_secret_reused = true
+			print("[MCP Bridge] Reusing persistent secret (GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)")
+	if not _secret_reused and not _write_secret_to_file(_secret_file):
 		push_error("[MCP Bridge][SECURITY] Failed to write secret to %s — aborting Bridge startup. Check directory permissions." % _secret_file)
 		_server.stop()
 		_server = null
@@ -384,7 +395,9 @@ func _stop_server() -> void:
 	_auth_locked_until.clear()
 	if _server:
 		_server.stop()
-		if _secret_file != "" and FileAccess.file_exists(_secret_file):
+		# S4 (2026-06-23): 固定 secret 模式不删除(持久化供下次启动复用 + 与 MCP 端 TTL 缓存保持同步)
+		var _persistent_secret := OS.get_environment("GODOT_MCP_BRIDGE_PERSISTENT_SECRET").to_lower() == "true"
+		if not _persistent_secret and _secret_file != "" and FileAccess.file_exists(_secret_file):
 			DirAccess.remove_absolute(_secret_file)
 		_server = null
 
@@ -650,8 +663,18 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	var node := get_node_or_null(path)
 	if node == null:
 		return {"error": {"code": -1, "message": "Node not found: %s" % path}}
-	if not method in ALLOWED_METHODS:
-		return {"error": {"code": -2, "message": "Method not allowed: %s" % method}}
+	# S5 (2026-06-23): env GODOT_MCP_BRIDGE_EXTRA_METHODS 扩展白名单(opt-in,默认只读安全)。
+	# ALLOWED_METHODS 设计为只读(get/has_*/get_meta 等),防 call_method 任意执行;信任环境
+	# 可显式加方法(如 emit_signal)用此 env。注意 emit_signal 会触发已连接的任意回调,慎用。
+	var _extra_env := OS.get_environment("GODOT_MCP_BRIDGE_EXTRA_METHODS")
+	var _extra_ok := false
+	if _extra_env != "":
+		for _m in _extra_env.split(","):
+			if (_m as String).strip_edges() == method:
+				_extra_ok = true
+				break
+	if not method in ALLOWED_METHODS and not _extra_ok:
+		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):
 		return {"error": {"code": -3, "message": "Method not found: %s" % method}}
 	if args.size() > 8:
@@ -741,6 +764,9 @@ func _cmd_send_key(params: Dictionary) -> Variant:
 		return {"error": {"code": -1, "message": "Unknown key: %s" % key}}
 	var event := InputEventKey.new()
 	event.keycode = keycode
+	# S6 (2026-06-23): 同时设 physical_keycode,触发用物理键码映射的 input action。
+	# Godot 4 推荐 physical_keycode 映射;只设 keycode 在 physical 映射项目里不触发 ui_action。
+	event.physical_keycode = keycode
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	return {"success": true, "key": key}

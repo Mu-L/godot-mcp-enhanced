@@ -1,4 +1,4 @@
-import { ensureNumber, valueToGd } from './shared.js';
+import { ensureNumber, valueToGd } from '../shared.js';
 
 // Re-export ensureNumber for backward compatibility with animation-ops and animation-track
 export { ensureNumber };

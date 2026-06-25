@@ -262,6 +262,8 @@ describe.skipIf(!hasProject || !hasGodot)('E2E: scene CRUD (Godot-dependent)', (
   });
 
   it('edit_node: modifies property', async () => {
+    // Imp-14: edit_node 走 executeGdscript(Godot 冷启动 + import + cleanupOldSessions staging EPERM 退避),
+    // 默认 10s timeout 不够(Windows 累积时尤甚),放宽到 30s。
     const r = await callTool('scene', {
       action: 'edit_node',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
@@ -269,7 +271,7 @@ describe.skipIf(!hasProject || !hasGodot)('E2E: scene CRUD (Godot-dependent)', (
       properties: { visible: false },
     });
     expect(r.isError).toBe(false);
-  });
+  }, 30000);
 
   it('save_scene: persists changes', async () => {
     const r = await callTool('scene', {

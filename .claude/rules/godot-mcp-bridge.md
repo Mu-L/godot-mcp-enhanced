@@ -81,6 +81,20 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | `find_ui_elements` | 查找可见 Control 节点（pattern / type / visible_only / limit） |
 | `click_button` | 点击按钮（text 或 path） |
 
+### 工具组管理 — manage_tools
+
+| action | 说明 |
+|--------|------|
+| `list_groups` | 列出所有工具组及其启用/停用状态 |
+| `activate` | 启用指定工具组（按名称） |
+| `deactivate` | 停用指定工具组（按名称） |
+| `sync` | 返回各工具组的 `requires` 连接状态（editor/bridge/headless） |
+| `reconnect` | 触发 EditorConnection 重新连接（bridge 无持久连接，no-op） |
+
+**行为说明**：
+- `reconnect` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
+- `sync` 返回结构：`{ groups: [{ name, requires, status }, ...], editor: { installed, connected, state }, bridge: { note } }`。其中 **status**:editor 组 = `connected`/`disconnected`(基于 editor 连接);bridge 组 = `probe-required`(用 `game_query(method=ping)` 探测);无 requires 组(core/animation/ui 等)= `n/a`。**editor.state**:连上时用 healthMonitor(工具调用健康),未连报 `disconnected`,未启动报 `null`。**editor.installed** = editorConn 是否注入(launch_editor 后 true)。
+
 ## 使用指南
 
 ### 安装流程
@@ -196,7 +210,7 @@ game_query(method="ping")
 - **Bridge 未安装**：调用 game_query/input/write/wait 前必须先 game_bridge_install。安装是一次性的（写入 project.godot autoload）。
 - **游戏未运行**：Bridge autoload 只在游戏运行时监听。编辑器模式（编辑场景）不会启动 Bridge。
 - **密钥文件权限**：Windows 上可能需要 icacls 权限。Linux/macOS 上自动 chmod 0600。
-- **密钥权限循环**：Bridge 首次运行后将密钥文件权限收紧为只读（Windows: `(R)` only），导致后续启动时无法重写密钥而中止（"Failed to write secret — aborting Bridge startup"）。**解决**：手动恢复写入权限 `icacls ".godot/mcp_bridge_9081.secret" /grant "%USERNAME%:(W)"`，或删除密钥文件让 Bridge 重新生成。
+- **密钥权限循环**：Bridge 首次运行后将密钥文件权限收紧为只读（Windows: `(R)` only），导致后续启动时无法重写密钥而中止（"Failed to write secret — aborting Bridge startup"）。**解决**：手动恢复写入权限 `icacls ".godot/mcp_bridge_9081.secret" /grant "%USERNAME%:(W)"`，或删除密钥文件让 Bridge 重新生成。**S4 治本（v0.18.x+）**：设置环境变量 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`，Bridge 复用现有 secret 文件（不重生、不收紧、`_exit_tree` 不删除），彻底打破权限循环并与 MCP 端 5min TTL 缓存保持同步。仅本地测试用（安全降级，生产保持默认 false）。
 - **节点路径必须用绝对路径**：`game_write`、`game_wait` 等的 `path` 参数必须以 `/root/` 开头（如 `/root/Main/Player`），不接受 `root/Main/Player` 格式。`game_query(method="get_tree")` 返回的路径可用于参考。
 - **与录制系统**：recording_start 依赖 Bridge 连接。确保 Bridge 可用后再录制。
 - **端口 9081 冲突**：如果端口被占用，需要手动修改 autoload 脚本中的端口配置。
@@ -207,4 +221,6 @@ game_query(method="ping")
 - **watch 自动断开**：事件达到 max_events 后自动断开信号连接并停止。
 - **find_ui_elements 最大返回**：默认 200，上限 500 条结果。
 - **click_button**：通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件。
+- **call_method 白名单只读（S5, v0.18.x+）**：`ALLOWED_METHODS` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。`emit_signal`/`_on_*` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 `set_node_property` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。注：`_cmd_call_method` 仍有 `args.size() > 8` 拒绝限制（>8 参数的调用/emit_signal 会失败）。
+- **send_key 已支持 physical_keycode（S6, v0.18.x+）**：`_cmd_send_key` 同时设 `keycode` + `physical_keycode`，触发用物理键码映射的 input action（Godot 4 推荐 physical_keycode 映射）。早期版本只设 keycode，physical 映射项目（如 `ui_right` 用 physical）不触发。
 - **多用户环境不安全**：Bridge 使用 TCP 绑定 127.0.0.1 + 共享密钥认证。在单用户本地开发环境下足够安全，但在多用户共享系统（如远程开发服务器）上，localhost 通信可被同一机器上的其他用户嗅探。如需多用户隔离，考虑使用 Unix Domain Socket（仅文件权限控制访问）。

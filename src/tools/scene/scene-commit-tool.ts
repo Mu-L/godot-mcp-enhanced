@@ -2,13 +2,13 @@
 // P2: MCP tool wrapper for scene_commit.
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolContext, ToolResult } from '../types.js';
-import { textResult } from '../types.js';
-import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import type { ToolContext, ToolResult } from '../../types.js';
+import { textResult } from '../../types.js';
+import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
+import { executeGdscript } from '../../gdscript-executor.js';
 import { generateCommitScript, validateCommitOperations, type CommitOperation } from './scene-commit.js';
-import { acquireShortRunningSlot, releaseShortRunningSlot } from '../core/process-state.js';
-import { opsErrorResult } from './shared.js';
+import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
+import { opsErrorResult } from '../shared.js';
 
 /** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {

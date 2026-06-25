@@ -1,6 +1,6 @@
 // test/scene-commit.test.ts
 import { describe, it, expect } from 'vitest';
-import { generateCommitScript, COMMIT_OPERATIONS, validateCommitOperations } from '../src/tools/scene-commit.js';
+import { generateCommitScript, COMMIT_OPERATIONS, validateCommitOperations } from '../src/tools/scene/scene-commit.js';
 
 describe('validateCommitOperations (IMPORTANT-7)', () => {
   it('returns null for all-valid operations', () => {
@@ -331,5 +331,50 @@ describe('serializeGdValue type inference', () => {
       true,
     );
     expect(script).toContain('.position = Vector3(5, 0, 10)');
+  });
+});
+
+describe('Imp-1: scene_commit BLOCKED_PROPS (防绕过 edit_node S1 拦截)', () => {
+  it('node_property 命中 script 返回明确警告,不生成赋值(防持久化绕过)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Player', property: 'script', value: 'res://evil.gd' }],
+      true,
+    );
+    expect(script).toContain('"ok": false');
+    expect(script).toContain('blocked');
+    expect(script).not.toContain('.script = ');
+  });
+
+  it('node_property 命中 owner/name 同样拦截', () => {
+    for (const blocked of ['owner', 'name'] as const) {
+      const script = generateCommitScript(
+        'res://scenes/Level.tscn',
+        [{ op: 'node_property', path: 'Player', property: blocked, value: '/root/Main' }],
+        true,
+      );
+      expect(script).toContain('"ok": false');
+      expect(script).not.toContain(`.${blocked} = `);
+    }
+  });
+
+  it('node_add properties 含 script 被过滤,正常属性保留', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_add', type: 'Node', name: 'X', parent: '.', properties: { script: 'res://evil.gd', position: { x: 1, y: 0, z: 2 } } }],
+      true,
+    );
+    expect(script).not.toContain('.script = ');
+    expect(script).toContain('.position = Vector3(1, 0, 2)');
+  });
+
+  it('node_property 正常属性不受 BLOCKED_PROPS 影响', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Player', property: 'speed', value: 200 }],
+      true,
+    );
+    expect(script).toContain('.speed = 200');
+    expect(script).not.toContain('is blocked');  // 无 BLOCKED_PROPS 警告(模板其他处的 "ok":false 与此无关)
   });
 });
