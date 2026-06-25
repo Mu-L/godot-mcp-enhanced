@@ -11,6 +11,7 @@ describe('static-grep', () => {
     // 核验基线：module-loader 注册的 26 模块对应这些 group 主文件
     expect(GROUP_SOURCE_FILES['core']).toContain('scene.ts');
     expect(GROUP_SOURCE_FILES['animation']).toContain('animation/animation-ops.ts');
+    expect(GROUP_SOURCE_FILES['ui']).toContain('ui/ui-create.ts');
     expect(GROUP_SOURCE_FILES['physics']).toEqual(['physics-ops.ts']);
   });
 

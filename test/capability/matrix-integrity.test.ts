@@ -47,4 +47,18 @@ describe('capability matrix integrity (spec §10 L1)', () => {
       expect(hits.length, `${c.name} (group=${c.group}): 源文件存在但 scanDangerApi 无命中`).toBeGreaterThan(0);
     }
   });
+
+  it('invariant (reverse, M-2): GROUP_SOURCE_FILES 命中 danger 的组, 组内工具须标 danger-api', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    // 反向: 防 GROUP_SOURCE_FILES 命中 danger 但 matrix 未标 → silent 漏扫(R1-I-1 教训)
+    for (const [group, files] of Object.entries(GROUP_SOURCE_FILES)) {
+      const hits = scanDangerApi(files, PROJECT_ROOT);
+      if (hits.length === 0) continue;
+      const toolsInGroup = caps.filter(c => c.group === group);
+      for (const c of toolsInGroup) {
+        expect(c.securityLevel, `${c.name} (group=${group}) 源文件 danger 命中 ${hits.join(',')} 但未标 danger-api`).toBe('danger-api');
+      }
+    }
+  });
 });

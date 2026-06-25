@@ -1,5 +1,11 @@
 // src/capability/schema.ts
-/** 安全敏感度分层，驱动 L2 安全回归优先级（spec §3.1）。 */
+/**
+ * 安全敏感度分层，驱动 L2 安全回归优先级（spec §3.1）。
+ *
+ * securityLevel 按 group 级聚合（extract.ts 的 dangerGroups：组内任一源文件命中危险 API → 整组 danger-api）。
+ * meta-tool（如 manage_tools）虽自身源文件不命中危险 API，但因控制危险工具（script/project）的启停，
+ * 归入 danger-api。这是"组级风险面"语义，非"工具级"——测试资源按此优先级分配。
+ */
 export type SecurityLevel = 'danger-api' | 'guarded' | 'safe';
 
 /** 每个工具一条能力记录，四组维度（spec §3）。 */
