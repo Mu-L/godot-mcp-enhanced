@@ -17,12 +17,13 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 17 条且无重名', () => {
-    // 17 = 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
-    // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect!=0 已转 open（Task 2 spec §8 闭环）。
-    expect(FIXED_DEFECTS.length).toBe(17);
+  it('FIXED_DEFECTS 覆盖 19 条且无重名', () => {
+    // 19 = 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
+    // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect!=0 已转 open（Task 2 spec §8 闭环）
+    // + Task 3 review 闭环 +2（reconnect-degrade-fail / edit-node-blocked-props-json-pollution 从 open 移 fixed）。
+    expect(FIXED_DEFECTS.length).toBe(19);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(17);
+    expect(new Set(keys).size, '存在重名 key').toBe(19);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
