@@ -60,7 +60,7 @@ import {
   TOOL_META,
 } from '../src/tools/runtime.js';
 import { spawn } from 'child_process';
-import { killProcess, clearOutputBuffer } from '../src/core/process-state.js';
+import { killProcess, clearOutputBuffer, setProcessBusy } from '../src/core/process-state.js';
 import { isBridgeReady } from '../src/tools/game-bridge.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -392,5 +392,69 @@ describe('runtime handleTool — run_project wait_for_bridge', () => {
     const r = await handleTool('runtime', { action: 'run_project', project_path: '/p', wait_for_bridge: true, bridge_timeout: 10 }, ctx);
     expect(resultText(r)).toContain('not ready');
     expect(resultText(r)).toContain('process exited');
+  });
+});
+
+// ─── run_project — Imp-4 process replacement guard (2026-06-24 审查 Q-1) ──────
+
+describe('run_project — Imp-4 process replacement guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('Imp-4: 进程被替换后,旧进程 close 不清新进程的 busy/running 状态', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    // 模拟 procA 已被新进程 procB 替换(runningProcess 指向 procB)
+    const procB = mockProc();
+    ctx.runningProcess = procB;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    // 旧进程 procA 退出触发 close。守卫 :179 runningProcess(procB) !== procA → 不应误清 procB 状态
+    procA.emit('close', 0);
+
+    expect(setProcessBusy).not.toHaveBeenCalled();
+    expect(ctx.setRunningProcess).not.toHaveBeenCalled();
+  });
+
+  it('Imp-4: runningProcess 仍是该进程时,close 正常清 busy/running', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    // runningProcess 仍是 procA(未被替换)
+    ctx.runningProcess = procA;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    procA.emit('close', 0);
+
+    expect(setProcessBusy).toHaveBeenCalledWith(false);
+    expect(ctx.setRunningProcess).toHaveBeenCalledWith(null);
+  });
+
+  it('Imp-4: error 事件同样守卫(进程已替换不清)', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    const procB = mockProc();
+    ctx.runningProcess = procB;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    procA.emit('error', new Error('spawn failed'));
+
+    expect(setProcessBusy).not.toHaveBeenCalled();
+    expect(ctx.setRunningProcess).not.toHaveBeenCalled();
   });
 });
