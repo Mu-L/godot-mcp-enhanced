@@ -340,6 +340,28 @@ describe('delivery: scene_tree dimension', () => {
     expect(parsed.scene_tree.issues.some(i => i.message.includes('missing_sprite.png'))).toBe(true);
   });
 
+  // 回归(NEW-2/NEW-3, R2 CRITICAL): scope=script 时 resolvedScriptPath 是绝对路径,
+  // :326 preload 引用检查 + :344 batchValidate filter 仍用裸 join → 绝对路径二次拼接
+  // → 引用检查 existsSync false continue 跳过 + 绝对路径脚本被 filter 掉不进 batchValidate → 发版门禁假阴性
+  it('scope=script: absolute script_path preload 引用检查 + 语法验证不被跳过 (NEW-2/3)', async () => {
+    mkdirSync(join(tmpDir, 'scripts'), { recursive: true });
+    writeFileSync(join(tmpDir, 'scripts', 'player.gd'), 'extends Node2D\nconst _ = preload("res://missing.png")\n');
+    mockBatchValidate.mockClear();
+    const result = await handleTool('verify_delivery', {
+      project_path: tmpDir,
+      scope: 'script',
+      script_path: 'scripts/player.gd',
+      checks: { scene_tree: false, script_health: true, performance: false },
+    }, ctx);
+    const parsed = JSON.parse(result.content[0].text);
+    // NEW-3: preload 引用检查执行(修复前 :326 join 二次拼接 → existsSync false → continue 跳过)
+    expect(parsed.script_health.issues.some(i => i.message.includes('missing.png'))).toBe(true);
+    // NEW-2: batchValidate 收到正确绝对路径(修复前 :344 filter 用 join 二次拼接 → 绝对路径被滤掉 → 不调用)
+    expect(mockBatchValidate).toHaveBeenCalled();
+    const fullPaths = mockBatchValidate.mock.calls[0][2];
+    expect(fullPaths.some((p) => p === join(tmpDir, 'scripts', 'player.gd'))).toBe(true);
+  });
+
   it('scope=full: collects all .tscn files', async () => {
     writeFileSync(join(tmpDir, 'scene_a.tscn'), '[gd_scene load_steps=1 format=3]\n[node name="A" type="Node2D"]');
     mkdirSync(join(tmpDir, 'levels'), { recursive: true });

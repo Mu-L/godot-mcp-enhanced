@@ -31,6 +31,14 @@ describe('escapeTscnAttr (I-1: reject newlines)', () => {
   it('returns empty string for falsy input', () => {
     expect(escapeTscnAttr('')).toBe('');
   });
+
+  // IMPORTANT-5 (R2): escapeTscnAttr 返回值多处经 String.replace(pattern, `...${escape(...)}...`) 用作替换串。
+  // 替换串中 $&/$1/$2 是特殊模式。nodeName='$&' 会被 replace 换成"整个匹配"破坏 .tscn 结构。
+  // 转义 $ → $$ (替换串中 $$ = 字面 $),根因修复覆盖 detach/merge 所有调用点。
+  it('escapes $ to $$ for safe use in String.replace replacement strings', () => {
+    expect(escapeTscnAttr('a$b')).toBe('a$$b');
+    expect(escapeTscnAttr('$&')).toBe('$$&');
+  });
 });
 
 // I-3: GODOT_LITERAL_RE 只锚 ^ 不锚 $,导致 `Vector2(1,2) junk` 被识别为字面量,

@@ -309,21 +309,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       scriptPaths = scriptFiles.map(f => relative(projectPath, f));
     }
 
-    // Check file existence
-    // 修复: scope=script 的 scriptPaths 是 resolveWithinRoot 解析后的绝对路径(:292),
-    // join(projectPath, 绝对路径) 会拼接成 projectPath/绝对路径(重复 projectPath) → 恒 not found。
+    // resolveScriptPath: scope=script 的 scriptPaths 含 resolveWithinRoot 解析后的绝对路径(:292),
+    // join(projectPath, 绝对路径) 会二次拼接(projectPath/绝对路径) → 恒 not found。
     // (Node path.join 不像 resolve, 不处理绝对路径覆盖, 直接拼接)
-    // 绝对路径直接 existsSync, 相对路径(scope=full 的 scanFiles 相对)才 join。
+    // 绝对路径直接用, 相对路径(scope=full 的 scanFiles 相对)才 join。统一此 helper 防 NEW-2/3 类漏改。
+    const resolveScriptPath = (sp: string): string => isAbsolute(sp) ? sp : join(projectPath, sp);
+
+    // Check file existence
     for (const sp of scriptPaths) {
-      const fullPath = isAbsolute(sp) ? sp : join(projectPath, sp);
+      const fullPath = resolveScriptPath(sp);
       if (!existsSync(fullPath)) {
         issues.push({ severity: 'error', location: sp, message: `Script file not found: ${sp}` });
       }
     }
 
-    // Check preload/load references
+    // Check preload/load references (NEW-3: 绝对路径脚本的引用检查不再被裸 join 跳过)
     for (const sp of scriptPaths) {
-      const fullPath = join(projectPath, sp);
+      const fullPath = resolveScriptPath(sp);
       if (!existsSync(fullPath)) continue;
       const content = safeReadFile(fullPath);
       if (!content) continue;
@@ -340,15 +342,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
     }
 
-    // GDScript syntax validation via Godot headless parser
-    const existingScripts = scriptPaths.filter(sp => existsSync(join(projectPath, sp)));
+    // GDScript syntax validation via Godot headless parser (NEW-2: 绝对路径脚本不再被 filter 掉)
+    const existingScripts = scriptPaths.filter(sp => existsSync(resolveScriptPath(sp)));
     if (existingScripts.length > 200) {
       issues.push({ severity: 'warning', location: '(script validation)', message: `Script count (${existingScripts.length}) exceeds 200 limit; validation skipped. Set scope='script' to validate individual files.` });
     }
     if (existingScripts.length > 0 && existingScripts.length <= 200) {
       try {
         const godot = await ctx.findGodot();
-        const fullPaths = existingScripts.map(sp => join(projectPath, sp));
+        const fullPaths = existingScripts.map(sp => resolveScriptPath(sp));
         const validateResults = await batchValidateScripts(godot, projectPath, fullPaths, 30000);
         for (const r of validateResults) {
           for (const err of r.errors) {

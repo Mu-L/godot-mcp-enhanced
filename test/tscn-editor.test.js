@@ -116,6 +116,20 @@ describe('tscn-editor detachInstance', () => {
     expect(result).toMatchSnapshot('detach-instance-basic');
   });
 
+  // CRITICAL-3 (R2) 经验证不成立(push back): :441 正则 parent="([^"]+)" 的 [^"]+ 不匹配空串,
+  // parent="" 时 parentMatch=null → 走 :446 else → 正确产出 parent="nodeName"(无尾部斜杠)。
+  // 审查报告假设 parentMatch[1] 捕获空串有误([^.]+ 需 ≥1 字符)。此测试锁定正确行为,
+  // 防未来 :441 正则放松为 [^"]* 后 :444 触发真 bug(届时需 :444 加 || originalParent==='' 守卫)。
+  it('parent="" 正确走 else 分支产出 parent="nodeName"(CRITICAL-3 push back 验证)', () => {
+    const sourceEmptyParent = `[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/player.gd" id="1"]
+[node name="Player" type="CharacterBody2D"]
+[node name="Child" type="Node" parent=""]`;
+    const result = detachInstance(TARGET_TSCN, sourceEmptyParent, 'Player', '.');
+    expect(result).not.toContain('parent="Player/"');  // 无尾部斜杠(正则 [^"]+ 已挡空串)
+    expect(result).toContain('parent="Player"');  // 走 else 正确产出
+  });
+
   it('should preserve property overrides from target', () => {
     const result = detachInstance(TARGET_TSCN, SOURCE_TSCN, 'Player', '.');
 
