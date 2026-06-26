@@ -6,7 +6,7 @@ import { getErrorMessage } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { executeGdscriptTrusted } from '../../gdscript-executor.js';
 import { normalizeNodePath, sanitizeResPath, opsErrorResult, parseGdscriptResult, NON_PERSIST } from '../shared.js';
-import { ACTIONS, CONTROL_TYPES, ANCHOR_PRESETS, ERROR_CODES, DRAW_OP_KINDS } from './types.js';
+import { ACTIONS, CONTROL_TYPES, ANCHOR_PRESETS, ERROR_CODES, DRAW_OP_KINDS, findBlockedProps } from './types.js';
 import type { DrawOp, UiNodeSpec } from './types.js';
 import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScript } from './ui-create.js';
 import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } from './ui-layout.js';
@@ -233,6 +233,11 @@ export async function handleTool(
         }
         const parentPath = normalizeNodePath((args.parent_node_path as string) || 'root');
         const properties = args.properties as Record<string, unknown> | undefined;
+        const blocked = findBlockedProps(properties);
+        if (blocked.length) {
+          return opsErrorResult(ERROR_CODES.INVALID_PARAMS,
+            `Property key(s) blocked (BLOCKED_PROPS security policy): ${blocked.join(', ')}. Keys like script/owner/name/instance are not settable via UI properties.`);
+        }
         script = genUiCreateControlScript(scenePath, nodeType, nodeName, parentPath, properties);
         break;
       }
@@ -299,6 +304,11 @@ export async function handleTool(
           return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'child_name is required');
         }
         const childProperties = args.child_properties as Record<string, unknown> | undefined;
+        const blocked = findBlockedProps(childProperties);
+        if (blocked.length) {
+          return opsErrorResult(ERROR_CODES.INVALID_PARAMS,
+            `Child property key(s) blocked (BLOCKED_PROPS security policy): ${blocked.join(', ')}. Keys like script/owner/name/instance are not settable via UI properties.`);
+        }
         script = genUiContainerAddScript(scenePath, nodePath, childType, childName, childProperties);
         break;
       }

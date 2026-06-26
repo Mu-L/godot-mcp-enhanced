@@ -1,6 +1,7 @@
 // UI tool constants, types, and shared helpers.
 
 import { gdEscape, valueToGd } from '../shared.js';
+import { BLOCKED_PROPS } from '../scene/helpers.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -96,6 +97,13 @@ export type UiNodeSpec = {
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+
+/** 阶段4 同源安全: 返回 properties 中命中 BLOCKED_PROPS 的 key(script/owner/name/instance 等危险属性)。
+ * 对齐 material-ops IMP-1 / scene S1——UI 工具此前未传播此安全策略。 */
+export function findBlockedProps(properties?: Record<string, unknown>): string[] {
+  if (!properties) return [];
+  return Object.keys(properties).filter(k => BLOCKED_PROPS.has(k));
+}
 
 export function genPropertyLines(properties: Record<string, unknown>): string {
   let lines = '';

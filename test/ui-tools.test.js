@@ -12,6 +12,8 @@ import {
   genThemeCreateScript,
   genThemeSetPropertyScript,
   colorToGd,
+  findBlockedProps,
+  handleTool,
 } from '../src/tools/ui-tools.js';
 
 // ─── Actions (via schema) ─────────────────────────────────────────────────
@@ -947,5 +949,69 @@ describe('Flex Layout: validation', () => {
         type: 'Panel', name: 'R', layout: { direction: 'row' },
         children: [{ type: 'Button', name: 'B', flex: { align_self: 'middle' } }],
       })).toThrow(/INVALID_FLEX/);
+  });
+});
+
+// ─── 阶段4: UI BLOCKED_PROPS 同源对齐(对齐 material IMP-1 / scene S1) ────────
+
+describe('findBlockedProps (阶段4: UI BLOCKED_PROPS 同源对齐)', () => {
+  it('returns [] for undefined / properties without blocked keys', () => {
+    expect(findBlockedProps(undefined)).toEqual([]);
+    expect(findBlockedProps({})).toEqual([]);
+    expect(findBlockedProps({ text: 'x', disabled: true })).toEqual([]);
+  });
+  it('detects script/owner/name/instance', () => {
+    const blocked = findBlockedProps({ script: 'x', text: 'ok', owner: 'y', instance: 'z' });
+    expect(blocked).toEqual(expect.arrayContaining(['script', 'owner', 'instance']));
+    expect(blocked).not.toContain('text');
+  });
+});
+
+describe('handleTool BLOCKED_PROPS (阶段4 路径1&2: ui_create_control / ui_container_add 前置校验)', () => {
+  const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+  it('ui_create_control rejects "script" property before exec', async () => {
+    const result = await handleTool('ui', {
+      action: 'ui_create_control', project_path: '/fake/p',
+      scene_path: '/fake/p/scene.tscn', node_type: 'Button', node_name: 'Btn',
+      properties: { script: 'res://evil.gd' },
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/blocked|BLOCKED_PROPS/i);
+  });
+  it('ui_container_add rejects "owner" child property before exec', async () => {
+    const result = await handleTool('ui', {
+      action: 'ui_container_add', project_path: '/fake/p',
+      scene_path: '/fake/p/scene.tscn', node_path: 'root/VBox',
+      child_type: 'Button', child_name: 'Btn',
+      child_properties: { owner: 'x' },
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/blocked|BLOCKED_PROPS/i);
+  });
+});
+
+describe('genUiBuildLayoutScript BLOCKED_PROPS (阶段4 路径3: 生成层过滤 + warnings)', () => {
+  it('drops "script" property, keeps safe props, emits warning', () => {
+    const tree = { type: 'Button', name: 'Btn', properties: { script: 'res://evil.gd', text: 'OK' } };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    expect(script).not.toContain('node.set("script"');
+    expect(script).toContain('node.set("text", "OK")');
+    expect(script).toContain('_mcp_output("warnings"');
+  });
+  it('drops blocked property in nested children', () => {
+    const tree = {
+      type: 'VBoxContainer', name: 'VBox',
+      children: [{ type: 'Button', name: 'Btn', properties: { instance: '1' } }],
+    };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    expect(script).not.toContain('node.set("instance"');
+    expect(script).toContain('_mcp_output("warnings"');
+  });
+  it('no blocked props -> no warnings output', () => {
+    const tree = { type: 'Button', name: 'Btn', properties: { text: 'OK' } };
+    const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
+    expect(script).not.toContain('_mcp_output("warnings"');
   });
 });

@@ -2,6 +2,7 @@
 
 import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
 import { CONTROL_TYPES, ANCHOR_PRESETS } from './types.js';
+import { BLOCKED_PROPS } from '../scene/helpers.js';
 import type { FlexLayout, FlexChild, UiNodeSpec } from './types.js';
 
 // ─── ui_set_layout ────────────────────────────────────────────────────────
@@ -360,9 +361,16 @@ function uiNodeToGd(spec: UiNodeSpec, parentVar: string, ownerVar: string, inden
     ? `\n${indent}node.set_anchors_preset(${ANCHOR_PRESETS[spec.anchor_preset]})`
     : '';
   const propLines = spec.properties && Object.keys(spec.properties).length > 0
-    ? '\n' + Object.entries(spec.properties).map(
-        ([k, v]) => `${indent}node.set("${gdEscape(k)}", ${valueToGd(v)})`
-      ).join('\n')
+    ? '\n' + Object.entries(spec.properties)
+        .filter(([k]) => {
+          if (BLOCKED_PROPS.has(k)) {
+            warnings.push(`properties.${k} is blocked (BLOCKED_PROPS security policy) — dropped`);
+            return false;
+          }
+          return true;
+        })
+        .map(([k, v]) => `${indent}node.set("${gdEscape(k)}", ${valueToGd(v)})`)
+        .join('\n')
     : '';
 
   let lines = `${indent}node = ClassDB.instantiate("${gdEscape(spec.type)}")
@@ -409,9 +417,18 @@ ${indent}node.name = "${gdEscape(spec.name)}"`;
   lines += `\n${indent}node.set_anchors_preset(${preset})`;
 
   if (spec.properties && Object.keys(spec.properties).length > 0) {
-    lines += '\n' + Object.entries(spec.properties).map(
-      ([k, v]) => `${indent}node.set("${gdEscape(k)}", ${valueToGd(v)})`
-    ).join('\n');
+    const safeEntries = Object.entries(spec.properties).filter(([k]) => {
+      if (BLOCKED_PROPS.has(k)) {
+        warnings.push(`properties.${k} is blocked (BLOCKED_PROPS security policy) — dropped`);
+        return false;
+      }
+      return true;
+    });
+    if (safeEntries.length > 0) {
+      lines += '\n' + safeEntries.map(
+        ([k, v]) => `${indent}node.set("${gdEscape(k)}", ${valueToGd(v)})`
+      ).join('\n');
+    }
   }
 
   lines += genFlexContainerProps(layout, indent, warnings);
