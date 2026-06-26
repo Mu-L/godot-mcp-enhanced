@@ -45,6 +45,7 @@ jobs:
           node-version: 24
           cache: 'npm'
       - run: npm ci --ignore-scripts
+      - run: npm run build  # 非"验证 build"(lint/tsc/build 验证在 Linux job),是测试运行依赖:test/helpers/tool-context.js:5 等 import build/ 产物,每 runner 文件系统独立需本地生成
       # Windows 全量 gate:game-bridge.test.ts(23/23 过,T-2 errorResult 守护在此)+ process-state
       # 等 Windows 硬编码分支(taskkill/powershell)在 Linux CI 验证不到,Windows job 填补盲区。
       # 覆盖率在此采(全量含 game-bridge.ts ~800 行,准确;Linux 排除该测试会让覆盖率断崖)。
