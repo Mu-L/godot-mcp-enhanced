@@ -64,7 +64,7 @@ export function generateRecordingFileName(): string {
   return `recording_${ts}.json`;
 }
 
-function validateEventsJson(eventsJson: string): { version: number; duration_ms: number; events: unknown[] } {
+export function validateEventsJson(eventsJson: string): { version: number; duration_ms: number; events: unknown[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(eventsJson);
@@ -78,8 +78,16 @@ function validateEventsJson(eventsJson: string): { version: number; duration_ms:
   if (typeof obj.version !== 'number' || !Array.isArray(obj.events)) {
     throw new Error('INVALID_RECORDING_FORMAT: must contain version (number) and events (array)');
   }
+  // CRITICAL-2: 事件总数上限防 DoS(百万级 events_json 致 GDScript 编辑器 OOM / TS 逐事件 sendToBridge 挂死)
+  if (obj.events.length > MAX_RECORDING_EVENTS) {
+    throw new Error(`INVALID_RECORDING_FORMAT: events array exceeds ${MAX_RECORDING_EVENTS} entries (got ${obj.events.length}) — potential DoS`);
+  }
   return obj as { version: number; duration_ms: number; events: unknown[] };
 }
+
+// CRITICAL-2 (R2): 录制事件总数上限,防恶意/失控客户端传百万级 events_json 致 GDScript 编辑器 OOM
+// 或 TS 端逐事件 sendToBridge 长时间挂死(1 万事件 × 10s delay = 28h)。与 GDScript MAX_PLAYBACK_EVENTS 对齐。
+export const MAX_RECORDING_EVENTS = 10000;
 
 // ─── GDScript Generators (save/load still use SceneTree) ────────────────────
 

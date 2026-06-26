@@ -5,6 +5,8 @@ import {
   generateRecordingFileName,
   genRecordingSaveScript,
   genRecordingLoadScript,
+  validateEventsJson,
+  MAX_RECORDING_EVENTS,
 } from '../src/tools/recording.js';
 
 // ─── getToolDefinitions ─────────────────────────────────────────────────────
@@ -149,5 +151,22 @@ describe('recording_start/stop use Bridge', () => {
   it('recording_stop handler calls sendToBridge with recording.stop method', async () => {
     const mod = await import('../src/tools/recording.js');
     expect(mod.genRecordingStopScript).toBeUndefined();
+  });
+});
+
+// CRITICAL-2 (R2): validateEventsJson 事件总数上限防 DoS(百万级 events_json OOM/挂死)
+describe('validateEventsJson (CRITICAL-2: MAX_EVENTS DoS 防护)', () => {
+  it(`rejects events array exceeding MAX_RECORDING_EVENTS (${MAX_RECORDING_EVENTS})`, () => {
+    const huge = { version: 1, duration_ms: 0, events: new Array(MAX_RECORDING_EVENTS + 1).fill({ type: 'key', keycode: 65, pressed: true, time_offset: 0 }) };
+    expect(() => validateEventsJson(JSON.stringify(huge))).toThrow(/exceeds.*potential DoS/);
+  });
+
+  it('accepts events array at MAX_RECORDING_EVENTS boundary', () => {
+    const ok = { version: 1, duration_ms: 0, events: new Array(MAX_RECORDING_EVENTS).fill({ type: 'key', keycode: 65, pressed: true, time_offset: 0 }) };
+    expect(() => validateEventsJson(JSON.stringify(ok))).not.toThrow();
+  });
+
+  it('rejects non-array events / missing version (existing validation intact)', () => {
+    expect(() => validateEventsJson(JSON.stringify({ version: 1, events: 'notarray' }))).toThrow(/must contain version/);
   });
 });

@@ -7,6 +7,9 @@ var _recording: bool = false
 var _recorded_events: Array = []
 var _record_start_time: int = 0
 
+# CRITICAL-2 (R2): 回放事件总数上限防 OOM(百万级 events_json 致编辑器崩溃),与 TS MAX_RECORDING_EVENTS 对齐
+const MAX_PLAYBACK_EVENTS := 10000
+
 func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
 
@@ -86,6 +89,9 @@ func handle_recording_play(params: Dictionary) -> Dictionary:
 	var events = parsed.get("events") if parsed is Dictionary else []
 	if events == null or not (events is Array):
 		return {"error": {"code": -32004, "message": "events_json must contain an events array"}}
+	# CRITICAL-2 (R2): 事件总数上限防 OOM(恶意/失控客户端传百万级 events_json)
+	if events.size() > MAX_PLAYBACK_EVENTS:
+		return {"error": {"code": -32004, "message": "events array exceeds limit %d (got %d) — potential OOM" % [MAX_PLAYBACK_EVENTS, events.size()]}}
 
 	var speed = params.get("speed")
 	var speed_val = float(speed) if speed != null else 1.0
