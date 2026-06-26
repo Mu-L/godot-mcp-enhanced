@@ -5,6 +5,7 @@ import { requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, sanitizeResPath, validateIdentifier } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { BLOCKED_PROPS } from './scene/helpers.js';  // IMP-1 (2026-06-26 review): 复用 scene BLOCKED_PROPS 防 set_params 改危险属性(未来抽 shared)
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -683,6 +684,7 @@ export async function handleTool(
         return opsErrorResult('INVALID_PARAM_TYPE', 'params must be an object');
       }
         for (const [key, val] of Object.entries(params)) {
+        if (BLOCKED_PROPS.has(key)) return opsErrorResult('INVALID_PARAM_TYPE', `param "${key}" is blocked (BLOCKED_PROPS security policy: script/owner/name/instance/etc.)`);
         try {
         validateParamType(val);
       } catch (e) {

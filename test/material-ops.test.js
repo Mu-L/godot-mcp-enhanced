@@ -15,6 +15,22 @@ import {
   genShaderApplyTemplateScript,
 } from '../src/tools/material-ops.js';
 
+describe('handleTool set_params (IMP-1: BLOCKED_PROPS)', () => {
+  it('rejects blocked properties script/owner/name/instance', async () => {
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    for (const bad of ['script', 'owner', 'name', 'instance']) {
+      const result = await handleTool('material', {
+        project_path: '/fake/p', action: 'set_params',
+        node_path: 'root/Mesh', material_index: 0,
+        params: { [bad]: 'x' },
+      }, fakeCtx);
+      expect(result).toBeTruthy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.success).toBe(false);
+    }
+  });
+});
+
 // ─── Error Codes ───────────────────────────────────────────────────────────
 
 describe('MATERIAL_ERROR_CODES', () => {

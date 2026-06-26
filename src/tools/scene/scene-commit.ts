@@ -88,6 +88,13 @@ function isSafeIdentifier(s: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s);
 }
 
+// IMP-4 (2026-06-26 review): node_add 类型黑名单——阻断可发网络/系统/执行的高危类实例化。
+// 白名单(Node 子类)过于庞大难维护,改黑名单已知敏感类。未来可收紧为白名单。
+const SENSITIVE_NODE_TYPES = new Set([
+  'HTTPRequest', 'HTTPClient', 'WebSocketPeer', 'StreamPeerTLS', 'JavaScriptBridge',  // 网络
+  'Thread', 'Engine', 'OS', 'ClassDB', 'EngineDebugger', 'MainLoop', 'ResourceLoader',  // 系统/执行
+]);
+
 /**
  * Generate a complete GDScript that executes all operations in sequence,
  * optionally saves the scene, and reports structured results.
@@ -237,6 +244,11 @@ ${errAction}
         return `
 \t# --- Op ${idx}: node_add ---
 \t_results.append({"op": "node_add", "name": "${gdEscape(op.name)}", "ok": false, "error": "Invalid type name"})`;
+      }
+      if (SENSITIVE_NODE_TYPES.has(op.type)) {  // IMP-4: 阻断敏感类(网络/系统/执行)实例化
+        return `
+\t# --- Op ${idx}: node_add ---
+\t_results.append({"op": "node_add", "name": "${gdEscape(op.name)}", "ok": false, "error": "Blocked sensitive type: ${gdEscape(op.type)}"})`;
       }
       const propLines = op.properties
         ? Object.entries(op.properties)

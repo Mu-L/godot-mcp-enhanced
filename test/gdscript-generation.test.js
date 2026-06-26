@@ -9,6 +9,7 @@
  * - Expected function calls and markers
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { generateCommitScript } from '../src/tools/scene/scene-commit.js';
 
 // Mock gdscript-executor so stress test handler can run without Godot
 const _capturedScripts = [];
@@ -368,5 +369,25 @@ describe('wrapAssertionCode — GDScript assertion wrapper', () => {
     const script = wrapAssertionCode('var x = 1\n_mcp_output("k", x)', 'indent test');
     const check = hasConsistentTabIndentation(script);
     expect(check.ok, `Mixed indentation at line ${check.line}: ${check.content}`).toBe(true);
+  });
+});
+
+describe('generateCommitScript node_add (IMP-4: sensitive type blacklist)', () => {
+  it('rejects sensitive types (HTTPRequest/Thread/Engine/OS) with error in generated GDScript', () => {
+    for (const badType of ['HTTPRequest', 'Thread', 'Engine', 'OS']) {
+      const script = generateCommitScript('res://x.tscn', [
+        { op: 'node_add', parent: '.', name: 'Bad', type: badType },
+      ], false);
+      expect(script).toContain('Blocked sensitive type');
+      expect(script).toContain(badType);
+    }
+  });
+  it('allows normal Node types (Sprite2D/Node3D/Camera3D) without block', () => {
+    for (const okType of ['Sprite2D', 'Node3D', 'Camera3D']) {
+      const script = generateCommitScript('res://x.tscn', [
+        { op: 'node_add', parent: '.', name: 'Good', type: okType },
+      ], false);
+      expect(script).not.toContain('Blocked sensitive type');
+    }
   });
 });
