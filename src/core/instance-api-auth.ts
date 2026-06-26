@@ -18,7 +18,7 @@
  * 在 HTTP server 入口接线 verifyApiToken 即可。删除会破坏上述测试 + 丢失已验证逻辑，故保留并标注。
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, lstatSync, unlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { randomBytes, createHmac } from 'node:crypto';
@@ -49,14 +49,23 @@ export function getOrCreateApiSecret(): string {
 
   try {
     if (existsSync(secretPath)) {
-      const secret = readFileSync(secretPath, 'utf-8').trim();
-      if (secret.length >= 32) {
-        _cachedSecret = secret;
-        return secret;
+      // 阶段4-3 (Imp-9 对齐 editor-auth:69-73 / game-bridge:88-90): symlink 检查。
+      // 攻击者把 .api-secret 换成 symlink 指向任意 ≥32 字符文件,readFileSync follow symlink
+      // 会把目标内容当作 secret 缓存,从而控制认证密钥。lstatSync 不 follow。命中则 unlink
+      // (防下方 writeFileSync follow symlink 写目标文件) + fall through 重新生成。
+      if (lstatSync(secretPath).isSymbolicLink()) {
+        getLogger().error('security', `API secret file ${secretPath} is a symlink — refusing to read, regenerating.`);
+        try { unlinkSync(secretPath); } catch { /* best effort */ }
+      } else {
+        const secret = readFileSync(secretPath, 'utf-8').trim();
+        if (secret.length >= 32) {
+          _cachedSecret = secret;
+          return secret;
+        }
       }
     }
   } catch {
-    // 读取失败 — 重新生成
+    // 读取/lstat 失败 — 重新生成
   }
 
   // 生成新 secret (32 bytes = 256 bits)

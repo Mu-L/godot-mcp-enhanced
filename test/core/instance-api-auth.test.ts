@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -57,6 +57,30 @@ describe('instance-api-auth', () => {
       const secret = getOrCreateApiSecret();
       expect(secret.length).toBeGreaterThanOrEqual(64);
       expect(secret).not.toBe('tooshort');
+    });
+
+    // 阶段4-3 (Imp-9 对齐 editor-auth): symlink rejection
+    // 探测文件 symlink 支持(Windows 需管理员/开发者模式;CI Linux 可)
+    const SYMLINK_SUPPORTED = (() => {
+      try {
+        const d = join(tmpdir(), `sym-probe-${Date.now()}`);
+        mkdirSync(d, { recursive: true });
+        symlinkSync(join(d, 't'), join(d, 'l'));
+        rmSync(d, { recursive: true, force: true });
+        return true;
+      } catch { return false; }
+    })();
+
+    it.skipIf(!SYMLINK_SUPPORTED)('refuses to read symlinked secret, regenerates instead (阶段4-3)', () => {
+      // 攻击者把 .api-secret 换成 symlink 指向 ≥32 字符文件,试图控制/泄露 secret
+      const target = join(MOCK_HOME, 'attacker-controlled');
+      writeFileSync(target, 'x'.repeat(64), 'utf-8');
+      symlinkSync(target, join(MOCK_REGISTRY, '.api-secret'));
+
+      const secret = getOrCreateApiSecret();
+      // 不应返回 symlink 目标内容(否则攻击者控制了认证密钥)
+      expect(secret).not.toBe('x'.repeat(64));
+      expect(secret.length).toBeGreaterThanOrEqual(64);
     });
   });
 
