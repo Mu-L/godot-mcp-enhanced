@@ -1,4 +1,11 @@
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
+
+// 阶段2b IMP-11: mock bridge 以测 recording_play 回放分发(无需真实 TCP 连接)
+vi.mock('../src/tools/game-bridge.js', () => ({
+  sendToBridge: vi.fn(async () => ({ result: { ok: true } })),
+  setBridgeProjectDir: vi.fn(),
+}));
+
 import {
   getToolDefinitions,
   sanitizeRecordingFileName,
@@ -7,7 +14,9 @@ import {
   genRecordingLoadScript,
   validateEventsJson,
   MAX_RECORDING_EVENTS,
+  handleTool,
 } from '../src/tools/recording.js';
+import { sendToBridge } from '../src/tools/game-bridge.js';
 
 // ─── getToolDefinitions ─────────────────────────────────────────────────────
 
@@ -168,5 +177,37 @@ describe('validateEventsJson (CRITICAL-2: MAX_EVENTS DoS 防护)', () => {
 
   it('rejects non-array events / missing version (existing validation intact)', () => {
     expect(() => validateEventsJson(JSON.stringify({ version: 1, events: 'notarray' }))).toThrow(/must contain version/);
+  });
+});
+
+// 阶段2b IMP-11: recording_play 回放 touch 事件分发到 send_touch
+// 契约: 录制的 touch 事件 {type:"touch",position:[x,y],pressed,index} → sendToBridge('send_touch',{x,y,pressed,index})
+describe('recording_play touch (阶段2b IMP-11: touch 回放分发)', () => {
+  beforeEach(() => { vi.mocked(sendToBridge).mockClear(); });
+
+  it('replays touch event via send_touch with position/pressed/index', async () => {
+    const events = [{ type: 'touch', position: [10, 20], pressed: true, index: 0, time_offset: 0 }];
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    expect(sendToBridge).toHaveBeenCalledWith('send_touch',
+      expect.objectContaining({ x: 10, y: 20, pressed: true, index: 0 }),
+      expect.any(Number));
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.events_played).toBeGreaterThanOrEqual(1);
+  });
+
+  it('replays touch with default index 0 when omitted', async () => {
+    const events = [{ type: 'touch', position: [5, 5], pressed: false, time_offset: 0 }];
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    expect(sendToBridge).toHaveBeenCalledWith('send_touch',
+      expect.objectContaining({ x: 5, y: 5, pressed: false, index: 0 }),
+      expect.any(Number));
   });
 });

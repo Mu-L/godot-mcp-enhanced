@@ -492,6 +492,8 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_send_mouse_click(params)
 		"send_mouse_move":
 			result = _cmd_send_mouse_move(params)
+		"send_touch":
+			result = _cmd_send_touch(params)
 		"send_text":
 			result = _cmd_send_text(params)
 		"wait_for_node":
@@ -813,6 +815,20 @@ func _cmd_send_mouse_move(params: Dictionary) -> Variant:
 	event.global_position = Vector2(x, y)
 	Input.parse_input_event(event)
 	return {"success": true, "x": x, "y": y}
+
+
+# 阶段2b IMP-11: 触摸事件注入(对齐 recording_commands.gd :197 + recording.ts touch 回放契约)
+func _cmd_send_touch(params: Dictionary) -> Variant:
+	var x: float = float(params.get("x", 0))
+	var y: float = float(params.get("y", 0))
+	var pressed: bool = params.get("pressed", true)
+	var index: int = int(params.get("index", 0))
+	var event := InputEventScreenTouch.new()
+	event.position = Vector2(x, y)
+	event.pressed = pressed
+	event.index = index
+	Input.parse_input_event(event)
+	return {"success": true, "x": x, "y": y, "pressed": pressed, "index": index}
 
 
 func _cmd_send_text(params: Dictionary) -> Variant:
@@ -1336,6 +1352,8 @@ func _input(event: InputEvent) -> void:
 		_recorded_events.append({"type": "mouse_click", "position": [event.position.x, event.position.y], "button": event.button_index, "pressed": event.pressed, "time_offset": time_ms})
 	elif event is InputEventMouseMotion:
 		_recorded_events.append({"type": "mouse_move", "position": [event.position.x, event.position.y], "time_offset": time_ms})
+	elif event is InputEventScreenTouch:  # IMP-11: 触摸事件录制(对齐 recording_commands.gd :46 + _cmd_send_touch 契约)
+		_recorded_events.append({"type": "touch", "position": [event.position.x, event.position.y], "pressed": event.pressed, "index": event.index, "time_offset": time_ms})
 
 
 ## 内联安全类型检查（替代 SafeValues 类引用，autoload 环境无法引用 safe_values.gd）

@@ -354,6 +354,18 @@ export async function handleTool(
                 y: Number(posArr[1] ?? 0),
               }, 3000);
               played++;
+            } else if (evtType === 'touch') {
+              // 阶段2b IMP-11: touch 回放——对齐 GDScript recording_commands.gd :197 + bridge _cmd_send_touch 契约
+              // (position/pressed/index)。此前 touch 事件被 silently skipped(TS 侧半修复 gap)。
+              const pos = evt.position ?? evt.pos ?? [0, 0];
+              const posArr = Array.isArray(pos) ? pos : [0, 0];
+              await sendToBridge('send_touch', {
+                x: Number(posArr[0] ?? 0),
+                y: Number(posArr[1] ?? 0),
+                pressed: Boolean(evt.pressed ?? true),
+                index: Number(evt.index ?? 0),
+              }, 3000);
+              played++;
             }
             // else: skip unknown event types silently (played not incremented)
           } catch (e) {
