@@ -620,6 +620,7 @@ MIT
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.19.1** | 2026-06-27 | 版本元数据同步(manifest/plugin.cfg/README/使用指南)— 功能无变化,补 v0.19.0 npm 元数据漂移 |
 | **v0.19.0** | 2026-06-27 | R2 审查响应链 — editor 4 模块 undo_manager(nav/particle/animtree/ui Ctrl+Z 撤销) + super() IMP-4 + IMP-11 touch 双侧契约 + 安全同源 4 点(UI/audio/instance) + @748 detach 双 parent fix + 阶段1b 守卫,2894 测试 |
 | **v0.18.2** | 2026-06-18 | 安全加固 — 沙箱绕过组 + 防御深度 + 注入收敛,2670 测试 |
 | **v0.18.1** | 2026-06-14 | 功能验证审查 3 CRITICAL 修复 — parseTscn 属性/头部解析（read_scene 现正确返回结构化属性）+ game_wait 轮询等待（pollWaitCondition），2597 测试 |

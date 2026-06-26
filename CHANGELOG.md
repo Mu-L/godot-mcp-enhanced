@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-06-27
+
+### Fixed — 版本元数据同步
+
+v0.19.0 发版后版本元数据漂移修复(npm v0.19.0 基于 tag 2a48d06,manifest/plugin.cfg 仍 0.18.2):
+
+- `manifest.json` / `addons/godot_mcp_server/plugin.cfg` / `docs/使用指南.md`: 0.18.2 → 0.19.1(同步)
+- `README.md` 版本表补 v0.19.0/v0.18.2 行
+
+注: v0.19.0 npm 包元数据漂移(manifest/plugin.cfg 0.18.2),v0.19.1 彻底同步。功能无变化。
+
 ## [0.19.0] - 2026-06-27
 
 ### R2 审查响应链(12 commit, CI 全绿)
