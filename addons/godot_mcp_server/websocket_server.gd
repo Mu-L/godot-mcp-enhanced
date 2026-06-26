@@ -33,6 +33,7 @@ func set_panel(panel: Control) -> void:
 		panel.set_cancel_callback(cancel_current_operation)
 
 func _ready() -> void:
+	super()
 	_crypto = Crypto.new()
 	_heartbeat = preload("heartbeat.gd").new()
 	add_child(_heartbeat)
@@ -156,6 +157,7 @@ func _start_server() -> void:
 	push_error("[MCP] All ports (%d-%d) occupied" % [BASE_PORT, MAX_PORT])
 
 func _process(delta: float) -> void:
+	super()
 	if not _server: return
 
 	if _server.is_connection_available():
@@ -354,6 +356,7 @@ func _constant_time_compare(a: String, b: String) -> bool:
 	return result == 0
 
 func _exit_tree() -> void:
+	super()
 	set_process(false)
 	if _heartbeat:
 		_heartbeat.timeout_detected.disconnect(_on_heartbeat_timeout)

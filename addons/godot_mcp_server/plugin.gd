@@ -5,6 +5,7 @@ var websocket_server: Node
 var status_panel: Control
 
 func _enter_tree() -> void:
+	super()
 	websocket_server = preload("websocket_server.gd").new()
 	websocket_server.name = "MCPServer"
 	websocket_server.setup(self)
@@ -16,6 +17,7 @@ func _enter_tree() -> void:
 	websocket_server.set_panel(status_panel)
 
 func _exit_tree() -> void:
+	super()
 	if websocket_server and is_instance_valid(websocket_server):
 		websocket_server.set_process(false)
 		var handler = websocket_server.get_node_or_null("command_handler")
