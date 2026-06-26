@@ -155,7 +155,8 @@ describe('game-bridge error & path validation', () => {
       // emit ECONNREFUSED → _doConnect :193 reject('Bridge connection error: connect ECONNREFUSED...')
       // → sendToBridge :305 .catch 转译成 'Cannot connect to MCP Bridge...'(去 ECONNREFUSED 字样)
       // → handleTool catch :732 msg 非 ECONNREFUSED → :739 opsErrorResult(isError=true)
-      // 注::734 BRIDGE_NOT_CONNECTED 因 sendToBridge :305 抢先转译而永不命中(死代码,另议)
+      // 注:原 :734 BRIDGE_NOT_CONNECTED 死分支(sendToBridge :305 抢先转译 ECONNREFUSED)已删,
+      // ECONNREFUSED 统一走 BRIDGE_ERROR 兜底(语义丢失:游戏未运行与一般桥接错误同 code,恢复需改转译层,另开任务)
       mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
         const sock = new EventEmitter();
         (sock as any).write = vi.fn();

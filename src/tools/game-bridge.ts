@@ -730,13 +730,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return null;
     }
   } catch (err) {
-    const msg = getErrorMessage(err);
-    if (msg.includes('ECONNREFUSED')) {
-      return opsErrorResult('BRIDGE_NOT_CONNECTED', 'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?', {
-        suggestion: 'Ensure: 1) game_bridge_install has been called, 2) the game is running (F5 or run_project), 3) check project .godot/ for mcp_bridge_9081.secret.',
-      });
-    }
-    return opsErrorResult('BRIDGE_ERROR', msg);
+    // ECONNREFUSED 已被 sendToBridge:305 转译成 'Cannot connect to MCP Bridge...'(抹掉 ECONNREFUSED 字样),
+    // 故此处无法按 ECONNREFUSED 分类,统一 BRIDGE_ERROR 兜底。游戏未运行与一般桥接错误同归 BRIDGE_ERROR
+    // (恢复 BRIDGE_NOT_CONNECTED 语义需改 sendToBridge 转译层让错误信号穿越,另开任务)。
+    return opsErrorResult('BRIDGE_ERROR', getErrorMessage(err));
   }
 }
 

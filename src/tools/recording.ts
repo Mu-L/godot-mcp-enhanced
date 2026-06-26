@@ -369,11 +369,8 @@ export async function handleTool(
     const msg = getErrorMessage(err);
     if (msg.includes('INVALID_FILE_NAME')) return opsErrorResult('INVALID_FILE_NAME', msg);
     if (msg.includes('traversal')) return opsErrorResult('INVALID_FILE_NAME', msg);
-    if (msg.includes('ECONNREFUSED')) {
-      return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?', {
-        suggestion: 'Ensure: 1) game_bridge_install has been called, 2) the game is running (F5 or run_project), 3) check project .godot/ for mcp_bridge_9081.secret.',
-      });
-    }
+    // ECONNREFUSED 已被 sendToBridge:305 转译(抹掉字样),此分类分支不可达,已删。
+    // 游戏未运行场景统一走末尾 SCRIPT_EXEC_FAILED 兜底(恢复 BRIDGE_NOT_CONNECTED 语义需改转译层,另开任务)。
     if (msg.includes('Bridge secret not found')) {
       return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?', {
         suggestion: 'Ensure: 1) game_bridge_install has been called, 2) the game is running (F5 or run_project), 3) check project .godot/ for mcp_bridge_9081.secret.',
