@@ -24,10 +24,14 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
     const longRunning = meta?.long_running ?? false;
     const guarded = isGuardedTool(tool.name);
 
-    const requiredParams: string[] = Array.isArray((tool.inputSchema as any)?.required)
-      ? (tool.inputSchema as any).required
-      : [];
-    const propKeys = Object.keys((tool.inputSchema as any)?.properties ?? {});
+    // inputSchema 是未知形状的 JSON Schema，断言到所需字段子集（复用 middleware.ts:128 的模式，避免 any）。
+    const schema = tool.inputSchema as {
+      required?: string[];
+      properties?: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    const requiredParams: string[] = Array.isArray(schema.required) ? schema.required : [];
+    const propKeys = Object.keys(schema.properties ?? {});
     const optionalParams = propKeys.filter(k => !requiredParams.includes(k));
 
     const groupRequires = (TOOL_GROUPS[group]?.requires ?? []) as ('bridge' | 'editor' | 'headless')[];
