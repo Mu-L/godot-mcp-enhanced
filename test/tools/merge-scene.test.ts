@@ -90,6 +90,27 @@ tooltip = "Click ExtResource(\\"2\\") to continue"`;
     expect(result).toContain('tooltip = "Click ExtResource(\\"2\\") to continue"');
   });
 
+  // @739 双侧固化: SubResource 字面量对偶(CRITICAL-1 ExtResource 测试同护城河 [^"]+)。
+  // 正则 SubResource\("([^"]+)"\) 同样要求 (" 紧邻,字面量 \(\" 不匹配 → 不篡改。
+  it('[@739 验证] 字符串字面量里的 SubResource(\\\"id\\") 不被误替换(转义引号防正则匹配)', () => {
+    const oursSub = `[gd_scene load_steps=3 format=3]
+
+[sub_resource type="BoxShape3D" id="1"]
+size = Vector3(1, 1, 1)
+
+[node name="Root" type="Node3D"]`;
+    const theirsSub = `[gd_scene load_steps=3 format=3]
+
+[sub_resource type="SphereShape3D" id="1"]
+radius = 2.0
+
+[node name="Tip" type="Label" parent="."]
+tooltip = "Shape SubResource(\\"1\\") shown"`;
+    const result = mergeTscn(oursSub, theirsSub);
+    // subIdMap["1"]="2"(BoxShape ours id=1 碰 SphereShape theirs id=1 → 重映射),字面量转义 SubResource(\"1\") 应保持
+    expect(result).toContain('tooltip = "Shape SubResource(\\\"1\\") shown"');
+  });
+
   it('应合并 sub_resource 段', () => {
     const withSub = `[gd_scene load_steps=3 format=3]
 
