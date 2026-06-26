@@ -35,6 +35,26 @@ jobs:
           files: ./coverage/lcov.info
           fail_ci_if_error: false
 
+  # Phase 1 探测(issue #15):Windows CI 实测 singleFork 是否解 libuv fs-event abort。
+  # continue-on-error 非阻塞 — 收集 abort/game-bridge 通过率数据,稳定后升级 required。
+  # 根因:windows-runner Azure VM 上 Node libuv fs-event.c:72 abort(本地零复现,CI windows-latest
+  # 稳定 abort,PR14 C 去 coverage 仍 abort)。singleFork 单进程减 fs.watch 实例,PR14 未试杠杆。
+  # 守护 game-bridge.test.ts(Linux 排除,25 case)+ process-state Windows 硬编码。详见 issue #15。
+  windows-check:
+    name: check (Windows, singleFork probe)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+      - run: npm ci --ignore-scripts
+      - run: npm run build  # 测试依赖 build/ 产物(如 test/helpers/tool-context.js:5 import build/helpers.js)
+      - run: npx vitest run --poolOptions.forks.singleFork=true
+
   # 第3项-B: 用真实 Godot 跑 E2E,避免 describe.skipIf(!hasGodot) 静默跳过导致的"全绿幻觉"
   e2e-godot:
     name: E2E (real Godot)
