@@ -118,6 +118,7 @@ export class EditorConnection {
   private readonly editorSecret: string | null;
   private authenticated = false;
   private authFailureCount = 0;
+  private authFailed = false;  // IMP-8 (2026-06-26 review): 显式认证失败标志,加固 close handler wasConnected 判断(防 connectAttempt 边缘误判)
   private authLockoutUntil = 0;
 
   constructor(private readonly options: EditorConnectionOptions) {
@@ -185,6 +186,7 @@ export class EditorConnection {
           try {
             await this.performAuth();
             this.authFailureCount = 0; // Reset on success
+          this.authFailed = false;
           } catch (authErr) {
             this.authFailureCount++;
             if (this.authFailureCount >= MAX_AUTH_FAILURES) {
@@ -197,6 +199,7 @@ export class EditorConnection {
             // so close handler sees wasConnected=true and would call scheduleReconnect.
             // Setting reconnectEnabled=false blocks that cycle.
             this.reconnectEnabled = false;
+            this.authFailed = true;  // IMP-8: 显式标记,close handler 据此跳过重连
             this.ws = null;
             ws.removeAllListeners();
             ws.terminate();
@@ -237,7 +240,7 @@ export class EditorConnection {
         this.pending.clear();
         // Don't clear notificationHandlers — they need to survive reconnect
         // C-02: Only reconnect if we were fully authenticated — don't reconnect on auth failure
-        const wasConnected = !this.connectAttempt && this.authenticated;
+        const wasConnected = !this.connectAttempt && this.authenticated && !this.authFailed;  // IMP-8: authFailed 时不算 wasConnected,防重连
         this.fireDisconnect();
         if (wasConnected && this.reconnectEnabled) this.scheduleReconnect();
         this.connectAttempt = false;

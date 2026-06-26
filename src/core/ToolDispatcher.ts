@@ -292,9 +292,12 @@ export class ToolDispatcher {
         return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride));
       }
 
-      // ── 3. 确认令牌检查 ──
-      if (requiresConfirmation(name, args)) {
-        const token = createPendingToken(name, args);
+      // ── 3. 确认令牌检查（IMP-6: 前置 legacy 映射，防 legacy name 如 remove_node 绕过 guard）──
+      const legacyMap = tryLegacyMapping(name);
+      const guardName = legacyMap?.tool ?? name;
+      const guardArgs = legacyMap ? { ...args, action: legacyMap.action } : args;
+      if (requiresConfirmation(guardName, guardArgs)) {
+        const token = createPendingToken(name, args);  // 原始 name/args(confirm_and_execute 执行用)
         return {
           content: [{
             type: 'text',
