@@ -39,10 +39,12 @@ describe('requiresConfirmation', () => {
   it('still requires confirmation for edit_script with empty search_and_replace', () => {
     expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: {} })).toBe(true);
   });
-  it('returns false for scene actions not in guard set', () => {
-    expect(requiresConfirmation('scene', { action: 'add_node' })).toBe(false);
+  it('CRITICAL-1: scene write actions guarded, read not', () => {
+    expect(requiresConfirmation('scene', { action: 'add_node' })).toBe(true);
+    expect(requiresConfirmation('scene', { action: 'edit_node' })).toBe(true);
+    expect(requiresConfirmation('scene', { action: 'create_3d_node' })).toBe(true);
+    expect(requiresConfirmation('scene', { action: 'commit' })).toBe(true);
     expect(requiresConfirmation('scene', { action: 'read_scene' })).toBe(false);
-    expect(requiresConfirmation('scene', { action: 'edit_node' })).toBe(false);
   });
   it('returns true for animation.delete', () => {
     expect(requiresConfirmation('animation', { action: 'delete' })).toBe(true);
@@ -54,9 +56,11 @@ describe('requiresConfirmation', () => {
   it('returns true for tilemap.tilemap_clear', () => {
     expect(requiresConfirmation('tilemap', { action: 'tilemap_clear' })).toBe(true);
   });
-  it('returns false for tilemap.tilemap_read', () => {
+  it('CRITICAL-1: tilemap write actions guarded, read/copy not', () => {
     expect(requiresConfirmation('tilemap', { action: 'tilemap_read' })).toBe(false);
-    expect(requiresConfirmation('tilemap', { action: 'tilemap_set_cell' })).toBe(false);
+    expect(requiresConfirmation('tilemap', { action: 'tilemap_copy' })).toBe(false);
+    expect(requiresConfirmation('tilemap', { action: 'tilemap_set_cell' })).toBe(true);
+    expect(requiresConfirmation('tilemap', { action: 'tilemap_fill_rect' })).toBe(true);
   });
   it('returns true for game.game_bridge_install', () => {
     expect(requiresConfirmation('game', { action: 'game_bridge_install' })).toBe(true);
@@ -75,10 +79,35 @@ describe('requiresConfirmation', () => {
   it('returns true for runtime.stop_project', () => {
     expect(requiresConfirmation('runtime', { action: 'stop_project' })).toBe(true);
   });
-  it('returns false for runtime.get_godot_version', () => {
+  it('CRITICAL-1: runtime execute guarded, read not', () => {
     expect(requiresConfirmation('runtime', { action: 'get_godot_version' })).toBe(false);
-    expect(requiresConfirmation('runtime', { action: 'run_tests' })).toBe(false);
+    expect(requiresConfirmation('runtime', { action: 'get_debug_output' })).toBe(false);
+    expect(requiresConfirmation('runtime', { action: 'run_tests' })).toBe(true);
+    expect(requiresConfirmation('runtime', { action: 'record_play' })).toBe(true);
   });
+  it('CRITICAL-1: guards high-risk write/execute across tools (game_write/material/particles/nav/signal/ui/physics)', () => {
+    expect(requiresConfirmation('game', { action: 'game_write', method: 'call_method' })).toBe(true);
+    expect(requiresConfirmation('material', { action: 'set_params' })).toBe(true);
+    expect(requiresConfirmation('material', { action: 'shader_write' })).toBe(true);
+    expect(requiresConfirmation('particles', { action: 'particles_create' })).toBe(true);
+    expect(requiresConfirmation('nav', { action: 'create_region' })).toBe(true);
+    expect(requiresConfirmation('signal', { action: 'signal_emit' })).toBe(true);
+    expect(requiresConfirmation('ui', { action: 'ui_create_control' })).toBe(true);
+    expect(requiresConfirmation('physics', { action: 'collision_overlay' })).toBe(true);
+  });
+
+  it('CRITICAL-1: does not guard read/boundary actions (game_input/signal_connect/audio_play)', () => {
+    expect(requiresConfirmation('game', { action: 'game_query' })).toBe(false);
+    expect(requiresConfirmation('game', { action: 'game_input' })).toBe(false);
+    expect(requiresConfirmation('signal', { action: 'signal_list' })).toBe(false);
+    expect(requiresConfirmation('signal', { action: 'signal_connect' })).toBe(false);
+    expect(requiresConfirmation('audio', { action: 'audio_play' })).toBe(false);
+    expect(requiresConfirmation('audio', { action: 'audio_query' })).toBe(false);
+    expect(requiresConfirmation('physics', { action: 'raycast' })).toBe(false);
+    expect(requiresConfirmation('material', { action: 'read' })).toBe(false);
+    expect(requiresConfirmation('nav', { action: 'query_path' })).toBe(false);
+  });
+
   it('returns false for non-guarded tools', () => {
     expect(requiresConfirmation('validation')).toBe(false);
     expect(requiresConfirmation('workflow')).toBe(false);

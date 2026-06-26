@@ -50,21 +50,27 @@ function ensureCleanupTimer(): void {
 // router and uses the old name directly (e.g. 'remove_node'), the guard WILL NOT catch it.
 // GodotServer.handleToolCall() is the single entry point and always resolves to merged names.
 export const GUARDED: Record<string, Set<string> | null> = {
-  scene: new Set(['remove_node', 'save_scene', 'detach_instance', 'merge_scene']),
-  // DESIGN DECISION: Using explicit Set (whitelist) instead of null (block-all).
-  // New script actions will default to NOT requiring confirmation. When adding
-  // destructive actions, explicitly add them here. Read-only actions (read_script)
-  // are intentionally exempt.
-  //
-  // Known script actions and their guard status:
-  //   GUARDED: write_script, edit_script, execute_gdscript, project_replace,
-  //            generate_test, create_test_scene
-  //   EXEMPT:  read_script (read-only)
+  // CRITICAL-1 (2026-06-26 review, issue #15): GUARDED 扩到所有写/删除/执行类 action。
+  // 原 confirm-token-trust-broken fix-forward 要求。读/查询不守;边界(input/monitor/click_button/
+  // signal_connect/audio_play 等运行时输入/短期控制)不守。详见 docs/review-fix-backlog-2026-06-26.md。
+  scene: new Set([
+    'create_scene', 'quick_scene', 'add_node', 'batch_add_nodes', 'edit_node',
+    'remove_node', 'save_scene', 'load_sprite', 'instance_scene',
+    'set_instance_property', 'detach_instance', 'merge_scene', 'create_3d_node', 'commit',
+  ]),
+  // script: edit_script 的 search_and_replace 模式在 requiresConfirmation 内豁免(非破坏性,内容匹配)
   script: new Set(['write_script', 'edit_script', 'execute_gdscript', 'project_replace', 'generate_test', 'create_test_scene']),
-  animation: new Set(['delete']),
-  tilemap: new Set(['tilemap_clear']),
-  game: new Set(['game_bridge_install', 'game_bridge_uninstall']),
-  runtime: new Set(['run_project', 'launch_editor', 'stop_project']),
+  animation: new Set(['create', 'delete', 'update_props', 'add_track', 'remove_track', 'add_keyframe', 'remove_keyframe', 'update_keyframe', 'ik_modifier_create', 'ik_modifier_set']),
+  tilemap: new Set(['tilemap_set_cell', 'tilemap_erase_cell', 'tilemap_fill_rect', 'tilemap_clear', 'tilemap_paste', 'tilemap_set_transform']),
+  game: new Set(['game_bridge_install', 'game_bridge_uninstall', 'game_write']),  // game_write: set_node_property/call_method(任意方法 RPC,最高危,不经 execute_gdscript 沙箱)
+  material: new Set(['set_params', 'create', 'save', 'load', 'shader_write', 'shader_load_file', 'shader_save_file', 'shader_apply_template']),
+  particles: new Set(['particles_create', 'particles_set_emission', 'particles_set_process', 'particles_load_preset', 'particles_set_material']),
+  signal: new Set(['signal_emit']),  // connect/disconnect 边界不守;emit 触发已连接回调
+  nav: new Set(['create_region', 'bake_mesh', 'create_agent', 'set_params', 'create_link']),
+  audio: new Set(['audio_set_param']),  // play/stop 短期执行不守
+  ui: new Set(['ui_create_control', 'ui_set_layout', 'ui_anchor_preset', 'ui_set_theme', 'ui_container_add', 'theme_create', 'theme_set_property', 'ui_draw_recipe', 'ui_build_layout']),
+  physics: new Set(['collision_overlay']),  // raycast/body_info/diagnose/query_spatial 读
+  runtime: new Set(['run_project', 'launch_editor', 'stop_project', 'run_tests', 'record_start', 'record_stop', 'record_play', 'record_save']),
 };
 
 export function requiresConfirmation(toolName: string, args?: Record<string, unknown>): boolean {
