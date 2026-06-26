@@ -11,9 +11,10 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        # 仅测 Node 24:vitest 4.1.7 在 Node 22 全量运行时 vi.mock 内置模块跨文件隔离失效
-        # (非代码 bug;Node 24 全量 2852 全过,Node 22 单文件也过,仅全量跨文件泄漏)。
-        # 若未来升 vitest 修复该隔离问题,可恢复 [22, 24]。详见 PR #14 调查。
+        # matrix 收窄 [24]:CI Linux 上 vitest 4.1.x vi.mock 内置模块跨文件隔离失效(平台敏感,
+        # 版本无关——本地 Windows 4.1.7/4.1.9 双版本全量 2852 全过为铁证)。已合并 game-bridge
+        # 两测试文件规避 net mock 跨文件碰撞(test/game-bridge.test.ts)。engines>=18 声明不变。
+        # B 验证绿后可恢复 [22, 24]。详见 PR #14 调查。
         node-version: [24]
     steps:
       - uses: actions/checkout@v4
