@@ -128,6 +128,54 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
+  describe('739: catch 兜底非 ECONNREFUSED → isError=true (issue #15 遗留)', () => {
+    it('bridge 连接 error(非 ECONNREFUSED) → catch 兜底 opsErrorResult(isError=true, BRIDGE_ERROR)', async () => {
+      // sock 连接后 emit 非 ECONNREFUSED 错误 → _doConnect :193 reject('Bridge connection error: ...')
+      // → bridgeAction reject → handleTool catch(:732) → msg 非 ECONNREFUSED → :739 opsErrorResult
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        const sock = new EventEmitter();
+        (sock as any).write = vi.fn();
+        (sock as any).destroy = vi.fn();
+        queueMicrotask(() => {
+          if (typeof cb === 'function') cb();  // connectListener 触发 auth write
+          sock.emit('error', new Error('connection reset'));  // 非 ECONNREFUSED
+        });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(result).not.toBeNull();
+      expect(result!.isError).toBe(true);
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_ERROR');
+      expect(parsed.error).toContain('connection reset');
+    });
+
+    it('ECONNREFUSED → sendToBridge 转译友好消息 + 739 兜底 isError(端到端守护)', async () => {
+      // emit ECONNREFUSED → _doConnect :193 reject('Bridge connection error: connect ECONNREFUSED...')
+      // → sendToBridge :305 .catch 转译成 'Cannot connect to MCP Bridge...'(去 ECONNREFUSED 字样)
+      // → handleTool catch :732 msg 非 ECONNREFUSED → :739 opsErrorResult(isError=true)
+      // 注::734 BRIDGE_NOT_CONNECTED 因 sendToBridge :305 抢先转译而永不命中(死代码,另议)
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        const sock = new EventEmitter();
+        (sock as any).write = vi.fn();
+        (sock as any).destroy = vi.fn();
+        queueMicrotask(() => {
+          if (typeof cb === 'function') cb();
+          sock.emit('error', new Error('connect ECONNREFUSED 127.0.0.1:9081'));
+        });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(result).not.toBeNull();
+      expect(result!.isError).toBe(true);
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error).toContain('Cannot connect to MCP Bridge');
+      expect(parsed.error).not.toContain('ECONNREFUSED');  // 友好转译,不泄露原始错误码给用户
+    });
+  });
+
   describe('N-1: sendToBridge once 监听器不泄漏', () => {
     it('多次成功调用后 error/close listener 不累积(只留 _doConnect 持久监听)', async () => {
       setupBridgeSocket('result');

@@ -736,7 +736,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         suggestion: 'Ensure: 1) game_bridge_install has been called, 2) the game is running (F5 or run_project), 3) check project .godot/ for mcp_bridge_9081.secret.',
       });
     }
-    return textResult(`Error: ${msg}`);
+    return opsErrorResult('BRIDGE_ERROR', msg);
   }
 }
 

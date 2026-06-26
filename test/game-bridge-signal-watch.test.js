@@ -57,7 +57,8 @@ describe('game-bridge signal watch', () => {
         signal_name: 'pressed',
       }, { opsScript: '' });
       expect(result).toBeDefined();
-      expect(result.content[0].text).toContain('Error');
+      expect(result.isError).toBe(true);  // 739: catch 兜底设 isError(原 textResult 缺)
+      expect(result.content[0].text).toContain('error_code');  // 结构化 opsErrorResult(非 textResult)
     });
 
     it('should handle watch_stop when bridge is unavailable', async () => {
