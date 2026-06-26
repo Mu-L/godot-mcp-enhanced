@@ -4,6 +4,7 @@
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
+import { buildSafeEnv } from '../helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -43,7 +44,9 @@ export function launchDashboardOnce(): void {
   try {
     if (platform === 'win32') {
       // Windows: use powershell Start-Process for reliable new-window launch
-      const childEnv = { ...process.env, GODOT_MCP_NO_DASHBOARD: '1' };
+      // IMP-9 (2026-06-26 review): 用 buildSafeEnv 过滤敏感 env（GODOT_MCP_UNRESTRICTED/
+      // GODOT_MCP_ALLOW_UNSAFE/ALLOW_EXECUTE_GDSCRIPT 等），dashboard 子进程不得解锁自身限制。
+      const childEnv = { ...buildSafeEnv(), GODOT_MCP_NO_DASHBOARD: '1' };
       try {
         // IMPORTANT-1: PowerShell 单引号字面量转义(' → ''),防止安装路径含单引号
         // (如用户名 O'Brien)闭合 PS 字符串导致启动失败/命令注入
@@ -80,6 +83,7 @@ export function launchDashboardOnce(): void {
       spawnDetached('osascript', ['-e', `tell application "Terminal"\ndo script "node " & quoted form of "${dashboardPath}"\nactivate\nend tell`], {
         detached: true,
         stdio: 'ignore',
+        env: buildSafeEnv(),
       });
     } else {
       // Linux: 尝试常见终端模拟器
@@ -96,7 +100,7 @@ export function launchDashboardOnce(): void {
         const probe = spawnSync(bin, ['--version'], { stdio: 'ignore' });
         if (probe.error) continue;
         try {
-          spawnDetached(bin, args, { detached: true, stdio: 'ignore' });
+          spawnDetached(bin, args, { detached: true, stdio: 'ignore', env: buildSafeEnv() });
           break; // 成功 spawn 第一个可用终端后停止
         } catch {
           // 同步错误（极少见），尝试下一个

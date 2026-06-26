@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-// mock child_process —— launcher 不应真正启动终端
-vi.mock('child_process', () => ({
-  spawn: vi.fn(() => ({ unref: vi.fn(), on: vi.fn() })),
-  spawnSync: vi.fn(() => ({ error: null, status: 0, stdout: '', stderr: '' })),
-}));
+// mock child_process —— launcher 不应真正启动终端。
+// IMP-9 (2026-06-26 review): launcher 现经 buildSafeEnv 依赖 helpers.ts,
+// helpers.ts:57 顶层 promisify(execFile) 需要 execFile,故改 partial mock:
+// execFile 等用真实模块,仅覆盖 launcher 实际驱动的 spawn/spawnSync。
+vi.mock('child_process', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    spawn: vi.fn(() => ({ unref: vi.fn(), on: vi.fn() })),
+    spawnSync: vi.fn(() => ({ error: null, status: 0, stdout: '', stderr: '' })),
+  };
+});
 
 const ORIG_PLATFORM = process.platform;
 const ORIG_ENV = { ...process.env };
