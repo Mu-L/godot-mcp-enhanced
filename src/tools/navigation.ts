@@ -369,6 +369,7 @@ export async function handleTool(
       case 'create_region': {
         const nodeName = args.name as string;
         if (!nodeName) return opsErrorResult('INVALID_PARAMS', 'name is required');
+        if (!/^[A-Za-z0-9_]+$/.test(nodeName)) return opsErrorResult('INVALID_PARAMS', 'name must be a safe identifier (letters/digits/_ only, no "/")');  // IMP-5 (2026-06-26 review): 防 / 破坏 NodePath 语义
         const parentPath = normalizeNodePath((args.parent as string) || 'root');
         const position = args.position ? validateVector3(args.position) : { x: 0, y: 0, z: 0 };
         const bake = args.bake === true;
@@ -383,6 +384,7 @@ export async function handleTool(
       case 'create_agent': {
         const nodeName = args.name as string;
         if (!nodeName) return opsErrorResult('INVALID_PARAMS', 'name is required');
+        if (!/^[A-Za-z0-9_]+$/.test(nodeName)) return opsErrorResult('INVALID_PARAMS', 'name must be a safe identifier (letters/digits/_ only, no "/")');  // IMP-5 (2026-06-26 review): 防 / 破坏 NodePath 语义
         const parentPath = normalizeNodePath((args.parent as string) || 'root');
         const targetPosition = args.target_position ? validateVector3(args.target_position) : { x: 0, y: 0, z: 0 };
         const pathDesiredDistance = typeof args.path_desired_distance === 'number' ? args.path_desired_distance : 0.5;
@@ -439,6 +441,7 @@ export async function handleTool(
       case 'create_link': {
         const nodeName = args.name as string;
         if (!nodeName) return opsErrorResult('INVALID_PARAMS', 'name is required');
+        if (!/^[A-Za-z0-9_]+$/.test(nodeName)) return opsErrorResult('INVALID_PARAMS', 'name must be a safe identifier (letters/digits/_ only, no "/")');  // IMP-5 (2026-06-26 review): 防 / 破坏 NodePath 语义
         const parentPath = normalizeNodePath((args.parent as string) || 'root');
         const startPosition = validateVector3(args.start_position);
         const endPosition = validateVector3(args.end_position);

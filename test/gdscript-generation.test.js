@@ -102,6 +102,14 @@ describe('gdEscape — GDScript string escaping', () => {
     expect(gdEscape('100%')).toBe('100%%');
   });
 
+  it('escapes LS/PS line separators (U+2028/2029) to \\n (IMP-2 fix)', () => {
+    // IMP-2 (2026-06-26 review): 行分隔符 → \n,防 GDScript 词法视为行结束破坏字面量(与 scene-commit serializeGdValue 同步)
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    expect(gdEscape('a' + LS + 'b')).toBe('a\\nb');
+    expect(gdEscape('a' + PS + 'b')).toBe('a\\nb');
+  });
+
   it('escapes single quote', () => {
     expect(gdEscape("it's")).toBe("it\\'s");
   });

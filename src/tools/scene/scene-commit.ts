@@ -267,7 +267,7 @@ function serializeGdValue(value: unknown): string {
   // I-03, C-01: Escape backslash, quote, newline for GDScript string safety
   // IMPORTANT-6 (review): 补 \r \t 转义,防控制字符破坏 .gd 字符串/被解析为行结束而注入新行。
   // (% 不转义:GDScript 字符串字面量里 % 无特殊语义,仅 % 格式化操作时才特殊,转义反而破坏正常 % 字符)
-  if (typeof value === 'string') return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
+  if (typeof value === 'string') return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\u2028\u2029]/g, '\n').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;  // IMP-2: LS/PS → \n(与 gdEscape 同步)
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '0';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (value === null || value === undefined) return 'null';

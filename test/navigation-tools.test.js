@@ -75,6 +75,18 @@ describe('navigation handleTool', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('create_region action rejects unsafe name with "/" (IMP-5 fix)', async () => {
+    // IMP-5 (2026-06-26 review): nodeName 须 isSafeIdentifier,防 / 破坏 NodePath 语义
+    const result = await handleTool('nav', {
+      project_path: '/fake/project',
+      action: 'create_region',
+      name: 'bad/name',
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(false);
+  });
+
   it('set_params action rejects missing params', async () => {
     const result = await handleTool('nav', {
       project_path: '/fake/project',

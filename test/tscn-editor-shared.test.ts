@@ -22,6 +22,12 @@ describe('escapeTscnAttr (I-1: reject newlines)', () => {
     expect(escapeTscnAttr('a"b]c\\d')).toBe('a\\"b\\]c\\\\d');
   });
 
+  it('escapes [ as well as ] (IMP-3: single-line injection surface)', () => {
+    // IMP-3 (2026-06-26 review): [ 与 ] 对称转义,防含 [ 的属性值污染 .tscn [node] 头部语义
+    expect(escapeTscnAttr('a[b')).toBe('a\\[b');
+    expect(escapeTscnAttr('[node]')).toBe('\\[node\\]');
+  });
+
   it('returns empty string for falsy input', () => {
     expect(escapeTscnAttr('')).toBe('');
   });
@@ -46,6 +52,11 @@ describe('formatTscnValue (I-3: full-anchor literal detection)', () => {
     // 新行为: 完整锚定失败 → 加引号(safe fail)
     expect(formatTscnValue('Vector2(1,2) junk')).toBe('"Vector2(1,2) junk"');
     expect(formatTscnValue('ExtResource(1) extra')).toBe('"ExtResource(1) extra"');
+  });
+
+  it('escapes [ in quoted non-literal value (IMP-3 fix)', () => {
+    // IMP-3: 非字面量值经 escapeTscnValue,[ 也转义(与 ] 对称)
+    expect(formatTscnValue('a[b')).toBe('"a\\[b"');
   });
 
   it('quotes plain strings and keeps scalars unquoted', () => {

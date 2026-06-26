@@ -14,6 +14,7 @@ export function gdEscape(s: string): string {
   return s
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n')  // IMP-2 (2026-06-26 review): LS/PS(U+2028/2029)行分隔符 → \n,防 GDScript 词法视为行结束破坏字符串字面量(与 scene-commit serializeGdValue 同步)
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')

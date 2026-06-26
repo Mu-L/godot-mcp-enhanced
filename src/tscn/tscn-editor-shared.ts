@@ -32,7 +32,7 @@ export function escapeTscnAttr(value: string): string {
   // 当前 add 路径白名单(^[A-Za-z0-9_]+$)与 detach 严格相等意外阻挡了换行进入,但根因(转义函数
   // 本身不拒绝换行)是定时炸弹——任何对 findInstanceNode 的"善意"修改都会立即激活注入。此处消除根因。
   if (/[\r\n]/.test(value)) throw new Error('Attribute value must not contain newlines');
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]');
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]').replace(/\[/g, '\\[');
 }
 
 /** Detect values that are Godot expressions or primitives and should NOT be quoted in .tscn. */
@@ -58,7 +58,7 @@ export function formatTscnValue(value: string): string {
  *  Does NOT handle unquoted .tscn values or structural syntax. */
 export function escapeTscnValue(value: string): string {
   if (/[\r\n]/.test(value)) throw new Error('Value must not contain newlines');
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]');
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]').replace(/\[/g, '\\[');
 }
 
 /** Escape string for safe use in RegExp constructor */
