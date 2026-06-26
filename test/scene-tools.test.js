@@ -67,7 +67,7 @@ describe('scene-tools read_scene (tscn parsing)', () => {
   });
 
   it('parseTscn resolves the written file correctly', async () => {
-    const { parseTscn } = await import('../src/tscn-parser.js');
+    const { parseTscn } = await import('../src/tscn/tscn-parser.js');
     const content = readFileSync(sceneFile, 'utf-8');
     const parsed = parseTscn(content);
 

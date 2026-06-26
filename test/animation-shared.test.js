@@ -7,7 +7,7 @@ import {
   argsToGd,
   animErrorMapper,
   ensureNumber,
-} from '../src/tools/animation-shared.js';
+} from '../src/tools/animation/animation-shared.js';
 
 // ─── ANIM_ERROR_CODES ────────────────────────────────────────────────────────
 

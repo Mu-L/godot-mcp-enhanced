@@ -601,10 +601,37 @@ function validateUserTemplate(raw: unknown, _filePath: string): UserTemplateFile
   if (typeof t.id !== 'string' || !t.id) return null;
   if (typeof t.name !== 'string' || !t.name) return null;
   if (typeof t.code !== 'string' || !t.code.trim()) return null;
-  if (t.variables !== undefined && !Array.isArray(t.variables)) return null;
+
+  // A-2 (2026-06-24 审查): 校验数组元素结构,不只查"是数组"。不可信 .mcp-templates/ 输入。
+  // variables 元素须为 TemplateParam(name/type/default 字符串);tags/appliesTo 元素须为字符串。
+  let variables: TemplateParam[] | undefined;
+  if (t.variables !== undefined) {
+    if (!Array.isArray(t.variables)) return null;
+    variables = [];
+    for (const v of t.variables) {
+      if (!v || typeof v !== 'object') return null;
+      const vp = v as Record<string, unknown>;
+      if (typeof vp.name !== 'string' || !vp.name) return null;
+      if (typeof vp.type !== 'string') return null;
+      if (typeof vp.default !== 'string') return null;
+      variables.push({ name: vp.name, type: vp.type, default: vp.default });
+    }
+  }
   if (t.tags !== undefined && !Array.isArray(t.tags)) return null;
   if (t.appliesTo !== undefined && !Array.isArray(t.appliesTo)) return null;
-  return { ...t, description: typeof t.description === 'string' ? t.description : '' } as unknown as UserTemplateFile;
+  const tags = Array.isArray(t.tags) ? t.tags.filter((x): x is string => typeof x === 'string') : undefined;
+  const appliesTo = Array.isArray(t.appliesTo) ? t.appliesTo.filter((x): x is string => typeof x === 'string') : undefined;
+
+  return {
+    id: t.id,
+    name: t.name,
+    code: t.code,
+    description: typeof t.description === 'string' ? t.description : '',
+    ...(tags ? { tags } : {}),
+    ...(appliesTo ? { appliesTo } : {}),
+    ...(variables ? { variables } : {}),
+    ...(typeof t.godotVersion === 'string' ? { godotVersion: t.godotVersion } : {}),
+  };
 }
 
 /** 加载项目 .mcp-templates/ 目录下的用户模板 */

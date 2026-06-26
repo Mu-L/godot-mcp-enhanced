@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { addNodes } from '../src/tscn-editor.js';
-import type { AddNodeParams } from '../src/tscn-editor.js';
+import { addNodes } from '../src/tscn/tscn-editor.js';
+import type { AddNodeParams } from '../src/tscn/tscn-editor.js';
 
 const SIMPLE_SCENE = `[gd_scene load_steps=2 format=3]
 

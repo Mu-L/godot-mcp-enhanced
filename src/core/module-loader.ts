@@ -23,7 +23,7 @@ import * as tilemapOps from '../tools/tilemap-ops.js';
 import * as materialOps from '../tools/material-ops.js';
 import * as gameBridge from '../tools/game-bridge.js';
 import * as workflow from '../tools/workflow.js';
-import * as animationOps from '../tools/animation-ops.js';
+import * as animationOps from '../tools/animation/animation-ops.js';
 import * as profilerOps from '../tools/profiler-ops.js';
 // test-framework → merged into validation (v0.18.0)
 // import * as testFramework from '../tools/test-framework.js';
@@ -37,7 +37,7 @@ import * as uiOps from '../tools/ui-tools.js';
 // recording → merged into runtime (v0.18.0)
 // import * as recordingOps from '../tools/recording.js';
 import * as editorSync from '../tools/editor-sync.js';
-import * as animationTrack from '../tools/animation-track.js';
+import * as animationTrack from '../tools/animation/animation-track.js';
 // delivery → merged into validation (v0.18.0)
 // import * as delivery from '../tools/delivery.js';
 // code-templates → merged into project (v0.18.0)

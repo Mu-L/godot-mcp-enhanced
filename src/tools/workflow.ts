@@ -190,6 +190,48 @@ export function getToolDefinitions(): Tool[] {
 
 // --- Tool handler ---------------------------------------------------------------
 
+/**
+ * scene_snapshot 生成的 GDScript 脚本。提取为函数便于单元测试 _root 判空守卫(CRITICAL 防回归)。
+ * 行为与原内联 snapScript 等价(内容整体移入)。
+ */
+export function genSceneSnapshotScript(safePath: string, maxDepth: number): string {
+  return `${SCENE_TREE_HEADER}
+
+func _initialize():
+\tvar packed := load("${safePath}")
+\tif packed == null:
+\t\t_mcp_output("error", "Failed to load scene: ${safePath}")
+\t\t_mcp_done()
+\t\treturn
+\tvar instance: Node = packed.instantiate()
+\tvar _root: Node = _mcp_get_root()
+\tif _root == null:
+\t\t_mcp_output("error", "Scene root not available")
+\t\tinstance.queue_free()
+\t\t_mcp_done()
+\t\treturn
+\t_root.add_child(instance)
+\tvar data := _snap(instance, ${maxDepth}, 0)
+\t_mcp_output("snapshot", data)
+\tinstance.queue_free()
+\t_mcp_done()
+
+func _snap(node: Node, max_depth: int, depth: int) -> Dictionary:
+\tvar info := {"name": node.name, "type": node.get_class()}
+\tif node is Node2D:
+\t\tinfo["position"] = {"x": node.position.x, "y": node.position.y}
+\t\tinfo["rotation"] = node.rotation
+\tif node is Node3D:
+\t\tinfo["position"] = {"x": node.position.x, "y": node.position.y, "z": node.position.z}
+\tif depth < max_depth:
+\t\tvar ch: Array = []
+\t\tfor c in node.get_children():
+\t\t\tch.append(_snap(c, max_depth, depth + 1))
+\t\tinfo["child_count"] = ch.size()
+\treturn info
+`;
+}
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'workflow') return null;
 
@@ -468,35 +510,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       // Ensure res:// prefix for load() — sandbox allows only res:// paths
       const resPath = scenePath.startsWith('res://') ? scenePath : 'res://' + scenePath.replace(/\\/g, '/');
       const safePath = gdEscape(resPath);
-      const snapScript = `${SCENE_TREE_HEADER}
-
-func _initialize():
-\tvar packed := load("${safePath}")
-\tif packed == null:
-\t\t_mcp_output("error", "Failed to load scene: ${safePath}")
-\t\t_mcp_done()
-\t\treturn
-\tvar instance: Node = packed.instantiate()
-\t_mcp_get_root().add_child(instance)
-\tvar data := _snap(instance, ${maxDepth}, 0)
-\t_mcp_output("snapshot", data)
-\tinstance.queue_free()
-\t_mcp_done()
-
-func _snap(node: Node, max_depth: int, depth: int) -> Dictionary:
-\tvar info := {"name": node.name, "type": node.get_class()}
-\tif node is Node2D:
-\t\tinfo["position"] = {"x": node.position.x, "y": node.position.y}
-\t\tinfo["rotation"] = node.rotation
-\tif node is Node3D:
-\t\tinfo["position"] = {"x": node.position.x, "y": node.position.y, "z": node.position.z}
-\tif depth < max_depth:
-\t\tvar ch: Array = []
-\t\tfor c in node.get_children():
-\t\t\tch.append(_snap(c, max_depth, depth + 1))
-\t\tinfo["child_count"] = ch.size()
-\treturn info
-`;
+      const snapScript = genSceneSnapshotScript(safePath, maxDepth);
 
       const result = await executeGdscriptTrusted({
         godotPath: godot,
@@ -522,7 +536,9 @@ func _snap(node: Node, max_depth: int, depth: int) -> Dictionary:
       const missing: string[] = [];
 
       for (const s of scripts) {
-        const full = join(projectPath, s);
+        // issue #12: 兼容 res:// 前缀(strip → 项目相对),与 read_script 路径解析一致
+        const rel = s.startsWith('res://') ? s.slice(6) : s;
+        const full = join(projectPath, rel);
         if (existsSync(full)) {
           fullPaths.push(full);
         } else {

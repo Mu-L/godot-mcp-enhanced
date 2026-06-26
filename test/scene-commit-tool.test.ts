@@ -1,6 +1,6 @@
 // test/scene-commit-tool.test.ts
 import { describe, it, expect } from 'vitest';
-import { getToolDefinitions, TOOL_META, parseCommitResult } from '../src/tools/scene-commit-tool.js';
+import { getToolDefinitions, TOOL_META, parseCommitResult } from '../src/tools/scene/scene-commit-tool.js';
 
 describe('scene-commit-tool: definitions', () => {
   it('exports a scene_commit tool definition', () => {
@@ -25,7 +25,7 @@ describe('scene-commit-tool: definitions', () => {
   });
 
   it('handleTool returns null for unknown tool names', async () => {
-    const { handleTool } = await import('../src/tools/scene-commit-tool.js');
+    const { handleTool } = await import('../src/tools/scene/scene-commit-tool.js');
     const result = await handleTool('unknown_tool', {}, {} as any);
     expect(result).toBeNull();
   });

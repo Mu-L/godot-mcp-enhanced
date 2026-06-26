@@ -482,6 +482,13 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
+          scope: {
+            type: 'string',
+            enum: ['scene', 'script', 'full'],
+            description: '验证范围(verify_delivery 必填): scene/script/full。其他 action 忽略',
+          },
+          scene_path: { type: 'string', description: '场景路径(scope=scene,相对项目,verify_delivery)' },
+          script_path: { type: 'string', description: '脚本路径(scope=script,相对项目,verify_delivery)' },
           scene: { type: 'string', description: '可选场景文件路径（run_and_verify）' },
           timeout: { type: 'number', description: '超时秒数（默认 20）', default: 20 },
           capture_tree: { type: 'boolean', description: '同时捕获场景树快照（默认 false）', default: false },
@@ -564,7 +571,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             analyzeOpts.autoloadNames = Object.keys(autoloadSection);
           }
         }
-      } catch (err) { getLogger().debug('validation', `read autoload config: ${err instanceof Error ? err.message : err}`); }
+        // S3 (2026-06-23): 读 global_script_class_cache.cfg 提取 class_name 全局类。
+        // headless 跨文件 class_name 解析失败同样报 "Identifier X not found",需与 autoload
+        // 同归 headless_limitation,否则干净项目被误诊为真实错误(见 review-followup S3)。
+        const classCachePath = join(projectPath, '.godot', 'global_script_class_cache.cfg');
+        if (existsSync(classCachePath)) {
+          const cacheContent = readFileSync(classCachePath, 'utf-8');
+          const classNames = [...cacheContent.matchAll(/"class":\s*&?"(\w+)"/g)].map(m => m[1] as string);
+          if (classNames.length > 0) analyzeOpts.classNames = classNames;
+        }
+      } catch (err) { getLogger().debug('validation', `read autoload/class config: ${err instanceof Error ? err.message : err}`); }
 
       const analysis = analyzeOutput(allOutput, analyzeOpts);
 

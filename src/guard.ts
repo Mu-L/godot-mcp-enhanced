@@ -49,7 +49,7 @@ function ensureCleanupTimer(): void {
 // 'script', 'game') rather than legacy individual names. If a caller bypasses the merged-name
 // router and uses the old name directly (e.g. 'remove_node'), the guard WILL NOT catch it.
 // GodotServer.handleToolCall() is the single entry point and always resolves to merged names.
-const GUARDED: Record<string, Set<string> | null> = {
+export const GUARDED: Record<string, Set<string> | null> = {
   scene: new Set(['remove_node', 'save_scene', 'detach_instance', 'merge_scene']),
   // DESIGN DECISION: Using explicit Set (whitelist) instead of null (block-all).
   // New script actions will default to NOT requiring confirmation. When adding
@@ -193,4 +193,9 @@ function truncateArgs(args: Record<string, unknown>): { args: Record<string, unk
     }
   }
   return { args: out, truncated };
+}
+
+/** Whether a tool has ANY guarded action (null or Set). Used by capability matrix. */
+export function isGuardedTool(toolName: string): boolean {
+  return GUARDED[toolName] !== undefined;
 }

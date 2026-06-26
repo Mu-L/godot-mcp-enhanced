@@ -314,3 +314,46 @@ describe('autoload headless filtering', () => {
     expect(result.summary.includes('1 error')).toBeTruthy();
   });
 });
+
+// S3 (2026-06-23): class_name 全局类(PlayerData/EnemyDatabase 等非 autoload 的全局类)
+// 在 headless 下跨文件解析失败同样报 "Identifier X not found",需与 autoload 同归 headless_limitation,
+// 否则干净项目被误诊(见 docs/review-followup-2026-06-23-mcp-tools.md S3)。
+describe('class_name headless filtering (S3)', () => {
+  it('reclassifies global class_name identifier as headless_limitation', () => {
+    const result = analyzeOutput([
+      'SCRIPT ERROR: Identifier "PlayerData" not found.',
+    ], { classNames: ['PlayerData', 'EnemyDatabase', 'Battler'] });
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0].type).toBe('headless_limitation');
+    expect(result.errors[0].suggestion.includes('PlayerData')).toBeTruthy();
+    expect(!result.hasErrors).toBeTruthy();
+  });
+
+  it('does not reclassify unknown identifier', () => {
+    const result = analyzeOutput([
+      'SCRIPT ERROR: Identifier "SomeLocalVar" not found.',
+    ], { classNames: ['PlayerData', 'Battler'] });
+    expect(result.errors[0].type).toBe('script_error');
+    expect(result.hasErrors).toBeTruthy();
+  });
+
+  it('classNames combines with autoloadNames', () => {
+    const result = analyzeOutput([
+      'SCRIPT ERROR: Identifier "GameEvents" not found.',
+      'SCRIPT ERROR: Identifier "Battler" not found.',
+      'SCRIPT ERROR: Identifier "RealBug" not found.',
+    ], { autoloadNames: ['GameEvents'], classNames: ['Battler'] });
+    const types = result.errors.map(e => e.type);
+    expect(types).toContain('headless_limitation'); // GameEvents(autoload) + Battler(class)
+    expect(types).toContain('script_error'); // RealBug
+    expect(result.hasErrors).toBeTruthy();
+  });
+
+  it('works without classNames (backward compatible)', () => {
+    const result = analyzeOutput([
+      'SCRIPT ERROR: Identifier "PlayerData" not found.',
+    ]);
+    expect(result.errors[0].type).toBe('script_error');
+    expect(result.hasErrors).toBeTruthy();
+  });
+});

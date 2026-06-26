@@ -4,6 +4,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
+import { isBridgeReady } from './game-bridge.js';
 import { handleRecordingAction } from './recording.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -81,10 +82,12 @@ export function getToolDefinitions(): Tool[] {
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           timeout: { type: 'number', description: '自动停止秒数（默认 30）', default: 30 },
+          wait_for_bridge: { type: 'boolean', default: false, description: 'true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)' },
+          bridge_timeout: { type: 'number', default: 10, description: 'wait_for_bridge 轮询总预算(秒,默认 10)' },
           test_script: { type: 'string', description: '测试脚本或目录路径（默认 res://test/）', default: 'res://test/' },
           // ── Recording parameters (merged, v0.18.0) ──
           events_json: { type: 'string', description: '录制：JSON 格式的事件序列字符串' },
-          file_name: { type: 'string', description: '录制：录制文件名（仅接受 recording_*.json 格式）' },
+          file_name: { type: 'string', description: '录制保存:始终自动命名 recording_YYYYMMDD_HHmmss.json(file_name 入参被忽略);但 file_name 须匹配 recording_*.json 格式(否则 INVALID_FILE_NAME),禁止含 / \\\\ ..' },
           speed: { type: 'number', description: '录制：回放速度倍率（默认 1.0）' },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
           godot_path: { type: 'string', description: '覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）' },
@@ -123,6 +126,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(`Error: Not a Godot project (no project.godot found): ${p}`);
       }
       const timeout = Math.max(5, Number(args.timeout) || 30);
+      const waitForBridge = args.wait_for_bridge === true;
+      const bridgeTimeout = Math.max(1, Number(args.bridge_timeout) || 10);
       const godot = await ctx.findGodot();
 
       // Version mismatch warning
@@ -170,21 +175,37 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       proc.on('close', () => {
-        setProcessBusy(false);
-        ctx.setRunningProcess(null);
+        // Imp-4 (2026-06-24 审查): 守卫同 autoStopTimer(:169),避免进程被替换后误清新进程的 busy/running 状态
+        if (ctx.runningProcess === proc) {
+          setProcessBusy(false);
+          ctx.setRunningProcess(null);
+        }
         if (autoStopTimer) clearTimeout(autoStopTimer);
       });
 
       proc.on('error', (err) => {
-        setProcessBusy(false);
-        ctx.setRunningProcess(null);
+        // Imp-4: 同上守卫
+        if (ctx.runningProcess === proc) {
+          setProcessBusy(false);
+          ctx.setRunningProcess(null);
+        }
         if (autoStopTimer) clearTimeout(autoStopTimer);
         appendOutput([`Spawn error: ${err.message}`]);
       });
 
       ctx.setRunningProcess(proc, true); // skip busy check — slot acquired via acquireProcessSlot above
 
-      return textResult(warnPrefix + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
+      let bridgeMsg = '';
+      if (waitForBridge) {
+        // M3: 显式命名 ms(isBridgeReady 接收 ms;bridgeTimeout 是秒,见 :130)
+        const bridgeTimeoutMs = bridgeTimeout * 1000;
+        const r = await isBridgeReady(p, bridgeTimeoutMs, {
+          proc,
+          isCancelled: () => ctx.runningProcess !== proc,
+        });
+        bridgeMsg = r.ready ? 'Bridge ready. ' : `⚠ Bridge not ready (${r.reason}). `;
+      }
+      return textResult(warnPrefix + bridgeMsg + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
     }
 
     case 'stop_project': {

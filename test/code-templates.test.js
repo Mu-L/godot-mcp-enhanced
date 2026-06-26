@@ -238,6 +238,28 @@ describe('用户模板加载', () => {
     expect(result.length).toBe(0);
   });
 
+  it('A-2: variables 元素结构不合法(name 非字符串)被跳过', () => {
+    const tplDir = join(tmpDir, '.mcp-templates');
+    mkdirSync(tplDir, { recursive: true });
+    writeFileSync(join(tplDir, 'bad-vars.json'), JSON.stringify({
+      id: 'bad-vars', name: 'Bad', code: 'code',
+      variables: [{ name: 123, type: 'string', default: 'x' }],  // name 非字符串
+    }), 'utf-8');
+    const result = loadUserTemplates(tmpDir);
+    expect(result.length).toBe(0);  // A-2: validateUserTemplate 校验 variables 元素结构
+  });
+
+  it('A-2: variables 元素缺 type 被跳过', () => {
+    const tplDir = join(tmpDir, '.mcp-templates');
+    mkdirSync(tplDir, { recursive: true });
+    writeFileSync(join(tplDir, 'bad-vars2.json'), JSON.stringify({
+      id: 'bad-vars2', name: 'Bad', code: 'code',
+      variables: [{ name: 'v', default: 'x' }],  // 缺 type
+    }), 'utf-8');
+    const result = loadUserTemplates(tmpDir);
+    expect(result.length).toBe(0);
+  });
+
   it('getAllTemplates 合并内置 + 用户模板', () => {
     const tplDir = join(tmpDir, '.mcp-templates');
     mkdirSync(tplDir, { recursive: true });

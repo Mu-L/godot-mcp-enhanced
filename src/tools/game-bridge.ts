@@ -3,9 +3,10 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, chmo
 import { join, dirname } from 'path';
 import { userInfo } from 'os';
 import { execFileSync } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
-import { textResult, getErrorMessage } from '../types.js';
+import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
@@ -265,6 +266,11 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
             const resp = JSON.parse(line) as BridgeResponse;
             if (resp.id != null && resp.id !== id) continue;
             sock.removeListener('data', onData);
+            // N-1 (2026-06-24 审查): 成功 resolve 后移除本次 once 监听器。持久 _socket 上 error/close
+            // 健康时永不触发,once 不移除 → 每请求泄漏 2 listener → 长连接累积至 MaxListenersExceededWarning。
+            // reject 路径(onError/onClose/timeout)由 once 自动移除 + _invalidateSocket 废弃 sock,不累积。
+            sock.removeListener('error', onError);
+            sock.removeListener('close', onClose);
             // If bridge returns auth error, invalidate cached secret
             if (resp.error?.code === -32001 || resp.error?.code === -32002) {
               _cachedSecret = null;
@@ -471,11 +477,33 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
   }
 }
 
+/** T-1 (2026-06-24 审查): game_write/wait/query 的 path 参数须 /root/ 绝对路径(文档 godot-mcp-bridge.md
+ *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
+ *  返回错误消息或 null(校验通过)。 */
+function validateBridgePath(params: Record<string, unknown>): string | null {
+  // I-1 (审查反馈): 节点路径字段名混用——game_write/wait/query 用 path,monitor/watch 用 node_path,
+  // click_button 用 path。统一检查两者。无节点路径的方法(ping/get_tree/find_ui_elements 的 pattern)不校验。
+  for (const key of ['path', 'node_path'] as const) {
+    const p = params[key];
+    if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
+      return `${key} must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed node paths; see godot-mcp-bridge.md.`;
+    }
+  }
+  return null;
+}
+
 /** Shared helper: set project dir, send to bridge, format response. */
 async function bridgeAction(method: string, params: Record<string, unknown>, ctx: ToolContext, timeout: number): Promise<ToolResult> {
   ensureProjectDir(ctx, params);
+  const pathErr = validateBridgePath(params);  // I-1(审查): 覆盖 monitor/watch/click_button 的 node_path/path
+  if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
   const resp = await sendToBridge(method, params, timeout);
-  return textResult(JSON.stringify(resp.result ?? resp.error, null, 2));
+  // T-2 (2026-06-24 审查): bridge 返回 error 时(密钥失效 -32001/-32002/方法不存在等)用 errorResult
+  // (isError=true),否则 MCP 客户端误判成功吞掉错误。原 textResult 默认 isError=false。
+  if (resp.error) {
+    return errorResult(`Bridge error (${resp.error.code}): ${resp.error.message}`);
+  }
+  return textResult(JSON.stringify(resp.result, null, 2));
 }
 
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
@@ -585,6 +613,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           : {};
         const rawTimeout = clampTimeoutMs(args.timeout);
         const timeout = Math.min(rawTimeout, 60000);
+        const pathErr = validateBridgePath(params);
+        if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);  // T-1: path /root/ 前置校验
         const response = await sendToBridge(method, params, timeout);
         if (response.error) {
           // Clear cached secret on auth failure so next call re-reads from disk
@@ -592,7 +622,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (response.error.code === -32001 || response.error.code === -32002) {
             _cachedSecret = null;
           }
-          return textResult(`Bridge error (${response.error.code}): ${response.error.message}`);
+          return errorResult(`Bridge error (${response.error.code}): ${response.error.message}`);  // T-2: textResult→errorResult(isError=true)
         }
         return textResult(JSON.stringify(response.result, null, 2));
       }
@@ -612,6 +642,20 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const totalMs = clampTimeoutMs(args.timeout);
         const intervalMs = clampTimeoutMs(args.interval_ms, 50, 2000, 200);
 
+        const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
+        if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
+
+        // I-2 (审查 follow-up): wait_for_property 还需 property + value(T-1 只校验 path)。
+        // wait_for_node 只需 path,不校验。
+        if (method === 'wait_for_property') {
+          if (typeof params.property !== 'string' || !params.property) {
+            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a non-empty "property" string in params');
+          }
+          if (params.value === undefined) {
+            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a "value" in params');
+          }
+        }
+
         const result = await pollWaitCondition(
           method as 'wait_for_node' | 'wait_for_property',
           () => sendToBridge(method, params, Math.min(intervalMs * 2, totalMs)),
@@ -624,7 +668,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (code === -32001 || code === -32002) {
             _cachedSecret = null;
           }
-          return textResult(`Bridge error (${code}): ${(result.error as { message?: string }).message ?? 'wait failed'}`);
+          return errorResult(`Bridge error (${code}): ${(result.error as { message?: string }).message ?? 'wait failed'}`);  // T-2: textResult→errorResult(isError=true)
         }
         return textResult(JSON.stringify(result, null, 2));
       }
@@ -713,4 +757,101 @@ export function resetBridgeState(): void {
   _socketBuffer = '';
   _connectionLock = null;
   _sendLock = Promise.resolve();
+}
+
+// ─── Bridge readiness probe (M4) ────────────────────────────────────────────
+// 零接触:自读 secret + 独立短 socket,绝不碰模块级 _projectDir/_cachedSecret/_socket。
+// 供 run_project(wait_for_bridge=true) 使用。
+
+export interface BridgeReadyResult {
+  ready: boolean;
+  reason: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, ms)));
+}
+
+/** 单次 TCP auth 探测(独立 socket,即建即毁)。成功返回 true。 */
+function probeOnce(secretPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let secret: string;
+    try {
+      secret = readFileSync(secretPath, 'utf-8').trim();
+    } catch {
+      resolve(false);
+      return;
+    }
+    const sock = createConnection({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
+      sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
+    });
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; sock.destroy(); resolve(false); }
+    }, 1000);
+    // M2: 累积 buffer 按 \n 分割,防 auth 响应跨 TCP 包(partial)导致 JSON.parse 失败
+    let buffer = '';
+    sock.on('data', (data: Buffer) => {
+      if (settled) return;
+      buffer += data.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx === -1) return; // 等待完整行(bridge 响应以 \n 结尾)
+      try {
+        const resp = JSON.parse(buffer.substring(0, idx).trim());
+        if (resp?.result?.authenticated) {
+          settled = true; clearTimeout(timer); sock.destroy(); resolve(true);
+        }
+      } catch { /* 部分/非 JSON 数据,忽略 */ }
+    });
+    sock.on('error', () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(false); }
+    });
+  });
+}
+
+/**
+ * 探测 bridge autoload 是否已启动并接受 auth。轮询直到就绪/进程退出/超时。
+ * 全程零接触模块级缓存:secret 由 projectDir 自拼路径自读。
+ */
+export async function isBridgeReady(
+  projectDir: string,
+  timeoutMs: number,
+  opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
+): Promise<BridgeReadyResult> {
+  const secretPath = join(projectDir, '.godot', `mcp_bridge_${BRIDGE_PORT}.secret`);
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const interval = 500;
+
+  for (;;) {
+    if (opts?.proc?.killed) {
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (opts?.isCancelled?.()) {
+      // ctx 状态变化(runningProcess !== proc)不等于 bridge 不可用:当前 proc 可能仍活。
+      // 多 godot/端口冲突场景:新 spawn 的 proc 因 bind 失败 exit 触发 close,但另一 godot 的 bridge
+      // 仍服务 9081。先 probeOnce 探测实际可用性,避免误报 process exited 而漏判 bridge ready。
+      if (existsSync(secretPath) && await probeOnce(secretPath)) {
+        return { ready: true, reason: 'bridge ready' };
+      }
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (existsSync(secretPath)) {
+      if (await probeOnce(secretPath)) return { ready: true, reason: 'bridge ready' };
+    }
+    if (Date.now() >= deadline) {
+      return existsSync(secretPath)
+        ? { ready: false, reason: 'bridge auth did not succeed within timeout' }
+        : { ready: false, reason: 'secret not found (bridge not installed?)' };
+    }
+    await sleep(Math.min(interval, deadline - Date.now()));
+  }
+}
+
+/** 测试专用:模块缓存快照,用于断言 isBridgeReady 零接触。 */
+export function _testBridgeCacheState(): {
+  projectDir: string | null;
+  cachedSecret: string | null;
+  socketNotNull: boolean;
+} {
+  return { projectDir: _projectDir, cachedSecret: _cachedSecret, socketNotNull: _socket !== null };
 }

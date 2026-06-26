@@ -6,7 +6,7 @@
 import { existsSync } from 'fs';
 import { readFile, stat } from 'fs/promises';
 import { resolve, join, extname, sep, basename } from 'path';
-import { parseTscnSummary } from './tscn-parser.js';
+import { parseTscnSummary } from './tscn/tscn-parser.js';
 import { parseConfigValue, safeRealPath, scanFiles, iterativeDecode, isPathInAllowedRoots, resolveWithinRoot } from './helpers.js';
 import { getActiveGroups, TOOL_GROUPS } from './core/tool-registry.js';
 

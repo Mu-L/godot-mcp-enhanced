@@ -4,10 +4,10 @@ describe('Feature flags', () => {
   afterEach(() => {
     // 清理环境变量
     const keys = [
-      'GODOT_MCP_TOOL_GROUPS', 'GODOT_MCP_PATH_SECURITY',
-      'GODOT_MCP_MULTI_INSTANCE', 'GODOT_MCP_ADVANCED_PROXY',
+      'GODOT_MCP_TOOL_GROUPS',
+      'GODOT_MCP_MULTI_INSTANCE',
       'GODOT_MCP_RESPONSE_LIMIT', 'GODOT_MCP_HEALTH_MONITOR',
-      'GODOT_MCP_OFFLINE_MODE', 'GODOT_MCP_ELICITATION',
+      'GODOT_MCP_ELICITATION',
     ];
     for (const k of keys) delete process.env[k];
   });
@@ -15,12 +15,9 @@ describe('Feature flags', () => {
   it('all Phase 1-5 flags have correct defaults', () => {
     const defaults: Record<string, string | undefined> = {
       GODOT_MCP_TOOL_GROUPS: undefined,
-      GODOT_MCP_PATH_SECURITY: undefined,
       GODOT_MCP_MULTI_INSTANCE: undefined,
-      GODOT_MCP_ADVANCED_PROXY: undefined,
       GODOT_MCP_RESPONSE_LIMIT: undefined,
       GODOT_MCP_HEALTH_MONITOR: undefined,
-      GODOT_MCP_OFFLINE_MODE: undefined,
       GODOT_MCP_ELICITATION: undefined,
     };
     for (const key of Object.keys(defaults)) {

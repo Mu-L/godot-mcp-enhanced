@@ -13,7 +13,7 @@ import {
   formatTscnValue,
 } from './tscn-editor-shared.js';
 // F-3: 复用 edit_node/scene-instance 的危险属性黑名单(单一来源,避免防护不一致)
-import { BLOCKED_PROPS } from './tools/scene/helpers.js';
+import { BLOCKED_PROPS } from '../tools/scene/helpers.js';
 
 // ── Resource add helpers ─────────────────────────────────────────────────────
 
@@ -52,6 +52,8 @@ export interface AddNodeResult {
   message: string;
   fallback: boolean;  // true = needs Godot process (unsupported property types)
   scene?: string;
+  /** S1: 被安全策略(BLOCKED_PROPS)拦截的属性名(script/owner/name/instance 等),调用方应前置明确警告。undefined 表示无拦截。 */
+  blockedProps?: string[];
 }
 
 /**
@@ -334,11 +336,17 @@ function _addNodeInner(
   }
 
   // Property lines
+  // S1 (2026-06-23): BLOCKED_PROPS 命中不再静默 continue——收集到 blockedProps,
+  // 由调用方(scene/index.ts add_node/edit_node)前置明确警告,避免"设 script 看似成功但未落盘"的静默失败。
+  const blockedProps: string[] = [];
   if (properties) {
     for (const [key, value] of Object.entries(properties)) {
       // F-3: 与 edit_node(scene/index.ts)/scene-instance 一致——拦截危险属性(script/owner/name 等),
       // 并校验 key 为合法 .tscn 标识符,防止换行/引号/方括号注入新 [node] 结构损坏场景文件
-      if (BLOCKED_PROPS.has(key)) continue;
+      if (BLOCKED_PROPS.has(key)) {
+        blockedProps.push(key);
+        continue;
+      }
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
         return { success: false, message: `Invalid property name: ${key}`, fallback: false };
       }
@@ -358,6 +366,7 @@ function _addNodeInner(
     fallback: false,
     message: `Added node ${name} (type=${type}) as child of ${parent}`,
     scene: lines.join('\n'),
+    blockedProps: blockedProps.length > 0 ? blockedProps : undefined,
   };
 }
 
@@ -408,6 +417,7 @@ function _addNodesInner(
 
   // Process sequentially, threading content
   let content = tscnContent;
+  const allBlocked: string[] = [];  // S1: 聚合各 node 被拦属性
   for (const node of nodes) {
     const result = addNode(content, node);
     if (!result.success) {
@@ -416,6 +426,9 @@ function _addNodesInner(
     if (result.scene) {
       content = result.scene;
     }
+    if (result.blockedProps) {
+      allBlocked.push(...result.blockedProps);
+    }
   }
 
   return {
@@ -423,5 +436,6 @@ function _addNodesInner(
     fallback: false,
     message: `Added ${nodes.length} node(s)`,
     scene: content,
+    blockedProps: allBlocked.length > 0 ? allBlocked : undefined,
   };
 }

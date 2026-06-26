@@ -6,7 +6,9 @@
         "D:/GitHub/godot-mcp-enhanced/build/index.js"
       ],
       "env": {
-        "GODOT_MCP_NO_DASHBOARD": "true"
+        "GODOT_MCP_NO_DASHBOARD": "true",
+        "GODOT_MCP_BRIDGE_PERSISTENT_SECRET": "true",
+        "GODOT_MCP_BRIDGE_EXTRA_METHODS": "emit_signal"
       }
     }
   }

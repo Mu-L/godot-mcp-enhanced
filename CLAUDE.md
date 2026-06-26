@@ -26,3 +26,12 @@
 | 信号 | signal_connect | 连接/断开/发射/列出 | headless | signal |
 | 音频 | audio_play | 播放/停止/参数/状态 | headless | audio |
 | 工作流 | dev_loop | 执行→验证→截图一体化 | headless | workflow |
+
+## src 目录分组规则
+
+| 子系统形态 | 放置规则 |
+|-----------|---------|
+| 一个工具由 **≥2 个源文件**实现 | 建同名目录（如 `src/tscn/`、`src/tools/scene/`、`src/tools/ui/`、`src/tools/animation/`）|
+| **单文件**实现 | 平铺在父目录（如 `src/tools/script.ts`）|
+
+判定依据是"文件数 / 职责可分性"，**不是行数**。大文件（如 `script.ts` ~1000 行）只要单文件单职责就不拆。新增工具时：先单文件起步，需要拆分时再升级为目录。

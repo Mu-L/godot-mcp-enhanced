@@ -31,11 +31,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:regression": "vitest run test/regression",
     "test:integration": "vitest run test/integration",
     "test:all": "vitest run",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "build-matrix": "npm run build && node build/capability/build-matrix.js",
+    "diff-matrix": "npm run build && node build/capability/diff-matrix.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

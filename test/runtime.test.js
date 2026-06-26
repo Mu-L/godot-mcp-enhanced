@@ -49,13 +49,19 @@ vi.mock('path', async (importOriginal) => {
   };
 });
 
+vi.mock('../src/tools/game-bridge.js', () => ({
+  isBridgeReady: vi.fn(),
+  setBridgeProjectDir: vi.fn(),
+}));
+
 import {
   getToolDefinitions,
   handleTool,
   TOOL_META,
 } from '../src/tools/runtime.js';
 import { spawn } from 'child_process';
-import { killProcess, clearOutputBuffer } from '../src/core/process-state.js';
+import { killProcess, clearOutputBuffer, setProcessBusy } from '../src/core/process-state.js';
+import { isBridgeReady } from '../src/tools/game-bridge.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -127,6 +133,13 @@ describe('runtime getToolDefinitions', () => {
     expect(def.description).toBeTruthy();
     expect(def.inputSchema).toBeDefined();
     expect(def.inputSchema.type).toBe('object');
+  });
+
+  it('T-3: recording_save file_name schema 描述准确(说明自动命名/入参忽略)', () => {
+    // 原描述"录制文件名"误导用户可指定,实际行为忽略入参、始终自动时间戳命名。
+    const desc = getToolDefinitions()[0].inputSchema.properties.file_name.description;
+    expect(desc).toMatch(/自动命名|入参被忽略/);
+    expect(desc).toMatch(/recording_\*\.json/);  // 保留格式约束说明
   });
 });
 
@@ -350,5 +363,105 @@ describe('runtime handleTool — get_godot_version', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const spawnArgs = spawn.mock.calls[0];
     expect(spawnArgs[1]).toContain('--version');
+  });
+});
+
+// ─── handleTool — run_project wait_for_bridge ─────────────────────────────────────
+
+describe('runtime handleTool — run_project wait_for_bridge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function resultText(r) { return (r?.content?.[0]?.text) ?? ''; }
+
+  it('run_project 默认不探测 bridge', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockReset();
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p' }, ctx);
+    expect(isBridgeReady).not.toHaveBeenCalled();
+  });
+
+  it('run_project wait_for_bridge=true 且就绪 → 文本含 Bridge ready', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockResolvedValue({ ready: true, reason: 'bridge ready' });
+    const ctx = createMockCtx();
+    const r = await handleTool('runtime', { action: 'run_project', project_path: '/p', wait_for_bridge: true }, ctx);
+    expect(isBridgeReady).toHaveBeenCalledWith('/p', expect.any(Number), expect.objectContaining({ isCancelled: expect.any(Function) }));
+    expect(resultText(r)).toContain('Bridge ready');
+  });
+
+  it('run_project wait_for_bridge 但进程早退 → 文本含 not ready + process exited', async () => {
+    spawn.mockImplementation(() => mockProc());
+    isBridgeReady.mockResolvedValue({ ready: false, reason: 'process exited during probe' });
+    const ctx = createMockCtx();
+    const r = await handleTool('runtime', { action: 'run_project', project_path: '/p', wait_for_bridge: true, bridge_timeout: 10 }, ctx);
+    expect(resultText(r)).toContain('not ready');
+    expect(resultText(r)).toContain('process exited');
+  });
+});
+
+// ─── run_project — Imp-4 process replacement guard (2026-06-24 审查 Q-1) ──────
+
+describe('run_project — Imp-4 process replacement guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('Imp-4: 进程被替换后,旧进程 close 不清新进程的 busy/running 状态', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    // 模拟 procA 已被新进程 procB 替换(runningProcess 指向 procB)
+    const procB = mockProc();
+    ctx.runningProcess = procB;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    // 旧进程 procA 退出触发 close。守卫 :179 runningProcess(procB) !== procA → 不应误清 procB 状态
+    procA.emit('close', 0);
+
+    expect(setProcessBusy).not.toHaveBeenCalled();
+    expect(ctx.setRunningProcess).not.toHaveBeenCalled();
+  });
+
+  it('Imp-4: runningProcess 仍是该进程时,close 正常清 busy/running', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    // runningProcess 仍是 procA(未被替换)
+    ctx.runningProcess = procA;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    procA.emit('close', 0);
+
+    expect(setProcessBusy).toHaveBeenCalledWith(false);
+    expect(ctx.setRunningProcess).toHaveBeenCalledWith(null);
+  });
+
+  it('Imp-4: error 事件同样守卫(进程已替换不清)', async () => {
+    const procA = mockProc();
+    setupSpawnMock(procA);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p', timeout: 0 }, ctx);
+
+    const procB = mockProc();
+    ctx.runningProcess = procB;
+
+    setProcessBusy.mockClear();
+    ctx.setRunningProcess.mockClear();
+
+    procA.emit('error', new Error('spawn failed'));
+
+    expect(setProcessBusy).not.toHaveBeenCalled();
+    expect(ctx.setRunningProcess).not.toHaveBeenCalled();
   });
 });

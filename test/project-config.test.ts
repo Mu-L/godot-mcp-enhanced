@@ -103,6 +103,14 @@ describe('validateConfigValue', () => {
     expect(result.valid).toBe(false)
     expect(result.error).toContain('not in the allowed whitelist')
   })
+
+  // M2 (2026-06-23): autoload value 误带前导 *(Godot project.godot 惯例)时,提示去掉——写入时自动注入
+  it('M2: autoload value with leading * gets hint to omit it (auto-injected at write time)', () => {
+    const r = validateConfigValue('autoload/GameMgr', '*res://scripts/game.gd')
+    expect(r.valid).toBe(false)
+    expect(r.error).toContain('*')
+    expect(r.error).toMatch(/auto-injected|omit|去掉|前导/)
+  })
 })
 
 // ─── projectWriteConfig ──────────────────────────────────────────────────

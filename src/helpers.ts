@@ -122,8 +122,26 @@ export function requireProjectPath(args: Record<string, unknown>): string {
  * because Godot needs them to locate editor data, cache, and config:
  * HOME, USERPROFILE, LOCALAPPDATA, APPDATA, XDG_*, DISPLAY.
  * All other env vars are stripped to prevent credential leakage to child processes.
+ *
+ * S4/S5 (2026-06-24): GODOT_MCP_BRIDGE_* prefixed vars are passed through.
+ * This is the mcp_bridge.gd runtime config sub-namespace (toggles like
+ * GODOT_MCP_BRIDGE_PERSISTENT_SECRET / GODOT_MCP_BRIDGE_EXTRA_METHODS), NOT user
+ * credentials. Stripping them at the spawn boundary silently breaks the GDScript-side
+ * fixes — the env switch never flips, so the secret-reuse / method-whitelist logic
+ * never runs.
+ *
+ * Scope is intentionally narrow (GODOT_MCP_BRIDGE_, not GODOT_MCP_): server-side
+ * security/sandbox switches (GODOT_MCP_UNRESTRICTED, GODOT_MCP_ALLOW_UNSAFE,
+ * ALLOW_EXECUTE_GDSCRIPT, ALLOWED_PROJECT_PATHS) MUST stay stripped — a child
+ * process must not unlock its own restrictions. See gdscript-executor-core.test.js.
  */
 export function buildSafeEnv(): NodeJS.ProcessEnv {
+  const godotMcpEnv: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('GODOT_MCP_BRIDGE_') && value !== undefined) {
+      godotMcpEnv[key] = value;
+    }
+  }
   return {
     PATH: process.env.PATH ?? '',
     HOME: process.env.HOME ?? '',
@@ -143,6 +161,7 @@ export function buildSafeEnv(): NodeJS.ProcessEnv {
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? '',
     XDG_DATA_HOME: process.env.XDG_DATA_HOME ?? '',
     LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH ?? '',
+    ...godotMcpEnv,
   };
 }
 
