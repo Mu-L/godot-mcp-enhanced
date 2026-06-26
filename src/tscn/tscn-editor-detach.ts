@@ -438,11 +438,12 @@ export function detachInstance(
     const group = source.nodeGroups[i]!;
     let header = group.header;
 
-    const parentMatch = header.match(/parent="([^"]+)"/);
+    const parentMatch = header.match(/parent="([^"]*)"/);  // @748: * 匹配空 parent=""(原 [^"]+ 需 ≥1 字符致空串走 else 叠加双 parent)
     if (parentMatch) {
       const originalParent = parentMatch[1];
-      const newParent = originalParent === '.' ? nodeName : `${nodeName}/${originalParent}`;
-      header = header.replace(/parent="[^"]+"/, `parent="${escapeTscnAttr(newParent)}"`);
+      // @748: 空串等同 '.' 处理(根级子节点),避免走 else 在 ] 前叠加 parent 致双 parent 属性(Godot 解析混乱)
+      const newParent = (originalParent === '.' || originalParent === '') ? nodeName : `${nodeName}/${originalParent}`;
+      header = header.replace(/parent="[^"]*"/, `parent="${escapeTscnAttr(newParent)}"`);  // @748: * 替换含空 parent=""
     } else {
       header = header.replace(']', ` parent="${escapeTscnAttr(nodeName)}"]`);
     }

@@ -116,11 +116,11 @@ describe('tscn-editor detachInstance', () => {
     expect(result).toMatchSnapshot('detach-instance-basic');
   });
 
-  // CRITICAL-3 (R2) 经验证不成立(push back): :441 正则 parent="([^"]+)" 的 [^"]+ 不匹配空串,
-  // parent="" 时 parentMatch=null → 走 :446 else → 正确产出 parent="nodeName"(无尾部斜杠)。
-  // 审查报告假设 parentMatch[1] 捕获空串有误([^.]+ 需 ≥1 字符)。此测试锁定正确行为,
-  // 防未来 :441 正则放松为 [^"]* 后 :444 触发真 bug(届时需 :444 加 || originalParent==='' 守卫)。
-  it('parent="" 正确走 else 分支产出 parent="nodeName"(CRITICAL-3 push back 验证)', () => {
+  // CRITICAL-3 (R2) push back 部分成立: 确认无尾部斜杠(原审查"尾部斜杠"指控不成立,因 [^"]+ 不匹配空)。
+  // 但 @748 发现 push back 漏网的双 parent bug: 原 [^"]+ 不匹配 parent="" → 走 else 在 ] 前叠加 parent,
+  // 原 parent="" 残留 → 双 parent 属性。@748 fix: 正则 [^"]+ → [^"]* + :444 || '' 守卫,空 parent 进 if
+  // 替换(parent="" → parent="nodeName")。本测试验证无尾部斜杠(fix 后仍成立),@748 下方测试验证无双 parent。
+  it('parent="" 无尾部斜杠(CRITICAL-3 push back,fix 后走 if 替换)', () => {
     const sourceEmptyParent = `[gd_scene load_steps=2 format=3]
 [ext_resource type="Script" path="res://scripts/player.gd" id="1"]
 [node name="Player" type="CharacterBody2D"]
@@ -128,6 +128,23 @@ describe('tscn-editor detachInstance', () => {
     const result = detachInstance(TARGET_TSCN, sourceEmptyParent, 'Player', '.');
     expect(result).not.toContain('parent="Player/"');  // 无尾部斜杠(正则 [^"]+ 已挡空串)
     expect(result).toContain('parent="Player"');  // 走 else 正确产出
+  });
+
+  // @748 (defects 748 = CRITICAL-3 深层): CRITICAL-3 push back(:123)确认无尾部斜杠,但漏了
+  // 双 parent bug——parent="" 走 else(:447)在 ] 前插 parent="Player",原 parent="" 残留
+  // → 双 parent 属性(parent="" parent="Player")致 Godot 解析混乱。fix: 正则 [^"]+ → [^"]*
+  // 让 parent="" 进 if 分支替换(空串等同 '.' 处理),非 else 叠加。
+  it('@748 parent="" 不残留双 parent 属性(空 parent 应被替换非叠加)', () => {
+    const sourceEmptyParent = `[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/player.gd" id="1"]
+[node name="Player" type="CharacterBody2D"]
+[node name="Child" type="Node" parent=""]`;
+    const result = detachInstance(TARGET_TSCN, sourceEmptyParent, 'Player', '.');
+    expect(result).not.toContain('parent=""');  // 空 parent 不残留(被替换,非叠加)
+    const childLine = result.split('\n').find(l => l.includes('name="Child"'));
+    expect(childLine).toBeDefined();
+    const parentCount = (childLine.match(/parent="/g) || []).length;
+    expect(parentCount).toBe(1);  // 单 parent 属性
   });
 
   it('should preserve property overrides from target', () => {
