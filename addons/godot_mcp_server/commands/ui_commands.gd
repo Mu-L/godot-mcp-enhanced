@@ -1,6 +1,7 @@
 extends Node
 
 var _plugin: EditorPlugin
+var _undo_manager: Node
 
 const BLOCKED_PROPS: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
 	"process_input", "process_unhandled_input", "process_unhandled_key_input",
@@ -20,8 +21,15 @@ const ALLOWED_CONTROL_TYPES: Array = [
 	"PanelContainer", "HSplitContainer", "VSplitContainer", "NinePatchRect",
 ]
 
-func setup(plugin: EditorPlugin) -> void:
+func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_plugin = plugin
+	_undo_manager = undo_manager
+
+
+func cleanup() -> void:
+	# 阶段5(:649): 统一 cleanup 接口(与 incomplete-cleanup-command-nodes fix 一致)。本模块无信号/定时器,释放引用助 GC。
+	_plugin = null
+	_undo_manager = null
 
 # ─── ui_create_control ──────────────────────────────────────────────────────
 
@@ -60,8 +68,20 @@ func handle_ui_create_control(params: Dictionary, request_id: int) -> Dictionary
 			if CommandHelpers.property_exists_and_type_ok(node, key, val):
 				node.set(key, val)
 
-	parent_node.add_child(node)
-	node.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Create UI Control (req:%d)" % request_id,
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [node]},
+				{"type": "method", "target": node, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": node}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [node]}
+			]
+		)
+	else:
+		parent_node.add_child(node)
+		node.owner = root
 
 	return {"result": {"type": node_type, "name": node_name, "path": str(node.get_path()), "status": "created"}}
 
@@ -306,8 +326,20 @@ func handle_ui_container_add(params: Dictionary, request_id: int) -> Dictionary:
 			if CommandHelpers.property_exists_and_type_ok(child, key, cval):
 				child.set(key, cval)
 
-	container.add_child(child)
-	child.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("UI Container Add (req:%d)" % request_id,
+			[
+				{"type": "method", "target": container, "method": "add_child", "args": [child]},
+				{"type": "method", "target": child, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": child}
+			],
+			[
+				{"type": "method", "target": container, "method": "remove_child", "args": [child]}
+			]
+		)
+	else:
+		container.add_child(child)
+		child.owner = root
 
 	return {"result": {"container": node_path, "child_type": child_type, "child_name": child_name, "child_path": str(child.get_path()), "status": "child_added"}}
 

@@ -40,15 +40,15 @@ func setup(plugin: EditorPlugin) -> void:
 	add_child(_export_commands)
 
 	_particle_commands = preload("commands/particle_commands.gd").new()
-	_particle_commands.setup(plugin)
+	_particle_commands.setup(plugin, _undo_manager)
 	add_child(_particle_commands)
 
 	_nav_commands = preload("commands/nav_commands.gd").new()
-	_nav_commands.setup(plugin)
+	_nav_commands.setup(plugin, _undo_manager)
 	add_child(_nav_commands)
 
 	_animtree_commands = preload("commands/animtree_commands.gd").new()
-	_animtree_commands.setup(plugin)
+	_animtree_commands.setup(plugin, _undo_manager)
 	add_child(_animtree_commands)
 
 	_sync_commands = preload("commands/sync_commands.gd").new()
@@ -64,7 +64,7 @@ func setup(plugin: EditorPlugin) -> void:
 	add_child(_recording_commands)
 
 	_ui_commands = preload("commands/ui_commands.gd").new()
-	_ui_commands.setup(plugin)
+	_ui_commands.setup(plugin, _undo_manager)
 	add_child(_ui_commands)
 
 func cleanup() -> void:

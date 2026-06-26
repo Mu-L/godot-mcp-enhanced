@@ -1,9 +1,17 @@
 extends Node
 
 var _plugin: EditorPlugin
+var _undo_manager: Node
 
-func setup(plugin: EditorPlugin) -> void:
+func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_plugin = plugin
+	_undo_manager = undo_manager
+
+
+func cleanup() -> void:
+	# 阶段5(:649): 统一 cleanup 接口(与 incomplete-cleanup-command-nodes fix 一致)。本模块无信号/定时器,释放引用助 GC。
+	_plugin = null
+	_undo_manager = null
 
 func handle_animtree_create(params: Dictionary, request_id: int) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
@@ -41,8 +49,20 @@ func handle_animtree_create(params: Dictionary, request_id: int) -> Dictionary:
 	tree.tree_root = root_node
 	tree.active = true
 
-	parent_node.add_child(tree)
-	tree.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Create AnimationTree (req:%d)" % request_id,
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [tree]},
+				{"type": "method", "target": tree, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": tree}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [tree]}
+			]
+		)
+	else:
+		parent_node.add_child(tree)
+		tree.owner = root
 
 	return {"result": {"node_path": str(tree.get_path()), "root_type": tree_root_type, "status": "created"}}
 

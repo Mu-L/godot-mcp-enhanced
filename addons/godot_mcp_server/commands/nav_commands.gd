@@ -1,9 +1,17 @@
 extends Node
 
 var _plugin: EditorPlugin
+var _undo_manager: Node
 
-func setup(plugin: EditorPlugin) -> void:
+func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_plugin = plugin
+	_undo_manager = undo_manager
+
+
+func cleanup() -> void:
+	# 阶段5(:649): 统一 cleanup 接口(与 incomplete-cleanup-command-nodes fix 一致)。本模块无信号/定时器,释放引用助 GC。
+	_plugin = null
+	_undo_manager = null
 
 func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
@@ -23,8 +31,20 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 	if pos != null and pos is Dictionary:
 		nav.position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
 
-	parent_node.add_child(nav)
-	nav.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Create Nav Region (req:%d)" % request_id,
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [nav]},
+				{"type": "method", "target": nav, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": nav}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [nav]}
+			]
+		)
+	else:
+		parent_node.add_child(nav)
+		nav.owner = root
 
 	var mesh = NavigationMesh.new()
 	mesh.geometry_parsed_collision_mask = 0xFFFFFFFF
@@ -75,8 +95,20 @@ func handle_nav_create_agent(params: Dictionary, request_id: int) -> Dictionary:
 	agent.target_desired_distance = float(params.get("target_desired_distance", 1.0))
 	agent.avoidance_enabled = params.get("avoidance_enabled", false)
 
-	parent_node.add_child(agent)
-	agent.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Create Nav Agent (req:%d)" % request_id,
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [agent]},
+				{"type": "method", "target": agent, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": agent}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [agent]}
+			]
+		)
+	else:
+		parent_node.add_child(agent)
+		agent.owner = root
 
 	return {"result": {"node_path": str(agent.get_path()), "type": "NavigationAgent3D"}}
 
@@ -156,7 +188,19 @@ func handle_nav_create_link(params: Dictionary, request_id: int) -> Dictionary:
 
 	link.bidirectional = params.get("bidirectional", true)
 
-	parent_node.add_child(link)
-	link.owner = root
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Create Nav Link (req:%d)" % request_id,
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [link]},
+				{"type": "method", "target": link, "method": "set_owner", "args": [root]},
+				{"type": "reference", "value": link}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [link]}
+			]
+		)
+	else:
+		parent_node.add_child(link)
+		link.owner = root
 
 	return {"result": {"node_path": str(link.get_path()), "type": "NavigationLink3D", "bidirectional": link.bidirectional}}
