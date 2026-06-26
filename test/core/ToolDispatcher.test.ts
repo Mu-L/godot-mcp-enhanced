@@ -409,6 +409,39 @@ describe('ToolDispatcher.handleCall', () => {
     expect(parsed.tool).toBe('scene');
   });
 
+  // [T10b] IMP-6: legacy 工具名路由时 guard 前置 tryLegacyMapping,防 legacy name 绕过 guard
+  it('guards legacy tool name via tryLegacyMapping before confirmation check (IMP-6)', async () => {
+    const guard = createMockGuard(false);
+    const { tryLegacyMapping } = await import('../../src/core/tool-registry.js');
+    // remove_node 是 legacy name → 映射到 scene + remove_node action
+    (tryLegacyMapping as ReturnType<typeof vi.fn>).mockImplementation((name: string) =>
+      name === 'remove_node' ? { tool: 'scene', action: 'remove_node' } : null,
+    );
+    // requiresConfirmation 对映射后的 (scene, action=remove_node) 返回 true
+    mockRequiresConfirmation.mockImplementation(
+      (guardName: string, guardArgs: { action?: string }) =>
+        guardName === 'scene' && guardArgs?.action === 'remove_node',
+    );
+    mockCreatePendingToken.mockReturnValue('legacy-token-456');
+
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    const result = await dispatcher.handleCall({
+      params: { name: 'remove_node', arguments: { node_path: 'root/Foo' } },
+    });
+
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.requires_confirmation).toBe(true);
+    expect(parsed.confirmation_token).toBe('legacy-token-456');
+    // IMP-6 核心:requiresConfirmation 必须以映射后的 (scene, action=remove_node) 调用,而非原始 remove_node
+    expect(mockRequiresConfirmation).toHaveBeenCalledWith('scene', expect.objectContaining({ action: 'remove_node' }));
+    // createPendingToken 必须以原始 legacy name 调用(confirm_and_execute 据此执行原工具)
+    expect(mockCreatePendingToken).toHaveBeenCalledWith('remove_node', expect.objectContaining({ node_path: 'root/Foo' }));
+
+    // 重置 tryLegacyMapping mock(clearAllMocks 不重置 implementation,避免污染后续 case)
+    (tryLegacyMapping as ReturnType<typeof vi.fn>).mockReturnValue(null);
+  });
+
   // [T12] editor 模式 + executor 存在 → 转发
   it('forwards to editor executor in editor mode', async () => {
     const guard = createMockGuard(false);

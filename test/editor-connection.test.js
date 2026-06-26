@@ -155,4 +155,39 @@ describe('EditorConnection', () => {
     // 6th attempt should be locked out immediately
     await expect(() => conn.connect()).rejects.toThrow(/locked out/i);
   });
+
+  // IMP-8: 认证失败(wrong secret)后 close handler 不该调度重连。
+  // wasConnected = !connectAttempt && authenticated && !authFailed → 认证失败时三者合力为 false。
+  it('does not reconnect after auth failure (IMP-8)', { timeout: 8_000 }, async () => {
+    let connections = 0;
+    wss.on('connection', (ws) => {
+      connections++;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.method === 'auth') {
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Auth failed' } }));
+        }
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: true,
+      secret: 'wrong-secret',
+      connectTimeout: 1000,
+      reconnectInterval: 100,
+      maxReconnectInterval: 200,
+    });
+
+    // connect 应因认证失败 reject(authFailed=true,reconnectEnabled=false)
+    await expect(() => conn.connect()).rejects.toThrow();
+
+    // 等待足够窗口让潜在重连发生(reconnectInterval=100ms,等 600ms 覆盖几次)
+    await new Promise((r) => setTimeout(r, 600));
+
+    // IMP-8 核心断言:认证失败后不重连 — server 端只应有 1 次连接(初始 connect)
+    expect(connections).toBe(1);
+
+    conn.disconnect();
+  });
 });
