@@ -40,6 +40,15 @@ func _input(event: InputEvent) -> void:
 			"time_offset": Time.get_ticks_msec() - _record_start_time
 		}
 		_recorded_events.append(entry)
+	elif event is InputEventScreenTouch:  # IMP-11 (2026-06-26 review): 触摸事件录制(触屏设备)
+		var entry: Dictionary = {
+			"type": "touch",
+			"position": [event.position.x, event.position.y],
+			"pressed": event.pressed,
+			"index": event.index,
+			"time_offset": Time.get_ticks_msec() - _record_start_time
+		}
+		_recorded_events.append(entry)
 
 # ─── recording_start ────────────────────────────────────────────────────────
 
@@ -178,6 +187,14 @@ func _fire_playback_event(evt: Dictionary) -> void:
 			var pos = evt.get("position", [0.0, 0.0])
 			if pos is Array and pos.size() >= 2:
 				ie.position = Vector2(float(pos[0]), float(pos[1]))
+			Input.parse_input_event(ie)
+		"touch":  # IMP-11: 触摸回放
+			var ie = InputEventScreenTouch.new()
+			var pos = evt.get("position", [0.0, 0.0])
+			if pos is Array and pos.size() >= 2:
+				ie.position = Vector2(float(pos[0]), float(pos[1]))
+			ie.pressed = bool(evt.get("pressed", true))
+			ie.index = int(evt.get("index", 0))
 			Input.parse_input_event(ie)
 	_playback_count += 1
 
