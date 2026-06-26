@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, clampParam } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, clampParam, sanitizeResPath } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -176,7 +176,15 @@ export async function handleTool(
     switch (action) {
       case 'audio_play': {
         const nodePath = normalizeNodePath(args.node_path as string);
-        const streamPath = args.stream_path as string | undefined;
+        const rawStream = args.stream_path as string | undefined;
+        let streamPath: string | undefined;
+        if (rawStream) {
+          try {
+            streamPath = sanitizeResPath(rawStream, 'stream_path');
+          } catch {
+            return opsErrorResult(ERROR_CODES.INVALID_PATH, 'stream_path must be a res:// path (no traversal / encoding tricks)');
+          }
+        }
         const volumeDb = args.volume_db as number | undefined;
         const pitchScale = args.pitch_scale as number | undefined;
         const bus = args.bus as string | undefined;
