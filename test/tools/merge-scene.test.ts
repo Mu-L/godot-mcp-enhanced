@@ -67,6 +67,29 @@ script = ExtResource("2")
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // CRITICAL-1 (R2) 真实性验证: 审查称 mergeTscn :203 全局正则 /ExtResource\("([^"]+)"\)/g
+  // 会篡改字符串字面量里的 ExtResource("...")。但 .tscn 字面量里引号是转义的 \", 正则
+  // ExtResource\("( 后要求直接 ", 而字面量 ExtResource(\" 后是 \( 反斜杠) → 正则不匹配字面量。
+  // 此测试验证字面量 ExtResource(\"2\") 在 extIdMap["2"] 重映射生效时仍保持(不被误替换)。
+  it('[CRITICAL-1 验证] 字符串字面量里的 ExtResource(\\\"id\\") 不被误替换(转义引号防正则匹配)', () => {
+    const oursLit = `[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://a.gd" id="1"]
+[ext_resource type="Script" path="res://b.gd" id="2"]
+
+[node name="Root" type="Node3D"]`;
+    const theirsLit = `[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://a.gd" id="1"]
+[ext_resource type="Script" path="res://c.gd" id="2"]
+
+[node name="Tip" type="Label" parent="."]
+tooltip = "Click ExtResource(\\"2\\") to continue"`;
+    const result = mergeTscn(oursLit, theirsLit);
+    // extIdMap["2"] 重映射生效(theirs c.gd 碰 ours b.gd),但字面量里的转义 ExtResource(\"2\") 应保持
+    expect(result).toContain('tooltip = "Click ExtResource(\\"2\\") to continue"');
+  });
+
   it('应合并 sub_resource 段', () => {
     const withSub = `[gd_scene load_steps=3 format=3]
 
