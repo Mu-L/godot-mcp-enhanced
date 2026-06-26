@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { ClaudeCodeAdapter } from '../../../src/cli/clients/claude-code.js';
@@ -9,8 +9,9 @@ describe('ClaudeCodeAdapter', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `mcp-test-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
+    // mkdtempSync 保证唯一:原 mcp-test-${Date.now()} 与 cursor.test.ts 同名空间,
+    // 并发 worker 同毫秒碰撞 → 互相 rmSync → ENOENT flaky(coverage 模式时序放大)
+    testDir = mkdtempSync(join(tmpdir(), 'mcp-test-'));
   });
 
   afterEach(() => {
