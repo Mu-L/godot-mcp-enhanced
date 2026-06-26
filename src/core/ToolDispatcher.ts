@@ -149,7 +149,10 @@ export class ToolDispatcher {
         allTools = allTools.filter(t => profileTools.has(t.name));
         log('PROFILE mode (%s): %d tools available', this.options.mode, allTools.length);
       } else {
-        getLogger().warn('dispatcher', `Profile "${String(this.options.mode)}" resolved to empty set — falling back to full mode. Check for typos.`);
+        // R2 slim-profile-silent-full-fallback: 未知/拼写错 profile 解析空集时 fail-closed 回退 minimal(非 full),
+        // 防 --profile=slim 等配置失效时静默暴露全部写/执行工具(违反最小权限 + fail-open)。
+        getLogger().warn('dispatcher', `Profile "${String(this.options.mode)}" resolved to empty set — failing closed to MINIMAL. Check for typos.`);
+        allTools = allTools.filter(t => MINIMAL_TOOLS.has(t.name));
       }
     }
 

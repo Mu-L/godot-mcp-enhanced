@@ -207,6 +207,19 @@ describe('ToolDispatcher.getFilteredTools', () => {
     expect(names).not.toContain('tilemap');
   });
 
+  // [R2] slim-profile-silent-full-fallback: 未知/拼写错 profile 解析空集时,修复前 :151 只 warn 不过滤
+  // (fail-open 暴露 full 含 execute_gdscript/run_project 等高危),修复后 fail-closed 回退 minimal(安全)。
+  // resolveProfile mock 默认返回空集(:46),正好模拟未知 profile。
+  it('[R2] unknown profile fails closed to minimal (not full)', () => {
+    const dispatcher = new ToolDispatcher(createOptions({ mode: 'typo-profile' }));
+    const tools = dispatcher.getFilteredTools();
+    const names = tools.map(t => t.name);
+    expect(names).toContain('runtime');  // minimal 含
+    expect(names).not.toContain('animation');  // minimal 不含(修复前 full 含)
+    expect(names).not.toContain('docs');
+    expect(names).not.toContain('material');
+  });
+
   // [T23] readOnly + lite 组合
   it('applies both readOnly and lite filters combined', () => {
     const guard = createMockGuard(false);
