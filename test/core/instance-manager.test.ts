@@ -184,6 +184,18 @@ describe('InstanceManager', () => {
       expect(instances).toHaveLength(1);
       expect(instances[0].id).toBe('uuid-valid');
     });
+
+    it('阶段4-4: 段级检查不误拒含 .. 子串的合法段名(如 ..backup)', async () => {
+      // 原 includes("..") 会误拒 "..backup"(字符串包含 ".."); 段级只拒恰好为 ".." 的段
+      writeFileSync(join(TMP, 'legit.json'), JSON.stringify({
+        id: 'legit-1', projectPath: 'D:/projects/..backup/game', projectName: 'game',
+        port: 9081, pid: 1, lastSeen: new Date().toISOString(), godotVersion: '4.4', capabilities: [],
+      }));
+      const manager = new InstanceManager({ registryDir: TMP });
+      const instances = await manager.loadFromRegistry();
+      expect(instances).toHaveLength(1);
+      expect(instances[0].id).toBe('legit-1');
+    });
   });
 
   describe('zombie detection', () => {

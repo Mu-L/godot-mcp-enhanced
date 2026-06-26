@@ -169,8 +169,8 @@ export class InstanceManager {
           const parsed = JSON.parse(content);
           // C-02 安全：使用类型守卫验证所有必需字段
           if (!isInstanceInfo(parsed)) continue;
-          // C-02 安全：路径遍历检查 — 原始路径含 .. 或 normalize 后仍含 .. 段
-          if (parsed.projectPath.includes('..')) continue;
+          // C-02 安全：段级路径遍历检查 — 任一路径段恰好为 '..'(原 includes('..') 误拒 '..backup' 等合法子串)
+          if (parsed.projectPath.split(/[\\/]/).some(seg => seg === '..')) continue;
           results.push(parsed);
         } catch {
           // Skip corrupt/invalid files (ENOENT, SyntaxError, etc.)
