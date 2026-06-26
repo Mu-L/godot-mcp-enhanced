@@ -194,6 +194,7 @@ export class EditorConnection {
               getLogger().error('auth', `Locked out for ${AUTH_LOCKOUT_MS / 1000}s after ${MAX_AUTH_FAILURES} failures`);
             }
             this.connected = false;
+            this.authenticated = false;  // 阶段1b 守卫1: 重置认证状态(performAuth reject/timeout/catch 三路径都经此 catch),防残留 true 致 close handler wasConnected(:243)误判
             // I-04: Prevent reconnect loop after auth failure.
             // connectAttempt was set to false in 'open' handler (line ~163),
             // so close handler sees wasConnected=true and would call scheduleReconnect.

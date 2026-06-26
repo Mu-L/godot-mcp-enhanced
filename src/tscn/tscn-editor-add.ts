@@ -26,9 +26,9 @@ function incrementLoadSteps(lines: string[]): void {
     const trimmed = lines[i]!.trim();
     if (!trimmed.startsWith('[gd_scene')) continue;
     if (trimmed.includes('load_steps=')) {
-      lines[i] = lines[i]!.replace(/load_steps=\d+/, (m) => {
+      lines[i] = lines[i]!.replace(/load_steps=-?\d+/, (m) => {
         const n = parseInt(m.split('=')[1]!);
-        return `load_steps=${n + 1}`;
+        return `load_steps=${Math.max(1, n) + 1}`;  // 阶段1b: clamp <=0 到 1(Godot load_steps 须>=1)再 +1
       });
     } else {
       // Insert load_steps=2 before the closing bracket

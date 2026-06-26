@@ -190,11 +190,17 @@ export function genThemeSetPropertyScript(
       if (typeof c === 'string') { try { c = JSON.parse(c); } catch { /* fall through to error */ } }
       if (!Array.isArray(c) || c.length < 3) throw new Error('Color value must be array [r, g, b] or [r, g, b, a]');
       const a = c.length >= 4 ? c[3] : 1.0;
-      setLine = `\ttheme.set_color("${safeName}", ${tt}, Color(${c[0]}, ${c[1]}, ${c[2]}, ${a}))`;
+      // 阶段1b: 元素须为有限数字,否则 GDScript Color(NaN,...) 无效
+      const colorNums = [c[0], c[1], c[2], a].map(Number);
+      if (colorNums.some(n => !Number.isFinite(n))) throw new Error('Color array elements must be finite numbers');
+      setLine = `\ttheme.set_color("${safeName}", ${tt}, Color(${colorNums[0]}, ${colorNums[1]}, ${colorNums[2]}, ${colorNums[3]}))`;
       break;
     }
     case 'constant': {
-      setLine = `\ttheme.set_constant("${safeName}", ${tt}, ${Number(value)})`;
+      // 阶段1b: value 须为有限数字,否则 Number(NaN) 生成无效 GDScript set_constant(..., NaN)
+      const constNum = Number(value);
+      if (!Number.isFinite(constNum)) throw new Error('constant value must be a finite number');
+      setLine = `\ttheme.set_constant("${safeName}", ${tt}, ${constNum})`;
       break;
     }
     case 'stylebox': {

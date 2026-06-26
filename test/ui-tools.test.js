@@ -561,6 +561,14 @@ describe('genThemeSetPropertyScript', () => {
     expect(() => genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'bg', 'not-json')).toThrow(/array/);
   });
 
+  it('阶段1b: throws for constant value coercing to NaN', () => {
+    expect(() => genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 'not-a-number')).toThrow(/finite|NaN|number/i);
+  });
+
+  it('阶段1b: throws for color array with non-numeric elements', () => {
+    expect(() => genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'bg', ['a', 'b', 'c'])).toThrow(/finite|NaN|number/i);
+  });
+
   it('includes scene loading when scene_path provided', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 4, undefined, '/scene.tscn');
     expect(script.includes('_mcp_load_scene("/scene.tscn")')).toBeTruthy();

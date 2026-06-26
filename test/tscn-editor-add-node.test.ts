@@ -255,6 +255,20 @@ describe('addNode', () => {
     expect(result.scene).toContain('load_steps=3');
   });
 
+  it('阶段1b: clamps load_steps=0 to >=2 when adding node', () => {
+    const scene = '[gd_scene load_steps=0 format=3]\n[node name="Root" type="Node"]';
+    const result = addNode(scene, { parent: '.', name: 'NewChild', type: 'Node2D' });
+    expect(result.scene).toContain('load_steps=2');  // 0→1 clamp +1
+    expect(result.scene).not.toMatch(/load_steps=0\b/);
+  });
+
+  it('阶段1b: handles negative load_steps=-1 (regex -? match, no residue)', () => {
+    const scene = '[gd_scene load_steps=-1 format=3]\n[node name="Root" type="Node"]';
+    const result = addNode(scene, { parent: '.', name: 'NewChild', type: 'Node2D' });
+    expect(result.scene).toContain('load_steps=2');  // -1→1 clamp +1
+    expect(result.scene).not.toContain('load_steps=-');  // 负号不残留
+  });
+
   it('preserves original scene structure', () => {
     const result = addNode(SIMPLE_SCENE, {
       parent: '.',
