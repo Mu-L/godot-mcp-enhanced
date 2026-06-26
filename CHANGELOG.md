@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-06-27
+
+### R2 审查响应链(12 commit, CI 全绿)
+
+3 CRITICAL(1 修 + 2 push back 经 TDD 实测) + 安全同源 4 点 + IMP-11 touch 双侧 + 阶段1b 守卫 + editor 插件 undo_manager + super() IMP-4 + 2 defect 闭环(@739 wontfix / @748 fixed)。
+
+#### Fixed — CRITICAL
+
+- **detachInstance 双 parent 属性**(`tscn-editor-detach.ts:441/444/445`): `parent=""` 空串子节点 detach 时,原 `[^"]+` 正则不匹配空串走 else 叠加,残留 `parent=""` → 双 parent 属性致 Godot 解析失败。修复: 正则 `[^"]*` + `:444` 空串等同 `.` 守卫。诚实纠错 CRITICAL-3(阶段3 push back 漏网双 parent)
+- **recording MAX_EVENTS 双侧上限**(`recording.ts` + `mcp_bridge.gd`): 录制事件无界增长 → TS 回放 + GDScript 录制双侧上限
+
+#### Fixed — 安全同源(已修未传播至同类)
+
+- **UI BLOCKED_PROPS**(`ui/types.ts` + `ui/index.ts` + `ui-layout.ts`): findBlockedProps 抽 shared + handler 前置硬拒(平铺)/生成层 warnings(嵌套)
+- **audio stream_path sanitizeResPath**(`audio-ops.ts`): 同源对齐 res:// 路径校验
+- **instance-api-auth symlink**(`instance-api-auth.ts`): lstatSync 检测 + unlink 防 writeFileSync follow symlink
+- **instance-manager 段级路径遍历**(`instance-manager.ts`): `includes('..')` 误拒合法路径 → 段级 `seg === '..'`
+
+#### Fixed — 契约双侧
+
+- **IMP-11 touch/ScreenDrag 双侧契约**(`recording.ts` + `mcp_bridge.gd`): TS 回放加 touch 分支(此前 silently skip) + bridge 补 `_cmd_send_touch`/dispatch/`_input` 录制(对齐 `recording_commands.gd`)
+
+#### Added — editor 插件 undo_manager + super 一致性
+
+- **:649 nav/particle/animtree/ui commands 接入 undo_manager**(`command_handler.gd` + 4 模块): setup 加 undo_manager 参数 + 7 处 `add_child+set_owner` 包装 `create_action_mixed`(逐字复用 `node_commands:60-73` 已验证模式) + 补 cleanup()(统一接口)。editor 模式 nav region/agent/link、particles、AnimationTree、UI control/container 创建可 Ctrl+Z 撤销
+- **super() IMP-4 一致性**: plugin.gd `_enter_tree`/`_exit_tree` + websocket_server.gd `_ready`/`_process`/`_exit_tree` + status_panel.gd `_ready` 共 6 处加 super()
+
+#### Fixed — 守卫
+
+- **阶段1b 守卫**: EditorConnection connect catch 加 `authenticated=false`(覆盖 performAuth reject/timeout/catch 三路径); ui-theme color 元素 `Number.isFinite` + constant NaN 守卫; tscn-editor-add `incrementLoadSteps` `-?\d+` 匹配负值 + `Math.max(1,n)` clamp
+
+#### Defect 闭环
+
+- **@739 scene-merge 字面量 wontfix**(= CRITICAL-1): 双重保护(正则 `[^"]+` 护城河 + map key 隔离)防字面量 ExtResource/SubResource 篡改。双侧回归测试固化。detect 精确化(避免粗略 detect 复测误重开)
+- **:383 nodeName 注入确认已修**(IMPORTANT-5): escapeTscnAttr `$→$$` 转义(`tscn-editor-shared.ts:38`)根因修复覆盖所有 detach/merge 调用点
+
+#### 验证
+
+- TDD red→green(@748 双 parent / IMP-11 touch / 守卫); validate_scripts 0 errors(editor 插件 5 文件); tsc 0; 全测试套无回归
+- CI 全绿(12 commit)
+- 2 次诚实纠错(阶段5 super push back + @748 CRITICAL-3 push back): push back 须查项目规则 + 穷尽失败模式,静态推理易漏
+
 ## [0.18.2] - 2026-06-18
 
 ### 安全 — 沙箱加固与防御深度
