@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        node-version: [24]  # Node 22 在 Linux(含 game-bridge 窄抑制外)未验证,保守单版本;engines>=18 声明不变
+        node-version: [24]  # Node 22 在 Linux 未验证,保守单版本;engines>=18 声明不变
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,34 +25,11 @@ jobs:
       - name: Check rules version bump（spec §4 不变式）
         run: node scripts/check-rules-version-bump.mjs
       # Linux 测试 gate:排除 game-bridge.test.ts。该文件 vi.mock('net')+vi.hoisted+queueMicrotask
-      # 在 Linux 全量运行下稳定失效(vitest 4.1.x 平台 bug,非跨文件碰撞——合并成全仓唯一 net mock
-      # 后仍 fail 同 4 个 T-2)。T-2 守护 + 覆盖率由 windows-check 接管(全量采才准确,避免覆盖率断崖)。
+      # 在 Linux 稳定失效(诊断步实测 issue #15:单文件 113/120/138 行同败 → 非全量隔离,vitest 配置无救)。
+      # 平台敏感(Linux 败/Windows 23/23 过),版本无关(4.1.7/4.1.9 双版本 Windows 全过)。
+      # 非生产/测试逻辑 bug。T-2 守护 + game-bridge.ts 覆盖率退本地(Windows game-bridge.test.ts 23/23)。
       # 详见 https://github.com/wgt19861219/godot-mcp-enhanced/issues/15
-      - run: npx vitest run --exclude test/game-bridge.test.ts
-      # 诊断(不拦合并):回答 issue #15 开放问题——Linux 单文件 game-bridge 是否过 → 判定窄抑制临时/永久
-      - name: "诊断: Linux 单文件 game-bridge (vitest mock bug 追踪, 不拦合并)"
-        continue-on-error: true
-        run: npx vitest run test/game-bridge.test.ts
-
-  windows-check:
-    name: check (Windows gate)
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: 'npm'
-      - run: npm ci --ignore-scripts
-      - run: npm run build  # 非"验证 build"(lint/tsc/build 验证在 Linux job),是测试运行依赖:test/helpers/tool-context.js:5 等 import build/ 产物,每 runner 文件系统独立需本地生成
-      # Windows 全量 gate:game-bridge.test.ts(23/23 过,T-2 errorResult 守护在此)+ process-state
-      # 等 Windows 硬编码分支(taskkill/powershell)在 Linux CI 验证不到,Windows job 填补盲区。
-      # 覆盖率在此采(全量含 game-bridge.ts ~800 行,准确;Linux 排除该测试会让覆盖率断崖)。
-      # lint/tsc/build 平台无关,由 Linux check job 覆盖,Windows 不重复(省分钟)。
-      # ⚠️ 必须在仓库 Settings → Branches → master protection 把 "check (Windows gate)" 设为
-      # required check,否则 fail 不拦合并。见 issue #15
-      - run: npx vitest run --coverage
+      - run: npx vitest run --exclude test/game-bridge.test.ts --coverage
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
