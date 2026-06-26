@@ -30,7 +30,7 @@ jobs:
       # 详见 https://github.com/wgt19861219/godot-mcp-enhanced/issues/15
       - run: npx vitest run --exclude test/game-bridge.test.ts
       # 诊断(不拦合并):回答 issue #15 开放问题——Linux 单文件 game-bridge 是否过 → 判定窄抑制临时/永久
-      - name: 诊断: Linux 单文件 game-bridge (vitest mock bug 追踪, 不拦合并)
+      - name: "诊断: Linux 单文件 game-bridge (vitest mock bug 追踪, 不拦合并)"
         continue-on-error: true
         run: npx vitest run test/game-bridge.test.ts
 
