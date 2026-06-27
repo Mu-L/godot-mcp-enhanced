@@ -32,13 +32,14 @@ describe('DEFECT open 防恶化（基线阈值 detect() <= baseline）', () => {
     }
   });
 
-  it('OPEN_DEFECTS 覆盖 15 条、无重名且 baseline 已锁定', () => {
-    // 15 = 原 18 − 3（gdscript-gen-null-root-deref / launcher-no-error-listener / plugin-no-super-call
-    //   2026-06-27 probe 实测 detect=0 移 FIXED 防复发;plugin-no-super-call 系 R2 super IMP-4 654b162 已修）。
-    // 沿用：4 条（原 fixed 实测真未修 Task 2 闭环）+ 14 条（Task 3 追加）− 3（本次移 fixed）。
-    expect(OPEN_DEFECTS.length).toBe(15);
+  it('OPEN_DEFECTS 覆盖 14 条、无重名且 baseline 已锁定', () => {
+    // 14 = 原 18 − 3（gdscript-gen-null-root-deref / launcher-no-error-listener / plugin-no-super-call
+    //   2026-06-27 probe 实测 detect=0 移 FIXED 防复发;plugin-no-super-call 系 R2 super IMP-4 654b162 已修）
+    //   − 1（ts-args-as-cast-no-validation 2026-06-27 args-validator 接入 detect 改查入口移 FIXED）。
+    // 沿用：4 条（原 fixed 实测真未修 Task 2 闭环）+ 14 条（Task 3 追加）− 4（本次移 fixed）。
+    expect(OPEN_DEFECTS.length).toBe(14);
     const keys = OPEN_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(15);
+    expect(new Set(keys).size, '存在重名 key').toBe(14);
     // 全部 status=open 且 baseline 已锁定（防恶化门必须）
     for (const d of OPEN_DEFECTS) {
       expect(d.status, `${d.key} status 应为 open`).toBe('open');

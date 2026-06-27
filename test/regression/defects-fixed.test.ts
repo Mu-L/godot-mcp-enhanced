@@ -17,12 +17,14 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 22 条且无重名', () => {
-    // 22 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
-    //   launcher-no-error-listener / plugin-no-super-call；后者系 R2 super IMP-4 654b162 已修）。
-    expect(FIXED_DEFECTS.length).toBe(22);
+  it('FIXED_DEFECTS 覆盖 23 条且无重名', () => {
+    // 23 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
+    //   launcher-no-error-listener / plugin-no-super-call；后者系 R2 super IMP-4 654b162 已修）
+    //   + 1（ts-args-as-cast-no-validation 2026-06-27 args-validator 接入,detect 改查 executeToolCall
+    //   validateArgs 接入点,文件级 grep;detect===0 防去验证化回归）。
+    expect(FIXED_DEFECTS.length).toBe(23);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(22);
+    expect(new Set(keys).size, '存在重名 key').toBe(23);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

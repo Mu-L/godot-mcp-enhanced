@@ -95,6 +95,15 @@ export function getModuleForTool(name: string): ToolModule | undefined {
   return moduleRegistry.get(name);
 }
 
+/** 找某 tool 的定义(含 inputSchema);inline tool(只进 metaRegistry)返 undefined。 */
+export function getToolDefinition(name: string): Tool | undefined {
+  for (const m of modules) {
+    const def = m.getToolDefinitions().find((t) => t.name === name);
+    if (def) return def;
+  }
+  return undefined;
+}
+
 export function getAllToolDefinitions(): Tool[] {
   return modules.flatMap(m => m.getToolDefinitions());
 }

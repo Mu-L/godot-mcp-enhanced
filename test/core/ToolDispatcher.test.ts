@@ -12,6 +12,7 @@ import { resolveProjectPath as _mockResolveProjectPath } from '../../src/core/pa
 const {
   mockGetAllToolDefinitions,
   mockGetModuleForTool,
+  mockGetToolDefinition,
   mockLITE_TOOLS,
   mockMINIMAL_TOOLS,
   mockRequiresConfirmation,
@@ -24,6 +25,9 @@ const {
 } = vi.hoisted(() => ({
   mockGetAllToolDefinitions: vi.fn<() => Tool[]>(),
   mockGetModuleForTool: vi.fn(),
+  // Task 3: validateArgs 接入需要 getToolDefinition 返回带 enum 的 inputSchema。
+  // 默认 undefined → 内联工具路径跳过(自然)。集成测试用例内按需 mockReturnValue。
+  mockGetToolDefinition: vi.fn().mockReturnValue(undefined),
   mockLITE_TOOLS: new Set(['project', 'scene', 'script', 'validation', 'confirm_and_execute', 'animation', 'audio', 'docs', 'signal', 'material', 'test', 'screenshot', 'profiler', 'workflow', 'game']),
   mockMINIMAL_TOOLS: new Set(['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute']),
   mockRequiresConfirmation: vi.fn(),
@@ -38,6 +42,7 @@ const {
 vi.mock('../../src/core/tool-registry.js', () => ({
   getAllToolDefinitions: mockGetAllToolDefinitions,
   getModuleForTool: mockGetModuleForTool,
+  getToolDefinition: mockGetToolDefinition,
   registerInlineTool: vi.fn(),
   LITE_TOOLS: mockLITE_TOOLS,
   MINIMAL_TOOLS: mockMINIMAL_TOOLS,
@@ -1128,5 +1133,104 @@ describe('buildPerCallCtx', () => {
     const perCallCtx = buildPerCallCtx(base, undefined);
     buf.push('new');
     expect((perCallCtx as any).outputBuffer).toEqual(['old', 'new']); // spread 时为 ['old'] 快照 → fail
+  });
+});
+
+// ── Task 3: validateArgs schema 防线集成 ───────────────────────────────────
+//
+// 接入点:executeToolCall L231(validateCommonArgs return)后、ReadOnlyGuard 前。
+// 用 action enum 违规演示:'totally_bogus_action' 是非空 string → 通过 validateCommonArgs,
+// 但不在 scene action enum 内 → validateArgs 拒绝。接入前此用例会传到 handler(无 INVALID_PARAMS),
+// 接入后返 INVALID_PARAMS 且 handler/executor 不被调用。
+// #9 R2 要求:editor + headless 两路都覆盖,锁定接入点上移覆盖 editor,防后续挪回 dispatchTool 时
+// editor 静默回归。
+
+describe('executeToolCall schema validation (Task 3)', () => {
+  // scene 真实 inputSchema 的 action 是 string enum;用精简 schema 演示 enum 违规拒绝
+  const sceneSchemaWithEnum: Tool = {
+    name: 'scene',
+    description: 'Scene ops',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: { type: 'string' },
+        action: { type: 'string', enum: ['read_scene', 'add_node', 'remove_node'] },
+      },
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAllToolDefinitions.mockReturnValue([...FIXTURE_TOOLS]);
+    mockGetToolDefinition.mockReturnValue(sceneSchemaWithEnum);
+    mockRequiresConfirmation.mockReturnValue(false);
+    (_mockResolveProjectPath as ReturnType<typeof vi.fn>).mockReturnValue('/default/project');
+  });
+
+  // [S1] headless:action 是非空 string → 通过 validateCommonArgs,但不在 enum → validateArgs 拒绝
+  it('headless: enum-violating action → INVALID_PARAMS, handler not called', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ mode: 'full', connectionMode: 'headless', readOnlyGuard: guard }));
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { project_path: '/tmp', action: 'totally_bogus_action' } },
+    });
+
+    // 接入前:handler 被调用,result 是 mockToolResult(isError undefined) → 用例 fail(RED)
+    // 接入后:返 INVALID_PARAMS + handler 未调用(GREEN)
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('INVALID_PARAMS');
+  });
+
+  // [S2] editor:同样 enum 违规 → INVALID_PARAMS,executor 不被调用(锁定 #1 上移覆盖 editor)
+  it('editor: enum-violating action → INVALID_PARAMS, executor not called', async () => {
+    const guard = createMockGuard(false);
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(mockToolResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const dispatcher = new ToolDispatcher(createOptions({ mode: 'full', connectionMode: 'editor', readOnlyGuard: guard }));
+    dispatcher.setEditorExecutor(mockExecutor);
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { project_path: '/tmp', action: 'totally_bogus_action' } },
+    });
+
+    expect(mockExecutor.execute).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('INVALID_PARAMS');
+  });
+
+  // [S3] 合法 enum 值 → 通过 validateArgs,正常 dispatch(防过度拦截回归)
+  it('valid enum action passes validateArgs and dispatches normally', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ mode: 'full', connectionMode: 'headless', readOnlyGuard: guard }));
+
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { project_path: '/tmp', action: 'read_scene' } },
+    });
+
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+
+  // [S4] getToolDefinition 返 undefined(内联工具如 confirm_and_execute)→ 跳过校验,不误伤
+  it('inline tool (getToolDefinition undefined) skips validateArgs', async () => {
+    mockGetToolDefinition.mockReturnValue(undefined);
+    const guard = createMockGuard(false);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
+
+    await dispatcher.handleCall({
+      params: { name: 'confirm_and_execute', arguments: { token: 'valid' } },
+    });
+
+    // confirm_and_execute 路径应正常执行(内联工具无 inputSchema → 跳过)
+    expect(mockModule.handleTool).toHaveBeenCalled();
   });
 });
