@@ -494,6 +494,8 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_send_mouse_move(params)
 		"send_touch":
 			result = _cmd_send_touch(params)
+		"send_drag":
+			result = _cmd_send_drag(params)
 		"send_text":
 			result = _cmd_send_text(params)
 		"wait_for_node":
@@ -829,6 +831,22 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 	event.index = index
 	Input.parse_input_event(event)
 	return {"success": true, "x": x, "y": y, "pressed": pressed, "index": index}
+
+
+# IMP-11 补全: 触屏拖拽回放载体(对齐 _cmd_send_touch;speed best-effort,Godot 内部可能重算覆盖)
+func _cmd_send_drag(params: Dictionary) -> Variant:
+	var x: float = float(params.get("x", 0))
+	var y: float = float(params.get("y", 0))
+	var index: int = int(params.get("index", 0))
+	var relative: Array = params.get("relative", [0.0, 0.0])
+	var speed: Array = params.get("speed", [0.0, 0.0])
+	var event := InputEventScreenDrag.new()
+	event.position = Vector2(x, y)
+	event.index = index
+	event.relative = Vector2(float(relative[0]) if relative.size() > 0 else 0.0, float(relative[1]) if relative.size() > 1 else 0.0)
+	event.speed = Vector2(float(speed[0]) if speed.size() > 0 else 0.0, float(speed[1]) if speed.size() > 1 else 0.0)
+	Input.parse_input_event(event)
+	return {"success": true, "x": x, "y": y, "index": index, "relative": relative, "speed": speed}
 
 
 func _cmd_send_text(params: Dictionary) -> Variant:
@@ -1354,6 +1372,8 @@ func _input(event: InputEvent) -> void:
 		_recorded_events.append({"type": "mouse_move", "position": [event.position.x, event.position.y], "time_offset": time_ms})
 	elif event is InputEventScreenTouch:  # IMP-11: 触摸事件录制(对齐 recording_commands.gd :46 + _cmd_send_touch 契约)
 		_recorded_events.append({"type": "touch", "position": [event.position.x, event.position.y], "pressed": event.pressed, "index": event.index, "time_offset": time_ms})
+	elif event is InputEventScreenDrag:  # IMP-11 补全: 拖拽录制(对齐 recording_commands.gd + _cmd_send_drag 契约)
+		_recorded_events.append({"type": "touch_drag", "position": [event.position.x, event.position.y], "index": event.index, "relative": [event.relative.x, event.relative.y], "speed": [event.speed.x, event.speed.y], "time_offset": time_ms})
 
 
 ## 内联安全类型检查（替代 SafeValues 类引用，autoload 环境无法引用 safe_values.gd）
