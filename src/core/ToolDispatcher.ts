@@ -15,6 +15,7 @@ import {
 import {
   getAllToolDefinitions,
   getModuleForTool,
+  getToolDefinition,
   isToolAllowed,
   LITE_TOOLS,
   MINIMAL_TOOLS,
@@ -23,6 +24,7 @@ import {
   skipProjectPath,
   tryLegacyMapping,
 } from './tool-registry.js';
+import { validateArgs } from './args-validator.js';
 import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { truncateResponse } from './response-limiter.js';
@@ -229,6 +231,20 @@ export class ToolDispatcher {
       // ── 0. Common arg type validation ──
       const typeErr = this.validateCommonArgs(args);
       if (typeErr) return typeErr;
+
+      // ── 0.x Schema validation (args vs inputSchema) ──
+      // spec §3:normalizeArgs 后 args key 已 snake_case,与 inputSchema 一致。
+      // inline tool(confirm_and_execute/godot_advanced_tool)getToolDefinition 返 undefined → 跳过。
+      const schemaDef = getToolDefinition(name);
+      if (schemaDef?.inputSchema) {
+        const { ok, errors } = validateArgs(args, schemaDef.inputSchema);
+        if (!ok) {
+          return opsErrorResult(
+            COMMON_ERROR_CODES.INVALID_PARAMS,
+            `参数校验失败: ${errors.join('; ')}`,
+          );
+        }
+      }
 
       // ── 1. ReadOnlyGuard ──
       const guardResult = this.readOnlyGuard.check(name);
