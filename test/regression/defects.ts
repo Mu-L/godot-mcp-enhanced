@@ -32,12 +32,15 @@ function ensureTsDriftReady(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FIXED（19 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
+// FIXED（26 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
 // 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
 // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect != 0，
 // 按 spec §8 闭环改 status='open' 移到 OPEN_DEFECTS。
 // Task 3 review 闭环 +2：reconnect-degrade-fail / edit-node-blocked-props-json-pollution
 // （master 实测 detect=0，defects.md open 基于 fix 分支 manage-tools commit，移 FIXED 防复发）。
+// 2026-06-27 收窄 +3：version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
+//   detect 改查真缺陷形态（剔除合理模式：verifiedGodotVersion 元数据 / icacls ACL 替代 / MAX_NORMALIZE_DEPTH 常量引用），
+//   实测 detect===0，移 FIXED 防复发。
 // ═══════════════════════════════════════════════════════════════════════════════
 export const FIXED_DEFECTS: DefectEntry[] = [
   // ── CRITICAL 安全（行 196-264）──
@@ -221,6 +224,35 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // ToolDispatcher.ts 含 validateArgs(调用 = executeToolCall 那一处接入;文件级 grep 与函数段级等价,
     // 因该文件内 validateArgs 只在 executeToolCall 出现一处)。detect===0 防去验证化回归。
     detect: () => /validateArgs\(/.test(readSrc('src/core/ToolDispatcher.ts')) ? 0 : 1 },
+  // ── 2026-06-27 收窄移 FIXED（detect 改查真缺陷形态，剔除合理模式）──
+  { key: 'version-hardcoded-drift', status: 'fixed', severity: 'IMPORTANT', dimension: 'Maintainability',
+    // 收窄：原 detect 查 /["']4\.6["']/ 全量匹配 baseline=11，实测 11 处全是 verifiedGodotVersion
+    // 模板元数据字段（标记模板验证过的 Godot 版本，非可执行代码）。改 detect 仅查可执行路径硬编码
+    // （spawn / --godot-version= / version= 字面量赋值），剔除元数据 → master 实测 0，移 FIXED 防复发。
+    detect: () => countMatchesInFile('src/tools/code-templates.ts', /(?:spawn|--godot-version=|version\s*=\s*)["']4\.6["']/g) },
+  { key: 'secret-cache-and-perm-weak', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // 收窄：原 detect 查 TTL `5*60*1000`（baseline 命中）+ `platform!=='win32'`。
+    // 重新评估：5min TTL 是 CLAUDE.md 显式背书设计（"密钥缓存：5 分钟 TTL"平衡 I/O 与攻击窗口）；
+    // editor-auth/game-bridge 的 win32 分支均配套 icacls ACL（Win 替代 chmod 的等效强制），
+    // 非"Win 跳过 chmod 无替代"。真弱点形态=有 win32 分支 + chmod 但【无】icacls 替代 → master 0。
+    // detect 改查真弱点（win32 分支 + chmod + 无 icacls），移 FIXED 防复发。
+    detect: () => {
+      let n = 0;
+      for (const rel of ['src/core/editor-auth.ts', 'src/tools/game-bridge.ts']) {
+        const s = readSrc(rel);
+        const hasWin32Branch = /platform\s*[!=]==?\s*['"]win32['"]/.test(s);
+        const hasChmod = /chmodSync|chmod\s+0o600/.test(s);
+        const hasIcacls = /icacls/.test(s);
+        if (hasWin32Branch && hasChmod && !hasIcacls) n++;
+      }
+      return n;
+    } },
+  { key: 'normalizeargs-depth-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // 收窄：原 detect 查 `MAX_NORMALIZE_DEPTH=5` 定义 + `depth>5` baseline=1，实测命中的是
+    // L435 命名常量【定义】（使用处 L437/439 引用 .MAX_NORMALIZE_DEPTH 非裸魔数）。
+    // 命名常量定义是良好实践非缺陷。改 detect 仅查【裸】`depth > 5` 字面量使用（排除 .MAX_NORMALIZE_DEPTH
+    // 引用与定义）→ master 实测 0，移 FIXED 防复发（防去常量化退化回裸魔数）。
+    detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /[^.]\bdepth\s*>\s*5\b/g) },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -257,11 +289,14 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // OPEN（14 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
+  // OPEN（11 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
   // baseline = master 实测锁定值（plan Step 2 实测覆盖参考值）。Minor①：所有闭包正则为内联非复用字面量。
   // Task 3 review 闭环：-2（reconnect-degrade-fail + edit-node-blocked-props-json-pollution 移 FIXED）。
   // Task 3 review I-2：multi-instance-hmac EXPECTED 恢复 2（spec Named risk；master 0 调用 → detect=2 baseline=2）。
-  // OPEN 总计 18 条（4 闭环 + 14 Task 3）。
+  // 2026-06-27 收窄：-3（version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
+  //   detect 改查真缺陷形态实测 0 移 FIXED）；2 降 ADVISORY（module-level-mutable-state / regex-danger-api-bypassable
+  //   detect/baseline 不变，承认合理设计/已认知防御层，severity IMPORTANT→ADVISORY，保留 OPEN baseline 防恶化）。
+  // OPEN 总计 11 条（4 闭环 + 14 Task 3 − 4 移 fixed − 3 移 fixed）。
   // ═══════════════════════════════════════════════════════════════════════════════
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
   // gdscript-gen-null-root-deref 移 FIXED(2026-06-27 detect=0)
@@ -287,26 +322,17 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     },
     baseline: 2 }, // master 实测 0 生产调用 → 缺失 2（instance-router 接收侧 + GodotServer 顶层均未接线）
   // ── 计数类 ──
-  { key: 'module-level-mutable-state', status: 'open', severity: 'IMPORTANT', dimension: 'Architecture',
+  { key: 'module-level-mutable-state', status: 'open', severity: 'ADVISORY', dimension: 'Architecture',
+    // 收窄降 ADVISORY（detect/baseline 不变）：42 全是合理单例/缓存（_permWarned 去重 / _cachedSecret TTL /
+    // _runningProcess / _socket / _outputBuffer），Node 单线程 + _connectionLock/_sendLock 已加锁，无并发竞态。
+    // detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
     baseline: 42 }, // fix src/ 目录重构后实测 42（master 40 + 重构增 2；_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域）
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
-  { key: 'version-hardcoded-drift', status: 'open', severity: 'IMPORTANT', dimension: 'Maintainability',
-    detect: () => countMatchesInFile('src/tools/code-templates.ts', /["']4\.6["']/g),
-    baseline: 11 }, // code-templates 11 处 verifiedGodotVersion（参考）
+  // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)
   // launcher-no-error-listener 移 FIXED(2026-06-27 detect=0)
   // ── 存在性类（§6 计数化：返回命中处数/缺失项数，非 0/1）──
-  { key: 'secret-cache-and-perm-weak', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
-    detect: () => {
-      // 计数：不达标项数（TTL>60s 计 1 + Win 跳过 chmod 处数）
-      let n = 0;
-      const g = readSrc('src/tools/game-bridge.ts');
-      if (/SECRET_CACHE_TTL\s*=\s*\d+\s*\*\s*60\s*\*\s*1000|SECRET_CACHE_TTL\s*>\s*60000/.test(g)) n++;
-      const a = readSrc('src/core/editor-auth.ts');
-      n += a.match(/platform\s*!==\s*['"]win32['"]/g)?.length ?? 0;
-      return n;
-    },
-    baseline: 1 }, // master 实测=1（仅 TTL 命中；editor-auth 已无 platform!=='win32' 模式）
+  // secret-cache-and-perm-weak 移 FIXED(2026-06-27 detect 改查真弱点 win32+chmod 无 icacls → 0)
   { key: 'websocket-auth-once-plaintext', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
       // 计数：弱认证特征数（明文 ws 处数 + 缺 per-msg HMAC）
@@ -317,9 +343,11 @@ export const OPEN_DEFECTS: DefectEntry[] = [
       return n;
     },
     baseline: 2 }, // EditorConnection:149 模板字符串明文 ws + 无 HMAC（Step 2 实测锁定）
-  { key: 'regex-danger-api-bypassable', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
-    // 计数：朴素正则/黑名单【弱点】特征点数（本质黑名单未根除，维持 open）。
-    // 审查修订：剔除 stripLiterals/randomizeMarkers/MARKER_RESULT——这些是 defects.md note(行 366) 的【加固】特征，
+  { key: 'regex-danger-api-bypassable', status: 'open', severity: 'ADVISORY', dimension: 'Security',
+    // 收窄降 ADVISORY（detect/baseline 不变）：黑名单是已认知的多层防御之一，CLAUDE.md godot-mcp-core.md
+    // C-04 明确"沙箱仅防误操作，不可防恶意绕过，需容器/VM 隔离"。detect 把黑名单密度当缺陷过严——
+    // 黑名单存在是【加固】而非弱点，且容器隔离兜底非 detect 可衡量。降 ADVISORY。保留 OPEN（baseline 防恶化）。
+    // 审查修订：剔除 stripLiterals/randomizeMarkers/MARKER_RESULT——这些是【加固】特征，
     // 计入会让"加防护"推高度量、触发恶化误报（逼开发者别加固）。只计黑名单弱点密度。
     detect: () => countMatchesInFile('src/gdscript-executor.ts', /DANGEROUS_API_TOKENS|DANGEROUS_PATTERNS/g),
     baseline: 11 }, // master 实测 11（DANGEROUS_API_TOKENS 3 + DANGEROUS_PATTERNS 8 全部引用处，非仅定义点）
@@ -345,9 +373,6 @@ export const OPEN_DEFECTS: DefectEntry[] = [
       return missing;
     },
     baseline: 1 }, // R2 IMP-11(c436587)加 1 类,仍缺 1 类(detect=1,参考)
-  { key: 'normalizeargs-depth-limit', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
-    // 计数：硬编码深度上限处数（MAX_NORMALIZE_DEPTH=5 / depth>5）
-    detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /MAX_NORMALIZE_DEPTH\s*=\s*5\b|depth\s*>\s*5\b/g),
-    baseline: 1 }, // ToolDispatcher:410（参考）
+  // normalizeargs-depth-limit 移 FIXED(2026-06-27 detect 改查裸 depth>5 字面量,排除 .MAX_NORMALIZE_DEPTH 引用 → 0)
 ];
 
