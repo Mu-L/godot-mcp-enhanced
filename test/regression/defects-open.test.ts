@@ -38,12 +38,13 @@ describe('DEFECT open 防恶化（基线阈值 detect() <= baseline）', () => {
     //   − 1（ts-args-as-cast-no-validation 2026-06-27 args-validator 接入 detect 改查入口移 FIXED）
     //   − 3（2026-06-27 收窄：version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
     //   detect 改查真缺陷形态实测 0 移 FIXED）。
-    // 沿用：4 条（原 fixed 实测真未修 Task 2 闭环）+ 14 条（Task 3 追加）− 7（本次移 fixed）。
+    //   − 1（2026-06-27 recording-no-touch-events ScreenDrag 补全 detect=0 移 FIXED）。
+    // 沿用：4 条（原 fixed 实测真未修 Task 2 闭环）+ 14 条（Task 3 追加）− 8（本次移 fixed）。
     // 注：2 条（module-level-mutable-state / regex-danger-api-bypassable）降 ADVISORY 但仍 OPEN
     //   （detect/baseline 不变,承认合理设计/已认知防御层,保留 baseline 防恶化）。
-    expect(OPEN_DEFECTS.length).toBe(11);
+    expect(OPEN_DEFECTS.length).toBe(10);
     const keys = OPEN_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(11);
+    expect(new Set(keys).size, '存在重名 key').toBe(10);
     // 全部 status=open 且 baseline 已锁定（防恶化门必须）
     for (const d of OPEN_DEFECTS) {
       expect(d.status, `${d.key} status 应为 open`).toBe('open');

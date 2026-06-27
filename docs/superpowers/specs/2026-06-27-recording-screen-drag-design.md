@@ -27,7 +27,7 @@ IMP-11(R2 c436587,2026-06-27)给录制系统补了 `InputEventScreenTouch`(单�
 
 **已确认的不对称**:`send_touch` 不在 `game-bridge.ts` `INPUT_METHODS`(L401-403,仅 send_key/click/move/text),即它是**回放内部用的 Bridge 命令**,用户不能直接 `game_input(method='send_touch')`(IMP-11 遗留)。`send_drag` 需明确归属。
 
-**跨库治理债**:`defects.ts:366`(项目测试权威)= open/baseline1,而 `defects.md:503` 标 fixed + "建议另开"(defects.md:804 自承已知债)。本 PR Path A 并入 `recording-no-touch-events`,实现后同步 defects.md 删"建议另开"(见 §7)。
+**跨库治理债(已闭环)**:`defects.ts`(项目测试权威)= 原 open/baseline1,Path A 并入 `recording-no-touch-events`。实现后(ScreenDrag 补全 Task 1-3)detect=0,defect 移 `FIXED_DEFECTS` 硬断言 ===0 防复发。原 `defects.md:503` "建议另开"表述：该 defect 库文件不在此仓库(外部知识库引用),仓库内唯一载体为本 spec,故闭环在本 spec §7 完成(删"建议另开",标 Path A 已并入 + F2 双侧契约纳入)。
 
 ## 目标
 
@@ -119,12 +119,13 @@ export const TOUCH_DRAG_FIELDS = ['position', 'index', 'relative', 'speed'] as c
 - **defect detect**:接入后 `recording-no-touch-events` detect=0
 - **game_input schema**:INPUT_METHODS 含 send_drag/send_touch(静态断言)+ 3 处 description 含(send_drag/send_touch 文本校验)
 
-### §7 缺陷治理闭环
+### §7 缺陷治理闭环(已完成)
 
-实现完成后更新 `docs/defects/defects.md`(或对应 defect 库)`recording-no-touch-events` note:
-- 删除"建议另开"(Path A 并入,非另开)
-- 标注:Path A 决策(并入 recording-no-touch-events)+ F2 双侧契约已纳入 + 修复 commit
-- last-seen / found-in 追加本 PR(审查报告已预更新 defects.md:498-507,实现后补 commit)
+**Path A 决策已落地**:`recording-no-touch-events` 并入本 PR(非另开),Task 1-3 三端补全 `InputEventScreenDrag`。
+**defect 状态**:`test/regression/defects.ts` 中该条已从 `OPEN_DEFECTS`(baseline 1)移至 `FIXED_DEFECTS` 硬断言 `detect===0`(ScreenTouch + ScreenDrag 两类齐备)。detect 谓词不变(计数缺失的触屏事件类型数)。
+**F2 双侧字段契约已纳入**:`test/recording-touch-drag-contract.test.js` 三测(bridge `_cmd_send_drag` / editor `_fire_playback_event` / TS `TOUCH_DRAG_FIELDS`)断言三端 `position/index/relative/speed` 字段名一致,防 IMP-11 同类静默错。
+**"建议另开"表述已删除**:原指令指向的 `docs/defects/defects.md` 不在此仓库(外部知识库引用,git 无历史),仓库内唯一载体为本 spec,故闭环在本 spec 完成(§背景 L30 同步标注)。
+**修复 commit**:见本分支 Task 4 commit(`test(recording): F2 双侧字段契约 + defect recording-no-touch-events fixed/0`)。
 
 ## 验收标准
 
@@ -134,8 +135,8 @@ export const TOUCH_DRAG_FIELDS = ['position', 'index', 'relative', 'speed'] as c
 - [ ] `game-bridge.ts` `INPUT_METHODS` 含 `send_drag` + `send_touch` + 3 处 description 同步
 - [ ] **F2** 双侧字段契约测试绿(TOUCH_DRAG_FIELDS 三端对齐)
 - [ ] **F5** 同 index 序列用例绿
-- [ ] defect `recording-no-touch-events` status fixed / baseline 0 / detect===0
-- [ ] defects.md note 闭环(删"建议另开")
+- [x] defect `recording-no-touch-events` status fixed / baseline 0 / detect===0(移 FIXED_DEFECTS 硬断言)
+- [x] defects note 闭环(删"建议另开";defects.md 不在此仓库,闭环在本 spec §7 + §背景)
 - [ ] TS 测试绿 + 现有全测试无回归
 - [ ] `npm run lint` + `tsc --noEmit` clean + GDScript validate_scripts 0 errors
 

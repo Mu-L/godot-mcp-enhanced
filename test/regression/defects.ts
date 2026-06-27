@@ -32,7 +32,7 @@ function ensureTsDriftReady(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FIXED（26 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
+// FIXED（27 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
 // 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
 // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect != 0，
 // 按 spec §8 闭环改 status='open' 移到 OPEN_DEFECTS。
@@ -41,6 +41,8 @@ function ensureTsDriftReady(): void {
 // 2026-06-27 收窄 +3：version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
 //   detect 改查真缺陷形态（剔除合理模式：verifiedGodotVersion 元数据 / icacls ACL 替代 / MAX_NORMALIZE_DEPTH 常量引用），
 //   实测 detect===0，移 FIXED 防复发。
+// 2026-06-27 recording-no-touch-events：ScreenDrag 补全（feat/recording-screen-drag Task 1-3 三端实现），
+//   ScreenTouch+ScreenDrag 两类齐备 detect=0，移 FIXED 防复发（detect 谓词不变：计数缺失的触屏事件类型数）。
 // ═══════════════════════════════════════════════════════════════════════════════
 export const FIXED_DEFECTS: DefectEntry[] = [
   // ── CRITICAL 安全（行 196-264）──
@@ -253,6 +255,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 命名常量定义是良好实践非缺陷。改 detect 仅查【裸】`depth > 5` 字面量使用（排除 .MAX_NORMALIZE_DEPTH
     // 引用与定义）→ master 实测 0，移 FIXED 防复发（防去常量化退化回裸魔数）。
     detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /[^.]\bdepth\s*>\s*5\b/g) },
+  { key: 'recording-no-touch-events', status: 'fixed', severity: 'IMPORTANT', dimension: 'Completeness',
+    // ScreenDrag 补全(Task4 feat/recording-screen-drag):ScreenTouch+ScreenDrag 两类齐备 detect=0。
+    // detect 谓词不变(原 OPEN 时即此谓词):计数缺失的触屏事件类型数,期望 ScreenTouch + ScreenDrag 共 2 类。
+    // 移 FIXED 硬断言 ===0(防任一类被误删回归)。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/recording_commands.gd');
+      let missing = 0;
+      if (!/InputEventScreenTouch/.test(f)) missing++;
+      if (!/InputEventScreenDrag/.test(f)) missing++;
+      return missing;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -289,14 +302,15 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // OPEN（11 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
+  // OPEN（10 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
   // baseline = master 实测锁定值（plan Step 2 实测覆盖参考值）。Minor①：所有闭包正则为内联非复用字面量。
   // Task 3 review 闭环：-2（reconnect-degrade-fail + edit-node-blocked-props-json-pollution 移 FIXED）。
   // Task 3 review I-2：multi-instance-hmac EXPECTED 恢复 2（spec Named risk；master 0 调用 → detect=2 baseline=2）。
   // 2026-06-27 收窄：-3（version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
   //   detect 改查真缺陷形态实测 0 移 FIXED）；2 降 ADVISORY（module-level-mutable-state / regex-danger-api-bypassable
   //   detect/baseline 不变，承认合理设计/已认知防御层，severity IMPORTANT→ADVISORY，保留 OPEN baseline 防恶化）。
-  // OPEN 总计 11 条（4 闭环 + 14 Task 3 − 4 移 fixed − 3 移 fixed）。
+  // 2026-06-27 recording-no-touch-events：ScreenDrag 补全移 FIXED（detect=0），OPEN −1。
+  // OPEN 总计 10 条（4 闭环 + 14 Task 3 − 4 移 fixed − 3 移 fixed − 1 移 fixed）。
   // ═══════════════════════════════════════════════════════════════════════════════
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
   // gdscript-gen-null-root-deref 移 FIXED(2026-06-27 detect=0)
@@ -363,16 +377,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     },
     baseline: 1 }, // master 实测=1（缺所有者/uid；signature 或 validateGodotBinary 已部分命中）
   // plugin-no-super-call 移 FIXED(2026-06-27 detect=0;R2 super IMP-4 654b162 已修)
-  { key: 'recording-no-touch-events', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
-    detect: () => {
-      // 计数：缺失的触屏事件类型数（期望 ScreenTouch + ScreenDrag 共 2 类）
-      const f = readSrc('addons/godot_mcp_server/commands/recording_commands.gd');
-      let missing = 0;
-      if (!/InputEventScreenTouch/.test(f)) missing++;
-      if (!/InputEventScreenDrag/.test(f)) missing++;
-      return missing;
-    },
-    baseline: 1 }, // R2 IMP-11(c436587)加 1 类,仍缺 1 类(detect=1,参考)
+  // recording-no-touch-events 移 FIXED(2026-06-27 ScreenDrag 补全 feat/recording-screen-drag,两类齐备 detect=0)
   // normalizeargs-depth-limit 移 FIXED(2026-06-27 detect 改查裸 depth>5 字面量,排除 .MAX_NORMALIZE_DEPTH 引用 → 0)
 ];
 

@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 26 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 27 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -17,17 +17,19 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 26 条且无重名', () => {
-    // 26 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
+  it('FIXED_DEFECTS 覆盖 27 条且无重名', () => {
+    // 27 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者系 R2 super IMP-4 654b162 已修）
     //   + 1（ts-args-as-cast-no-validation 2026-06-27 args-validator 接入,detect 改查 executeToolCall
     //   validateArgs 接入点,文件级 grep;detect===0 防去验证化回归）
     //   + 3（2026-06-27 收窄：version-hardcoded-drift / secret-cache-and-perm-weak / normalizeargs-depth-limit
     //   detect 改查真缺陷形态,剔除合理模式 verifiedGodotVersion 元数据 / icacls ACL 替代 / .MAX_NORMALIZE_DEPTH
-    //   常量引用,实测 detect===0 移 FIXED 防复发）。
-    expect(FIXED_DEFECTS.length).toBe(26);
+    //   常量引用,实测 detect===0 移 FIXED 防复发）
+    //   + 1（2026-06-27 recording-no-touch-events ScreenDrag 补全 feat/recording-screen-drag,
+    //   ScreenTouch+ScreenDrag 两类齐备 detect=0 移 FIXED 防复发）。
+    expect(FIXED_DEFECTS.length).toBe(27);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(26);
+    expect(new Set(keys).size, '存在重名 key').toBe(27);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
