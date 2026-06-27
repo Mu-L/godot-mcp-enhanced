@@ -26,6 +26,13 @@ const ACTIONS = [
   'recording_play',
 ] as const;
 
+/**
+ * touch_drag 事件字段契约(F2 双侧契约:三端字段名必须对齐,防 IMP-11 同类静默错)。
+ * 对应:recording.test.js 用例 D / Task 4 双侧契约测试。
+ * position 在 events 端是 [x,y],发 bridge 时拆成 x/y 字段。
+ */
+export const TOUCH_DRAG_FIELDS = ['position', 'index', 'relative', 'speed'] as const;
+
 // ─── Keycode → Bridge key string mapping ────────────────────────────────────
 
 // Reverse mapping of Godot keycodes to the key strings accepted by Bridge's _cmd_send_key.
@@ -366,8 +373,27 @@ export async function handleTool(
                 index: Number(evt.index ?? 0),
               }, 3000);
               played++;
+            } else if (evtType === 'touch_drag') {
+              // Task 3 (IMP-11 同类补全): touch_drag 回放——对齐 bridge _cmd_send_drag 契约
+              // (position→x/y, index, relative, speed)。FIELDS 双侧契约见 TOUCH_DRAG_FIELDS。
+              const pos = evt.position ?? evt.pos ?? [0, 0];
+              const posArr = Array.isArray(pos) ? pos : [0, 0];
+              const rel = evt.relative ?? [0, 0];
+              const relArr = Array.isArray(rel) ? rel : [0, 0];
+              const spd = evt.speed ?? [0, 0];
+              const spdArr = Array.isArray(spd) ? spd : [0, 0];
+              await sendToBridge('send_drag', {
+                x: Number(posArr[0] ?? 0),
+                y: Number(posArr[1] ?? 0),
+                index: Number(evt.index ?? 0),
+                relative: [Number(relArr[0] ?? 0), Number(relArr[1] ?? 0)],
+                speed: [Number(spdArr[0] ?? 0), Number(spdArr[1] ?? 0)],
+              }, 3000);
+              played++;
+            } else {
+              // F3: unknown event type 计入 errors(此前 silently skip 降低可观测性,见 Task 3)
+              errors.push(`Unknown event type: ${evtType}`);
             }
-            // else: skip unknown event types silently (played not incremented)
           } catch (e) {
             errors.push(`Event ${played} (${evtType}): ${(e as Error).message}`);
           }

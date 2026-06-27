@@ -15,6 +15,8 @@ import {
   validateEventsJson,
   MAX_RECORDING_EVENTS,
   handleTool,
+  // Task 3: TOUCH_DRAG_FIELDS 双侧字段契约(F2)
+  TOUCH_DRAG_FIELDS,
 } from '../src/tools/recording.js';
 import { sendToBridge } from '../src/tools/game-bridge.js';
 
@@ -209,5 +211,90 @@ describe('recording_play touch (阶段2b IMP-11: touch 回放分发)', () => {
     expect(sendToBridge).toHaveBeenCalledWith('send_touch',
       expect.objectContaining({ x: 5, y: 5, pressed: false, index: 0 }),
       expect.any(Number));
+  });
+});
+
+// Task 3: recording_play touch_drag 事件分发到 send_drag
+// 契约: 录制的 touch_drag {type:"touch_drag",position:[x,y],index,relative:[dx,dy],speed:[sx,sy]}
+//   → sendToBridge('send_drag', {x,y,index,relative,speed})
+describe('recording_play touch_drag (Task 3: touch_drag 回放 + F3 + F2 契约)', () => {
+  const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+
+  beforeEach(() => { vi.mocked(sendToBridge).mockClear(); });
+
+  // 用例 A: touch_drag 单事件回放 → send_drag 带 {x,y,index,relative,speed}
+  it('plays touch_drag event via send_drag', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue({ result: { ok: true } });
+    const events = [{
+      type: 'touch_drag', position: [10, 20], index: 0,
+      relative: [3, 4], speed: [1, 2], time_offset: 0,
+    }];
+    await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    expect(sendToBridge).toHaveBeenCalledWith('send_drag',
+      expect.objectContaining({
+        x: expect.any(Number), y: expect.any(Number),
+        index: expect.any(Number),
+        relative: expect.any(Array), speed: expect.any(Array),
+      }),
+      expect.any(Number));
+  });
+
+  // 用例 B (F5): touch→touch_drag→touch 同 index 序列回放顺序与分发方法正确
+  it('plays touch→touch_drag→touch sequence with same index', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue({ result: { ok: true } });
+    const events = [
+      { type: 'touch', position: [1, 1], pressed: true, index: 0, time_offset: 0 },
+      { type: 'touch_drag', position: [11, 1], index: 0, relative: [10, 0], speed: [1, 0], time_offset: 50 },
+      { type: 'touch', position: [11, 1], pressed: false, index: 0, time_offset: 200 },
+    ];
+    await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    expect(sendToBridge).toHaveBeenCalledTimes(3);
+    expect(sendToBridge).toHaveBeenNthCalledWith(1, 'send_touch', expect.any(Object), expect.any(Number));
+    expect(sendToBridge).toHaveBeenNthCalledWith(2, 'send_drag', expect.any(Object), expect.any(Number));
+    expect(sendToBridge).toHaveBeenNthCalledWith(3, 'send_touch', expect.any(Object), expect.any(Number));
+  });
+
+  // 用例 C (F3): unknown event type → 推入 errors(此前 silently skip)
+  it('pushes unknown event type to errors (F3)', async () => {
+    const events = [{ type: 'gamepad', button: 0, time_offset: 0 }];
+    const result = await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.errors).toBeDefined();
+    expect(Array.isArray(parsed.errors)).toBe(true);
+    expect(parsed.events_played).toBe(0);
+    expect(parsed.errors.join('\n')).toMatch(/Unknown event type: gamepad/);
+  });
+
+  // 用例 D (F2 TS 侧): 发出的 send_drag payload 字段 ⊇ TOUCH_DRAG_FIELDS 对应
+  it('send_drag payload keys cover TOUCH_DRAG_FIELDS (F2)', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue({ result: { ok: true } });
+    const events = [{
+      type: 'touch_drag', position: [5, 6], index: 1,
+      relative: [1, 2], speed: [3, 4], time_offset: 0,
+    }];
+    await handleTool('recording', {
+      action: 'recording_play', project_path: '/fake/p',
+      events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
+    }, fakeCtx);
+    const payload = vi.mocked(sendToBridge).mock.calls[0][1];
+    // position 在 events 是 [x,y],发 bridge 拆成 x/y;字段契约经 x/y/index/relative/speed 覆盖
+    expect(payload).toMatchObject({ x: 5, y: 6, index: 1, relative: [1, 2], speed: [3, 4] });
+  });
+});
+
+// Task 3: TOUCH_DRAG_FIELDS 常量导出契约(F2 双侧字段对齐防 IMP-11 同类静默错)
+describe('TOUCH_DRAG_FIELDS (Task 3: F2 字段契约常量)', () => {
+  it('exports an array of touch_drag field names', () => {
+    expect(Array.isArray(TOUCH_DRAG_FIELDS)).toBe(true);
+    expect([...TOUCH_DRAG_FIELDS]).toEqual(['position', 'index', 'relative', 'speed']);
   });
 });
