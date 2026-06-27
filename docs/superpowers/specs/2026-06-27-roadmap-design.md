@@ -174,9 +174,22 @@
 
 ## 实施待办(ROADMAP.md 外)
 
-- [ ] 创建 `D:\GitHub\godot-mcp-enhanced\ROADMAP.md`(照本设计蓝本)
-- [ ] **待 feat/roadmap 合并 master 后**,回改 `D:\GitHub\godot-mcp-enhanced\docs\superpowers\specs\2026-06-27-readme-repositioning-design.md` 第 7 节收尾,补 `[Roadmap](ROADMAP.md)` 链接(I5;该 spec 现在 feat/roadmap 分支,本 docs/roadmap 分支无此文件)
-- [ ] README.md 收尾节加 `[Roadmap](ROADMAP.md)` 链接(并入 feat/roadmap 的 README 重定位,或合并后补)
+### 合并策略(N1,方案 A —— 单分支闭环)
+
+ROADMAP.md 产物 + README 加 Roadmap 链接 + readme r2 spec 回改,全部归到 `feat/roadmap` 分支,与 README+LICENSE(`640020b`)一次性合并 master。`docs/roadmap`(本 spec)随之合上。无中间态、易回滚。`feat/roadmap` 无并发 session(并发在 recording 分支),归并安全。
+
+实施顺序:
+1. 把 `docs/roadmap` 的 ROADMAP spec(`265a612`)合到 `feat/roadmap`(cherry-pick 或 merge)
+2. 在 `feat/roadmap` 创建 `D:\GitHub\godot-mcp-enhanced\ROADMAP.md`(照本设计蓝本)
+3. 在 `feat/roadmap` 回改 `D:\GitHub\godot-mcp-enhanced\docs\superpowers\specs\2026-06-27-readme-repositioning-design.md` 第 7 节收尾,补 `[Roadmap](ROADMAP.md)` 链接(I5)
+4. 在 `feat/roadmap` 的 README.md 收尾节加 `[Roadmap](ROADMAP.md)` 链接
+5. `feat/roadmap` 合并 master(README 重定位 + LICENSE + ROADMAP.md + spec 回改 单分支闭环落地)
+
+### 其他
+
+- [ ] 上架 CodeBuddy MCP Market(#10,依赖 #11 验证通过)
+
+> N2(M2 三项排序依据)/N3(#7 出处占位)/N4(验收第 1 条「被 README.md 链接」措辞收紧)留 writing-plans 阶段处理(review 建议)
 
 ## 不改的部分
 
