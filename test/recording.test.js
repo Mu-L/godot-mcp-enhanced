@@ -286,8 +286,18 @@ describe('recording_play touch_drag (Task 3: touch_drag 回放 + F3 + F2 契约)
       events_json: JSON.stringify({ version: 1, duration_ms: 0, events }),
     }, fakeCtx);
     const payload = vi.mocked(sendToBridge).mock.calls[0][1];
-    // position 在 events 是 [x,y],发 bridge 拆成 x/y;字段契约经 x/y/index/relative/speed 覆盖
-    expect(payload).toMatchObject({ x: 5, y: 6, index: 1, relative: [1, 2], speed: [3, 4] });
+    // F2 双侧契约:payload 字段经 TOUCH_DRAG_FIELDS 常量索引断言(改实现字段名测试必红)
+    // TOUCH_DRAG_FIELDS = ['position','index','relative','speed']
+    // events[0] 字段名与常量对齐:position→x/y 拆分;index/relative/speed 透传
+    const evt = events[0];
+    const positionField = TOUCH_DRAG_FIELDS[0]; // 'position'
+    expect(payload.x).toBe(Number(evt[positionField][0]));
+    expect(payload.y).toBe(Number(evt[positionField][1]));
+    expect(payload.index).toBe(Number(evt[TOUCH_DRAG_FIELDS[1]])); // 'index'
+    const relField = TOUCH_DRAG_FIELDS[2]; // 'relative'
+    expect(payload.relative).toEqual([Number(evt[relField][0]), Number(evt[relField][1])]);
+    const spdField = TOUCH_DRAG_FIELDS[3]; // 'speed'
+    expect(payload.speed).toEqual([Number(evt[spdField][0]), Number(evt[spdField][1])]);
   });
 });
 
