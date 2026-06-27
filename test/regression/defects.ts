@@ -195,6 +195,27 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const f = readSrc('src/tools/scene/index.ts');
       return f.match(/BLOCKED_PROPS[\s\S]{0,400}text:\s*warn[\s\S]{0,200}content\[0\]\.text|content\[0\]\.text\s*=\s*warn/g)?.length ?? 0;
     } },
+  // ── baseline 同步(2026-06-27):detect 实测=0(probe 核实)移 FIXED 防复发 ──
+  { key: 'gdscript-gen-null-root-deref', status: 'fixed', severity: 'CRITICAL', dimension: 'Correctness',
+    detect: () => countMatchesInDir('src/tools', /_mcp_get_root\(\)\.|get_tree\(\)\.root|get_tree\(\)\.current_scene/g, /\.ts$/)
+           + countMatchesInDir('addons', /_mcp_get_root\(\)\.|get_tree\(\)\.root/g, /\.gd$/) },
+  { key: 'launcher-no-error-listener', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const n = countMatchesInFile('src/dashboard/launcher.ts', /\.unref\(\)/g);
+      const guarded = countMatchesInFile('src/dashboard/launcher.ts', /\.on\(['"]error['"]/g);
+      return Math.max(0, n - guarded);
+    } },
+  { key: 'plugin-no-super-call', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // R2 阶段5 super() IMP-4(commit 654b162)已修 plugin/websocket/status_panel,detect=0 移 FIXED 防复发
+    detect: () => {
+      let total = 0;
+      for (const rel of ['addons/godot_mcp_server/plugin.gd', 'addons/godot_mcp_server/websocket_server.gd', 'addons/godot_mcp_server/ui/status_panel.gd']) {
+        const f = readSrc(rel);
+        const funcs = f.match(/func _(?:enter_tree|exit_tree|ready|process|physics_process)\(\)[\s\S]*?(?=\nfunc |\n#|$)/g) ?? [];
+        total += funcs.filter(b => !/super\(\)/.test(b)).length;
+      }
+      return total;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -238,10 +259,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // OPEN 总计 18 条（4 闭环 + 14 Task 3）。
   // ═══════════════════════════════════════════════════════════════════════════════
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
-  { key: 'gdscript-gen-null-root-deref', status: 'open', severity: 'CRITICAL', dimension: 'Correctness',
-    detect: () => countMatchesInDir('src/tools', /_mcp_get_root\(\)\.|get_tree\(\)\.root|get_tree\(\)\.current_scene/g, /\.ts$/)
-           + countMatchesInDir('addons', /_mcp_get_root\(\)\.|get_tree\(\)\.root/g, /\.gd$/),
-    baseline: 1 }, // master 实测=1（Step 2 锁定）
+  // gdscript-gen-null-root-deref 移 FIXED(2026-06-27 detect=0)
   { key: 'secret-file-toctou-race', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
       // 计数：非原子密钥读取路径数（existsSync(secret) 与 readFileSync(secret) 分离，每对一次 TOCTOU）
@@ -273,13 +291,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   { key: 'version-hardcoded-drift', status: 'open', severity: 'IMPORTANT', dimension: 'Maintainability',
     detect: () => countMatchesInFile('src/tools/code-templates.ts', /["']4\.6["']/g),
     baseline: 11 }, // code-templates 11 处 verifiedGodotVersion（参考）
-  { key: 'launcher-no-error-listener', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
-    detect: () => {
-      const n = countMatchesInFile('src/dashboard/launcher.ts', /\.unref\(\)/g);
-      const guarded = countMatchesInFile('src/dashboard/launcher.ts', /\.on\(['"]error['"]/g);
-      return Math.max(0, n - guarded);
-    },
-    baseline: 5 },
+  // launcher-no-error-listener 移 FIXED(2026-06-27 detect=0)
   // ── 存在性类（§6 计数化：返回命中处数/缺失项数，非 0/1）──
   { key: 'secret-cache-and-perm-weak', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
@@ -319,20 +331,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
       return missing;
     },
     baseline: 1 }, // master 实测=1（缺所有者/uid；signature 或 validateGodotBinary 已部分命中）
-  { key: 'plugin-no-super-call', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
-    detect: () => {
-      // 计数：无 super() 的生命周期覆写函数数（全域 addons/godot_mcp_server/）。
-      // 审查修订：正则须匹配 _ready/_process（无 _tree 后缀）——原 (enter|exit|ready)_tree? 漏 _ready/_process
-      // （defects.md note 行 473：status_panel.gd:8 _ready、websocket_server.gd _ready/_process/_exit_tree 缺 super）。
-      let total = 0;
-      for (const rel of ['addons/godot_mcp_server/plugin.gd', 'addons/godot_mcp_server/websocket_server.gd', 'addons/godot_mcp_server/ui/status_panel.gd']) {
-        const f = readSrc(rel);
-        const funcs = f.match(/func _(?:enter_tree|exit_tree|ready|process|physics_process)\(\)[\s\S]*?(?=\nfunc |\n#|$)/g) ?? [];
-        total += funcs.filter(b => !/super\(\)/.test(b)).length;
-      }
-      return total;
-    },
-    baseline: 5 }, // master 实测=5（Step 2 锁定）
+  // plugin-no-super-call 移 FIXED(2026-06-27 detect=0;R2 super IMP-4 654b162 已修)
   { key: 'recording-no-touch-events', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
     detect: () => {
       // 计数：缺失的触屏事件类型数（期望 ScreenTouch + ScreenDrag 共 2 类）
@@ -342,7 +341,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
       if (!/InputEventScreenDrag/.test(f)) missing++;
       return missing;
     },
-    baseline: 2 }, // 缺 ScreenTouch + ScreenDrag（参考）
+    baseline: 1 }, // R2 IMP-11(c436587)加 1 类,仍缺 1 类(detect=1,参考)
   { key: 'normalizeargs-depth-limit', status: 'open', severity: 'IMPORTANT', dimension: 'Correctness',
     // 计数：硬编码深度上限处数（MAX_NORMALIZE_DEPTH=5 / depth>5）
     detect: () => countMatchesInFile('src/core/ToolDispatcher.ts', /MAX_NORMALIZE_DEPTH\s*=\s*5\b|depth\s*>\s*5\b/g),
