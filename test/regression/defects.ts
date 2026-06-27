@@ -216,6 +216,11 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       }
       return total;
     } },
+  { key: 'ts-args-as-cast-no-validation', status: 'fixed', severity: 'IMPORTANT', dimension: 'Type Safety',
+    // R1/R2:接入点上移 executeToolCall(L231)。detect 改查"入口验证接入":
+    // ToolDispatcher.ts 含 validateArgs(调用 = executeToolCall 那一处接入;文件级 grep 与函数段级等价,
+    // 因该文件内 validateArgs 只在 executeToolCall 出现一处)。detect===0 防去验证化回归。
+    detect: () => /validateArgs\(/.test(readSrc('src/core/ToolDispatcher.ts')) ? 0 : 1 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -285,9 +290,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   { key: 'module-level-mutable-state', status: 'open', severity: 'IMPORTANT', dimension: 'Architecture',
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
     baseline: 42 }, // fix src/ 目录重构后实测 42（master 40 + 重构增 2；_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域）
-  { key: 'ts-args-as-cast-no-validation', status: 'open', severity: 'IMPORTANT', dimension: 'Type Safety',
-    detect: () => countMatchesInDir('src/tools', /\bargs\.\w+\s+as\s+(string|number|Record<string,\s*unknown>|string\[\]|number\[\]|Array|unknown|boolean)/g, /\.ts$/),
-    baseline: 335 }, // master 实测 335（2026-06-25；countMatchesInDir 全局 g 标志匹配，比裸 grep 多含跨行/多捕获）
+  // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   { key: 'version-hardcoded-drift', status: 'open', severity: 'IMPORTANT', dimension: 'Maintainability',
     detect: () => countMatchesInFile('src/tools/code-templates.ts', /["']4\.6["']/g),
     baseline: 11 }, // code-templates 11 处 verifiedGodotVersion（参考）
