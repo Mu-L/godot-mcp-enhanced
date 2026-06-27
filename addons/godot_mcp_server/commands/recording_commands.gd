@@ -52,6 +52,16 @@ func _input(event: InputEvent) -> void:
 			"time_offset": Time.get_ticks_msec() - _record_start_time
 		}
 		_recorded_events.append(entry)
+	elif event is InputEventScreenDrag:  # IMP-11 补全: 拖拽录制(对齐 bridge _input + _cmd_send_drag 契约)
+		var drag_entry: Dictionary = {
+			"type": "touch_drag",
+			"position": [event.position.x, event.position.y],
+			"index": event.index,
+			"relative": [event.relative.x, event.relative.y],
+			"speed": [event.speed.x, event.speed.y],
+			"time_offset": Time.get_ticks_msec() - _record_start_time
+		}
+		_recorded_events.append(drag_entry)
 
 # ─── recording_start ────────────────────────────────────────────────────────
 
@@ -201,6 +211,19 @@ func _fire_playback_event(evt: Dictionary) -> void:
 				ie.position = Vector2(float(pos[0]), float(pos[1]))
 			ie.pressed = bool(evt.get("pressed", true))
 			ie.index = int(evt.get("index", 0))
+			Input.parse_input_event(ie)
+		"touch_drag":  # IMP-11 补全: 拖拽回放(speed best-effort)
+			var ie = InputEventScreenDrag.new()
+			var pos = evt.get("position", [0.0, 0.0])
+			if pos is Array and pos.size() >= 2:
+				ie.position = Vector2(float(pos[0]), float(pos[1]))
+			ie.index = int(evt.get("index", 0))
+			var rel = evt.get("relative", [0.0, 0.0])
+			if rel is Array and rel.size() >= 2:
+				ie.relative = Vector2(float(rel[0]), float(rel[1]))
+			var spd = evt.get("speed", [0.0, 0.0])
+			if spd is Array and spd.size() >= 2:
+				ie.speed = Vector2(float(spd[0]), float(spd[1]))
 			Input.parse_input_event(ie)
 	_playback_count += 1
 
