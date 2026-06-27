@@ -839,7 +839,11 @@ func _cmd_send_drag(params: Dictionary) -> Variant:
 	var y: float = float(params.get("y", 0))
 	var index: int = int(params.get("index", 0))
 	var relative: Array = params.get("relative", [0.0, 0.0])
+	if not (relative is Array):
+		relative = [0.0, 0.0]
 	var speed: Array = params.get("speed", [0.0, 0.0])
+	if not (speed is Array):
+		speed = [0.0, 0.0]
 	var event := InputEventScreenDrag.new()
 	event.position = Vector2(x, y)
 	event.index = index
