@@ -133,7 +133,14 @@ function parseArgs(argv) {
   const args = { check: false, root: process.cwd() };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--check') args.check = true;
-    else if (argv[i] === '--root') args.root = argv[++i];
+    else if (argv[i] === '--root') {
+      const v = argv[i + 1];
+      if (!v || v.startsWith('-')) {
+        console.error('✗ --root 需要一个参数值');
+        process.exit(1);
+      }
+      args.root = argv[++i];
+    }
   }
   return args;
 }

@@ -140,12 +140,16 @@ describe('默认写入模式', () => {
     expect(guide).toContain('**版本**：0.20.0');
   });
 
-  it('幂等:已一致时再写入 → 文件内容不变 + stdout 含"跳过"', () => {
+  it('幂等:已一致时再写入 → 3 个 A 类文件内容不变 + stdout 含"跳过"', () => {
     fixture(baseFixture('0.19.1'));
-    const before = readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8');
+    const beforeManifest = readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8');
+    const beforeCfg = readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8');
+    const beforeGuide = readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8');
     const r = run(false);
     expect(r.status).toBe(0);
-    expect(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8')).toBe(beforeManifest);
+    expect(readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8')).toBe(beforeCfg);
+    expect(readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8')).toBe(beforeGuide);
     expect(r.stdout).toContain('跳过');
   });
 
@@ -185,5 +189,35 @@ describe('默认写入模式', () => {
     expect(cfg).toContain('version="0.20.0"');     // 版本已更新
     expect(cfg).toContain('\r\n');                  // CRLF 保持
     expect(cfg).not.toMatch(/[^\r]\n/);             // 无裸 LF(行尾未混合)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3: --root 参数边界(I-1)
+// ---------------------------------------------------------------------------
+
+describe('--root 参数边界', () => {
+  // 直接 spawnSync 构造缺值调用(绕过 run 辅助,后者固定传 --root tmpRoot)
+  function runRaw(args: string[]): { status: number | null; stdout: string; stderr: string } {
+    const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf-8' });
+    return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  }
+
+  it('I-1: --root 末尾缺值 → exit 1 + stderr 含提示(非晦涩 TypeError)', () => {
+    const r = runRaw(['--root']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('--root 需要一个参数值');
+  });
+
+  it('I-1: --root 后跟另一个 flag → exit 1 + stderr 含提示', () => {
+    const r = runRaw(['--root', '--check']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('--root 需要一个参数值');
+  });
+
+  it('I-1: --check --root 末尾缺值 → exit 1', () => {
+    const r = runRaw(['--check', '--root']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('--root 需要一个参数值');
   });
 });
