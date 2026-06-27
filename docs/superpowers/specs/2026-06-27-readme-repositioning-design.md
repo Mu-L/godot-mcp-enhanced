@@ -110,6 +110,7 @@ CodeBuddy 文档(2026-06-27 实测)支持外部 stdio MCP Server:**设置 → MC
 - **许可证**:MIT + 链接 `[LICENSE](LICENSE)`(r2:**已含双版权** —— `Copyright (c) 2026 wgt19861219` + `Copyright (c) 2025 Solomon Elias (Coding-Solo/godot-mcp)`,符合 MIT fork 要求)
 - **致谢**:保留对象(原版 godot-mcp / Hastur / CCGS)。**"基于 Coding-Solo 二次开发"从开头移入致谢**——渊源诚实保留,但不作为主定位
 - **更新日志**:保留(链接 CHANGELOG.md)
+- **路线图**:加 `[Roadmap](ROADMAP.md)` 链接(项目根 ROADMAP.md,M1-M4 行动项与状态)
 - **系统要求**:保留末尾
 - **截图平台说明**:折叠进 `<details>`
 

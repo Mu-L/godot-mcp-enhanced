@@ -563,6 +563,10 @@ npm install && npm run build
 
 [MIT](LICENSE) — 含上游 [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) 版权（Copyright (c) 2025 Solomon Elias）。
 
+## 路线图
+
+项目方向与里程碑(M1 定位与声量 / M2 健壮性 P0 / M3 安全 P1 / M4 功能补齐 P2)见 [ROADMAP.md](ROADMAP.md)。
+
 ## 更新日志
 
 > 完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
