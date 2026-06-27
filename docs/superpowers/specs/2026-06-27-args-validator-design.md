@@ -94,7 +94,7 @@ MCP request → `handleCall` → **`normalizeArgs`**(args key → snake_case)→
 
 **`validateArgs` 接 `normalizeArgs` 之后的 args**(key 已 snake_case,与 inputSchema 一致;L208 `args.project_path` 实证)—— 顺带解决 key 一致性。
 
-**`confirm_and_execute` 分支**(L244):外层 `args={token}` 经 ④ 验证(`token: string`);**`pending.args`**(原始 tool args)在产生 token 那次调用(L303 `createPendingToken(name, args)`)已走 ④ 验证,**无需二次验证**。
+**`confirm_and_execute` 分支**(L244):外层 `args={token}` —— confirm_and_execute 为 inline tool,`getToolDefinition` 返 `undefined` → **④ 跳过**;token 由 L246 手动校验。**`pending.args`**(原始 tool args)在产生 token 那次调用(L303 `createPendingToken(name, args)`)已走 ④ 验证,**无需二次验证**。
 
 ### §4 错误处理
 
