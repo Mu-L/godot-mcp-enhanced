@@ -234,7 +234,7 @@ export class ToolDispatcher {
 
       // ── 0.x Schema validation (args vs inputSchema) ──
       // spec §3:normalizeArgs 后 args key 已 snake_case,与 inputSchema 一致。
-      // inline tool(confirm_and_execute/godot_advanced_tool)getToolDefinition 返 undefined → 跳过。
+      // inline tool(confirm_and_execute)getToolDefinition 返 undefined → 跳过;godot_advanced_tool 实为完整 ToolModule(advanced-proxy),正常走 validateArgs(inputSchema 宽松:tool_name required / arguments 可选)。
       const schemaDef = getToolDefinition(name);
       if (schemaDef?.inputSchema) {
         const { ok, errors } = validateArgs(args, schemaDef.inputSchema);
