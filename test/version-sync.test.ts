@@ -189,6 +189,27 @@ describe('默认写入模式', () => {
     expect(cfg).toContain('version="0.20.0"');     // 版本已更新
     expect(cfg).toContain('\r\n');                  // CRLF 保持
     expect(cfg).not.toMatch(/[^\r]\n/);             // 无裸 LF(行尾未混合)
+
+    // M-1 扩展: manifest + guide 同样保 CRLF(plugin.cfg 之外两个 A 类目标)
+    const manifest = readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8');
+    expect(manifest).toContain('0.20.0');
+    expect(manifest).toContain('\r\n');
+    expect(manifest).not.toMatch(/[^\r]\n/);
+    const guide = readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8');
+    expect(guide).toContain('**版本**：0.20.0');
+    expect(guide).toContain('\r\n');
+    expect(guide).not.toMatch(/[^\r]\n/);
+  });
+
+  it('M-2: 写入模式遇损坏锚点(manifest 缺 version)→ exit 1(不静默通过)', () => {
+    fixture({
+      ...baseFixture('0.20.0'),
+      'manifest.json': JSON.stringify({ name: 'test' }, null, 2) + '\n',  // 缺 version 字段
+    });
+    const r = run(false);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('版本同步失败');
+    expect(r.stderr).toContain('manifest');
   });
 });
 
