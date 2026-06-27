@@ -1,5 +1,5 @@
 // test/core/tool-registry-groups.test.ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   TOOL_GROUPS,
   PROFILES,
@@ -9,7 +9,9 @@ import {
   getActiveGroups,
   isToolAllowed,
   getGroupForTool,
+  getToolDefinition,
 } from '../../src/core/tool-registry.js';
+import { registerAllModules } from '../../src/core/module-loader.js';
 
 describe('TOOL_GROUPS enhanced', () => {
   it('each group has description, tools, requires, protected fields', () => {
@@ -125,5 +127,31 @@ describe('toolToGroup reverse mapping', () => {
 
   it('getGroupForTool returns undefined for unknown tool', () => {
     expect(getGroupForTool('nonexistent_tool')).toBeUndefined();
+  });
+});
+
+describe('getToolDefinition', () => {
+  beforeAll(() => {
+    // 触发所有 ToolModule 的注册(scene/script 等进 modules)
+    registerAllModules();
+  });
+
+  it('返已注册 tool 的 inputSchema;inline tool 返 undefined', () => {
+    // scene/script 等经 registerModule 注册(registerAllModules 触发)
+    const scene = getToolDefinition('scene');
+    expect(scene).toBeDefined();
+    expect(scene?.inputSchema).toBeDefined();
+    expect(typeof scene?.inputSchema).toBe('object');
+
+    // confirm_and_execute 经 registerInlineTool 只进 metaRegistry,不进 modules → 返 undefined
+    // (ToolDispatcher.ts:95 在 setup 时注册;此处未调 setup 故 metaRegistry 中也没有,但行为一致)
+    expect(getToolDefinition('confirm_and_execute')).toBeUndefined();
+    // godot_advanced_tool 实为完整 ToolModule(advanced-proxy.ts 经 module-loader 注册),
+    // 非 inline tool,故返回已定义(brief 假设其为 inline 有误,以代码实际行为为准)
+    const advanced = getToolDefinition('godot_advanced_tool');
+    expect(advanced).toBeDefined();
+    expect(advanced?.name).toBe('godot_advanced_tool');
+    // 未注册
+    expect(getToolDefinition('nonexistent_tool_xyz')).toBeUndefined();
   });
 });
