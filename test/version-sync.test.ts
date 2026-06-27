@@ -114,3 +114,76 @@ describe('--check 校验模式', () => {
     expect(r.status).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 2: 默认写入模式
+// ---------------------------------------------------------------------------
+
+describe('默认写入模式', () => {
+  it('写入同步:A 类 3 文件版本各异 → 写入后 == package version', () => {
+    fixture({
+      ...baseFixture('0.20.0'),
+      'manifest.json': JSON.stringify({ name: 'test', version: '0.19.0' }, null, 2) + '\n',
+      'addons/godot_mcp_server/plugin.cfg': `[plugin]\n\nversion="0.18.2"\n`,
+      'docs/使用指南.md': `# 使用指南\n\n> **版本**：0.18.2 ｜ x\n`,
+    });
+    const r = run(false);
+    expect(r.status).toBe(0);
+
+    const manifest = JSON.parse(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8'));
+    expect(manifest.version).toBe('0.20.0');
+
+    const cfg = readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8');
+    expect(cfg).toContain('version="0.20.0"');
+
+    const guide = readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8');
+    expect(guide).toContain('**版本**：0.20.0');
+  });
+
+  it('幂等:已一致时再写入 → 文件内容不变 + stdout 含"跳过"', () => {
+    fixture(baseFixture('0.19.1'));
+    const before = readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8');
+    const r = run(false);
+    expect(r.status).toBe(0);
+    expect(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8')).toBe(before);
+    expect(r.stdout).toContain('跳过');
+  });
+
+  it('round-trip:写入后 --check 通过', () => {
+    fixture({
+      ...baseFixture('0.20.0'),
+      'manifest.json': JSON.stringify({ name: 'test', version: '0.19.0' }, null, 2) + '\n',
+    });
+    expect(run(false).status).toBe(0);
+    expect(run(true).status).toBe(0);
+  });
+
+  it('prerelease 写入:package=0.20.0-rc.1,A 类漂移 → 写入接受后缀', () => {
+    fixture({
+      ...baseFixture('0.20.0-rc.1'),
+      'manifest.json': JSON.stringify({ name: 'test', version: '0.20.0' }, null, 2) + '\n',
+    });
+    expect(run(false).status).toBe(0);
+    const manifest = JSON.parse(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8'));
+    expect(manifest.version).toBe('0.20.0-rc.1');
+  });
+
+  it('CRLF 行尾:写入后仅版本字段变化,行尾 CRLF 保持(I2)', () => {
+    const eol = '\r\n';
+    fixture({
+      'package.json': JSON.stringify({ name: 'test', version: '0.20.0' }, null, 2).replace(/\n/g, eol) + eol,
+      'manifest.json': JSON.stringify({ name: 'test', version: '0.19.0' }, null, 2).replace(/\n/g, eol) + eol,
+      'addons/godot_mcp_server/plugin.cfg': `[plugin]${eol}${eol}version="0.19.0"${eol}`,
+      'docs/使用指南.md': `# 使用指南${eol}${eol}> **版本**：0.19.0 ｜ x${eol}`,
+      'CHANGELOG.md': `# Changelog${eol}${eol}## [Unreleased]${eol}${eol}## [0.20.0] - 2026-06-27${eol}`,
+      'README.md': `# Test${eol}${eol}| **v0.20.0** | 2026-06-27 |${eol}`,
+    });
+    const r = run(false);
+    expect(r.status).toBe(0);
+
+    const cfg = readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8');
+    expect(cfg).toContain('version="0.20.0"');     // 版本已更新
+    expect(cfg).toContain('\r\n');                  // CRLF 保持
+    expect(cfg).not.toMatch(/[^\r]\n/);             // 无裸 LF(行尾未混合)
+  });
+});

@@ -13,7 +13,7 @@
 //   node scripts/version-sync.mjs --root <dir>  # 指定项目根(默认 cwd;测试用)
 // 退出码:0=成功/一致,1=失败/漂移
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 // 逻辑名 → 相对项目根的路径
@@ -79,6 +79,43 @@ function readVersionFromFile(filepath, logicalName) {
   }
 }
 
+// 写入单个 A 类文件的版本字段(最小正则替换,保行尾/格式/字段顺序)
+function writeVersionToFile(filepath, logicalName, version) {
+  const content = readFileSync(filepath, 'utf-8');
+  let updated;
+  switch (logicalName) {
+    case 'manifest':
+      updated = content.replace(/"version"\s*:\s*"[^"\r]*"/, `"version": "${version}"`);
+      break;
+    case 'pluginCfg':
+      updated = content.replace(/^version="[^"\r]*"/m, `version="${version}"`);
+      break;
+    case 'guide':
+      updated = content.replace(/(\*\*版本\*\*：)[^\s｜\r]+/, `$1${version}`);
+      break;
+    default:
+      throw new Error(`不可写的目标: ${logicalName}`);
+  }
+  if (updated === content) {
+    return false; // 幂等:无变化,不写
+  }
+  writeFileSync(filepath, updated, 'utf-8');
+  return true;
+}
+
+// 写入模式:同步 A 类 3 文件到 package.json version
+function writeVersions(root) {
+  const expected = readVersionFromFile(join(root, TARGET_FILES.packageJson), 'packageJson');
+  const results = [];
+  for (const name of WRITE_TARGETS) {
+    const filepath = join(root, TARGET_FILES[name]);
+    const before = readVersionFromFile(filepath, name);
+    const changed = writeVersionToFile(filepath, name, expected);
+    results.push({ file: TARGET_FILES[name], before, after: expected, changed });
+  }
+  return { version: expected, results };
+}
+
 // 校验模式:5 文件版本号全 == package.json version
 function checkConsistency(root) {
   const expected = readVersionFromFile(join(root, TARGET_FILES.packageJson), 'packageJson');
@@ -127,9 +164,22 @@ function main() {
     process.exit(0);
   }
 
-  // 默认(写入)模式 — Task 2 实现
-  console.error('✗ 写入模式尚未实现(Task 2)');
-  process.exit(1);
+  // 默认(写入)模式
+  let result;
+  try {
+    result = writeVersions(root);
+  } catch (e) {
+    console.error(`✗ 版本同步失败: ${e.message}`);
+    console.error('  某文件缺失或格式被改动。检查上述文件后重试。');
+    process.exit(1);
+  }
+  for (const r of result.results) {
+    const arrow = r.changed ? `${r.before} → ${r.after}` : `(已是 ${r.after},跳过)`;
+    console.log(`  ${r.file}: ${arrow}`);
+  }
+  console.log(`✓ A 类元数据已同步到 ${result.version}`);
+  console.error('  提醒:B 类(CHANGELOG.md / README.md 版本表)需手动追加,描述是人写。');
+  process.exit(0);
 }
 
 main();
