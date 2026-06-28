@@ -60,7 +60,7 @@
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
 | 4 | 错误返回 suggestion 字段 | ✅ | `src/tools/shared/errors.ts:22-42`(opsError/opsErrorResult 的 suggestion 参数;2026-06-28 核实已实现) |
-| 5 | Bridge 超时分层诊断 | 🟡 | 对象从 execute_gdscript 改归 Bridge;spec 待写(对接源码深挖核实) |
+| 5 | Bridge 超时分层诊断 | ✅ | 三元分类(BRIDGE_NOT_CONNECTED/BRIDGE_TIMEOUT/BRIDGE_ERROR)+suggestion;spec: 2026-06-28-bridge-timeout-diagnosis-design.md |
 
 > M2 核实修订(2026-06-28):#4 suggestion 实测已实现;#3 icon 匹配**撤销**——`execute_gdscript` 是 headless 进程不碰编辑器 UI,"看板/select 检测"全仓 0 命中(技术对象误配);#5 timeout **改归 Bridge**(`game-bridge.ts:733-737` 自承「游戏未运行与一般桥接错误同归 BRIDGE_ERROR」,恢复 BRIDGE_NOT_CONNECTED 语义需改 sendToBridge 转译层)。
 
@@ -106,6 +106,7 @@
 - 2026-06-28 — M1 #14 完成:从 Coding-Solo 升级迁移指南(docs/migration-from-coding-solo.md)+ README 入口;采纳审查 4 gap 修正(零风险→能力零丢失 / FAQ 旧会话需新开 / 验证通俗化 / remove 命令弹性)+ 安全卖点前置
 - 2026-06-28 — M1 #12 完成:README.en 完整双语重构(策略A:关键节英译+工具表链接中文,对齐 28/安全立句/对比表);采纳审查 4 写作点(Hero 三要素:安全+closed-loop+fork 继承 / 工具中文声明前置 Hero / capability-matrix 点明 security classification / 入口位置中英一致)
 - 2026-06-28 — M2/M3/M4 源码核实校准(依据:竞品 godot-mcp-pro 源码深挖文档逐条对照本项目实测):#4 suggestion / #6 editor guard / #8 profiling 实测已实现→✅;#9 UndoRedo R2 阶段5 已接入→✅;#3 icon 匹配**撤销**(`execute_gdscript` 是 headless 不碰编辑器 UI,对象误配);#5 timeout **改归 Bridge**(原误配 execute_gdscript,对标 `game-bridge.ts:733` 缺口)。仅 #7 Android 仍 💤 成立
+- 2026-06-28 — M2 #5 完成:Bridge 超时分层诊断(三元分类 BRIDGE_NOT_CONNECTED/BRIDGE_TIMEOUT/BRIDGE_ERROR + Error 子类 + suggestion;ECONNREFUSED/auth 失败/secret 缺失→NOT_CONNECTED,request timeout→TIMEOUT)。feat/bridge-timeout-diagnosis,2939 tests 绿
 
 ---
 
