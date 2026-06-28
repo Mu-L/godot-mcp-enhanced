@@ -37,6 +37,10 @@ vi.mock('../src/helpers.js', () => ({
   checkVersionMismatch: vi.fn(async () => null),
 }));
 
+vi.mock('../src/core/godot-finder.js', () => ({
+  detectGodotVersion: vi.fn(async () => '4.6.stable'),
+}));
+
 vi.mock('fs', () => ({
   existsSync: vi.fn(() => true),
 }));
@@ -349,20 +353,11 @@ describe('runtime handleTool — get_godot_version', () => {
     vi.clearAllMocks();
   });
 
-  it('spawns Godot with --version flag', async () => {
-    const proc = mockProc();
-    setupSpawnMock(proc);
+  it('returns Godot version via detectGodotVersion', async () => {
     const ctx = createMockCtx();
-    const resultPromise = handleTool('runtime', { action: 'get_godot_version' }, ctx);
-
-    emitProcessEvents(proc, '4.6.stable');
-
-    const result = await resultPromise;
+    const result = await handleTool('runtime', { action: 'get_godot_version' }, ctx);
     expect(result).not.toBeNull();
     expect(result.content[0].text).toContain('4.6');
-    expect(spawn).toHaveBeenCalledTimes(1);
-    const spawnArgs = spawn.mock.calls[0];
-    expect(spawnArgs[1]).toContain('--version');
   });
 });
 

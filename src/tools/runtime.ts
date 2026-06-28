@@ -5,6 +5,7 @@ import { textResult } from '../types.js';
 import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
 import { isBridgeReady } from './game-bridge.js';
+import { detectGodotVersion } from '../core/godot-finder.js';
 import { handleRecordingAction } from './recording.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -330,38 +331,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
     case 'get_godot_version': {
       if (!acquireShortRunningSlot()) return textResult('Error: too many concurrent headless operations (max 3). Please wait and retry.');
-      const godot = await ctx.findGodot();
-      return new Promise((resolve) => {
-        let settled = false;
-        const proc = spawn(godot, ['--version'], { stdio: ['pipe', 'pipe', 'pipe'], env: buildSafeEnv() });
-        let out = '';
-        proc.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
-        proc.stderr?.on('data', (d: Buffer) => { out += d.toString(); });
-
-        const timer = setTimeout(() => {
-          if (!settled && !proc.killed) {
-            settled = true;
-            forceKillTree(proc);
-            releaseShortRunningSlot();
-            resolve(textResult('get_godot_version timed out after 10s'));
-          }
-        }, 10000);
-
-        proc.on('close', () => {
-          clearTimeout(timer);
-          if (settled) return;
-          settled = true;
-          releaseShortRunningSlot();
-          resolve({ content: [{ type: 'text', text: out.trim() }] });
-        });
-        proc.on('error', (err) => {
-          clearTimeout(timer);
-          if (settled) return;
-          settled = true;
-          releaseShortRunningSlot();
-          resolve({ content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true });
-        });
-      });
+      try {
+        const godot = await ctx.findGodot();
+        const v = await detectGodotVersion(godot);
+        return textResult(v);
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error: ${(err as Error).message}` }], isError: true };
+      } finally {
+        releaseShortRunningSlot();
+      }
     }
 
     // ── Recording actions (merged from recording.ts, v0.18.0) ──
