@@ -1,447 +1,174 @@
 # Godot MCP Enhanced
 
-Enhanced MCP server for Godot game engine — designed for **closed-loop AI-assisted development**.
+> Free · Open Source · Secure — as of 2026-06-28, a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture**.
 
-> **Note:** This English version may lag behind the Chinese `README.md`. The Chinese version is authoritative.
+An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 28 MCP tools (merged, each with multiple actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
 
-Fork of [godot-mcp](https://github.com/Coding-Solo/godot-mcp) with critical gaps filled: scene reading, script R/W, screenshots, testing, **dynamic GDScript execution**, and more.
+> **Tool descriptions are in Chinese** (serving the Chinese Godot developer community; i18n PRs welcome). This English README covers positioning, comparison, security, and setup; for the full per-action tool list see the [Chinese README](README.md) and [capability-matrix](docs/capability-matrix.md).
 
 **[中文文档](README.md)**
 
-## What's New vs Original godot-mcp
+## Comparison
 
-| Feature | godot-mcp | godot-mcp-enhanced |
-|---------|:---------:|:------------------:|
-| Launch editor | Yes | Yes |
-| Run project | Yes | Yes (+ auto timeout) |
-| Get debug output | Yes (raw) | Yes (structured: errors/warnings/prints) |
-| Stop project | Yes | Yes (+ summary) |
-| Get version | Yes | Yes |
-| List projects | Yes | Yes |
-| Project info | Yes | Yes (+ file stats by extension) |
-| Create scene | Yes | Yes |
-| Add node | Yes | Yes |
-| Load sprite | Yes | Yes |
-| Save scene | Yes | Yes |
-| **Read scene (parse .tscn)** | **No** | **Yes** |
-| **Read script (.gd)** | **No** | **Yes** |
-| **Write script (.gd)** | **No** | **Yes** |
-| **List files (with filters)** | **No** | **Yes** |
-| **Read project config** | **No** | **Yes** |
-| **Capture screenshot** | **No** | **Yes** |
-| **Run unit tests (GUT)** | **No** | **Yes** |
-| **Execute arbitrary GDScript** | **No** | **Yes** |
-| **Query scene tree (runtime)** | **No** | **Yes** |
-| **Deep inspect node** | **No** | **Yes** |
-| **Batch add nodes** | **No** | **Yes** |
-| **Validate project** | **No** | **Yes** |
-| **Import resources** | **No** | **Yes** |
-| **Run & verify + scene tree** | **No** | **Yes** |
-| **Edit script (line range)** | **No** | **Yes** |
-| **Autoload context execution** | **No** | **Yes** |
-| **Structured error analysis** | **No** | **Yes** |
-| **MCP Resources (godot://)** | **No** | **Yes** |
+> **This project does not chase "the most tools".** In the ecosystem, godot-mcp-pro has 175 tools but is closed-source at $15; the free Coding-Solo has only 13. What's genuinely scarce is not tool count, but the combination of **free + open source + systematic security** — the security dimension is almost unaddressed across the field.
+> Data as of 2026-06-27 (stars / tool counts / pricing may change; see each project's repo).
 
-## The Closed-Loop Problem
+| Dimension | **This project** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp |
+|---|:---:|:---:|:---:|:---:|
+| Price | **Free** | $15 one-time [^p1] | $19 one-time [^p2] | Free [^p3] |
+| Open Source | **✅ MIT** | ❌ server precompiled/closed [^p1] | ❌ [^p2] | ✅ [^p3] |
+| Tools | **28** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — |
+| Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
+| Godot 4.5–4.7 compat matrix | **✅** | — | — | — |
+| Chinese tool descriptions | **✅** | — | — | ❌ |
 
-Original godot-mcp only covers the middle of the AI dev loop:
+[^p1]: https://github.com/youichi-uda/godot-mcp-pro README (includes its own comparison table), fetched 2026-06-27
+[^p2]: GDAI MCP, quoted from godot-mcp-pro's comparison table, 2026-06-27
+[^p3]: https://github.com/Coding-Solo/godot-mcp, fetched 2026-06-27
+
+_"—" means the project's public README does not disclose the capability; not necessarily absent. PRs welcome._
+
+> **Upgrading from [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp)?** See the **[migration guide](docs/migration-from-coding-solo.md)** — zero capability loss; gain three-tier architecture / security / verification gates / cross-version matrix.
+
+## Security
+
+As of 2026-06-28, systematic security features are rare among Godot MCP solutions. This project ships multiple defense layers, suitable for scenarios that require a trusted boundary:
+
+- **Path access control** — `ALLOWED_PROJECT_PATHS` allowlist (deny-by-default), with junction / symlink bypass defense
+- **GDScript injection defense** — dangerous-API pattern scanning + string-concatenation bypass detection
+- **Confirm tokens for dangerous ops** — node deletion etc. require explicit confirmation
+- **Output anti-forgery** — random per-execution marker prevents GDScript from forging MCP output
+- **Local-only** — no remote exposure, no third-party data upload
+
+<details>
+<summary><b>⚠️ Honest boundaries (read before relying on this)</b></summary>
+
+The above is a **mistake-prevention layer**, not an unbreakable security boundary. GDScript has full system access; the sandbox can be bypassed indirectly (`call()` dynamic dispatch, multi-step variable construction of API names, etc.).
+
+- For real isolation: container / VM + `GODOT_MCP_ALLOW_UNSAFE=false`
+- Disable scanning: `GODOT_MCP_SANDBOX=disabled` (development only)
+- This tool is **for local trusted environments only**; no remote attestation or encryption.
+
+</details>
+
+## Core Capabilities
+
+### Three-tier architecture — static editing / live debugging / runtime verification
+
+Not a single connection, but three tiers split by scenario (auto-detected, non-conflicting):
+
+| Tier | Connection | Use case |
+|---|---|---|
+| **Headless CLI** | standalone Godot process | file R/W, batch creation, one-shot verification (default) |
+| **Editor WebSocket** | connects running editor | live scene ops, undo, scene-tree sync |
+| **Game Bridge** | TCP to running game | E2E testing, runtime debugging, input simulation, state verification |
+
+### Closed-loop AI development
 
 ```
-[AI writes code] -> ??? -> [run project] -> [see errors]
-        |                                       |
-        +-- can't read scene/script <-----------+
-           can't see visuals
+read_scene / read_script → understand structure → write_script / edit_script
+→ run_and_verify (error analysis) → validate_scripts → verify_delivery (delivery gate)
 ```
 
-godot-mcp-enhanced closes the loop:
+- **`verify_delivery`** — end-to-end delivery gate: scene-tree integrity + script health + performance + custom assertions
+- **`validate_scripts`** — triggers full Godot compile (incl. cross-file deps), catches Parse Errors headless misses
+- **`dev_loop`** — execute → verify → screenshot, with acceptance criteria
 
-```
-read_scene/read_script -> understand structure -> write_script -> run_project
--> get_debug_output/capture_screenshot -> analyze -> fix -> verify
-```
+### Batch ops & resource management
 
-And now with `execute_gdscript`, the AI can perform **any operation** that GDScript supports — from manipulating nodes to querying engine state — all through a single flexible tool.
+- **`batch_add_nodes`** — add multiple nodes in one call, single pack+save at the end (avoids per-node headless restart)
+- **`validate_project`** — static scan for missing resources, broken `preload()`/`load()` paths, orphaned `.import` files
+- **`import_resources`** — bulk-register resources (images/audio/fonts/3D), auto-generate `.import`
 
-## Installation
+## Tools (28)
 
-### Quick Start (Recommended)
+> **28 MCP tools** (merged tool definitions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
 
-#### Claude Code — User Scope (available in all Godot projects)
+## MCP Resources
+
+AI clients can discover and read project context via the `godot://` URI scheme without explicit tool calls.
+
+| URI | Description |
+|-----|------|
+| `godot://project/info` | project metadata + file stats (JSON) |
+| `godot://project/config` | raw `project.godot` file |
+| `godot://scene/{path}` | read a `.tscn` scene as a node-tree summary |
+| `godot://script/{path}` | read a `.gd` script file |
+| `godot://file/{path}` | read any text file from the project |
+
+Security: paths must be under project root (no `../` traversal); `.godot/`, `.import/`, `node_modules/` blocked; `.import`/`.uid`/`.godot` extensions blocked.
+
+## Quick Start
+
+### Claude Code — User Scope (available in all Godot projects)
 
 ```bash
 claude mcp add -s user godot -- npx -y godot-mcp-enhanced
 ```
 
-> **Why `-s user`?** Godot MCP is a personal development tool you'll use across multiple Godot projects. `-s user` (user scope) writes to `~/.claude.json` at the top level, making it available in every project automatically—no per-project setup needed. See [Claude Code MCP docs](https://code.claude.com/docs/en/mcp#mcp-installation-scopes).
+> **Why `-s user`?** Godot MCP is a personal dev tool used across many Godot projects. `-s user` writes to `~/.claude.json` top-level, available in every project automatically. See [Claude Code MCP docs](https://code.claude.com/docs/en/mcp#mcp-installation-scopes).
 
-If you only want it in the current project (not recommended—switching projects loses access):
-
-```bash
-claude mcp add godot -- npx -y godot-mcp-enhanced  # local scope, current project only
-```
-
-#### Cursor / Cline / Other MCP Clients
+### Cursor / Cline / Windsurf / others
 
 Add to your project's `.cursor/mcp.json` or MCP configuration:
 
 ```json
 {
   "mcpServers": {
-    "godot": {
-      "command": "npx",
-      "args": ["-y", "godot-mcp-enhanced"]
-    }
+    "godot": { "command": "npx", "args": ["-y", "godot-mcp-enhanced"] }
   }
 }
 ```
 
-> **Note:** Project-scoped configs in Cursor etc. follow the git repo—team members get access automatically after cloning.
+### Tencent CodeBuddy (CN users)
 
-### One-Click Setup
+CodeBuddy (2026-06-27 verified) supports external stdio MCP servers: **Settings → MCP tab → Add MCP**, paste the same json. Or one-click install from its MCP Market (once listed).
+> ⚠️ End-to-end onboarding verification pending.
+
+### Warp
+
+[Warp](https://www.warp.dev/) supports MCP natively: **Settings → Agents → MCP servers → + Add → CLI Server**, paste the same json (`command: npx`, `args: ["-y", "godot-mcp-enhanced"]`).
+
+### One-click setup
 
 ```bash
 npx godot-mcp-enhanced setup
 # Auto-detects: Godot path + AI client + writes config
 ```
 
-### First-Time Use
+### First-time use
 
-After connecting to a Godot project, run the project rules setup tool:
+After connecting to a Godot project, run the project-rules setup tool:
 
 ```
 setup_project_rules(project_path="your/project/path")
 ```
 
 This auto-generates:
-- **`.claude/settings.json`**: PostToolUse hook that reminds the AI to run `validate_scripts` after editing `.gd` files
-- **`CLAUDE.md`**: Project-level rules with GDScript validation and release gate (`verify_delivery` check)
+- **`.claude/settings.json`**: PostToolUse hook reminding the AI to run `validate_scripts` after editing `.gd` files
+- **`CLAUDE.md`**: project-level rules with GDScript validation and release gate (`verify_delivery`)
 
-Use `force=true` to overwrite existing config. Use `hooks=false` or `claude_md=false` to skip individual items.
+## Acknowledgements
 
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GODOT_PATH` | Path to Godot executable | Auto-search (PATH/registry/Scoop/Downloads) |
-| `GODOT_PROJECT_PATH` | Default project path | Auto-detect from cwd (searches up for project.godot) |
-| `GODOT_MCP_SEARCH_PATHS` | Extra Godot search directories (semicolon-separated) | None |
-| `DEBUG` | Enable verbose logging | `false` |
-
-> **Note:** Project path has a 30-second cache. Wait 30 seconds after switching projects or restart the MCP server.
-
-### Manual Setup (Advanced)
-
-<details>
-<summary>Expand for manual installation steps</summary>
-
-```bash
-git clone https://github.com/wgt19861219/godot-mcp-enhanced.git
-cd godot-mcp-enhanced
-npm install && npm run build
-```
-
-Point your MCP configuration to `build/index.js` and set the desired environment variables.
-
-</details>
-
-## Tools (34 total)
-
-### Execution
-
-| Tool | Description |
-|------|-------------|
-| `launch_editor` | Open Godot editor GUI for a project |
-| `run_project` | Run project in debug mode with auto-timeout |
-| `stop_project` | Stop running project, return structured output |
-| `get_debug_output` | Get classified debug output (errors/warnings/prints) |
-| `capture_screenshot` | Capture game screenshot (windowed on Windows, headless fallback) |
-| `run_tests` | Run GUT unit tests and parse results |
-| `get_godot_version` | Get installed Godot version |
-
-### Verification
-
-| Tool | Description |
-|------|-------------|
-| `run_and_verify` | One-click headless run with structured error/warning analysis. Supports `capture_tree` option to include scene tree snapshot. |
-| `analyze_error` | Re-analyze Godot output text with fix suggestions |
-
-### Dynamic Execution
-
-| Tool | Description |
-|------|-------------|
-| `execute_gdscript` | Execute arbitrary GDScript code in headless mode. Supports snippet mode (auto-wrapped) and full class mode. Returns structured key-value results. Set `load_autoloads=true` to run with full autoload context (DataRegistry, PlayerData, etc.). |
-| `query_scene_tree` | Load a scene and query its runtime node tree with resolved property values (not just static .tscn file data). |
-| `inspect_node` | Deep-inspect a node: all properties, signal connections, children with recursive depth control. |
-
-### Project
-
-| Tool | Description |
-|------|-------------|
-| `list_projects` | Find Godot projects in a directory |
-| `get_project_info` | Project metadata + file statistics |
-| `list_files` | List files with extension/subdirectory filters |
-| `read_project_config` | Parse project.godot into structured JSON |
-| `validate_project` | Check for missing resources, broken script references, orphaned .import files |
-| `import_resources` | Scan directories and generate .import stubs for images, audio, fonts, and 3D models |
-
-### Scene
-
-| Tool | Description |
-|------|-------------|
-| `read_scene` | Parse .tscn into node tree JSON |
-| `create_scene` | Create new scene with root node |
-| `add_node` | Add node to existing scene |
-| `batch_add_nodes` | Add multiple nodes to a scene in one call (much faster than repeated `add_node`) |
-| `save_scene` | Save scene changes |
-| `load_sprite` | Load texture into sprite node |
-
-### Script
-
-| Tool | Description |
-|------|-------------|
-| `read_script` | Read .gd file with metadata |
-| `write_script` | Write/overwrite .gd file |
-| `edit_script` | Edit .gd file by replacing a line range. Supports `raw`/`smart` indent modes, content verification, and before/after diff. |
-
-### API Documentation
-
-| Tool | Description |
-|------|-------------|
-| `get_class_info` | Get class methods, properties, signals, constants |
-| `search_classes` | Search for classes by name/description |
-| `find_method` | Find method details with inheritance lookup |
-| `get_inheritance` | Get full inheritance chain |
-
-## MCP Resources
-
-AI clients can discover and read project context via `godot://` URI scheme without explicit tool calls.
-
-### Static Resources
-
-| URI | Description |
-|-----|-------------|
-| `godot://project/info` | Project metadata + file statistics (JSON) |
-| `godot://project/config` | Raw `project.godot` file |
-
-### Resource Templates
-
-| URI Pattern | Description |
-|-------------|-------------|
-| `godot://scene/{path}` | Read a `.tscn` scene as a node tree summary |
-| `godot://script/{path}` | Read a `.gd` script file |
-| `godot://file/{path}` | Read any text file from the project |
-
-### Security
-
-- Paths must be under the project root (no `../` traversal)
-- `.godot/`, `.import/`, `node_modules/` directories are blocked
-- `.import`, `.uid`, `.godot` file extensions are blocked
-
-### Example Usage
-
-```
-Client: ListResources → discovers all scenes and scripts
-Client: ReadResource("godot://project/info") → project config + stats
-Client: ReadResource("godot://scene/scenes/main.tscn") → node tree summary
-Client: ReadResource("godot://script/scripts/player.gd") → GDScript source
-```
-
-## `execute_gdscript` Details
-
-### Snippet Mode (default)
-
-When your code doesn't contain `extends`, it's automatically wrapped:
-
-```gdscript
-# Your input:
-var scene = load("res://scenes/main.tscn")
-var root = scene.instantiate()
-_mcp_output("node_count", str(root.get_child_count()))
-_mcp_output("root_type", root.get_class())
-```
-
-This gets wrapped into a full `extends SceneTree` script with helper functions. Use `_mcp_output(key, value)` to return structured results.
-
-**Tips for snippet mode:**
-- Use `Variant` type for variables that hold `load().new()` results to avoid "Cannot infer type" errors
-- Autoloads are NOT available in snippet mode by default — use `load_autoloads=true` to enable them
-
-### Full Class Mode
-
-When your code contains `extends`, it's used as-is with helper injection:
-
-```gdscript
-extends SceneTree
-
-func _initialize():
-    var project = ProjectSettings.globalize_path("res://")
-    _mcp_output("project_path", project)
-    var screen = DisplayServer.screen_get_size(0)
-    _mcp_output("screen_size", str(screen))
-    quit()
-```
-
-### Autoload Context Mode
-
-Set `load_autoloads=true` to run code with full project autoload context. This loads the project through a scene instead of a raw script, making all registered autoloads (DataRegistry, PlayerData, etc.) available:
-
-```json
-{
-  "project_path": "/path/to/project",
-  "code": "var data = DataRegistry.get_table(\"hero\")\n_mcp_output(\"hero_count\", str(data.size()))",
-  "load_autoloads": true
-}
-```
-
-**Note:** Autoload mode is slower (requires full scene initialization) but necessary when your code depends on autoload singletons.
-
-### Response Format
-
-```json
-{
-  "success": true,
-  "compile_success": true,
-  "compile_error": "",
-  "errors": [
-    {
-      "type": "script_error",
-      "file": "res://scripts/player.gd",
-      "line": 42,
-      "message": "Invalid access to property or key...",
-      "suggestion": "Check if the node exists before accessing..."
-    }
-  ],
-  "run_success": true,
-  "run_error": "",
-  "outputs": [
-    { "key": "node_count", "value": "5" },
-    { "key": "root_type", "value": "Node2D" }
-  ],
-  "raw_output": "",
-  "duration_ms": 1250
-}
-```
-
-The `errors` array contains structured error objects with type, file, line, message, and fix suggestions — parsed from Godot's output by the error analyzer.
-
-## New Tools in v0.3.0
-
-### `edit_script`
-
-Edit an existing GDScript file by replacing a line range. Preserves CRLF/LF line endings automatically.
-
-**Parameters:**
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `script_path` | Yes | Path to the .gd file (absolute or relative to project) |
-| `start_line` | Yes | 1-based line number where replacement starts (inclusive) |
-| `end_line` | Yes | 1-based line number where replacement ends (inclusive) |
-| `new_content` | Yes | New content to replace the specified line range |
-| `indent_mode` | No | `"raw"` (default) — insert content exactly as provided. `"smart"` — auto-adjust indentation to match `start_line`. |
-| `verify_content` | No | Expected content at the replacement range. Edit is aborted if it doesn't match, preventing stale line-number edits. |
-
-```json
-{
-  "script_path": "scripts/player.gd",
-  "start_line": 10,
-  "end_line": 12,
-  "new_content": "func get_health() -> int:\n\treturn hp",
-  "indent_mode": "raw",
-  "verify_content": "func get_hp():\n\treturn 0"
-}
-```
-
-The response includes a before/after diff showing exactly what changed.
-
-### `batch_add_nodes`
-
-Add multiple nodes in one headless Godot invocation, avoiding per-node startup overhead:
-
-```json
-{
-  "project_path": "/path/to/project",
-  "scene_path": "scenes/main.tscn",
-  "nodes": [
-    { "node_type": "Label", "node_name": "Title", "properties": { "text": "Hello" } },
-    { "node_type": "Button", "node_name": "StartBtn", "parent_node_path": "root/UI" },
-    { "node_type": "Sprite2D", "node_name": "PlayerIcon" }
-  ]
-}
-```
-
-### `validate_project`
-
-Static analysis of your Godot project for common issues:
-
-- Missing `ext_resource` file references in `.tscn` files
-- Broken `preload()` and `load()` paths in `.gd` scripts
-- Orphaned `.import` files (source asset deleted)
-
-Supports `exclude_paths` to skip directories (default: `.godot`, `.import`, `tools`, `addons`). Directories containing `.gdignore` are automatically skipped.
-
-Returns structured report with severity levels: `critical`, `error`, `warning`, `info`.
-
-### `import_resources`
-
-Bulk-register assets with the Godot project by generating `.import` stub files:
-
-```json
-{
-  "project_path": "/path/to/project",
-  "directory": "assets/ui",
-  "extensions": [".png", ".jpg", ".mp3"],
-  "recursive": true
-}
-```
-
-Supports: `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.mp3`, `.ogg`, `.wav`, `.ttf`, `.otf`, `.glb`, `.gltf`.
-
-## Closed-Loop Workflow Example
-
-```
-1. AI: read_scene("scenes/player.tscn")
-   -> Gets full node tree, understands structure
-
-2. AI: read_script("scripts/player_controller.gd")
-   -> Reads current code, identifies what to change
-
-3. AI: write_script("scripts/player_controller.gd", updated_code)
-   -> Writes the fix
-
-4. AI: run_and_verify(project, capture_tree=true)
-   -> Headless run with error analysis + scene tree snapshot
-
-5. AI: validate_project(project)
-   -> Check for missing resources, broken references
-
-6. AI: batch_add_nodes(project, scene, nodes=[...])
-   -> Add multiple UI elements in one call
-
-7. AI: import_resources(project, directory="assets/ui")
-   -> Register new assets with the project
-
-8. If errors remain -> go back to step 2
-```
+- [godot-mcp](https://github.com/Coding-Solo/godot-mcp) — original project; this is a fork (Copyright (c) 2025 Solomon Elias, MIT; see [LICENSE](LICENSE))
+- [Hastur Operation Plugin](https://github.com/rayxuln/hastur-operation-plugin) — inspiration for dynamic GDScript execution & structured output
+- [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) — borrowed concepts: hooks + rules, verify / gate-check, workflow pipeline, GDScript lint, GDD standard, chain-of-verification, code templates
 
 ## Requirements
 
-- Godot Engine 4.x (tested with 4.6+)
+- Godot Engine 4.x (tested 4.6+)
 - Node.js >= 18
-- GUT addon (for `run_tests` tool)
-
-## Screenshot Platform Notes
-
-The `capture_screenshot` tool uses different rendering strategies per platform:
-
-| Platform | Mode | Notes |
-|----------|------|-------|
-| **Windows** | Windowed (default) | Headless mode returns null viewport textures — GPU context required |
-| **Linux** | Headless → Windowed fallback | Headless + OpenGL3 may work depending on GPU drivers |
-| **macOS** | Headless → Windowed fallback | Same as Linux |
-
-The bundled `screenshot_capture.gd` uses the `process_frame` signal pattern and `call_deferred()` for reliable scene loading and frame capture.
+- GUT addon (for `run_tests`)
 
 ## License
 
-MIT
+[MIT](LICENSE) — includes upstream [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) copyright (Copyright (c) 2025 Solomon Elias).
+
+## Roadmap
+
+Project direction & milestones (M1 positioning & reach / M2 robustness P0 / M3 security P1 / M4 feature parity P2): see [ROADMAP.md](ROADMAP.md).
+
+## Changelog
+
+Full change log: see [CHANGELOG.md](CHANGELOG.md).

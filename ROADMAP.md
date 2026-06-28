@@ -21,7 +21,7 @@
 |---|---|---|---|
 | 1 | 补 LICENSE(双版权 MIT) | ✅ | feat/roadmap `640020b`(待合并 master) |
 | 2 | README.md 重定位改写 | ✅ | feat/roadmap `640020b`(待合并 master);spec: 2026-06-27-readme-repositioning-design.md |
-| 12 | README.en 完整双语重构 | 🟡 | `640020b` 已加滞后注,完整重构待做 |
+| 12 | README.en 完整双语重构 | ✅ | 策略A:关键节英译+工具表链接中文(遵循"工具描述中文"策略);去滞后注;对齐 28/安全立句/对比表 |
 | 11 | CodeBuddy 端到端接入验证 | 📋 | 验证通过解锁 #10 |
 | 10 | 上架 CodeBuddy MCP Market | 📋 | 依赖 #11 验证通过 |
 | 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 📋 | 分发战略,06-28 复核结论 |
@@ -104,6 +104,7 @@
 - 2026-06-27 — 初版路线图发布(M1–M4 + 12 行动项);M1 #1/#2 已完成(feat/roadmap `640020b`)
 - 2026-06-28 — 06-28 复核校准:M1 扩充分发(#13 目录收录 / #14 迁移指南)+ 明确胜负手=分发;「真空地带」→「安全真空」;README 工具数口径校正(128→28 tool definition)+ tagline 整体重写。依据:竞品文档 §八复核实录
 - 2026-06-28 — M1 #14 完成:从 Coding-Solo 升级迁移指南(docs/migration-from-coding-solo.md)+ README 入口;采纳审查 4 gap 修正(零风险→能力零丢失 / FAQ 旧会话需新开 / 验证通俗化 / remove 命令弹性)+ 安全卖点前置
+- 2026-06-28 — M1 #12 完成:README.en 完整双语重构(策略A:关键节英译+工具表链接中文,对齐 28/安全立句/对比表);采纳审查 4 写作点(Hero 三要素:安全+closed-loop+fork 继承 / 工具中文声明前置 Hero / capability-matrix 点明 security classification / 入口位置中英一致)
 
 ---
 
