@@ -61,7 +61,7 @@ baseline 335。
 
 **接入点 `executeToolCall` L229 后**(R1 #1):`validateCommonArgs`(L230)之后、`confirm_and_execute`(L244)/editor(L281)/headless(L337)分叉之前。**比 dispatchTool 早,全 tool 含 confirm 路径受益**。
 
-**inline tool**(`confirm_and_execute`/`godot_advanced_tool`)经 `getToolDefinition` 返 `undefined` → 走 §4 跳过分支(R1 #5)。
+**inline tool**(`confirm_and_execute`)经 `getToolDefinition` 返 `undefined` → 走 §4 跳过分支(R1 #5)。**注**:`godot_advanced_tool` 实为完整 ToolModule(`src/tools/advanced-proxy.ts` 注册,有 inputSchema),正常走 validateArgs(v1.2 修正:原误列 inline)。
 
 **335 处 cast 保留不动**:验证后 args 已 type 校验,cast 是合理窄化。最小改动。
 
@@ -99,7 +99,7 @@ MCP request → `handleCall` → **`normalizeArgs`**(args key → snake_case)→
 ### §4 错误处理
 
 - 验证失败 → `opsErrorResult('INVALID_PARAMS', '参数 <field>: 期望 <type>,实际 <actual>')`,ToolResult 错误返回(**非抛异常/崩溃**)
-- **inline tool**(`confirm_and_execute`/`godot_advanced_tool`)`getToolDefinition` 返 `undefined` → 跳过验证(不阻断),保留原行为(R1 #5)
+- **inline tool**(`confirm_and_execute`)`getToolDefinition` 返 `undefined` → 跳过验证(不阻断),保留原行为(R1 #5)。**注**:`godot_advanced_tool` 是 ToolModule,inputSchema 宽松(`tool_name` required / `arguments` 可选),正常验证(v1.2 修正:原误列 inline)
 - **已知偏差**:**7 处 inputSchema 设 `additionalProperties`(可能 false)将被忽略**(本设计未知字段允许;R1 #6。plan 阶段 grep 确认这 7 处是否需严格拒未知字段)
 - tool 无 inputSchema(边缘)→ 跳过验证(不阻断)
 - 未知字段:允许(additionalProperties 兼容)
