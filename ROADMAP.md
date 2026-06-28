@@ -15,7 +15,7 @@
 
 ## M1 — 定位与声量(不绑版本,随 ready 发)
 
-主题:**让赛道看见我们**。文档与运营工作。prior session 已完成核心(#1/#2),剩 CodeBuddy 分发(#10/#11)与 README.en 完整重构(#12)。
+主题:**让赛道看见我们**。文档与运营工作。**最大劣势是声量(实测 59★ vs 龙头 Coding-Solo 4431★,1/75)——龙头仅 13 工具,靠分发(2025 初先发 + Topics SEO + 被 best-of-mcp-servers/mcp.directory 收录 + 教程固化)拿赛道 40%+ 星,非功能取胜;故 M1 胜负手是分发,不是功能。** prior session 已完成核心(#1/#2),剩分发矩阵(#10/#11/#13/#14)与 README.en(#12)。
 
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
@@ -24,6 +24,8 @@
 | 12 | README.en 完整双语重构 | 🟡 | `640020b` 已加滞后注,完整重构待做 |
 | 11 | CodeBuddy 端到端接入验证 | 📋 | 验证通过解锁 #10 |
 | 10 | 上架 CodeBuddy MCP Market | 📋 | 依赖 #11 验证通过 |
+| 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 📋 | 分发战略,06-28 复核结论 |
+| 14 | 写「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南 | 📋 | 蹭龙头流量;详见竞品文档 §八复核实录 |
 
 > #11 → #10 顺序硬约束:验证未通过不上架。#10 上架后,README Hero 兼容列表才可移入 CodeBuddy。
 
@@ -33,6 +35,22 @@
 - **来源**:战略文档第八节「CodeBuddy = MCP client 可借力分发」
 - **验收**:CodeBuddy 配置本项目后,至少 1 个工具(如 read_scene)端到端调用成功;通过后解锁 #10 上架 + README Hero 兼容列表移入
 - **依赖**:无(但 #10 上架依赖本项通过)
+</details>
+
+<details><summary>#13 被主要 MCP 目录收录 — 详情</summary>
+
+- **目标**:被 best-of-mcp-servers / mcp.directory / PulseMCP 等主要 MCP 目录收录(流量入口)
+- **来源**:06-28 复核——龙头 Coding-Solo 4.4k★ 主因即被这些目录收录 + 教程固化
+- **验收**:至少 1 个目录收录本项目(提交 PR 被合并)
+- **依赖**:无
+</details>
+
+<details><summary>#14 从 Coding-Solo 升级迁移指南 — 详情</summary>
+
+- **目标**:写一篇「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南(蹭龙头搜索流量)
+- **来源**:06-28 复核——龙头靠社区教程固化心智,迁移指南是切入龙头用户群的杠杆
+- **验收**:指南发布(README 链接 / 博客 / GitHub Discussion),覆盖安装切换 + 工具对应
+- **依赖**:无
 </details>
 
 ## M2 — 健壮性 P0(目标 v0.20)
@@ -75,8 +93,8 @@
 
 ## 明确不做什么
 
-- **不拼工具数量**:工具数不是卖点(不跟 godot-mcp-pro 的 175);README 对比表诚实列出工具数但不以此竞争,以「免费+开源+安全+三层」差异化
-- **不做闭源付费**:坚守免费开源定位(赛道真空地带)
+- **不拼工具数量**:工具数不是卖点(不跟 godot-mcp-pro 的 175;且 tugcantopaloglu 149 > ours 仍不拼;Coding-Solo 13→4431★ 证用户不按工具数投票);README 对比表诚实列出工具数但不以此竞争,以「免费+开源+安全+三层」差异化
+- **不做闭源付费**:坚守免费开源(安全维度赛道真空——tugcantopaloglu 149 / yurineko73 155 工具达标但均无安全设防,本项目独占)
 - **不承诺 P2 时间**:M4 三项(Android/profiling/UndoRedo)标 💤 考虑中,非近期承诺
 
 ## 路线图变更记录
@@ -84,6 +102,7 @@
 > 本节只记里程碑/状态变更(📋→🟡→✅ + 日期)。版本功能详见 CHANGELOG.md。
 
 - 2026-06-27 — 初版路线图发布(M1–M4 + 12 行动项);M1 #1/#2 已完成(feat/roadmap `640020b`)
+- 2026-06-28 — 06-28 复核校准:M1 扩充分发(#13 目录收录 / #14 迁移指南)+ 明确胜负手=分发;「真空地带」→「安全真空」;README 工具数口径校正(128→28 tool definition)+ tagline 整体重写。依据:竞品文档 §八复核实录
 
 ---
 
