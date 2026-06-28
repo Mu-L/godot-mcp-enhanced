@@ -20,7 +20,7 @@ export function parseAsserts(stdout: string): AssertSummary {
     const pm = trimmed.match(PASS_RE);
     if (pm) { passCount++; continue; }
     const fm = trimmed.match(FAIL_RE);
-    if (fm) { fails.push(fm[1].trim()); continue; }
+    if (fm) { fails.push((fm[1] ?? '').trim()); continue; }
   }
   return {
     passCount,
