@@ -27,9 +27,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     //   常量引用,实测 detect===0 移 FIXED 防复发）
     //   + 1（2026-06-27 recording-no-touch-events ScreenDrag 补全 feat/recording-screen-drag,
     //   ScreenTouch+ScreenDrag 两类齐备 detect=0 移 FIXED 防复发）。
-    expect(FIXED_DEFECTS.length).toBe(27);
+    expect(FIXED_DEFECTS.length).toBe(28);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(27);
+    expect(new Set(keys).size, '存在重名 key').toBe(28);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

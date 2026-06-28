@@ -307,6 +307,37 @@ describe('project-tools handleTool — create_project', () => {
     expect(existsSync(join(newProject, 'assets'))).toBe(true);
   });
 
+  it('create_project 参数化 godot_version 到 project.godot features + main.gd(defect: version-hardcoded)', async () => {
+    const ctx = createMockCtx();
+    const newProject = join(dir, 'VerParam');
+
+    await callProject('create_project', {
+      project_path: newProject,
+      project_name: 'VerParam',
+      godot_version: '4.7',
+    }, ctx);
+
+    const projectGodot = readFileSync(join(newProject, 'project.godot'), 'utf-8');
+    const mainGd = readFileSync(join(newProject, 'scripts', 'main.gd'), 'utf-8');
+    expect(projectGodot).toContain('PackedStringArray("4.7")');
+    expect(projectGodot).not.toContain('4.6');
+    expect(mainGd).toContain('Hello, Godot 4.7!');
+    expect(mainGd).not.toContain('4.6');
+  });
+
+  it('create_project 默认 godot_version=4.4(未传时)', async () => {
+    const ctx = createMockCtx();
+    const newProject = join(dir, 'DefaultVer');
+
+    await callProject('create_project', {
+      project_path: newProject,
+      project_name: 'DefaultVer',
+    }, ctx);
+
+    const projectGodot = readFileSync(join(newProject, 'project.godot'), 'utf-8');
+    expect(projectGodot).toContain('PackedStringArray("4.4")');
+  });
+
   it('refuses to create if project.godot already exists', async () => {
     const ctx = createMockCtx();
     makeGodotProject(dir);

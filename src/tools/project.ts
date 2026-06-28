@@ -166,6 +166,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const p = requireProjectPath(args);
       const projectName = (args.project_name as string) || basename(p);
       const renderer = (args.renderer as string) || 'forward_plus';
+      const godotVersion = (args.godot_version as string) || '4.4';
       const validRenderers = ['forward_plus', 'mobile', 'gl_compatibility'];
       if (!validRenderers.includes(renderer)) {
         return textResult(`Error: Invalid renderer "${renderer}". Must be one of: ${validRenderers.join(', ')}`);
@@ -187,7 +188,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         '',
         'config/name="' + projectName.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"',
         'run/main_scene="res://scenes/main.tscn"',
-        'config/features=PackedStringArray("4.6")',
+        'config/features=PackedStringArray("' + godotVersion + '")',
         '',
         '[display]',
         '',
@@ -216,7 +217,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         'extends Node2D',
         '',
         'func _ready() -> void:',
-        "\tprint(\"Hello, Godot 4.6!\")",
+        "\tprint(\"Hello, Godot " + godotVersion + "!\")",
         '',
       ].join('\n');
       writeFileSync(join(p, 'scripts', 'main.gd'), mainGd, 'utf-8');
