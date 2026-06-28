@@ -146,12 +146,12 @@ async function _doConnect(timeout: number): Promise<Socket> {
   const secret = readBridgeSecret();
   if (!secret) {
     if (!_projectDir) {
-      throw new Error(
+      throw new BridgeNotConnectedError(
         'Bridge project directory not set. Use run_project to start the game, or pass project_path parameter. ' +
         'Manual F5 launch requires project_path to locate the Bridge secret.'
       );
     }
-    throw new Error(
+    throw new BridgeNotConnectedError(
       `Bridge secret not found at ${findBridgeSecretPath()}. ` +
       'Ensure the game is running with the MCP Bridge autoload installed.'
     );
@@ -165,7 +165,7 @@ async function _doConnect(timeout: number): Promise<Socket> {
     let authDone = false;
     const timer = setTimeout(() => {
       sock.destroy();
-      reject(new Error(`Bridge auth timed out after ${timeout}ms`));
+      reject(new BridgeNotConnectedError(`Bridge auth timed out after ${timeout}ms`));
     }, timeout);
 
     sock.on('data', (data: Buffer) => {
@@ -200,7 +200,7 @@ async function _doConnect(timeout: number): Promise<Socket> {
           if (resp.error?.code === -32001 || resp.error?.code === -32002) {
             _cachedSecret = null;
           }
-          reject(new Error(`Bridge auth failed (${resp.error?.code}): ${resp.error?.message}`));
+          reject(new BridgeNotConnectedError(`Bridge auth failed (${resp.error?.code}): ${resp.error?.message}`));
           return;
         } catch {
           clearTimeout(timer);
@@ -225,7 +225,7 @@ async function _doConnect(timeout: number): Promise<Socket> {
 
     sock.on('close', () => {
       clearTimeout(timer);
-      if (!authDone) reject(new Error('Bridge connection closed during auth'));
+      if (!authDone) reject(new BridgeNotConnectedError('Bridge connection closed during auth'));
     });
   });
 }

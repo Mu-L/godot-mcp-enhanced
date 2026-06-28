@@ -178,6 +178,37 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
+  describe('Bridge 超时分层: NOT_CONNECTED 其余路径', () => {
+    it('secret not found → BRIDGE_NOT_CONNECTED(bridge 未装/未跑)', async () => {
+      // readFileSync 抛错 → readBridgeSecret 返回 null → _doConnect :155 throw BridgeNotConnectedError
+      mockRead.mockImplementation(() => { throw new Error('ENOENT'); });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(result).not.toBeNull();
+      expect(result!.isError).toBe(true);
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
+      expect(parsed.suggestion).toBeTruthy();
+    });
+
+    it('auth timeout → BRIDGE_NOT_CONNECTED(bridge 接受 TCP 不响应认证)', async () => {
+      // bridge 接受连接但不回 auth → _doConnect auth timer → BridgeNotConnectedError
+      mockRead.mockReturnValue('test-secret');
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        const sock = new EventEmitter();
+        (sock as any).write = vi.fn();  // 接受 auth write 不回
+        (sock as any).destroy = vi.fn();
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping', timeout: 1000 }, ctx);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
+    }, 5000);
+  });
+
   describe('N-1: sendToBridge once 监听器不泄漏', () => {
     it('多次成功调用后 error/close listener 不累积(只留 _doConnect 持久监听)', async () => {
       setupBridgeSocket('result');
