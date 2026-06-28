@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
@@ -154,6 +154,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const projectDir = ctx.projectDir;
       if (!projectDir) return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'project_path is required.');
       const cfgPath = join(projectDir, 'export_presets.cfg');
+      if (existsSync(cfgPath) && statSync(cfgPath).size > 1_000_000) {
+        return opsErrorResult('INVALID_PARAMS', `export_presets.cfg too large (>1MB), refuse to parse to avoid OOM`);
+      }
       const preset = findAndroidPreset(cfgPath, args.preset_name as string | undefined, args.preset_index as number | undefined);
       if (!preset) {
         return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'No Android export preset found.', {
@@ -169,6 +172,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const projectDir = ctx.projectDir;
       if (!projectDir) return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'project_path is required.');
       const cfgPath = join(projectDir, 'export_presets.cfg');
+      if (existsSync(cfgPath) && statSync(cfgPath).size > 1_000_000) {
+        return opsErrorResult('INVALID_PARAMS', `export_presets.cfg too large (>1MB), refuse to parse to avoid OOM`);
+      }
       const preset = findAndroidPreset(cfgPath, args.preset_name as string | undefined, args.preset_index as number | undefined);
       if (!preset) {
         return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'No Android export preset found.', {

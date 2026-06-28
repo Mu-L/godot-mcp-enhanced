@@ -15,7 +15,7 @@ vi.mock('fs', () => ({
   existsSync: mockExists,
   readFileSync: readFileSyncMock,
   writeFileSync: vi.fn(), copyFileSync: vi.fn(), unlinkSync: vi.fn(),
-  chmodSync: vi.fn(), statSync: vi.fn(), lstatSync: vi.fn(() => ({ isSymbolicLink: () => false })),
+  chmodSync: vi.fn(), statSync: vi.fn(() => ({ size: 1000 }) as any), lstatSync: vi.fn(() => ({ isSymbolicLink: () => false })),
   renameSync: vi.fn(),
   realpathSync: vi.fn((p: string) => p),
 }));
@@ -203,5 +203,25 @@ describe('android logcat', () => {
     const result = await handleTool('android', { action: 'logcat', project_path: '/fake/p', device_serial: 'a;rm' }, ctx as any);
     const parsed = JSON.parse(result!.content[0].text);
     expect(parsed.error_code).toBe('LOGCAT_FAILED');
+  });
+});
+
+describe('android R3-fix 项1+6', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); });
+
+  it('项1: export_presets.cfg >1MB 拒绝解析(防 OOM)', async () => {
+    const fs = await import('fs');
+    vi.mocked(fs.statSync).mockReturnValue({ size: 2_000_000 } as any);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'get_preset_info', project_path: '/fake/p' }, ctx as any);
+    expect(result!.isError).toBe(true);
+    expect(result!.content[0].text).toMatch(/too large|1MB/i);
+  });
+
+  it('项6: INI 畸形(无 = / 垃圾行)不崩', async () => {
+    readFileSyncMock.mockReturnValue('[preset.0]\ngarbage no equals\n;;comment\nname="Android"\nplatform="Android"\n');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'get_preset_info', project_path: '/fake/p' }, ctx as any);
+    expect(result).toBeDefined();  // 不抛未捕获异常
   });
 });
