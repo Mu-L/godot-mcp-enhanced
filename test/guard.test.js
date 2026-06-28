@@ -195,3 +195,32 @@ describe('TOKEN_TTL_MS', () => {
     expect(TOKEN_TTL_MS).toBe(60_000);
   });
 });
+
+// ─── GUARDED workflow/validation/manage_tools (CRITICAL-3 子项4) ───────────
+
+describe('GUARDED workflow/validation/manage_tools', () => {
+  it('workflow: dev_loop/create_files/run_verify guarded; read not', () => {
+    expect(requiresConfirmation('workflow', { action: 'dev_loop' })).toBe(true);
+    expect(requiresConfirmation('workflow', { action: 'create_files' })).toBe(true);
+    expect(requiresConfirmation('workflow', { action: 'run_verify' })).toBe(true);
+    expect(requiresConfirmation('workflow', { action: 'scene_snapshot' })).toBe(false);
+    expect(requiresConfirmation('workflow', { action: 'batch_validate' })).toBe(false);
+    expect(requiresConfirmation('workflow', { action: 'diff_scenes' })).toBe(false);
+  });
+  it('validation: assert/stress/export_build guarded; read not', () => {
+    expect(requiresConfirmation('validation', { action: 'assert' })).toBe(true);
+    expect(requiresConfirmation('validation', { action: 'stress' })).toBe(true);
+    expect(requiresConfirmation('validation', { action: 'export_build' })).toBe(true);
+    expect(requiresConfirmation('validation', { action: 'validate_scripts' })).toBe(false);
+    expect(requiresConfirmation('validation', { action: 'analyze_error' })).toBe(false);
+    expect(requiresConfirmation('validation', { action: 'import_resources' })).toBe(false);
+  });
+  it('manage_tools: activate/deactivate guarded; read/migrate not', () => {
+    expect(requiresConfirmation('manage_tools', { action: 'activate' })).toBe(true);
+    expect(requiresConfirmation('manage_tools', { action: 'deactivate' })).toBe(true);
+    expect(requiresConfirmation('manage_tools', { action: 'list_groups' })).toBe(false);
+    expect(requiresConfirmation('manage_tools', { action: 'sync' })).toBe(false);
+    expect(requiresConfirmation('manage_tools', { action: 'reconnect' })).toBe(false);
+    expect(requiresConfirmation('manage_tools', { action: 'migrate' })).toBe(false);  // 只读(返回迁移映射)
+  });
+});

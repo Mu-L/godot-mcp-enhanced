@@ -72,6 +72,9 @@ export const GUARDED: Record<string, Set<string> | null> = {
   physics: new Set(['collision_overlay']),  // raycast/body_info/diagnose/query_spatial 读
   runtime: new Set(['run_project', 'launch_editor', 'stop_project', 'run_tests', 'record_start', 'record_stop', 'record_play', 'record_save']),
   android: new Set(['deploy']),  // list_devices/get_preset_info 读不守;deploy install 改设备
+  workflow: new Set(['dev_loop', 'create_files', 'run_verify']),  // scene_snapshot/batch_validate/diff_scenes 读不守
+  validation: new Set(['export_build', 'assert', 'stress']),  // validate_*/analyze_error/import_resources 读不守
+  manage_tools: new Set(['activate', 'deactivate']),  // migrate 只读(返回迁移映射, TOOL_META.readonly=true)/list_groups/sync/reconnect 不守
 };
 
 export function requiresConfirmation(toolName: string, args?: Record<string, unknown>): boolean {
