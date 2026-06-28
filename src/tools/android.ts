@@ -61,6 +61,56 @@ function parseDevices(stdout: string): Array<Record<string, string>> {
   return devices;
 }
 
+interface PresetInfo {
+  index: number; name: string; platform: string;
+  runnable: boolean; exportPath: string; packageName: string;
+}
+
+/** 解析 export_presets.cfg(Godot ConfigFile/INI)。两级 section:[preset.N] 主 + [preset.N.options] 子;值去引号。 */
+function parsePresetsCfg(content: string): PresetInfo[] {
+  const sectionData: Record<string, Record<string, string>> = {};
+  let current = '';
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(';') || line.startsWith('#')) continue;
+    const sec = line.match(/^\[(.+)\]$/);
+    if (sec) { current = sec[1]; sectionData[current] = sectionData[current] ?? {}; continue; }
+    const eq = line.indexOf('=');
+    if (eq < 0 || !current) continue;
+    const key = line.slice(0, eq).trim();  // key 含 '/'(如 package/name)是整体 key,非 section 分隔
+    let value = line.slice(eq + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).replace(/\\"/g, '"');
+    sectionData[current][key] = value;
+  }
+  const presets: PresetInfo[] = [];
+  for (const sec of Object.keys(sectionData)) {
+    const m = sec.match(/^preset\.(\d+)$/);
+    if (!m) continue;
+    const idx = parseInt(m[1], 10);
+    const main = sectionData[sec]!;
+    const opts = sectionData[`preset.${idx}.options`] ?? {};
+    presets.push({
+      index: idx, name: main.name ?? '', platform: main.platform ?? '',
+      runnable: main.runnable === 'true', exportPath: main.export_path ?? '',
+      packageName: opts['package/name'] ?? '',
+    });
+  }
+  return presets;
+}
+
+/** 找 Android preset:按 name/index/platform 优先级。 */
+function findAndroidPreset(cfgPath: string, presetName?: string, presetIndex?: number): PresetInfo | null {
+  if (!existsSync(cfgPath)) return null;
+  const presets = parsePresetsCfg(readFileSync(cfgPath, 'utf-8'));
+  for (const p of presets) {
+    if (p.platform !== 'Android') continue;
+    if (presetName) { if (p.name === presetName) return p; else continue; }
+    if (presetIndex !== undefined && presetIndex >= 0) { if (p.index === presetIndex) return p; else continue; }
+    return p;
+  }
+  return null;
+}
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'android') return null;
   const action = args.action as string;
@@ -80,6 +130,21 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         });
       }
       return textResult(JSON.stringify({ devices, count: devices.length, adb_path: adb }));
+    }
+    case 'get_preset_info': {
+      const projectDir = ctx.projectDir;
+      if (!projectDir) return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'project_path is required.');
+      const cfgPath = join(projectDir, 'export_presets.cfg');
+      const preset = findAndroidPreset(cfgPath, args.preset_name as string | undefined, args.preset_index as number | undefined);
+      if (!preset) {
+        return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'No Android export preset found.', {
+          suggestion: 'Configure an Android preset in Godot Project > Export, then retry.',
+        });
+      }
+      return textResult(JSON.stringify({
+        index: preset.index, name: preset.name, platform: preset.platform,
+        runnable: preset.runnable, export_path: preset.exportPath, package_name: preset.packageName,
+      }));
     }
     default:
       return null;  // get_preset_info/deploy 后续 task 实现

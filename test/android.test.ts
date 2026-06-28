@@ -55,3 +55,46 @@ describe('android list_devices', () => {
     expect(parsed.error_code).toBe('ADB_NOT_FOUND');
   });
 });
+
+describe('android get_preset_info (INI 解析)', () => {
+  const CFG = `[preset.0]
+name="Windows Desktop"
+platform="Windows Desktop"
+[preset.1]
+name="Android"
+platform="Android"
+runnable=true
+export_path="res://export/android.apk"
+[preset.1.options]
+package/name="com.example.game"
+custom_template/debug=""
+`;
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); });
+
+  it('按 platform=Android 找到 preset', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'get_preset_info', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.name).toBe('Android');
+    expect(parsed.platform).toBe('Android');
+    expect(parsed.package_name).toBe('com.example.game');
+    expect(parsed.export_path).toBe('res://export/android.apk');
+  });
+
+  it('preset_name 精确匹配 + 非 Android preset 报 NO_ANDROID_PRESET', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'get_preset_info', project_path: '/fake/p', preset_name: 'Windows Desktop' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('NO_ANDROID_PRESET');
+  });
+
+  it('无 export_presets.cfg → NO_ANDROID_PRESET', async () => {
+    mockExists.mockReturnValue(false);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'get_preset_info', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('NO_ANDROID_PRESET');
+  });
+});
