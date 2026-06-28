@@ -11,7 +11,9 @@ import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
 import { spawnGodot } from './spawn-helper.js';
 import { handleBatchAction } from './batch-tools.js';
-import { referenceSimScript } from './frame-verify/gdscripts.js';
+import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gdscripts.js';
+import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
+import { createProofRun } from './frame-verify/proof-bundle.js';
 
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
@@ -138,10 +140,21 @@ export function getToolDefinitions(): Tool[] {
                     description: { type: 'string', description: 'Human-readable assertion description' },
                     gdscript: { type: 'string', description: 'GDScript code using _mcp_output to output results' },
                     expect: { type: 'string', description: 'Expected output value (string comparison)' },
-                    type: { type: 'string', description: 'Assertion type: gdscript (default) or screenshot_diff', enum: ['gdscript', 'screenshot_diff'] },
+                    type: { type: 'string', description: 'Assertion type: gdscript (default), screenshot_diff, or frame_degradation', enum: ['gdscript', 'screenshot_diff', 'frame_degradation'] },
                     expect_present: { type: 'array', items: { type: 'string' }, description: 'screenshot_diff: node names expected to be visible in scene tree' },
+                    reference_path: { type: 'string', description: 'screenshot_diff: optional reference image path for cosine-similarity pre-filter' },
+                    sim_threshold: { type: 'number', description: 'screenshot_diff: cosine similarity threshold (default 0.85)' },
+                    frames_dir: { type: 'string', description: 'frame_degradation: directory of captured frames (omit if acceptance.frame_sequence captures them)' },
                   },
                   required: ['description'],
+                },
+              },
+              frame_sequence: {
+                type: 'object',
+                description: 'Capture N frames into a proof dir before assertions run; frames feed frame_degradation assertions',
+                properties: {
+                  count: { type: 'number', description: 'Number of frames to capture (2-60, default 12)' },
+                  interval_frames: { type: 'number', description: 'Frames between captures at ~60fps (1-300, default 10)' },
                 },
               },
             },
@@ -396,6 +409,41 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         ? rawAcceptance as Record<string, unknown>
         : undefined;
       if (acceptance) {
+        // ── frame_sequence: 自动捕获 N 帧到 proof 目录，供 frame_degradation 断言引用 ──
+        let capturedFramesDir: string | undefined;
+        const frameSeq = acceptance.frame_sequence as { count?: number; interval_frames?: number } | undefined;
+        if (frameSeq && typeof frameSeq === 'object') {
+          const count = Math.min(Math.max(Math.floor(frameSeq.count ?? 12), 2), 60);
+          const interval = Math.min(Math.max(Math.floor(frameSeq.interval_frames ?? 10), 1), 300);
+          try {
+            const run = createProofRun(projectPath);
+            // proof 目录在项目内；Bridge take_screenshot 路径必须 user:// 开头，先截到 user:// 再用 GDScript 归档
+            for (let i = 0; i < count; i++) {
+              const tmpPath = `user://mcp_frame_${i}.png`;
+              const ssResp = await sendToBridge('take_screenshot', { path: tmpPath }, 10000);
+              if (ssResp.error) break;
+              // 通过 executeGdscript 把 user:// 的 PNG 字节读到 proof 目录（GDScript 函数体用 tab 缩进）
+              const frameName = `frame_${String(i).padStart(2, '0')}.png`;
+              const copyScript = `extends SceneTree
+func _initialize():
+	var img := Image.load_from_file("${tmpPath}")
+	var f := FileAccess.open("${run.dir}/${frameName}", FileAccess.WRITE)
+	f.store_buffer(img.save_png_to_buffer())
+	quit()
+`;
+              await executeGdscript({ godotPath: godot, projectPath, code: copyScript, timeout: Math.min(timeout, 15), loadAutoloads });
+              if (i < count - 1) {
+                // controller 预查无 _sleep 方法，改用 TS 侧 sleep（interval_frames × 16ms ≈ 60fps 间隔）
+                await new Promise<void>(r => setTimeout(r, interval * 16));
+              }
+            }
+            capturedFramesDir = run.dir;
+            result.frame_sequence = { run_id: run.runId, dir: run.dir, count };
+          } catch (err) {
+            result.frame_sequence = { error: err instanceof Error ? err.message : String(err) };
+          }
+        }
+
         const assertionList = (acceptance.assertions as Array<Record<string, string>>) ?? [];
         if (assertionList.length > 0) {
           const assertionResults: Array<Record<string, unknown>> = [];
@@ -461,6 +509,47 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
                 assertionResults.push({ description: desc, passed: true, actual: partials.join('; ') || 'screenshot captured' });
               } catch (err) {
                 assertionResults.push({ description: desc, passed: false, error: err instanceof Error ? err.message : String(err) });
+              }
+              continue;
+            }
+
+            // ── frame_degradation assertion（帧退化检测，Godogen 灵魂）──
+            if (assertType === 'frame_degradation') {
+              const fd = a as Record<string, unknown>;
+              if (typeof fd.description !== 'string') {
+                assertionResults.push({ description: 'frame_degradation', passed: false, error: 'requires description' });
+                continue;
+              }
+              // 若断言未提供 frames_dir 但 frame_sequence 已捕获，自动复用
+              const framesDir = (fd.frames_dir as string | undefined) ?? capturedFramesDir;
+              if (!framesDir) {
+                assertionResults.push({ description: fd.description, passed: false, error: 'frame_degradation requires frames_dir or acceptance.frame_sequence to capture frames first' });
+                continue;
+              }
+              try {
+                const metricsResult = await executeGdscript({
+                  godotPath: godot, projectPath,
+                  code: extractFrameMetricsScript(framesDir),
+                  timeout: Math.min(timeout, 30), loadAutoloads,
+                });
+                if (!metricsResult.compile_success || !metricsResult.run_success) {
+                  assertionResults.push({ description: fd.description, passed: false, error: `metrics extraction failed: ${metricsResult.compile_error || metricsResult.run_error}` });
+                  continue;
+                }
+                const out = (key: string) => metricsResult.outputs.find(e => e.key === key)?.value;
+                const frameCount = Number(out('frame_count') ?? 0);
+                // Task 4 协议：consecutive_sims/first_frame_sims 是 JSON.stringify 字符串，需还原
+                const consecutive = JSON.parse(String(out('consecutive_sims') ?? '[]')) as number[];
+                const firstFrame = JSON.parse(String(out('first_frame_sims') ?? '[]')) as number[];
+                const verdict = classifyDegradation({ frameCount, consecutiveSims: consecutive, firstFrameSims: firstFrame } as FrameMetrics);
+                assertionResults.push({
+                  description: fd.description,
+                  passed: !verdict.degraded,
+                  actual: verdict.degraded ? `DEGRADED: ${verdict.reason}` : `healthy (meanConsecutive=${verdict.metrics.meanConsecutive.toFixed(3)}, maxChange=${verdict.metrics.maxChange.toFixed(3)})`,
+                  expected: 'frames show real motion (not identical/stalled)',
+                });
+              } catch (err) {
+                assertionResults.push({ description: fd.description, passed: false, error: err instanceof Error ? err.message : String(err) });
               }
               continue;
             }
