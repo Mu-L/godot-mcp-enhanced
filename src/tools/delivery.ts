@@ -7,6 +7,7 @@ import { getLogger } from '../core/logger.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { batchValidateScripts } from './validation.js';
 import { SCENE_TREE_HEADER, wrapAssertionCode, opsErrorResult } from './shared.js';
+import { parseAsserts } from './frame-verify/assert-protocol.js';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, relative, isAbsolute } from 'path';
 
@@ -426,6 +427,8 @@ func _initialize():
     } else {
       const godot = await ctx.findGodot();
       const assertionResults: Array<Record<string, unknown>> = [];
+      // 收集每个断言执行的原始 stdout（含 GD.Print "ASSERT PASS/FAIL" 协议），供 visual_proof 维度聚合
+      const assertStdouts: string[] = [];
 
       // Execute each assertion independently for isolation
       for (let i = 0; i < assertions.length; i++) {
@@ -440,6 +443,11 @@ func _initialize():
           const assertResult = await executeGdscript({
             godotPath: godot, projectPath, code: wrappedCode, timeout: ASSERTION_TIMEOUT_S, loadAutoloads: false,
           });
+
+          // 收集原始 stdout（无论成功失败，只要执行了就有输出）用于 ASSERT 协议解析
+          if (assertResult.raw_output) {
+            assertStdouts.push(assertResult.raw_output);
+          }
 
           if (!assertResult.compile_success) {
             assertionResults.push({ description: desc, passed: false, error: assertResult.compile_error });
@@ -460,7 +468,35 @@ func _initialize():
       const allPassed = assertionResults.every(r => r.passed);
       report.assertions = { passed: allPassed, results: assertionResults };
       dimensionResults.push({ dim: 'assertions', passed: allPassed });
+
+      // ── visual_proof 维度：聚合 ASSERT 协议（Godogen test-harness.md 范式）──
+      // 把 assertions 维度执行时收集的 stdout 合并，解析 ASSERT PASS/FAIL 文本协议。
+      // 失败仅影响 report.passed（软报告），不阻断 isError，保持向后兼容。
+      const allAssertStdout = assertStdouts.join('\n');
+      const assertSummary = parseAsserts(allAssertStdout);
+      const visualProofIssues: string[] = [];
+      if (!assertSummary.passed) {
+        if (assertSummary.passCount === 0 && assertSummary.failCount === 0) {
+          visualProofIssues.push('no ASSERT PASS/FAIL evidence found in runtime stdout');
+        }
+        for (const f of assertSummary.fails) {
+          visualProofIssues.push(`ASSERT FAIL: ${f}`);
+        }
+      }
+      report.visual_proof = {
+        passed: assertSummary.passed,
+        assert_summary: assertSummary,
+        issues: visualProofIssues,
+      };
+      dimensionResults.push({ dim: 'visual_proof', passed: assertSummary.passed });
     }
+  } else {
+    // assertions 维度未运行（无断言）—— visual_proof graceful 处理：不阻断 report.passed
+    report.visual_proof = {
+      passed: true,
+      assert_summary: { passCount: 0, failCount: 0, fails: [], passed: false },
+      issues: ['no assertions run; visual_proof skipped'],
+    };
   }
 
   // ── Dimension 5: GDD standards ──
