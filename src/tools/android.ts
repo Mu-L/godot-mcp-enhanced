@@ -127,7 +127,7 @@ function godotConfigDir(): string {
   const home = process.env.HOME || process.env.USERPROFILE || '';
   if (process.platform === 'win32') return join(process.env.APPDATA ?? home, 'Godot');
   if (process.platform === 'darwin') return join(home, 'Library', 'Application Support', 'Godot');
-  return join(home, '.local', 'share', 'godot');  // Linux(best-effort,不读 XDG_DATA_HOME)
+  return join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), 'godot');  // Linux(XDG_DATA_HOME 优先)
 }
 
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
@@ -190,6 +190,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       } catch {
         return opsErrorResult(ERROR_CODES.EXPORT_FAILED, `Invalid apk path (traversal): ${preset.exportPath}`);
       }
+      // 纵深防御: execFileSync(adb) 自身无 shell; validateSerial 针对 adb shell 设备端注入(launch/logcat 时 adb -s <serial> shell 把 args join 传设备 sh -c)
       const deviceSerial = args.device_serial as string | undefined;
       if (deviceSerial && !validateSerial(deviceSerial)) {
         return opsErrorResult(ERROR_CODES.INSTALL_FAILED, `Invalid device_serial: ${deviceSerial}`);
@@ -274,6 +275,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     case 'logcat': {
       const lines = (args.lines as number) ?? 100;
       const filter = (args.filter as string) ?? '';
+      // 纵深防御: execFileSync(adb) 自身无 shell; validateSerial 针对 adb shell 设备端注入(launch/logcat 时 adb -s <serial> shell 把 args join 传设备 sh -c)
       const deviceSerial = args.device_serial as string | undefined;
       if (deviceSerial && !validateSerial(deviceSerial)) {
         return opsErrorResult(ERROR_CODES.LOGCAT_FAILED, `Invalid device_serial: ${deviceSerial}`);
@@ -315,5 +317,5 @@ export function getToolDefinitions(): Tool[] {
 }
 
 export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  android: { readonly: false, long_running: true },
+  android: { readonly: false, long_running: true },  // per-tool 粒度: deploy/export 慢需 long_running; list_devices/get_preset_info 秒级被错标但无害(客户端多显等待提示, 操作秒回)
 };

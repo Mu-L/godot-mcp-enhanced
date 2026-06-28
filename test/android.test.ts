@@ -144,6 +144,14 @@ describe('android deploy', () => {
     await handleTool('android', { action: 'deploy', project_path: '/fake/p', debug: false, launch: false }, ctx as any);
     expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.arrayContaining(['--export-release']), expect.anything());
   });
+  it('deploy debug=true(默认) → --export-debug + preset.name 传 spawnGodot(项2)', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    vi.mocked(spawnGodot).mockResolvedValue({ stdout: '', stderr: '', output: '', exitCode: 0, timedOut: false });
+    mockExec.mockReturnValue('Success');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    await handleTool('android', { action: 'deploy', project_path: '/fake/p', launch: false }, ctx as any);
+    expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.arrayContaining(['--export-debug', 'Android']), expect.anything());
+  });
 });
 
 describe('android check_template', () => {
