@@ -74,8 +74,8 @@ describe('sanitizeRecordingFileName', () => {
     expect(sanitizeRecordingFileName('recording_test-session_01.json')).toBe('recording_test-session_01.json');
   });
 
-  it('rejects path traversal with ..', () => {
-    expect(() => sanitizeRecordingFileName('recording_..json')).toThrow(/path traversal/);
+  it('rejects recording_..json via pattern (段级匹配: 子串 .. 非路径段不误判 traversal)', () => {
+    expect(() => sanitizeRecordingFileName('recording_..json')).toThrow(/must match/);
   });
 
   it('rejects forward slash', () => {
