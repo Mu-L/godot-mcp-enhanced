@@ -485,6 +485,16 @@ export function detachInstance(
     // Skip the instance node line and its property overrides
     if (i >= info.lineIndex && i < instanceEndIdx) {
       if (!insertedExpanded) {
+        // CRITICAL-2 fix: 首 node 是 instance 时(firstNodeIdx===info.lineIndex) :497 分支被本
+        // continue 抢先不可达,此处补插 sub_resources(若尚未插入);常规情况由 :497 先插入,
+        // !insertedSubResources 守卫跳过不重复
+        if (!insertedSubResources && remappedSubResources.length > 0) {
+          cleanResult.push('');
+          for (const subLine of remappedSubResources) {
+            cleanResult.push(subLine);
+          }
+          insertedSubResources = true;
+        }
         for (const expLine of expandedLines) {
           cleanResult.push(expLine);
         }

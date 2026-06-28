@@ -219,6 +219,63 @@ position = Vector2(100, 200)
     expect(() => detachInstance(TARGET_TSCN, SOURCE_TSCN, 'Camera2D', '.')).toThrow(/Instance node not found/);
   });
 
+  it('CRITICAL-2: inserts sub_resources when first [node] is the instance', () => {
+    const targetFirstIsInstance = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" uid="uid://ui1" path="res://scenes/ui.tscn" id="1"]
+
+[node name="UI" parent="." instance=ExtResource("1")]
+`;
+    const sourceWithSub = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui.gd" id="1"]
+
+[sub_resource type="StyleBoxFlat" id="1"]
+bg_color = Color(1, 0, 0, 1)
+
+[node name="UI" type="Control"]
+theme_override_styles/panel = SubResource("1")
+`;
+    const result = detachInstance(targetFirstIsInstance, sourceWithSub, 'UI', '.');
+
+    // 修复前: sub_resource 丢失(输出含 SubResource 引用却无 [sub_resource] 段)
+    expect(result.includes('[sub_resource')).toBe(true);
+    // SubResource 引用 id 应与 remapped [sub_resource] id 对得上(target 无 sub_resource, remap 从 1 起)
+    const subMatch = result.match(/\[sub_resource type="StyleBoxFlat" id="(\d+)"\]/);
+    expect(subMatch).not.toBeNull();
+    const subId = subMatch[1];
+    expect(result.includes(`SubResource("${subId}")`)).toBe(true);
+  });
+
+  it('CRITICAL-2 regression: sub_resources precede all [node] sections in normal case (guards :497)', () => {
+    const targetNormal = `[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" uid="uid://ui1" path="res://scenes/ui.tscn" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="UI" parent="." instance=ExtResource("1")]
+`;
+    const sourceWithSub = `[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui.gd" id="1"]
+
+[sub_resource type="StyleBoxFlat" id="1"]
+bg_color = Color(1, 0, 0, 1)
+
+[node name="UI" type="Control"]
+theme_override_styles/panel = SubResource("1")
+`;
+    const result = detachInstance(targetNormal, sourceWithSub, 'UI', '.');
+
+    // 常规情况(firstNodeIdx < lineIndex): sub_resources 必须由 :497 插在所有 [node] 之前(前向声明)
+    const subIdx = result.indexOf('[sub_resource');
+    const firstNodeIdx = result.indexOf('[node');
+    expect(subIdx).toBeGreaterThanOrEqual(0);
+    expect(firstNodeIdx).toBeGreaterThanOrEqual(0);
+    expect(subIdx).toBeLessThan(firstNodeIdx);  // 删 :497 会令 subIdx > firstNodeIdx, 测试失败
+  });
+
   it('should handle source with no ext_resources', () => {
     const sourceNoExt = `[gd_scene format=3]
 
