@@ -109,6 +109,7 @@
 - 2026-06-28 — M2 #5 完成:Bridge 超时分层诊断(三元分类 BRIDGE_NOT_CONNECTED/BRIDGE_TIMEOUT/BRIDGE_ERROR + Error 子类 + suggestion;ECONNREFUSED/auth 失败/secret 缺失→NOT_CONNECTED,request timeout→TIMEOUT)。feat/bridge-timeout-diagnosis,2939 tests 绿
 - 2026-06-28 — M4 #7 完成:Android Deploy 工具(3 action list_devices/get_preset_info/deploy + INI 解析 + 安全校验 package/deviceSerial/apk 白名单 + spawnGodot timeoutMs 300s;adb shell 协议层注入防护独立于 GUARDED)。feat/android-deploy,2950 tests 绿,capability-matrix 29 tools
 - 2026-06-28 — #7 follow-up:check_template action(默认 Android 导出模板校验,major.minor 目录名 4.6.2.stable→4.6)+ detectGodotVersion 共享原语(godot-finder,DRY 复用 isGodotVersionSignature)。get_godot_version refactor 标 backlog。feat/template-check,2956 tests 绿
+- 2026-06-28 — #7 follow-up batch 2:logcat action(一次性快照 adb logcat -d -t + filter,read-only)+release(deploy debug=false→--export-release,keystore 用户 preset)。get_godot_version refactor 完成(调 detectGodotVersion DRY)。feat/android-logcat-release,2960 tests 绿
 
 ---
 

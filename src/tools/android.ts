@@ -18,6 +18,7 @@ const ERROR_CODES = {
   GODOT_NOT_FOUND: 'GODOT_NOT_FOUND',
   VERSION_DETECT_FAILED: 'VERSION_DETECT_FAILED',
   TEMPLATE_MISSING: 'TEMPLATE_MISSING',
+  LOGCAT_FAILED: 'LOGCAT_FAILED',
 } as const;
 
 const PACKAGE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
@@ -190,7 +191,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       // Step 1: export(必须 spawnGodot:buildSafeEnv + timeoutMs 300s,Android 导出 2-5 分钟)
       if (!skipExport) {
         const godotPath = await ctx.findGodot();
-        const r = await spawnGodot(godotPath, ['--headless', '--path', projectDir, '--export-debug', preset.name, apkAbs], { timeoutMs: EXPORT_TIMEOUT_MS });
+        const debug = args.debug !== false;
+        const exportFlag = debug ? '--export-debug' : '--export-release';
+        const r = await spawnGodot(godotPath, ['--headless', '--path', projectDir, exportFlag, preset.name, apkAbs], { timeoutMs: EXPORT_TIMEOUT_MS });
         if (r.exitCode !== 0) {
           return opsErrorResult(ERROR_CODES.EXPORT_FAILED, r.stderr || r.stdout || `godot export exit ${r.exitCode}`, {
             suggestion: 'Export failed. Install the Android export template (Godot Editor > Manage Export Templates), or check stderr.',
@@ -258,6 +261,21 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         status,
       }));
     }
+    case 'logcat': {
+      const lines = (args.lines as number) ?? 100;
+      const filter = (args.filter as string) ?? '';
+      const deviceSerial = args.device_serial as string | undefined;
+      if (deviceSerial && !validateSerial(deviceSerial)) {
+        return opsErrorResult(ERROR_CODES.LOGCAT_FAILED, `Invalid device_serial: ${deviceSerial}`);
+      }
+      const serialArgs = deviceSerial ? ['-s', deviceSerial] : [];
+      const filterArgs = filter ? [filter] : [];
+      const adb = resolveAdb();
+      const r = runAdb(adb, [...serialArgs, 'logcat', '-d', '-t', String(lines), ...filterArgs]);
+      if (r.notFound) return opsErrorResult(ERROR_CODES.ADB_NOT_FOUND, 'adb not found.', { suggestion: 'Set ANDROID_ADB or install platform-tools.' });
+      if (r.exitCode !== 0) return opsErrorResult(ERROR_CODES.LOGCAT_FAILED, r.stdout || `adb logcat exit ${r.exitCode}`);
+      return textResult(JSON.stringify({ lines, output: r.stdout, device: deviceSerial ?? '(default)' }));
+    }
     default:
       return null;  // get_preset_info/deploy 后续 task 实现
   }
@@ -270,8 +288,10 @@ export function getToolDefinitions(): Tool[] {
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list_devices', 'get_preset_info', 'deploy', 'check_template'] },
+        action: { type: 'string', enum: ['list_devices', 'get_preset_info', 'deploy', 'check_template', 'logcat'] },
         project_path: { type: 'string', description: 'Godot 项目目录' },
+        lines: { type: 'number', description: 'logcat: dump 行数(默认 100)' },
+        filter: { type: 'string', description: 'logcat: 过滤(如 *:E / GDScript:*)' },
         preset_name: { type: 'string', description: 'get_preset_info/deploy: preset 名' },
         preset_index: { type: 'number', description: 'deploy: preset 索引' },
         device_serial: { type: 'string', description: 'deploy: 设备 serial(adb -s)' },

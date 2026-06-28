@@ -134,6 +134,15 @@ describe('android deploy', () => {
     expect(parsed.error_code).toBe('EXPORT_FAILED');
     expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.objectContaining({ timeoutMs: 300_000 }));
   });
+
+  it('deploy debug=false → --export-release(release 签名导出)', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    vi.mocked(spawnGodot).mockResolvedValue({ stdout: '', stderr: '', output: '', exitCode: 0, timedOut: false });
+    mockExec.mockReturnValue('Success');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    await handleTool('android', { action: 'deploy', project_path: '/fake/p', debug: false, launch: false }, ctx as any);
+    expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.arrayContaining(['--export-release']), expect.anything());
+  });
 });
 
 describe('android check_template', () => {
@@ -166,5 +175,32 @@ describe('android check_template', () => {
     const result = await handleTool('android', { action: 'check_template', project_path: '/fake/p' }, ctx as any);
     const parsed = JSON.parse(result!.content[0].text);
     expect(parsed.error_code).toBe('VERSION_DETECT_FAILED');
+  });
+});
+
+describe('android logcat', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); });
+
+  it('logcat dump 最近 N 行(默认 100)', async () => {
+    mockExec.mockReturnValue('E/GDScript: error1\nE/GDScript: error2\n');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'logcat', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.output).toContain('error1');
+    expect(mockExec).toHaveBeenCalledWith(expect.any(String), expect.arrayContaining(['logcat', '-d', '-t', '100']), expect.anything());
+  });
+
+  it('filter 透传', async () => {
+    mockExec.mockReturnValue('');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    await handleTool('android', { action: 'logcat', project_path: '/fake/p', filter: '*:E' }, ctx as any);
+    expect(mockExec).toHaveBeenCalledWith(expect.any(String), expect.arrayContaining(['*:E']), expect.anything());
+  });
+
+  it('device_serial 校验失败 → LOGCAT_FAILED', async () => {
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'logcat', project_path: '/fake/p', device_serial: 'a;rm' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('LOGCAT_FAILED');
   });
 });

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T11:06:14.093Z",
+  "generatedAt": "2026-06-28T12:38:31.810Z",
   "tools": [
     {
       "name": "android",
@@ -14,12 +14,21 @@
               "list_devices",
               "get_preset_info",
               "deploy",
-              "check_template"
+              "check_template",
+              "logcat"
             ]
           },
           "project_path": {
             "type": "string",
             "description": "Godot 项目目录"
+          },
+          "lines": {
+            "type": "number",
+            "description": "logcat: dump 行数(默认 100)"
+          },
+          "filter": {
+            "type": "string",
+            "description": "logcat: 过滤(如 *:E / GDScript:*)"
           },
           "preset_name": {
             "type": "string",
@@ -55,6 +64,8 @@
       ],
       "optionalParams": [
         "project_path",
+        "lines",
+        "filter",
         "preset_name",
         "preset_index",
         "device_serial",
