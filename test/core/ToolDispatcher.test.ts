@@ -57,6 +57,7 @@ vi.mock('../../src/guard.js', () => ({
   requiresConfirmation: mockRequiresConfirmation,
   createPendingToken: mockCreatePendingToken,
   consumeToken: mockConsumeToken,
+  TOKEN_TTL_MS: 60_000,  // CRITICAL-3 子项1: ToolDispatcher import TOKEN_TTL_MS, factory 须提供
 }));
 
 vi.mock('../../src/helpers.js', () => ({
@@ -425,6 +426,7 @@ describe('ToolDispatcher.handleCall', () => {
     expect(parsed.requires_confirmation).toBe(true);
     expect(parsed.confirmation_token).toBe('test-token-123');
     expect(parsed.tool).toBe('scene');
+    expect(parsed.ttl_seconds).toBe(60);  // CRITICAL-3: ttl_seconds 与 TOKEN_TTL_MS/1000 一致, 不再硬编码 180
   });
 
   // [T10b] IMP-6: legacy 工具名路由时 guard 前置 tryLegacyMapping,防 legacy name 绕过 guard

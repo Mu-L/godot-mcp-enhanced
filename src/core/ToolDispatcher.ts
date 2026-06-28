@@ -11,6 +11,7 @@ import {
   requiresConfirmation,
   createPendingToken,
   consumeToken,
+  TOKEN_TTL_MS,
 } from '../guard.js';
 import {
   getAllToolDefinitions,
@@ -325,7 +326,7 @@ export class ToolDispatcher {
               tool: name,
               confirmation_token: token,
               message: `Tool "${name}" requires confirmation. Call confirm_and_execute with this token to proceed.`,
-              ttl_seconds: 180,
+              ttl_seconds: TOKEN_TTL_MS / 1000,
             }),
           }],
         };

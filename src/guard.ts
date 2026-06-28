@@ -11,7 +11,7 @@ interface PendingToken {
   // Currently MCP is single-client, so token-to-caller binding is unnecessary.
 }
 
-const TOKEN_TTL_MS = 180_000; // 3 minutes
+export const TOKEN_TTL_MS = 60_000; // 60s — CRITICAL-3 子项1: 收紧重放窗口(原 180s)
 const MAX_TOKENS = 100;
 const TOKEN_RATE_LIMIT = 5; // max new tokens per second
 const MAX_ARGS_JSON_SIZE = 10_000; // I-02: Truncate args JSON to prevent memory bloat from large GDScript code blocks

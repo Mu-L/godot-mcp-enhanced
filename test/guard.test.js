@@ -2,6 +2,7 @@ import { expect } from 'vitest';
 import fc from 'fast-check';
 import {
   requiresConfirmation, createPendingToken, consumeToken, pendingCount, resetState,
+  TOKEN_TTL_MS,
 } from '../src/guard.js';
 
 // ─── requiresConfirmation (merged-tool guard) ────────────────────────────
@@ -184,5 +185,13 @@ describe('Property: guard', () => {
       ),
       { numRuns: process.env.CI ? 200 : 1000 }
     );
+  });
+});
+
+// ─── TOKEN_TTL_MS (CRITICAL-3 子项1) ───────────────────────────────────────
+
+describe('TOKEN_TTL_MS', () => {
+  it('CRITICAL-3: TTL tightened to 60s (from 180s)', () => {
+    expect(TOKEN_TTL_MS).toBe(60_000);
   });
 });
