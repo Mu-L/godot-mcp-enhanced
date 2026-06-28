@@ -209,6 +209,36 @@ describe('game-bridge error & path validation', () => {
     }, 5000);
   });
 
+  describe('Bridge 超时分层: TIMEOUT', () => {
+    it('request timeout → BRIDGE_TIMEOUT(连上 + 认证后请求无响应,游戏卡住)', async () => {
+      // auth 成功但 method 请求不响应 → sendToBridge :255 timer → BridgeTimeoutError
+      mockRead.mockReturnValue('test-secret');
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        const sock = new EventEmitter();
+        (sock as any).write = vi.fn((data: string) => {
+          let req: { id?: number };
+          try { req = JSON.parse(data); } catch { return; }
+          queueMicrotask(() => {
+            if (req.id === 0) {
+              sock.emit('data', Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n'));
+            }
+            // id >= 1 method 请求不响应 → :255 timer
+          });
+        });
+        (sock as any).destroy = vi.fn();
+        (sock as any).writable = true;
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping', timeout: 1000 }, ctx);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_TIMEOUT');
+      expect(parsed.suggestion).toContain('不是连接问题');
+    }, 5000);
+  });
+
   describe('N-1: sendToBridge once 监听器不泄漏', () => {
     it('多次成功调用后 error/close listener 不累积(只留 _doConnect 持久监听)', async () => {
       setupBridgeSocket('result');

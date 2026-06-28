@@ -280,7 +280,7 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
 
       const timer = setTimeout(() => {
         _invalidateSocket();
-        doReject(new Error(`Bridge request timed out after ${timeout}ms`));
+        doReject(new BridgeTimeoutError(`Bridge request timed out after ${timeout}ms`));
       }, timeout);
 
       const onData = (data: Buffer) => {
@@ -760,6 +760,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     if (err instanceof BridgeNotConnectedError) {
       return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, msg, {
         suggestion: '游戏未运行或 Bridge 未正确响应。先 run_project 启动游戏,确认 game_bridge_install 已执行',
+      });
+    }
+    if (err instanceof BridgeTimeoutError) {
+      return opsErrorResult(ERROR_CODES.BRIDGE_TIMEOUT, msg, {
+        suggestion: '游戏在运行但无响应(可能被 runtime error 卡住)——这不是连接问题。检查游戏是否报错,或加大 timeout 重试',
       });
     }
     return opsErrorResult(ERROR_CODES.BRIDGE_ERROR, msg);
