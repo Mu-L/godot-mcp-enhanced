@@ -363,8 +363,10 @@ describe('GDScript Lint', () => {
 
   // L025
   describe('L025 DisplayServer accessibility moved to AccessibilityServer (4.7 GH-116839)', () => {
-    it('命中: DisplayServer.accessibility_create_element 废弃方法', () => {
-      expect(lintGDScript('var el = DisplayServer.accessibility_create_element()').warnings.some(w => w.rule === 'L025')).toBeTruthy();
+    it('命中: DisplayServer.accessibility_create_element 废弃方法 + message 含 GH-116839', () => {
+      const w = lintGDScript('var el = DisplayServer.accessibility_create_element()').warnings.find(x => x.rule === 'L025');
+      expect(w).toBeTruthy();
+      expect(w.message).toContain('GH-116839'); // detect 依赖 message/注释含 GH-116839,防文本漂移致 detect 误报
     });
     it('命中: DisplayServer.AccessibilityLiveMode 枚举需迁移', () => {
       expect(lintGDScript('accessibility_live = DisplayServer.AccessibilityLiveMode.LIVE_POLITE').warnings.some(w => w.rule === 'L025')).toBeTruthy();

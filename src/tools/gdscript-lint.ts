@@ -153,7 +153,7 @@ function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean 
 const LINT_VERSION = {
   godot_target: "4.6",
   last_reviewed: "2026-05-31",
-  rules_count: 22,
+  rules_count: 23,
 };
 
 // ─── RULES (populated in Tasks 2-4) ────────────────────────────────────────
