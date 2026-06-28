@@ -151,19 +151,18 @@ describe('game-bridge error & path validation', () => {
       expect(parsed.error).toContain('connection reset');
     });
 
-    it('ECONNREFUSED → sendToBridge 转译友好消息 + 739 兜底 isError(端到端守护)', async () => {
-      // emit ECONNREFUSED → _doConnect :193 reject('Bridge connection error: connect ECONNREFUSED...')
-      // → sendToBridge :305 .catch 转译成 'Cannot connect to MCP Bridge...'(去 ECONNREFUSED 字样)
-      // → handleTool catch :732 msg 非 ECONNREFUSED → :739 opsErrorResult(isError=true)
-      // 注:原 :734 BRIDGE_NOT_CONNECTED 死分支(sendToBridge :305 抢先转译 ECONNREFUSED)已删,
-      // ECONNREFUSED 统一走 BRIDGE_ERROR 兜底(语义丢失:游戏未运行与一般桥接错误同 code,恢复需改转译层,另开任务)
+    it('ECONNREFUSED → BRIDGE_NOT_CONNECTED + suggestion(端到端,游戏未运行语义)', async () => {
+      // emit 带 code 的 ECONNREFUSED → _doConnect :195 按 err.code 分流 → BridgeNotConnectedError
+      // → 外层 catch :733 instanceof → opsErrorResult(BRIDGE_NOT_CONNECTED, suggestion)
       mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
         const sock = new EventEmitter();
         (sock as any).write = vi.fn();
         (sock as any).destroy = vi.fn();
         queueMicrotask(() => {
           if (typeof cb === 'function') cb();
-          sock.emit('error', new Error('connect ECONNREFUSED 127.0.0.1:9081'));
+          const e = new Error('connect ECONNREFUSED 127.0.0.1:9081') as NodeJS.ErrnoException;
+          e.code = 'ECONNREFUSED';
+          sock.emit('error', e);
         });
         return sock;
       });
@@ -172,8 +171,10 @@ describe('game-bridge error & path validation', () => {
       expect(result).not.toBeNull();
       expect(result!.isError).toBe(true);
       const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
       expect(parsed.error).toContain('Cannot connect to MCP Bridge');
-      expect(parsed.error).not.toContain('ECONNREFUSED');  // 友好转译,不泄露原始错误码给用户
+      expect(parsed.error).not.toContain('ECONNREFUSED');  // 不泄露原始错误码给用户
+      expect(parsed.suggestion).toBeTruthy();
     });
   });
 

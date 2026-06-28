@@ -18,6 +18,27 @@ const BRIDGE_SCRIPT_NAME = 'mcp_bridge.gd';
 const AUTOLOAD_KEY = 'autoload/MCPBridge';
 const DEFAULT_TIMEOUT = 10000;
 
+/** Bridge 连不上 / 未正常工作(游戏未运行、未装 autoload、认证失败)。agent 自愈:启动游戏 / 确认安装。 */
+export class BridgeNotConnectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BridgeNotConnectedError';
+  }
+}
+/** Bridge 连上 + 认证成功后请求无响应(游戏被 runtime error 卡住)。agent 自愈:查游戏报错 / 加大 timeout。 */
+export class BridgeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BridgeTimeoutError';
+  }
+}
+
+const ERROR_CODES = {
+  BRIDGE_NOT_CONNECTED: 'BRIDGE_NOT_CONNECTED',
+  BRIDGE_TIMEOUT: 'BRIDGE_TIMEOUT',
+  BRIDGE_ERROR: 'BRIDGE_ERROR',
+} as const;
+
 /** Clamp a millisecond timeout value. Returns default on invalid/zero input. */
 function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
   if (value === undefined || value === null) return def;
@@ -192,7 +213,14 @@ async function _doConnect(timeout: number): Promise<Socket> {
 
     sock.on('error', (err) => {
       clearTimeout(timer);
-      reject(new Error(`Bridge connection error: ${err.message}`));
+      const errno = (err as NodeJS.ErrnoException).code;
+      if (errno === 'ECONNREFUSED') {
+        reject(new BridgeNotConnectedError(
+          'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?'
+        ));
+      } else {
+        reject(new Error(`Bridge connection error: ${err.message}`));
+      }
     });
 
     sock.on('close', () => {
@@ -303,10 +331,7 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
       sock.write(JSON.stringify({ id, method, params }) + '\n');
     });
   }).catch(err => {
-    const msg = getErrorMessage(err);
-    if (msg.includes('ECONNREFUSED')) {
-      return Promise.reject(new Error('Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?'));
-    }
+    // 子类(BridgeNotConnectedError / BridgeTimeoutError)从 _doConnect / sendToBridge 穿透,原样抛
     return Promise.reject(err);
   });
   };
@@ -731,10 +756,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return null;
     }
   } catch (err) {
-    // ECONNREFUSED 已被 sendToBridge:305 转译成 'Cannot connect to MCP Bridge...'(抹掉 ECONNREFUSED 字样),
-    // 故此处无法按 ECONNREFUSED 分类,统一 BRIDGE_ERROR 兜底。游戏未运行与一般桥接错误同归 BRIDGE_ERROR
-    // (恢复 BRIDGE_NOT_CONNECTED 语义需改 sendToBridge 转译层让错误信号穿越,另开任务)。
-    return opsErrorResult('BRIDGE_ERROR', getErrorMessage(err));
+    const msg = getErrorMessage(err);
+    if (err instanceof BridgeNotConnectedError) {
+      return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, msg, {
+        suggestion: '游戏未运行或 Bridge 未正确响应。先 run_project 启动游戏,确认 game_bridge_install 已执行',
+      });
+    }
+    return opsErrorResult(ERROR_CODES.BRIDGE_ERROR, msg);
   }
 }
 
