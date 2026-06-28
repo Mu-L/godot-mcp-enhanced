@@ -55,7 +55,7 @@ function keycodeToBridgeKey(keycode: number): string | null {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 export function sanitizeRecordingFileName(name: string): string {
-  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+  if (name.includes('/') || name.includes('\\') || name.split(/[/\\]/).includes('..')) {
     throw new Error('INVALID_FILE_NAME: path traversal detected');
   }
   if (!/^recording_[\w-]+\.json$/.test(name)) {

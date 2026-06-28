@@ -120,7 +120,7 @@ async function handleSelectInstance(args: Record<string, unknown>): Promise<Tool
   }
 
   if (!targetId || !instances.find(i => i.id === targetId)) {
-    return textResult(JSON.stringify(opsError('INSTANCE_NOT_FOUND', `Instance not found: ${targetId ?? projectPath}`)));
+    return textResult(JSON.stringify(opsError('INSTANCE_NOT_FOUND', `Instance not found: ${targetId ?? '<projectPath redacted>'}`)));
   }
 
   try {

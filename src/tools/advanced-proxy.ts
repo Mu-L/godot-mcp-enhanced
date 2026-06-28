@@ -177,6 +177,10 @@ export async function handleTool(
 
   // Execute the dynamic route via injected HTTP sender
   const toolArgs = (args.arguments as Record<string, unknown>) ?? {};
+  const toolArgsBytes = Buffer.byteLength(JSON.stringify(toolArgs), 'utf-8');
+  if (toolArgsBytes > 256 * 1024) {
+    return textResult(JSON.stringify(opsError('INVALID_PARAMS', `toolArgs too large (${toolArgsBytes} > 256KB), refuse to proxy`)));
+  }
   const sender = _dynamicSender;
   if (!sender) {
     return textResult(JSON.stringify(opsError('NO_DYNAMIC_SENDER',
@@ -200,6 +204,10 @@ async function delegateCall(targetTool: string, args: Record<string, unknown>): 
   }
 
   const toolArgs = (args.arguments as Record<string, unknown>) ?? {};
+  const toolArgsBytes = Buffer.byteLength(JSON.stringify(toolArgs), 'utf-8');
+  if (toolArgsBytes > 256 * 1024) {
+    return textResult(JSON.stringify(opsError('INVALID_PARAMS', `toolArgs too large (${toolArgsBytes} > 256KB), refuse to proxy`)));
+  }
   try {
     return await delegate(targetTool, toolArgs);
   } catch (err) {

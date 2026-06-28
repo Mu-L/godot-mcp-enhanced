@@ -143,7 +143,7 @@ func _initialize():
 \t\t\telse:
 \t\t\t\tvar _prop = "${property}"
 \t\t\t\tvar _val = str(_n.get(_prop))
-\t\t\t\tvar _expected = str(${gdEscape(JSON.stringify(args.expected))})
+\t\t\t\tvar _expected = str(${gdEscape(String(args.expected))})
 \t\t\t\tvar _match = _val == _expected
 \t\t\t\t_mcp_output("result", JSON.stringify({"passed": _match, "message": "%s.%s = %s (expected: %s)" % [_path, _prop, _val, _expected], "actual": _val}))
 \t\t"signal_connected":

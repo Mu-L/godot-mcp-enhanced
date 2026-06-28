@@ -79,7 +79,7 @@ async function* walkMd(dir: string): AsyncGenerator<string> {
 
 function validateLibraryPath(p: string): { ok: true } | { ok: false; reason: string } {
   if (!p || typeof p !== 'string' || p.trim() === '') return { ok: false, reason: 'empty path' };
-  if (p.includes('..')) return { ok: false, reason: 'traversal detected' };
+  if (p.split(/[/\\]/).includes('..')) return { ok: false, reason: 'traversal detected' };
   if (!isAbsolute(p)) return { ok: false, reason: 'not absolute path' };
   return { ok: true };
 }
