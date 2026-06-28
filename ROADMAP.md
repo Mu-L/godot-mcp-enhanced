@@ -55,21 +55,21 @@
 
 ## M2 — 健壮性 P0(目标 v0.20)
 
-主题:**让 agent 少踩坑**。源码深挖 P0 三项,直击 execute_gdscript 非确定 + agent 错误自愈。
+主题:**让 agent 少踩坑**。源码深挖核实(2026-06-28)后,P0 三项里 #4 已实现、#3 误配撤销,仅剩 #5 Bridge 超时分层。
 
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
-| 4 | 错误返回 suggestion 字段 | 📋 | spec 待写 |
-| 3 | icon 匹配确定性 UI 检测 | 📋 | spec 待写 |
-| 5 | timeout 分层诊断 | 📋 | spec 待写 |
+| 4 | 错误返回 suggestion 字段 | ✅ | `src/tools/shared/errors.ts:22-42`(opsError/opsErrorResult 的 suggestion 参数;2026-06-28 核实已实现) |
+| 5 | Bridge 超时分层诊断 | 🟡 | 对象从 execute_gdscript 改归 Bridge;spec 待写(对接源码深挖核实) |
 
-> M2 三项排序(#4 suggestion → #3 icon → #5 timeout)由 writing-plans 阶段定,依据:成本(#4 最低,先落地见效)→ 健壮性根因(#3 icon 根治非确定)→ 诊断(#5 timeout 分层)。
+> M2 核实修订(2026-06-28):#4 suggestion 实测已实现;#3 icon 匹配**撤销**——`execute_gdscript` 是 headless 进程不碰编辑器 UI,"看板/select 检测"全仓 0 命中(技术对象误配);#5 timeout **改归 Bridge**(`game-bridge.ts:733-737` 自承「游戏未运行与一般桥接错误同归 BRIDGE_ERROR」,恢复 BRIDGE_NOT_CONNECTED 语义需改 sendToBridge 转译层)。
 
-<details><summary>#3 icon 匹配确定性 UI 检测 — 详情</summary>
+<details><summary>#5 Bridge 超时分层诊断 — 详情(2026-06-28 改归)</summary>
 
-- **目标**:execute_gdscript 看板/select 检测从 UI 文本匹配迁到 EditorIcons theme icon 匹配,根治非中文/英文 Godot 编辑器下失效
-- **来源**:godot-mcp-pro `base_command.gd:261-290`(issue #34 意大利语「Continua ≠ Continue」教训)
-- **验收**:非英文 Godot 编辑器下看板/select 检测稳定;新增 locale 适配测试
+- **目标**:sendToBridge 转译层区分「连不上(ECONNREFUSED→游戏没跑/没装)」vs「连上但请求超时(游戏卡住)」,恢复 BRIDGE_NOT_CONNECTED 语义
+- **来源**:godot-mcp-pro `base_command.gd:345-379`(build_timeout_error 分层诊断);本项目 `game-bridge.ts:733-737` 自承缺口
+- **借鉴边界**:竞品「读编辑器 debugger Errors tab 内联 runtime error」本项目做不到(Bridge 是独立 TCP 层,不接编辑器 debugger),仅借鉴「区分未运行 vs 卡住」
+- **验收**:Bridge 超时返回区分两类语义 + suggestion;新增两类超时测试
 - **依赖**:无
 </details>
 
@@ -79,16 +79,16 @@
 
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
-| 6 | 编辑器打开场景/脚本写入 guard | 📋 | spec 待写 |
+| 6 | 编辑器打开场景/脚本写入 guard | ✅ | `addons/godot_mcp_server/editor_guards.gd:62,99`(guard_offline_scene_save+guard_text_resource_write,已接入 scene_commands/command_handler;2026-06-28 核实已实现) |
 
 ## M4 — 功能补齐 P2(目标 v0.22+,部分 💤)
 
-主题:**补齐竞品已占能力**。三项均 💤 考虑中,非近期承诺。
+主题:**补齐竞品已占能力**。核实(2026-06-28)后 #8/#9 已实现,仅 #7 Android 仍 💤。
 
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
-| 8 | profiling_commands 补齐 | 💤 | — |
-| 9 | UndoRedo 封装完善 | 💤 | — |
+| 8 | profiling_commands 补齐 | ✅ | `src/tools/profiler-ops.ts`(2026-06-28 核实已实现) |
+| 9 | UndoRedo 封装完善 | ✅ | R2 阶段5 已接入 undo_manager(nav/particle/animtree/ui) |
 | 7 | Android Deploy / 导出模板校验 | 💤 | 社区痛点「能装不能跑」([QQ 频道 Godot 社区调研](https://github.com/wgt19861219/godot-mcp-enhanced)) |
 
 ## 明确不做什么
@@ -105,6 +105,7 @@
 - 2026-06-28 — 06-28 复核校准:M1 扩充分发(#13 目录收录 / #14 迁移指南)+ 明确胜负手=分发;「真空地带」→「安全真空」;README 工具数口径校正(128→28 tool definition)+ tagline 整体重写。依据:竞品文档 §八复核实录
 - 2026-06-28 — M1 #14 完成:从 Coding-Solo 升级迁移指南(docs/migration-from-coding-solo.md)+ README 入口;采纳审查 4 gap 修正(零风险→能力零丢失 / FAQ 旧会话需新开 / 验证通俗化 / remove 命令弹性)+ 安全卖点前置
 - 2026-06-28 — M1 #12 完成:README.en 完整双语重构(策略A:关键节英译+工具表链接中文,对齐 28/安全立句/对比表);采纳审查 4 写作点(Hero 三要素:安全+closed-loop+fork 继承 / 工具中文声明前置 Hero / capability-matrix 点明 security classification / 入口位置中英一致)
+- 2026-06-28 — M2/M3/M4 源码核实校准(依据:竞品 godot-mcp-pro 源码深挖文档逐条对照本项目实测):#4 suggestion / #6 editor guard / #8 profiling 实测已实现→✅;#9 UndoRedo R2 阶段5 已接入→✅;#3 icon 匹配**撤销**(`execute_gdscript` 是 headless 不碰编辑器 UI,对象误配);#5 timeout **改归 Bridge**(原误配 execute_gdscript,对标 `game-bridge.ts:733` 缺口)。仅 #7 Android 仍 💤 成立
 
 ---
 

@@ -131,9 +131,10 @@
 每个里程碑下,表格给概览,折叠 `<details>` 给细节。**详情不含状态字段**(I4 单一真相源):
 
 ```markdown
-<details><summary>#3 icon 匹配确定性 UI 检测 — 详情</summary>
+<details><summary>#3 icon 匹配 — ⚠️ 已撤销(2026-06-28 核实)</summary>
 
-- **目标**:execute_gdscript 看板/select 检测从 UI 文本匹配迁到 EditorIcons theme icon 匹配,根治非中文/英文 Godot 编辑器下失效
+- **撤销原因**:`execute_gdscript` 是 headless 独立进程,不操作编辑器 UI;"看板/select 检测"全仓 0 代码命中(把竞品 editor addon 检测 debugger Continue 按钮的 icon 匹配,错套到 headless execute_gdscript)。已从 ROADMAP.md 撤销;#5 timeout 改归 Bridge(对标 `game-bridge.ts:733` 缺口)
+- ~~**目标**(已撤销)~~:execute_gdscript 看板/select 检测从 UI 文本匹配迁到 EditorIcons theme icon 匹配,根治非中文/英文 Godot 编辑器下失效
 - **来源**:godot-mcp-pro `base_command.gd:261-290`(issue #34 意大利语「Continua ≠ Continue」教训)
 - **验收**:非英文 Godot 编辑器下看板/select 检测稳定;新增 locale 适配测试
 - **依赖**:无
