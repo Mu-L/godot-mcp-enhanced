@@ -11,6 +11,7 @@ import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
 import { spawnGodot } from './spawn-helper.js';
 import { handleBatchAction } from './batch-tools.js';
+import { referenceSimScript } from './frame-verify/gdscripts.js';
 
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
@@ -404,39 +405,60 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             const desc = a.description ?? `assertion ${i}`;
             const assertType = (a as Record<string, unknown>).type as string || 'gdscript';
 
-            // ── screenshot_diff assertion ──
+            // ── screenshot_diff assertion（真视觉对比）──
             if (assertType === 'screenshot_diff') {
               const validation = validateScreenshotAssertion(a as Record<string, unknown>);
               if (!validation.valid) {
                 assertionResults.push({ description: desc, passed: false, error: validation.error });
                 continue;
               }
-              // Requires Bridge connection — if bridge step failed, sendToBridge will error
-              // (no pre-check needed; the sendToBridge calls below have their own error handling)
               try {
                 const ssResp = await sendToBridge('take_screenshot', { path: 'user://mcp_assert_screenshot.png' }, 10000);
                 if (ssResp.error) {
                   assertionResults.push({ description: desc, passed: false, error: `Screenshot failed: ${ssResp.error.message ?? JSON.stringify(ssResp.error)}` });
                   continue;
                 }
-                // If expect_present specified, verify nodes exist in scene tree
-                const expectPresent = (a as Record<string, unknown>).expect_present as string[] | undefined;
-                if (expectPresent && expectPresent.length > 0) {
-                  const treeResp = await sendToBridge('get_tree', {}, 10000);
-                  if (treeResp.error) {
-                    assertionResults.push({ description: desc, passed: false, error: `get_tree failed: ${treeResp.error.message ?? JSON.stringify(treeResp.error)}` });
+                const partials: string[] = [];
+
+                // (a) reference 余弦相似度粗筛（若提供 reference_path）
+                const referencePath = (a as Record<string, unknown>).reference_path as string | undefined;
+                if (referencePath) {
+                  const simThreshold = (a as Record<string, unknown>).sim_threshold as number | undefined ?? 0.85;
+                  const simResult = await executeGdscript({
+                    godotPath: godot, projectPath,
+                    code: referenceSimScript('user://mcp_assert_screenshot.png', referencePath),
+                    timeout: Math.min(timeout, 15), loadAutoloads,
+                  });
+                  if (!simResult.compile_success || !simResult.run_success) {
+                    assertionResults.push({ description: desc, passed: false, error: `reference sim failed: ${simResult.compile_error || simResult.run_error}` });
                     continue;
                   }
-                  const treeStr = JSON.stringify(treeResp);
-                  const missing = expectPresent.filter(name => !treeStr.includes(name));
-                  if (missing.length > 0) {
-                    assertionResults.push({ description: desc, passed: false, actual: `missing nodes: ${missing.join(', ')}`, expected: `all present: ${expectPresent.join(', ')}` });
-                  } else {
-                    assertionResults.push({ description: desc, passed: true, actual: 'screenshot taken, all nodes present' });
+                  const sim = Number(simResult.outputs.find(e => e.key === 'reference_sim')?.value ?? -1);
+                  partials.push(`reference_sim=${sim.toFixed(3)} (threshold ${simThreshold})`);
+                  if (sim < simThreshold) {
+                    assertionResults.push({ description: desc, passed: false, actual: partials.join('; '), expected: `reference_sim >= ${simThreshold}` });
+                    continue;
                   }
-                } else {
-                  assertionResults.push({ description: desc, passed: true, actual: 'screenshot captured successfully' });
                 }
+
+                // (b) 真可见性检查（替代旧 get_tree + includes 假检查）
+                const expectPresent = (a as Record<string, unknown>).expect_present as string[] | undefined;
+                if (expectPresent && expectPresent.length > 0) {
+                  const visResp = await sendToBridge('find_ui_elements', { pattern: '*', visible_only: true, limit: 500 }, 10000);
+                  if (visResp.error) {
+                    assertionResults.push({ description: desc, passed: false, error: `find_ui_elements failed: ${visResp.error.message ?? JSON.stringify(visResp.error)}` });
+                    continue;
+                  }
+                  const visStr = JSON.stringify(visResp);
+                  const missing = expectPresent.filter(name => !visStr.includes(name));
+                  if (missing.length > 0) {
+                    assertionResults.push({ description: desc, passed: false, actual: `missing visible: ${missing.join(', ')}`, expected: `all visible: ${expectPresent.join(', ')}` });
+                    continue;
+                  }
+                  partials.push(`visible: ${expectPresent.join(', ')}`);
+                }
+
+                assertionResults.push({ description: desc, passed: true, actual: partials.join('; ') || 'screenshot captured' });
               } catch (err) {
                 assertionResults.push({ description: desc, passed: false, error: err instanceof Error ? err.message : String(err) });
               }
@@ -683,6 +705,14 @@ export function validateScreenshotAssertion(
   const ep = assertion.expect_present;
   if (ep !== undefined && !Array.isArray(ep)) {
     return { valid: false, error: 'expect_present must be a string array' };
+  }
+  const rp = assertion.reference_path;
+  if (rp !== undefined && typeof rp !== 'string') {
+    return { valid: false, error: 'reference_path must be a string' };
+  }
+  const st = assertion.sim_threshold;
+  if (st !== undefined && (typeof st !== 'number' || st < 0 || st > 1)) {
+    return { valid: false, error: 'sim_threshold must be a number in [0, 1]' };
   }
   return { valid: true };
 }
