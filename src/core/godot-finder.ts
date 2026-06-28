@@ -3,6 +3,7 @@ import { join } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from './logger.js';
+import { buildSafeEnv } from '../helpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +75,24 @@ export async function validateGodotBinary(candidatePath: string): Promise<boolea
     getLogger().debug('godot-finder', `validateGodotBinary failed for ${candidatePath}: ${err instanceof Error ? err.message : err}`);
     return false;
   }
+}
+
+/**
+ * 跑 `godot --version` 返回完整版本串(如 "4.6.2.stable")。
+ * execFileAsync + buildSafeEnv(安全),isGodotVersionSignature 校验防伪造。
+ * 非零退出/超时 → "godot --version failed";签名无效 → "Invalid Godot version signature"(区分,审查①)。
+ * 消费方:check_template(提取 major.minor)、get_godot_version(optional refactor)。
+ */
+export async function detectGodotVersion(godotPath: string): Promise<string> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(godotPath, ['--version'], { encoding: 'utf-8', timeout: 10000, env: buildSafeEnv() }));
+  } catch (err) {
+    throw new Error(`godot --version failed: ${err instanceof Error ? err.message : err}`);
+  }
+  const v = stdout.trim();
+  if (!isGodotVersionSignature(v)) throw new Error(`Invalid Godot version signature: ${v}`);
+  return v;
 }
 
 function findInDirectory(dir: string): string | null {

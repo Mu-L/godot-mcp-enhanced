@@ -393,3 +393,26 @@ describe('validateGodotBinary', () => {
     expect(await validateGodotBinary('/fake/godot.exe')).toBe(false);
   });
 });
+
+// ─── detectGodotVersion(template-check Task1)──────────────────────────────────
+
+describe('detectGodotVersion', () => {
+  it('返回 --version stdout(trim)', async () => {
+    mockExecFileSuccess('4.6.2.stable\n');
+    const { detectGodotVersion } = await import('../src/core/godot-finder.js');
+    const v = await detectGodotVersion('/fake/godot');
+    expect(v).toBe('4.6.2.stable');
+  });
+
+  it('非 Godot 签名 → throw(Invalid signature)', async () => {
+    mockExecFileSuccess('not a godot binary\n');
+    const { detectGodotVersion } = await import('../src/core/godot-finder.js');
+    await expect(detectGodotVersion('/fake/godot')).rejects.toThrow(/Invalid Godot version signature/);
+  });
+
+  it('非零退出(execFile 抛)→ throw(godot --version failed)', async () => {
+    mockExecFileError();
+    const { detectGodotVersion } = await import('../src/core/godot-finder.js');
+    await expect(detectGodotVersion('/fake/godot')).rejects.toThrow(/godot --version failed/);
+  });
+});
