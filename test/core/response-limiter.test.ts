@@ -271,3 +271,22 @@ describe('truncateResponse', () => {
     expect((warningBlock as { text: string }).text).toMatch(/no truncatable array/i);
   });
 });
+
+describe('response-limiter R3-fix 项4+5', () => {
+  it('项5: 前 100 小对象 + 后续大对象 不再 :99 早退还超限(真实复检拦截)', () => {
+    // 前 100 小(旧采样 slice(0,100) 低估 estimatedItemSize→estimatedFit 高估→旧 :99 误判全装下早退→原样返回超限)
+    const smallItems = Array.from({ length: 100 }, () => ({ d: 'x' }));
+    const bigItems = Array.from({ length: 200 }, (_, i) => ({ d: 'y'.repeat(500), i }));
+    const data = { nodes: [...smallItems, ...bigItems], status: 'ok' };
+    const limit = 5000;
+    const trimmed = trimToArrayLimit(data, limit) as Record<string, unknown>;
+    const size = Buffer.byteLength(JSON.stringify(trimmed), 'utf-8');
+    expect(size).toBeLessThanOrEqual(limit + 200);  // 不超限(:99 真实复检拦截走二分截断)
+  });
+  it('项4: nonArrayFields 自身超 limit → result 含 _sizeWarning', () => {
+    const data = { nodes: [{ id: 1 }, { id: 2 }, { id: 3 }], meta: 'z'.repeat(8000) };
+    const limit = 4000;
+    const trimmed = trimToArrayLimit(data, limit) as Record<string, unknown>;
+    expect(JSON.stringify(trimmed)).toContain('_sizeWarning');
+  });
+});

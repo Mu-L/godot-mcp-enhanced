@@ -82,7 +82,8 @@ export function trimToArrayLimit(data: unknown, limitBytes: number): unknown {
 
   // Sampling estimation: estimate per-item size from first N items
   const sampleSize = Math.min(100, originalArray.length);
-  const sample = originalArray.slice(0, sampleSize);
+  const step = Math.ceil(originalArray.length / sampleSize) || 1;
+  const sample = originalArray.filter((_, i) => i % step === 0);
   const sampleObj = { ...nonArrayFields, [largestKey]: sample };
   const sampleBytes = Buffer.byteLength(JSON.stringify(sampleObj), 'utf-8');
   const nonArrayBytes = Buffer.byteLength(JSON.stringify(nonArrayFields), 'utf-8');
@@ -96,7 +97,12 @@ export function trimToArrayLimit(data: unknown, limitBytes: number): unknown {
     : originalArray.length;
 
   // Clamp
-  if (estimatedFit >= originalArray.length) return data;
+  if (estimatedFit >= originalArray.length) {
+    // 项5: 防采样偏差致 estimatedFit 高估误判全装下→原样返回超限; 真实字节数复检才早退
+    const fullObj = { ...nonArrayFields, [largestKey]: originalArray };
+    if (Buffer.byteLength(JSON.stringify(fullObj), 'utf-8') <= limitBytes) return data;
+    estimatedFit = originalArray.length;  // 真实超限: clamp 让下方二分在 [0,length] 收敛
+  }
   if (estimatedFit < 0) estimatedFit = 0;
 
   // Refine with limited binary search (max 5 iterations)
@@ -147,6 +153,11 @@ export function trimToArrayLimit(data: unknown, limitBytes: number): unknown {
   result[largestKey] = originalArray.slice(0, best);
   result[`${largestKey}_truncatedAt`] = best;
   result[`${largestKey}_totalNodeCount`] = originalArray.length;
+  // 项4: nonArrayFields 自身超 limit(数组已清空仍超)时加 warning(不裁 nonArrayFields 保数据完整性)
+  const finalBytes = Buffer.byteLength(JSON.stringify(result), 'utf-8');
+  if (finalBytes > limitBytes) {
+    result._sizeWarning = `non-array fields exceed budget (${finalBytes} > ${limitBytes} bytes); response may exceed size limit`;
+  }
 
   return result;
 }
