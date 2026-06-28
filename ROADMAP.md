@@ -25,7 +25,7 @@
 | 11 | CodeBuddy 端到端接入验证 | 📋 | 验证通过解锁 #10 |
 | 10 | 上架 CodeBuddy MCP Market | 📋 | 依赖 #11 验证通过 |
 | 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 📋 | 分发战略,06-28 复核结论 |
-| 14 | 写「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南 | 📋 | 蹭龙头流量;详见竞品文档 §八复核实录 |
+| 14 | 写「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南 | ✅ | docs/migration-from-coding-solo.md + README 入口;蹭龙头流量 |
 
 > #11 → #10 顺序硬约束:验证未通过不上架。#10 上架后,README Hero 兼容列表才可移入 CodeBuddy。
 
@@ -103,6 +103,7 @@
 
 - 2026-06-27 — 初版路线图发布(M1–M4 + 12 行动项);M1 #1/#2 已完成(feat/roadmap `640020b`)
 - 2026-06-28 — 06-28 复核校准:M1 扩充分发(#13 目录收录 / #14 迁移指南)+ 明确胜负手=分发;「真空地带」→「安全真空」;README 工具数口径校正(128→28 tool definition)+ tagline 整体重写。依据:竞品文档 §八复核实录
+- 2026-06-28 — M1 #14 完成:从 Coding-Solo 升级迁移指南(docs/migration-from-coding-solo.md)+ README 入口;采纳审查 4 gap 修正(零风险→能力零丢失 / FAQ 旧会话需新开 / 验证通俗化 / remove 命令弹性)+ 安全卖点前置
 
 ---
 

@@ -31,6 +31,8 @@
 
 _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;欢迎 PR 修正。_
 
+> **从 [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) 升级?** 见 **[迁移指南](docs/migration-from-coding-solo.md)** —— 核心能力零丢失,获得三层架构 / 安全 / 验证门禁 / 跨版本矩阵增强。
+
 ## 安全体系
 
 截至 2026-06-27 调研,Godot MCP 赛道内少见提供系统化安全特性的方案。本项目内置多层防护,
