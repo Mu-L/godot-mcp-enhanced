@@ -88,7 +88,7 @@ export async function detectGodotVersion(godotPath: string): Promise<string> {
   try {
     ({ stdout } = await execFileAsync(godotPath, ['--version'], { encoding: 'utf-8', timeout: 10000, env: buildSafeEnv() }));
   } catch (err) {
-    throw new Error(`godot --version failed: ${err instanceof Error ? err.message : err}`);
+    throw new Error(`godot --version failed: ${err instanceof Error ? err.message : err}`, { cause: err });
   }
   const v = stdout.trim();
   if (!isGodotVersionSignature(v)) throw new Error(`Invalid Godot version signature: ${v}`);

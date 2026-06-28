@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T07:29:29.776Z",
+  "generatedAt": "2026-06-28T11:06:14.093Z",
   "tools": [
     {
       "name": "android",
@@ -13,7 +13,8 @@
             "enum": [
               "list_devices",
               "get_preset_info",
-              "deploy"
+              "deploy",
+              "check_template"
             ]
           },
           "project_path": {
