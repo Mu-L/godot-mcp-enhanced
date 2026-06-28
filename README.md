@@ -443,6 +443,10 @@ claude mcp add godot -- npx -y godot-mcp-enhanced  # local scope，仅当前项�
 CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 → MCP 标签 → Add MCP**，粘贴与上面相同的 json。也可从其 MCP Market 一键安装（上架后）。
 > ⚠️ 端到端接入验证待补：配置方法基于 CodeBuddy MCP 文档，godot-mcp-enhanced 尚未在其内跑通。
 
+#### Warp
+[Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
+> ✅ 协议层实测通过（29 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+
 ### 一键配置
 ```bash
 npx godot-mcp-enhanced setup
