@@ -42,7 +42,7 @@ export function genRaycastScript(
     excludeBlock = `
 \tvar exclude_bodies = []
 \tfor ep in [${pathsStr}]:
-\t\tvar n = get_node(ep)
+\t\tvar n = _mcp_get_node(ep)
 \t\tif n:
 \t\t\texclude_bodies.append(n.get_rid())
 \tquery.exclude = exclude_bodies`;
@@ -415,7 +415,7 @@ export async function handleTool(
         let safeColor: string | undefined;
         if (rawColor) {
           const parts = rawColor.split(',').map(p => p.trim());
-          if (parts.length < 3 || parts.length > 4 || !parts.every(p => /^[\d.]+$/.test(p) && isFinite(Number(p)))) {
+          if (parts.length < 3 || parts.length > 4 || !parts.every(p => /^\d+(\.\d+)?$/.test(p) && isFinite(Number(p)))) {
             return opsErrorResult('INVALID_VECTOR', 'color_override must be 3-4 comma-separated finite numbers (e.g. "1,0,0,0.5")');
           }
           safeColor = parts.map(p => String(Number(p))).join(', ');

@@ -7,6 +7,7 @@ import {
   genDiagnosePhysicsScript,
   genQuerySpatialScript,
   genCollisionOverlayScript,
+  handleTool,
 } from '../src/tools/physics-ops.js';
 
 // ─── getToolDefinitions ─────────────────────────────────────────────────────
@@ -129,5 +130,21 @@ describe('genCollisionOverlayScript', () => {
     const script = genCollisionOverlayScript('/root/Level');
     expect(script.includes('StaticBody3D')).toBeTruthy();
     expect(script.includes('CharacterBody3D')).toBeTruthy();
+  });
+});
+
+describe('physics-ops R3-fix 项2+3', () => {
+  it('项2: raycast exclude 块用 _mcp_get_node(headless 兼容)', () => {
+    const script = genRaycastScript({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, undefined, ['root/Foo']);
+    expect(script).toContain('_mcp_get_node(ep)');
+    expect(script).not.toMatch(/[^_]get_node\(ep\)/);  // 裸 get_node 不残留
+  });
+  it('项3: color_override "5." 被拒(正则收紧, RGBA 非负)', async () => {
+    const ctx = { findGodot: async () => '/fake/godot' };
+    const r = await handleTool('physics', { action: 'collision_overlay', parent_path: 'root', color_override: '5.,0,0', project_path: '.' }, ctx);
+    expect(r.isError).toBe(true);
+    // 修复前: "5." 通过旧正则 → 走 spawnGodot('/fake/godot') ENOENT(消息 godot 相关, 无 color_override)
+    // 修复后: :418 正则拒绝 → INVALID_VECTOR color_override 消息
+    expect(JSON.stringify(r)).toMatch(/color_override|INVALID_VECTOR/i);
   });
 });
