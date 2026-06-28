@@ -1,0 +1,57 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { mockExec, mockExists, readFileSyncMock } = vi.hoisted(() => ({
+  mockExec: vi.fn(),
+  mockExists: vi.fn(() => true),
+  readFileSyncMock: vi.fn(() => ''),
+}));
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, execFileSync: mockExec };  // 保留 execFile/spawn 等(helpers.ts:57 用 execFile),只覆盖 execFileSync(adb)
+});
+vi.mock('fs', () => ({
+  existsSync: mockExists,
+  readFileSync: readFileSyncMock,
+  writeFileSync: vi.fn(), copyFileSync: vi.fn(), unlinkSync: vi.fn(),
+  chmodSync: vi.fn(), statSync: vi.fn(), lstatSync: vi.fn(() => ({ isSymbolicLink: () => false })),
+  renameSync: vi.fn(),
+}));
+vi.mock('../src/tools/spawn-helper.js', () => ({ spawnGodot: vi.fn() }));
+vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
+
+import { handleTool } from '../src/tools/android.js';
+import { spawnGodot } from '../src/tools/spawn-helper.js';
+
+describe('android list_devices', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); });
+
+  it('list_devices 解析 adb devices -l 输出', async () => {
+    mockExec.mockReturnValue('List of devices attached\nR58M123 device usb:3-1 product:foo model:Pixel_5\nemulator-5554 device product:sdk\n');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'list_devices', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.devices.length).toBe(2);
+    expect(parsed.devices[0].serial).toBe('R58M123');
+    expect(parsed.devices[0].state).toBe('device');
+    expect(parsed.devices[1].product).toBe('sdk');
+  });
+
+  it('list_devices 无设备 → NO_DEVICES', async () => {
+    mockExec.mockReturnValue('List of devices attached\n');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'list_devices', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('NO_DEVICES');
+  });
+
+  it('adb 不存在(ENOENT) → ADB_NOT_FOUND', async () => {
+    const err: any = new Error('adb not found');
+    err.code = 'ENOENT';
+    mockExec.mockImplementation(() => { throw err; });
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'list_devices', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('ADB_NOT_FOUND');
+  });
+});
