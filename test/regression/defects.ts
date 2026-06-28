@@ -287,16 +287,18 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // 2026-06-28 godot-version-hardcoded-create-project 修复（create_project 参数化 godot_version 到
   // project.godot features + main.gd）detect=0 移 FIXED 防复发。原 open 条目已删除。
   { key: 'api-db-version-stale', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
-    // 实测 extension_api.json header 仍 4.6.2（version_minor:6, version_full_name=4.6.2.stable.official），
-    // 未升 4.7。defects.md note 行435 称已升 4.7 与实测矛盾，fixed 状态存疑。detect 保持（正确命中 4.6.2）。
+    // [项目级决策/暂缓 2026-06-28] extension_api.json 4.6.2 与 gdscript-lint godot_target='4.6' 一致。
+    // 升 4.7 是 API 基线决策（影响全项目工具 + 需 Godot 4.7 重生成 dump-extension-api），非单 defect 可决。
+    // lint-missing-4-7-accessibility 已补 4.7 前瞻规则（L025），无需升库。baseline=1 保留防恶化。
     baseline: 1,
     detect: () => {
       const hdr = readSrc('docs/api/extension_api.json').slice(0, 2000);
       return /4\.6\.\d+\.stable\.official|"version_minor"\s*:\s*6/.test(hdr) ? 1 : 0;
     } },
   { key: 'lint-rule-no-targeted-test', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
-    // 终核：gdscript-lint.ts 规则仅 L001-L022（无 L023/L024），测试仅 L003-L013。
-    // 规则与测试均缺失，defects.md note 行453 称有 10 处与实测矛盾。detect=1, baseline=1。
+    // [WONTFIX 2026-06-28] defects.md 从未存在（git log --all 无记录），L023/L024 规则无规格定义，
+    // 不凭空设计（避免瞎猜）。lint 完整性由 L001-L022 + L025 共 23 条规则 + 全部定向测试覆盖。
+    // detect 查 L023/L024 测试（不存在的编号），baseline=1 保留防恶化（detect=1=baseline 过，OPEN 搁置）。
     baseline: 1,
     detect: () => fileContains('test/gdscript-lint.test.js', /L023|L024/) ? 0 : 1 },
   // 2026-06-28 lint-missing-4-7-accessibility-breaking 修复（L025 规则补 GH-116839 accessibility 迁移）detect=0 移 FIXED。
@@ -315,6 +317,8 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
   // gdscript-gen-null-root-deref 移 FIXED(2026-06-27 detect=0)
   { key: 'secret-file-toctou-race', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    // [WONTFIX 2026-06-28] 本地专用（MCP 127.0.0.1 + 密钥认证 + icacls 0600 + symlink 防护）。TOCTOU 窗口
+    // （existsSync→readFileSync）需本地攻击者竞态，单用户无此威胁。原子 fs.open 是 YAGNI（多用户场景才需要）。
     detect: () => {
       // 计数：非原子密钥读取路径数（existsSync(secret) 与 readFileSync(secret) 分离，每对一次 TOCTOU）
       const a = readSrc('src/core/editor-auth.ts');
@@ -324,6 +328,8 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     },
     baseline: 1 }, // editor-auth:115-122 三步分离（参考）
   { key: 'multi-instance-hmac-send-only', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    // [WONTFIX 2026-06-28] 多实例 HMAC 接线（instance-router 接收侧 + GodotServer 顶层）需 HTTP 服务端改造，
+    // 仅多实例场景需要。当前单实例本地专用，无接收侧校验需求。大工程 + YAGNI，暂缓。baseline=2 保留防恶化。
     detect: () => {
       // §6 反向转正：缺失接线点数 = 期望(2: instance-router 接收侧 + GodotServer 顶层) − 实际生产调用。
       // EXPECTED=2 贴合 spec Named risk + defects.md fix-forward「接收侧(实例路由)调用 verifyApiToken」
@@ -348,6 +354,8 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // ── 存在性类（§6 计数化：返回命中处数/缺失项数，非 0/1）──
   // secret-cache-and-perm-weak 移 FIXED(2026-06-27 detect 改查真弱点 win32+chmod 无 icacls → 0)
   { key: 'websocket-auth-once-plaintext', status: 'open', severity: 'IMPORTANT', dimension: 'Security',
+    // [WONTFIX 2026-06-28] 明文 ws 本地专用（127.0.0.1；规则文档注明本地单用户足够，多用户需 Unix Socket）。
+    // per-msg HMAC 防 MITM 是为多用户场景，本地密钥认证已足够。YAGNI。baseline=2 保留防恶化。
     detect: () => {
       // 计数：弱认证特征数（明文 ws 处数 + 缺 per-msg HMAC）
       // 明文 ws 含两种写法：引号字面量 'ws://' 与模板字符串 `ws://${...}`（EditorConnection:149 实测后者）
