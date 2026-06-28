@@ -98,3 +98,38 @@ custom_template/debug=""
     expect(parsed.error_code).toBe('NO_ANDROID_PRESET');
   });
 });
+
+describe('android deploy', () => {
+  const CFG = `[preset.1]\nname="Android"\nplatform="Android"\nrunnable=true\nexport_path="res://build/android.apk"\n[preset.1.options]\npackage/name="com.example.game"\n`;
+
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); });
+
+  it('package 含 shell 元字符(com.x;rm) → 拒绝 launch(LAUNCH_FAILED)', async () => {
+    readFileSyncMock.mockReturnValue(CFG.replace('com.example.game', 'com.x;rm -rf /tmp'));
+    vi.mocked(spawnGodot).mockResolvedValue({ stdout: '', stderr: '', output: '', exitCode: 0, timedOut: false });
+    mockExec.mockReturnValue('Success');
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'deploy', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('LAUNCH_FAILED');
+    expect(parsed.error).toContain('package');
+  });
+
+  it('deviceSerial 含元字符 → 拒绝(INSTALL_FAILED)', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'deploy', project_path: '/fake/p', device_serial: 'a;rm' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('INSTALL_FAILED');
+  });
+
+  it('export 失败(exit≠0) → EXPORT_FAILED', async () => {
+    readFileSyncMock.mockReturnValue(CFG);
+    vi.mocked(spawnGodot).mockResolvedValue({ stdout: '', stderr: 'template missing', output: '', exitCode: 1, timedOut: false });
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'deploy', project_path: '/fake/p', launch: false }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('EXPORT_FAILED');
+    expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.objectContaining({ timeoutMs: 300_000 }));
+  });
+});

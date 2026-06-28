@@ -111,6 +111,11 @@ function findAndroidPreset(cfgPath: string, presetName?: string, presetIndex?: n
   return null;
 }
 
+const SHELL_META_RE = /[;&|`$()]/;
+const validatePackage = (p: string): boolean => PACKAGE_RE.test(p);
+const validateSerial = (s: string): boolean => SERIAL_RE.test(s);
+const validateApkPath = (p: string): boolean => !SHELL_META_RE.test(p) && !p.includes('..');
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'android') return null;
   const action = args.action as string;
@@ -144,6 +149,69 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       return textResult(JSON.stringify({
         index: preset.index, name: preset.name, platform: preset.platform,
         runnable: preset.runnable, export_path: preset.exportPath, package_name: preset.packageName,
+      }));
+    }
+    case 'deploy': {
+      const projectDir = ctx.projectDir;
+      if (!projectDir) return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'project_path is required.');
+      const cfgPath = join(projectDir, 'export_presets.cfg');
+      const preset = findAndroidPreset(cfgPath, args.preset_name as string | undefined, args.preset_index as number | undefined);
+      if (!preset) {
+        return opsErrorResult(ERROR_CODES.NO_ANDROID_PRESET, 'No Android export preset found.', {
+          suggestion: 'Configure an Android preset in Godot Project > Export first.',
+        });
+      }
+      // apk 路径:res:// → projectDir 拼接 + 安全校验
+      const apkAbs = preset.exportPath.startsWith('res://')
+        ? join(projectDir, preset.exportPath.slice('res://'.length))
+        : preset.exportPath;
+      if (!validateApkPath(apkAbs)) return opsErrorResult(ERROR_CODES.EXPORT_FAILED, `Invalid apk path: ${apkAbs}`);
+      const deviceSerial = args.device_serial as string | undefined;
+      if (deviceSerial && !validateSerial(deviceSerial)) {
+        return opsErrorResult(ERROR_CODES.INSTALL_FAILED, `Invalid device_serial: ${deviceSerial}`);
+      }
+      const skipExport = args.skip_export === true;
+      const launch = args.launch !== false;
+      const serialArgs = deviceSerial ? ['-s', deviceSerial] : [];
+
+      // Step 1: export(必须 spawnGodot:buildSafeEnv + timeoutMs 300s,Android 导出 2-5 分钟)
+      if (!skipExport) {
+        const godotPath = await ctx.findGodot();
+        const r = await spawnGodot(godotPath, ['--headless', '--path', projectDir, '--export-debug', preset.name, apkAbs], { timeoutMs: EXPORT_TIMEOUT_MS });
+        if (r.exitCode !== 0) {
+          return opsErrorResult(ERROR_CODES.EXPORT_FAILED, r.stderr || r.stdout || `godot export exit ${r.exitCode}`, {
+            suggestion: 'Export failed. Install the Android export template (Godot Editor > Manage Export Templates), or check stderr.',
+          });
+        }
+      }
+      if (!existsSync(apkAbs)) {
+        return opsErrorResult(ERROR_CODES.EXPORT_FAILED, `APK not found at ${apkAbs} after export.`);
+      }
+
+      // Step 2: install
+      const adb = resolveAdb();
+      const ir = runAdb(adb, [...serialArgs, 'install', '-r', apkAbs]);
+      if (ir.notFound) return opsErrorResult(ERROR_CODES.ADB_NOT_FOUND, 'adb not found.', { suggestion: 'Set ANDROID_ADB or install platform-tools.' });
+      if (ir.exitCode !== 0) {
+        return opsErrorResult(ERROR_CODES.INSTALL_FAILED, ir.stdout || `adb install exit ${ir.exitCode}`, {
+          suggestion: 'Install failed. Check device storage, signature, or uninstall the old version first.',
+        });
+      }
+
+      // Step 3: launch(可选)——package 白名单防 adb shell 协议层注入(adb 把 args join 传设备 sh -c)
+      if (launch) {
+        if (!validatePackage(preset.packageName)) {
+          return opsErrorResult(ERROR_CODES.LAUNCH_FAILED, `Invalid package name: ${preset.packageName}`, {
+            suggestion: 'package/name in preset must match /^[a-zA-Z][a-zA-Z0-9_.]*$/.',
+          });
+        }
+        const lr = runAdb(adb, [...serialArgs, 'shell', 'monkey', '-p', preset.packageName, '-c', 'android.intent.category.LAUNCHER', '1']);
+        if (lr.exitCode !== 0) return opsErrorResult(ERROR_CODES.LAUNCH_FAILED, lr.stdout || `adb shell exit ${lr.exitCode}`);
+      }
+
+      return textResult(JSON.stringify({
+        preset: preset.name, apk_path: apkAbs,
+        device: deviceSerial ?? '(default)', package_name: preset.packageName,
       }));
     }
     default:

@@ -71,6 +71,7 @@ export const GUARDED: Record<string, Set<string> | null> = {
   ui: new Set(['ui_create_control', 'ui_set_layout', 'ui_anchor_preset', 'ui_set_theme', 'ui_container_add', 'theme_create', 'theme_set_property', 'ui_draw_recipe', 'ui_build_layout']),
   physics: new Set(['collision_overlay']),  // raycast/body_info/diagnose/query_spatial 读
   runtime: new Set(['run_project', 'launch_editor', 'stop_project', 'run_tests', 'record_start', 'record_stop', 'record_play', 'record_save']),
+  android: new Set(['deploy']),  // list_devices/get_preset_info 读不守;deploy install 改设备
 };
 
 export function requiresConfirmation(toolName: string, args?: Record<string, unknown>): boolean {
