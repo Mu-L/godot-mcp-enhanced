@@ -360,6 +360,22 @@ describe('GDScript Lint', () => {
       expect(!lintGDScript('# var node = get_node("Label")').warnings.some(w => w.rule === 'L022')).toBeTruthy();
     });
   });
+
+  // L025
+  describe('L025 DisplayServer accessibility moved to AccessibilityServer (4.7 GH-116839)', () => {
+    it('命中: DisplayServer.accessibility_create_element 废弃方法', () => {
+      expect(lintGDScript('var el = DisplayServer.accessibility_create_element()').warnings.some(w => w.rule === 'L025')).toBeTruthy();
+    });
+    it('命中: DisplayServer.AccessibilityLiveMode 枚举需迁移', () => {
+      expect(lintGDScript('accessibility_live = DisplayServer.AccessibilityLiveMode.LIVE_POLITE').warnings.some(w => w.rule === 'L025')).toBeTruthy();
+    });
+    it('忽略: AccessibilityServer 4.7 新 API 合法', () => {
+      expect(!lintGDScript('var el = AccessibilityServer.accessibility_create_element()').warnings.some(w => w.rule === 'L025')).toBeTruthy();
+    });
+    it('忽略: 无关 DisplayServer 调用不误报', () => {
+      expect(!lintGDScript('DisplayServer.screen_get_size()').warnings.some(w => w.rule === 'L025')).toBeTruthy();
+    });
+  });
 });
 
 describe('Property: gdscript-lint fuzz', () => {

@@ -346,6 +346,14 @@ const RULES: LintRule[] = [
       return recent.includes('_process') || recent.includes('_physics_process');
     },
   },
+  // L025: DisplayServer accessibility API moved to AccessibilityServer in Godot 4.7 (GH-116839)
+  {
+    id: "L025",
+    severity: "warning",
+    pattern: /DisplayServer\.(accessibility_|AccessibilityLiveMode)/,
+    message: "DisplayServer 的 accessibility 方法/枚举在 Godot 4.7 移到 AccessibilityServer 单例（GH-116839）",
+    suggestion: "4.7 迁移：DisplayServer.accessibility_xxx() → AccessibilityServer.xxx()；枚举 DisplayServer.AccessibilityLiveMode → AccessibilityServer.AccessibilityLiveMode（accessibility_live 取值 LIVE_OFF/LIVE_POLITE/LIVE_ASSERTIVE）",
+  },
 ];
 
 // ─── Main Lint Function ────────────────────────────────────────────────────

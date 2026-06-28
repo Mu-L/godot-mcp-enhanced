@@ -191,6 +191,11 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // features PackedStringArray + main.gd Hello Godot 的硬编码 "4.6"。detect 查原字面量形态，
     // 修复后 src/tools/project.ts 无 "4.6" 字面量 → detect=0；复发（重新硬编码）即 >0。
     detect: () => countMatchesInFile('src/tools/project.ts', /PackedStringArray\(["']4\.6["']\)|Hello,\s*Godot\s*4\.6/g) },
+  { key: 'lint-missing-4-7-accessibility-breaking', status: 'fixed', severity: 'IMPORTANT', dimension: 'Completeness',
+    // 修复：src/tools/gdscript-lint.ts 加 L025 规则（DisplayServer accessibility 方法/枚举移到 AccessibilityServer，
+    // GH-116839 4.7 breaking change）。detect 查 gdscript-lint.ts 含 accessibility_live/GH-116839，L025 注释
+    // + suggestion 引用 GH-116839 → detect=0；复发（移除 L025）即 >0。
+    detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
   { key: 'version-hint-wrong-classname', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     detect: () => {
       // fixed：DrawableTexture → DrawableTexture2D。命中旧拼错即复发
@@ -294,11 +299,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // 规则与测试均缺失，defects.md note 行453 称有 10 处与实测矛盾。detect=1, baseline=1。
     baseline: 1,
     detect: () => fileContains('test/gdscript-lint.test.js', /L023|L024/) ? 0 : 1 },
-  { key: 'lint-missing-4-7-accessibility-breaking', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
-    // 实测 gdscript-lint.ts 无 accessibility/ACCESSIBILITY/L025/GH-116839。defects.md note 行463 称
-    // gdscript-lint.ts:364 有 L025 accessibility 规则与实测矛盾。detect=1, baseline=1。
-    baseline: 1,
-    detect: () => fileContains('src/tools/gdscript-lint.ts', /accessibility_live|ACCESSIBILITY_LIVE|GH-116839/) ? 0 : 1 },
+  // 2026-06-28 lint-missing-4-7-accessibility-breaking 修复（L025 规则补 GH-116839 accessibility 迁移）detect=0 移 FIXED。
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // OPEN（10 条，Task 3 段）— 基线阈值 detect() <= baseline（防恶化）。detect 源自 defects.md 行 246-538。
