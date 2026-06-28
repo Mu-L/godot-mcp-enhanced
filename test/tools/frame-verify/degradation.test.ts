@@ -30,15 +30,27 @@ describe('classifyDegradation', () => {
     expect(r.reason).toContain('从未变化');
   });
 
-  // 后半段卡死 → 退化（后1/3 mean consecutive − 前1/3 > 0.05）
+  // 后半段卡死 → 退化（后 third 个 mean consecutive − 前 third 个 > 0.05）
   it('flags degraded when tail stalls (tail lag > TAIL_LAG)', () => {
     const n = 12;
-    // 前 1/3 consecutive=0.80，后 1/3 consecutive=0.99 → tailLag=0.19 > 0.05
+    // 前 third 个 consecutive=0.80，后 third 个 consecutive=0.99 → tailLag=0.19 > 0.05
     const consecutive = [0.80,0.80,0.80, 0.90,0.90,0.90,0.90, 0.99,0.99,0.99,0.99];
     const firstFrame = [0.5,0.4,0.3,0.25,0.2,0.18,0.16,0.15,0.15,0.15,0.15];
     const r = classifyDegradation({ frameCount: n, consecutiveSims: consecutive, firstFrameSims: firstFrame });
     expect(r.degraded).toBe(true);
     expect(r.reason).toContain('后半段卡死');
+  });
+
+  // 判据4：超过半数窗口停滞（stallWindowRatio > STALL_RATIO）
+  // 规避判据2（meanConsecutive≈0.85<0.998）和判据3（maxChange=0.64>0.002），
+  // 让 5 个 7帧窗口中 3 个均值>0.95（ratio=0.6>0.5），判据4 在判据5 前先触发
+  it('flags degraded when majority of windows stall (stallWindowRatio > STALL_RATIO)', () => {
+    const n = 12;
+    const consecutive = [0.30, 0.40, 0.96, 0.97, 0.96, 0.97, 0.96, 0.97, 0.96, 0.97, 0.96];
+    const firstFrame = [0.70, 0.50, 0.45, 0.43, 0.42, 0.41, 0.40, 0.39, 0.38, 0.37, 0.36];
+    const r = classifyDegradation({ frameCount: n, consecutiveSims: consecutive, firstFrameSims: firstFrame });
+    expect(r.degraded).toBe(true);
+    expect(r.reason).toContain('窗口停滞');
   });
 
   // 正常运动 → 未退化
