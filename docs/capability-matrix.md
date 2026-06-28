@@ -3,9 +3,9 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：28
-- securityLevel：danger-api 7 / guarded 9 / safe 12
-- L2 覆盖：covered 0 / partial 0 / none 28
+- 工具总数：29
+- securityLevel：danger-api 7 / guarded 10 / safe 12
+- L2 覆盖：covered 0 / partial 0 / none 29
 
 ## danger-api 工具（L2 安全回归优先）
 - `manage_tools` (core)
@@ -17,6 +17,7 @@
 - `validation` (core)
 
 ## 覆盖缺口（L2=none）
+- `android` (unknown)
 - `animation` (animation)
 - `animation_track` (animation)
 - `animtree` (animation)

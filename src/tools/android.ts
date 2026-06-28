@@ -32,9 +32,10 @@ function runAdb(adb: string, args: string[]): { stdout: string; exitCode: number
   try {
     const stdout = execFileSync(adb, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     return { stdout, exitCode: 0, notFound: false };
-  } catch (err: any) {
-    if (err.code === 'ENOENT') return { stdout: '', exitCode: -1, notFound: true };
-    return { stdout: err.stdout ?? '', exitCode: err.status ?? -1, notFound: false };
+  } catch (err) {
+    const e = err as { code?: string; stdout?: string; status?: number };
+    if (e.code === 'ENOENT') return { stdout: '', exitCode: -1, notFound: true };
+    return { stdout: e.stdout ?? '', exitCode: e.status ?? -1, notFound: false };
   }
 }
 
@@ -74,19 +75,19 @@ function parsePresetsCfg(content: string): PresetInfo[] {
     const line = rawLine.trim();
     if (!line || line.startsWith(';') || line.startsWith('#')) continue;
     const sec = line.match(/^\[(.+)\]$/);
-    if (sec) { current = sec[1]; sectionData[current] = sectionData[current] ?? {}; continue; }
+    if (sec) { current = sec[1]!; sectionData[current] = sectionData[current] ?? {}; continue; }
     const eq = line.indexOf('=');
     if (eq < 0 || !current) continue;
     const key = line.slice(0, eq).trim();  // key 含 '/'(如 package/name)是整体 key,非 section 分隔
     let value = line.slice(eq + 1).trim();
     if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).replace(/\\"/g, '"');
-    sectionData[current][key] = value;
+    sectionData[current]![key] = value;
   }
   const presets: PresetInfo[] = [];
   for (const sec of Object.keys(sectionData)) {
     const m = sec.match(/^preset\.(\d+)$/);
     if (!m) continue;
-    const idx = parseInt(m[1], 10);
+    const idx = parseInt(m[1]!, 10);
     const main = sectionData[sec]!;
     const opts = sectionData[`preset.${idx}.options`] ?? {};
     presets.push({

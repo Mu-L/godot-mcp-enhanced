@@ -89,7 +89,7 @@
 |---|---|---|---|
 | 8 | profiling_commands 补齐 | ✅ | `src/tools/profiler-ops.ts`(2026-06-28 核实已实现) |
 | 9 | UndoRedo 封装完善 | ✅ | R2 阶段5 已接入 undo_manager(nav/particle/animtree/ui) |
-| 7 | Android Deploy / 导出模板校验 | 💤 | 社区痛点「能装不能跑」([QQ 频道 Godot 社区调研](https://github.com/wgt19861219/godot-mcp-enhanced)) |
+| 7 | Android Deploy | ✅ | list_devices/get_preset_info/deploy;TS child_process+spawnGodot;spec: 2026-06-28-android-deploy-design.md |
 
 ## 明确不做什么
 
@@ -107,6 +107,7 @@
 - 2026-06-28 — M1 #12 完成:README.en 完整双语重构(策略A:关键节英译+工具表链接中文,对齐 28/安全立句/对比表);采纳审查 4 写作点(Hero 三要素:安全+closed-loop+fork 继承 / 工具中文声明前置 Hero / capability-matrix 点明 security classification / 入口位置中英一致)
 - 2026-06-28 — M2/M3/M4 源码核实校准(依据:竞品 godot-mcp-pro 源码深挖文档逐条对照本项目实测):#4 suggestion / #6 editor guard / #8 profiling 实测已实现→✅;#9 UndoRedo R2 阶段5 已接入→✅;#3 icon 匹配**撤销**(`execute_gdscript` 是 headless 不碰编辑器 UI,对象误配);#5 timeout **改归 Bridge**(原误配 execute_gdscript,对标 `game-bridge.ts:733` 缺口)。仅 #7 Android 仍 💤 成立
 - 2026-06-28 — M2 #5 完成:Bridge 超时分层诊断(三元分类 BRIDGE_NOT_CONNECTED/BRIDGE_TIMEOUT/BRIDGE_ERROR + Error 子类 + suggestion;ECONNREFUSED/auth 失败/secret 缺失→NOT_CONNECTED,request timeout→TIMEOUT)。feat/bridge-timeout-diagnosis,2939 tests 绿
+- 2026-06-28 — M4 #7 完成:Android Deploy 工具(3 action list_devices/get_preset_info/deploy + INI 解析 + 安全校验 package/deviceSerial/apk 白名单 + spawnGodot timeoutMs 300s;adb shell 协议层注入防护独立于 GUARDED)。feat/android-deploy,2950 tests 绿,capability-matrix 29 tools
 
 ---
 

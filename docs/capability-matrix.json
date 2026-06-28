@@ -1,6 +1,92 @@
 {
-  "generatedAt": "2026-06-26T10:17:47.127Z",
+  "generatedAt": "2026-06-28T07:29:29.776Z",
   "tools": [
+    {
+      "name": "android",
+      "group": "unknown",
+      "description": "Android Deploy 工具。list_devices: adb 设备列表。get_preset_info: 读 export_presets.cfg Android preset。deploy: export APK + adb install + launch(可选)。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_devices",
+              "get_preset_info",
+              "deploy"
+            ]
+          },
+          "project_path": {
+            "type": "string",
+            "description": "Godot 项目目录"
+          },
+          "preset_name": {
+            "type": "string",
+            "description": "get_preset_info/deploy: preset 名"
+          },
+          "preset_index": {
+            "type": "number",
+            "description": "deploy: preset 索引"
+          },
+          "device_serial": {
+            "type": "string",
+            "description": "deploy: 设备 serial(adb -s)"
+          },
+          "debug": {
+            "type": "boolean",
+            "description": "deploy: --export-debug(默认 true)"
+          },
+          "launch": {
+            "type": "boolean",
+            "description": "deploy: 安装后启动(默认 true)"
+          },
+          "skip_export": {
+            "type": "boolean",
+            "description": "deploy: 跳过导出(已有 APK)"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "project_path",
+        "preset_name",
+        "preset_index",
+        "device_serial",
+        "debug",
+        "launch",
+        "skip_export"
+      ],
+      "readonly": false,
+      "longRunning": true,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      }
+    },
     {
       "name": "animation",
       "group": "animation",
@@ -818,7 +904,7 @@
     {
       "name": "game",
       "group": "bridge",
-      "description": "游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text)。等待: game_wait (wait_for_node, wait_for_property)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。",
+      "description": "游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -853,11 +939,11 @@
           },
           "method": {
             "type": "string",
-            "description": "game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text。game_wait: wait_for_node, wait_for_property"
+            "description": "game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property"
           },
           "params": {
             "type": "object",
-            "description": "方法参数。game_query: 因方法而异。game_write: set_node_property {path, property, value}, call_method {path, method, args}。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}"
+            "description": "方法参数。game_query: 因方法而异。game_write: set_node_property {path, property, value}, call_method {path, method, args}。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}"
           },
           "timeout": {
             "type": "number",
@@ -978,7 +1064,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, android",
       "inputSchema": {
         "type": "object",
         "properties": {
