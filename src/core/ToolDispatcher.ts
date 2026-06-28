@@ -183,7 +183,14 @@ export class ToolDispatcher {
 
     const { name, arguments: rawArgs } = request.params;
     const startTime = Date.now();
-    const args = this.normalizeArgs(rawArgs);
+    let args: Record<string, unknown> = {};
+    try {
+      args = this.normalizeArgs(rawArgs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('normalizeArgs error:', name, msg);
+      return opsErrorResult('TOOL_ERROR', `Argument normalization failed: ${msg}`);
+    }
 
     // 从 _meta 中提取 agent 身份标识
     const meta = (request as { params?: { _meta?: Record<string, unknown> } }).params?._meta;
@@ -433,12 +440,13 @@ export class ToolDispatcher {
   }
 
   /** I-05: Convert camelCase arg keys to snake_case, recursively for nested plain objects. */
-  private static readonly MAX_NORMALIZE_DEPTH = 5;
+  private static readonly MAX_NORMALIZE_DEPTH = 20;
   private normalizeArgs(rawArgs: Record<string, unknown> | undefined, depth = 0): Record<string, unknown> {
-    if (!rawArgs || depth > ToolDispatcher.MAX_NORMALIZE_DEPTH) {
-      // I-04: Warn when recursion limit is hit — nested params won't get snake_case conversion
-      if (rawArgs && depth > ToolDispatcher.MAX_NORMALIZE_DEPTH) log(`normalizeArgs: depth limit (${ToolDispatcher.MAX_NORMALIZE_DEPTH}) reached, keys beyond this depth won't be converted`);
-      return rawArgs ?? {};
+    if (!rawArgs) {
+      return {};
+    }
+    if (depth > ToolDispatcher.MAX_NORMALIZE_DEPTH) {
+      throw new Error(`normalizeArgs depth limit (${ToolDispatcher.MAX_NORMALIZE_DEPTH}) exceeded — flatten nested args`);
     }
     const args: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawArgs)) {

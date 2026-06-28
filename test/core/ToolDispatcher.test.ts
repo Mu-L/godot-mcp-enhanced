@@ -843,6 +843,18 @@ describe('ToolDispatcher.handleCall', () => {
     expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
     expect(mockExecutor.execute).not.toHaveBeenCalled();
   });
+
+  // [T20] 项7: normalizeArgs 超深抛错被 :186 catch(非逃逸/非 silently 绕过)
+  it('rejects >20-level nested args (normalizeArgs depth limit, 项7)', async () => {
+    const guard = createMockGuard(false);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    let nested: Record<string, unknown> = { camelKey: 1 };
+    for (let i = 0; i < 25; i++) nested = { outerKey: nested };
+    const result = await dispatcher.handleCall({ params: { name: 'project', arguments: nested } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toMatch(/depth limit|normalization failed/i);
+  });
 });
 
 // ── getFilteredTools with activeGroups ────────────────────────────────────
