@@ -1,10 +1,10 @@
 # Godot MCP Enhanced
 
-> 免费 · 开源 · 全功能 —— 截至 2026-06-27 调研,Godot MCP 赛道里
-> 罕见「免费 + 开源 + 128+ 工具」的方案。
+> 免费 · 开源 · 安全 —— 截至 2026-06-28 调研,Godot MCP 赛道里
+> 少见提供「系统化安全防护 + 三层架构」的开源方案。
 
 给 AI(Claude Code、Cursor 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:128+ 工具覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构
+工具层:28 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -12,14 +12,14 @@
 ## 与同类方案对比
 
 > **本项目不追求"工具数量第一"。** 赛道里,godot-mcp-pro 有 175 个工具但闭源收 $15;
-> 免费的 Coding-Solo 仅 13 个。真正稀缺的是「免费 + 开源 + 全功能 + 安全」的组合。
+> 免费的 Coding-Solo 仅 13 个。真正稀缺的不是工具数量,而是「免费 + 开源 + 系统化安全防护」——安全维度在赛道内几乎无人设防。
 > 数据截至 2026-06-27(stars / 工具数 / 价格均可能变化,详见各项目仓库)。
 
 | 维度 | **本项目** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp |
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | 128+ | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **28** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | Godot 4.5–4.7 兼容矩阵 | **✅** | — | — | — |
@@ -89,7 +89,9 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 - **`validate_project`** — 静态扫描缺失资源、无效 `preload()`/`load()` 路径、孤立 `.import` 文件
 - **`import_resources`** — 扫描目录批量注册资源(图片/音频/字体/3D 模型),自动生成 `.import`
 
-## 工具一览(128+)
+## 工具一览
+
+> 共 28 个 MCP 工具(merged tool definition),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
 
 ### 执行工具
 
