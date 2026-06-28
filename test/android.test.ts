@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockExec, mockExists, readFileSyncMock } = vi.hoisted(() => ({
+const { mockExec, mockExists, readFileSyncMock, mockDetectVersion } = vi.hoisted(() => ({
   mockExec: vi.fn(),
   mockExists: vi.fn(() => true),
   readFileSyncMock: vi.fn(() => ''),
+  mockDetectVersion: vi.fn(async () => '4.6.2.stable'),
 }));
 
 vi.mock('child_process', async (importOriginal) => {
@@ -18,6 +19,7 @@ vi.mock('fs', () => ({
   renameSync: vi.fn(),
 }));
 vi.mock('../src/tools/spawn-helper.js', () => ({ spawnGodot: vi.fn() }));
+vi.mock('../src/core/godot-finder.js', () => ({ detectGodotVersion: mockDetectVersion }));
 vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
 
 import { handleTool } from '../src/tools/android.js';
@@ -131,5 +133,38 @@ describe('android deploy', () => {
     const parsed = JSON.parse(result!.content[0].text);
     expect(parsed.error_code).toBe('EXPORT_FAILED');
     expect(spawnGodot).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.objectContaining({ timeoutMs: 300_000 }));
+  });
+});
+
+describe('android check_template', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockExists.mockReturnValue(true); mockDetectVersion.mockResolvedValue('4.6.2.stable'); });
+
+  it('模板齐全 → status=ok + major_minor=4.6', async () => {
+    mockExists.mockReturnValue(true);  // android_debug.apk + android_release.apk 都在
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'check_template', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.status).toBe('ok');
+    expect(parsed.major_minor).toBe('4.6');
+    expect(parsed.godot_version).toBe('4.6.2.stable');
+    expect(parsed.android_debug.exists).toBe(true);
+    expect(parsed.android_release.exists).toBe(true);
+  });
+
+  it('模板缺失 → TEMPLATE_MISSING + suggestion', async () => {
+    mockExists.mockReturnValue(false);
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'check_template', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('TEMPLATE_MISSING');
+    expect(parsed.suggestion).toBeTruthy();
+  });
+
+  it('版本检测失败 → VERSION_DETECT_FAILED', async () => {
+    mockDetectVersion.mockRejectedValue(new Error('godot --version failed: exit 1'));
+    const ctx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('android', { action: 'check_template', project_path: '/fake/p' }, ctx as any);
+    const parsed = JSON.parse(result!.content[0].text);
+    expect(parsed.error_code).toBe('VERSION_DETECT_FAILED');
   });
 });

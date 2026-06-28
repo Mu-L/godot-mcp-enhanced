@@ -6,6 +6,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { spawnGodot } from './spawn-helper.js';
+import { detectGodotVersion } from '../core/godot-finder.js';
 
 const ERROR_CODES = {
   ADB_NOT_FOUND: 'ADB_NOT_FOUND',
@@ -14,6 +15,9 @@ const ERROR_CODES = {
   EXPORT_FAILED: 'EXPORT_FAILED',
   INSTALL_FAILED: 'INSTALL_FAILED',
   LAUNCH_FAILED: 'LAUNCH_FAILED',
+  GODOT_NOT_FOUND: 'GODOT_NOT_FOUND',
+  VERSION_DETECT_FAILED: 'VERSION_DETECT_FAILED',
+  TEMPLATE_MISSING: 'TEMPLATE_MISSING',
 } as const;
 
 const PACKAGE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
@@ -117,6 +121,14 @@ const validatePackage = (p: string): boolean => PACKAGE_RE.test(p);
 const validateSerial = (s: string): boolean => SERIAL_RE.test(s);
 const validateApkPath = (p: string): boolean => !SHELL_META_RE.test(p) && !p.includes('..');
 
+/** Godot config 根路径(best-effort,不读 XDG/editor settings 覆盖)。 */
+function godotConfigDir(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (process.platform === 'win32') return join(process.env.APPDATA ?? home, 'Godot');
+  if (process.platform === 'darwin') return join(home, 'Library', 'Application Support', 'Godot');
+  return join(home, '.local', 'share', 'godot');  // Linux(best-effort,不读 XDG_DATA_HOME)
+}
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'android') return null;
   const action = args.action as string;
@@ -215,6 +227,37 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         device: deviceSerial ?? '(default)', package_name: preset.packageName,
       }));
     }
+    case 'check_template': {
+      let godotPath: string;
+      try { godotPath = await ctx.findGodot(); }
+      catch { return opsErrorResult(ERROR_CODES.GODOT_NOT_FOUND, 'Godot binary not found.', { suggestion: 'Set GODOT_PATH or install Godot.' }); }
+      let fullVersion: string;
+      try {
+        fullVersion = await detectGodotVersion(godotPath);
+      } catch (err) {
+        return opsErrorResult(ERROR_CODES.VERSION_DETECT_FAILED, (err as Error).message, {
+          suggestion: 'godot --version failed. Check Godot binary is valid.',
+        });
+      }
+      const majorMinor = fullVersion.match(/^(\d+\.\d+)/)?.[1] ?? fullVersion;  // 4.6.2.stable → 4.6
+      const templateDir = join(godotConfigDir(), 'export_templates', majorMinor);
+      const debugApk = join(templateDir, 'android_debug.apk');
+      const releaseApk = join(templateDir, 'android_release.apk');
+      const debugExists = existsSync(debugApk);
+      const releaseExists = existsSync(releaseApk);
+      const status = debugExists && releaseExists ? 'ok' : 'missing';
+      if (status === 'missing') {
+        return opsErrorResult(ERROR_CODES.TEMPLATE_MISSING, `Android export template missing for ${majorMinor}.`, {
+          suggestion: `In Godot Editor: Editor > Manage Export Templates, download the ${majorMinor} templates. Expected at ${templateDir}.`,
+        });
+      }
+      return textResult(JSON.stringify({
+        godot_version: fullVersion, major_minor: majorMinor, template_dir: templateDir,
+        android_debug: { path: debugApk, exists: debugExists },
+        android_release: { path: releaseApk, exists: releaseExists },
+        status,
+      }));
+    }
     default:
       return null;  // get_preset_info/deploy 后续 task 实现
   }
@@ -227,7 +270,7 @@ export function getToolDefinitions(): Tool[] {
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list_devices', 'get_preset_info', 'deploy'] },
+        action: { type: 'string', enum: ['list_devices', 'get_preset_info', 'deploy', 'check_template'] },
         project_path: { type: 'string', description: 'Godot 项目目录' },
         preset_name: { type: 'string', description: 'get_preset_info/deploy: preset 名' },
         preset_index: { type: 'number', description: 'deploy: preset 索引' },
