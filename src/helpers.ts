@@ -176,7 +176,7 @@ export async function checkVersionMismatch(projectPath: string, godotBin: string
     if (!featuresMatch) return null;
     const projectVersion = featuresMatch[1];
 
-    const { stdout, stderr } = await execFileAsync(godotBin, ['--version'], { timeout: GODOT_VERSION_CHECK_TIMEOUT_MS });
+    const { stdout, stderr } = await execFileAsync(godotBin, ['--version'], { timeout: GODOT_VERSION_CHECK_TIMEOUT_MS, env: buildSafeEnv() });
     const binVersion = (stdout || stderr || '').trim();
     const binMatch = binVersion.match(/^(\d+\.\d+)/);
     if (!binMatch) return null;

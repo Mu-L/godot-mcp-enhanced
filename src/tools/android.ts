@@ -7,6 +7,8 @@ import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { spawnGodot } from './spawn-helper.js';
 import { detectGodotVersion } from '../core/godot-finder.js';
+import { buildSafeEnv } from '../helpers.js';
+import { resolveWithinRoot } from '../core/path-utils.js';
 
 const ERROR_CODES = {
   ADB_NOT_FOUND: 'ADB_NOT_FOUND',
@@ -35,7 +37,7 @@ function resolveAdb(): string {
 /** 跑 adb,捕获 exit/stdout。ENOENT(adb 不存在)标记 notFound。 */
 function runAdb(adb: string, args: string[]): { stdout: string; exitCode: number; notFound: boolean } {
   try {
-    const stdout = execFileSync(adb, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const stdout = execFileSync(adb, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], env: buildSafeEnv() });
     return { stdout, exitCode: 0, notFound: false };
   } catch (err) {
     const e = err as { code?: string; stdout?: string; status?: number };
@@ -117,10 +119,8 @@ function findAndroidPreset(cfgPath: string, presetName?: string, presetIndex?: n
   return null;
 }
 
-const SHELL_META_RE = /[;&|`$()]/;
 const validatePackage = (p: string): boolean => PACKAGE_RE.test(p);
 const validateSerial = (s: string): boolean => SERIAL_RE.test(s);
-const validateApkPath = (p: string): boolean => !SHELL_META_RE.test(p) && !p.includes('..');
 
 /** Godot config 根路径(best-effort,不读 XDG/editor settings 覆盖)。 */
 function godotConfigDir(): string {
@@ -176,10 +176,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         });
       }
       // apk 路径:res:// → projectDir 拼接 + 安全校验
-      const apkAbs = preset.exportPath.startsWith('res://')
-        ? join(projectDir, preset.exportPath.slice('res://'.length))
-        : preset.exportPath;
-      if (!validateApkPath(apkAbs)) return opsErrorResult(ERROR_CODES.EXPORT_FAILED, `Invalid apk path: ${apkAbs}`);
+      let apkAbs: string;
+      try {
+        apkAbs = preset.exportPath.startsWith('res://')
+          ? resolveWithinRoot(projectDir, preset.exportPath.slice('res://'.length))
+          : resolveWithinRoot(projectDir, preset.exportPath);
+      } catch {
+        return opsErrorResult(ERROR_CODES.EXPORT_FAILED, `Invalid apk path (traversal): ${preset.exportPath}`);
+      }
       const deviceSerial = args.device_serial as string | undefined;
       if (deviceSerial && !validateSerial(deviceSerial)) {
         return opsErrorResult(ERROR_CODES.INSTALL_FAILED, `Invalid device_serial: ${deviceSerial}`);

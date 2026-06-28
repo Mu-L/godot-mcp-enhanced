@@ -17,6 +17,7 @@ vi.mock('fs', () => ({
   writeFileSync: vi.fn(), copyFileSync: vi.fn(), unlinkSync: vi.fn(),
   chmodSync: vi.fn(), statSync: vi.fn(), lstatSync: vi.fn(() => ({ isSymbolicLink: () => false })),
   renameSync: vi.fn(),
+  realpathSync: vi.fn((p: string) => p),
 }));
 vi.mock('../src/tools/spawn-helper.js', () => ({ spawnGodot: vi.fn() }));
 vi.mock('../src/core/godot-finder.js', () => ({ detectGodotVersion: mockDetectVersion }));

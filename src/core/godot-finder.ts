@@ -69,7 +69,7 @@ function isGodotVersionSignature(stdout: string): boolean {
 /** Validate a candidate binary by running --version and checking for Godot signature. */
 export async function validateGodotBinary(candidatePath: string): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync(candidatePath, ['--version'], { encoding: 'utf-8', timeout: 5000 });
+    const { stdout } = await execFileAsync(candidatePath, ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     return isGodotVersionSignature(stdout);
   } catch (err) {
     getLogger().debug('godot-finder', `validateGodotBinary failed for ${candidatePath}: ${err instanceof Error ? err.message : err}`);
@@ -299,7 +299,7 @@ export async function findGodot(projectPath?: string): Promise<string> {
 
   // 4. Try `godot` on PATH via a quick async spawn
   try {
-    const { stdout } = await execFileAsync('godot', ['--version'], { encoding: 'utf-8', timeout: 5000 });
+    const { stdout } = await execFileAsync('godot', ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     if (isGodotVersionSignature(stdout)) {
       _pathCache.set(cacheKey, 'godot');
       return 'godot';
