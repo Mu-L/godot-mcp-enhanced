@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T12:38:31.810Z",
+  "generatedAt": "2026-06-28T14:26:20.252Z",
   "tools": [
     {
       "name": "android",
@@ -1352,7 +1352,7 @@
       ],
       "readonly": true,
       "longRunning": false,
-      "guarded": false,
+      "guarded": true,
       "securityLevel": "danger-api",
       "groupRequires": [],
       "offlineCapable": true,
@@ -4344,7 +4344,7 @@
       ],
       "readonly": false,
       "longRunning": true,
-      "guarded": false,
+      "guarded": true,
       "securityLevel": "danger-api",
       "groupRequires": [],
       "offlineCapable": true,
@@ -4583,8 +4583,8 @@
       ],
       "readonly": false,
       "longRunning": true,
-      "guarded": false,
-      "securityLevel": "safe",
+      "guarded": true,
+      "securityLevel": "guarded",
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,

@@ -4,7 +4,7 @@
 
 ## 概览
 - 工具总数：29
-- securityLevel：danger-api 7 / guarded 10 / safe 12
+- securityLevel：danger-api 7 / guarded 11 / safe 11
 - L2 覆盖：covered 0 / partial 0 / none 29
 
 ## danger-api 工具（L2 安全回归优先）
