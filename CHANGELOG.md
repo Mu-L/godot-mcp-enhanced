@@ -405,3 +405,41 @@ v0.19.0 发版后版本元数据漂移修复(npm v0.19.0 基于 tag 2a48d06,mani
 - 死代码清理
 - 定时器泄漏修复
 - 路径遍历绕过修复
+
+---
+
+## 早期版本概览(v0.1.0–v0.9.0 + v0.13.0 / v0.14.0)
+
+> 早期版本无详细 Added/Fixed 记录,此处保留概览(2026-06-28 从原 ROADMAP 历史里程碑迁移,防丢失)。v0.10.0–v0.12.0 / v0.15.0+ 见上方详细变更;v0.13.0 / v0.14.0 暂仅概览(详细待补)。
+
+### v0.14.0(2026-05-24)
+
+7 轴全维度审查修复 + IK 框架 MVP + 测试基础设施升级。
+
+- IK 框架 MVP(4 工具):ik_modifier_create / ik_modifier_get / ik_modifier_set / ik_list_bones
+- 7 轴审查:8 CRITICAL + 20 IMPORTANT + 14 ADVISORY 发现,全部 CRITICAL 已修复
+- 测试迁移 node:test → Vitest,1257 测试通过,47% 覆盖率;CI/CD GitHub Actions(Node 20/22 矩阵)
+
+### v0.13.0(2026-05-23)
+
+Bridge 安全加固 + 功能增强(C-01~C-03、requestId 取模、EditorConnection 重连上限、CSS Grid 翻译、edit_node camelCase→snake_case、L015 lint 逐行扫描)。
+
+### v0.9.0(2026-05-16)
+
+审查反馈 + 架构优化(118 工具,463 测试):批量工具 / UI 工具 / 录制系统(5 工具)/ editor_sync / 确认令牌 / Read-Only 模式 / Lite 模式。
+
+### v0.8.0(2026-05-13)
+
+架构升级(96 工具):双模式架构(Editor WebSocket + GDScript 插件 + UndoManager)/ 测试框架 + 导出管理 / 高级工具集(粒子+导航+AnimationTree)。
+
+### v0.7.0 及更早
+
+| 版本 | 日期 | 要点 |
+|------|------|------|
+| v0.7.0 | 2026-05-08 | 安全加固:输入转义、超时泄漏、类型安全、crypto.randomUUID |
+| v0.6.0 | 2026-05-03 | 音频播放控制(4) + TileMap 编辑(8) |
+| v0.5.0 | 2026-05-02 | 信号控制(4) + 物理查询(2) + 3D 创建(1) + 导航寻路(1) |
+| v0.4.0 | 2026-05-01 | 版本检测 + validate_scripts + search_and_replace |
+| v0.3.0 | — | edit_script + batch_add_nodes + validate_project + import_resources |
+| v0.2.0 | — | read_scene + read/write_script + query_scene_tree + MCP Resources |
+| v0.1.0 | — | 基础功能:项目/场景/执行控制/截图/API 文档 |
