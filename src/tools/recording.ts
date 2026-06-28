@@ -4,12 +4,13 @@ import { getErrorMessage } from '../types.js';
 import { requireProjectPath, resolveWithinRoot } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape } from './shared.js';
-import { sendToBridge, setBridgeProjectDir } from './game-bridge.js';
+import { sendToBridge, setBridgeProjectDir, BridgeNotConnectedError, BridgeTimeoutError } from './game-bridge.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const ERROR_CODES = {
   BRIDGE_NOT_CONNECTED: 'BRIDGE_NOT_CONNECTED',
+  BRIDGE_TIMEOUT: 'BRIDGE_TIMEOUT',
   RECORDING_IN_PROGRESS: 'RECORDING_IN_PROGRESS',
   NO_RECORDING: 'NO_RECORDING',
   RECORDING_FILE_NOT_FOUND: 'RECORDING_FILE_NOT_FOUND',
@@ -415,11 +416,16 @@ export async function handleTool(
     const msg = getErrorMessage(err);
     if (msg.includes('INVALID_FILE_NAME')) return opsErrorResult('INVALID_FILE_NAME', msg);
     if (msg.includes('traversal')) return opsErrorResult('INVALID_FILE_NAME', msg);
-    // ECONNREFUSED 已被 sendToBridge:305 转译(抹掉字样),此分类分支不可达,已删。
-    // 游戏未运行场景统一走末尾 SCRIPT_EXEC_FAILED 兜底(恢复 BRIDGE_NOT_CONNECTED 语义需改转译层,另开任务)。
-    if (msg.includes('Bridge secret not found')) {
-      return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, 'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?', {
-        suggestion: 'Ensure: 1) game_bridge_install has been called, 2) the game is running (F5 or run_project), 3) check project .godot/ for mcp_bridge_9081.secret.',
+    // A-4: 对接 game-bridge Bridge 子类(instanceof,非字符串匹配)。游戏未运行/bridge 没正常工作 → NOT_CONNECTED;
+    // 连上但卡住 → TIMEOUT;真正 GDScript 执行错误才 SCRIPT_EXEC_FAILED。
+    if (err instanceof BridgeNotConnectedError) {
+      return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, msg, {
+        suggestion: '录制/回放需要 Game Bridge 连接。Ensure: 1) game_bridge_install 已调用, 2) 游戏正在运行(F5 或 run_project), 3) 检查 .godot/mcp_bridge_9081.secret。',
+      });
+    }
+    if (err instanceof BridgeTimeoutError) {
+      return opsErrorResult(ERROR_CODES.BRIDGE_TIMEOUT, msg, {
+        suggestion: '游戏在运行但无响应(可能被 runtime error 卡住)——这不是连接问题。检查游戏是否报错,或加大 timeout 重试。',
       });
     }
     return opsErrorResult('SCRIPT_EXEC_FAILED', msg);

@@ -1,10 +1,14 @@
 import { expect, vi } from 'vitest';
 
 // 阶段2b IMP-11: mock bridge 以测 recording_play 回放分发(无需真实 TCP 连接)
-vi.mock('../src/tools/game-bridge.js', () => ({
-  sendToBridge: vi.fn(async () => ({ result: { ok: true } })),
-  setBridgeProjectDir: vi.fn(),
-}));
+vi.mock('../src/tools/game-bridge.js', async () => {
+  const actual = await vi.importActual('../src/tools/game-bridge.js');
+  return {
+    ...actual,  // 保留真实 export(BridgeNotConnectedError/BridgeTimeoutError)供 recording.ts instanceof
+    sendToBridge: vi.fn(async () => ({ result: { ok: true } })),
+    setBridgeProjectDir: vi.fn(),
+  };
+});
 
 import {
   getToolDefinitions,
@@ -179,6 +183,29 @@ describe('validateEventsJson (CRITICAL-2: MAX_EVENTS DoS 防护)', () => {
 
   it('rejects non-array events / missing version (existing validation intact)', () => {
     expect(() => validateEventsJson(JSON.stringify({ version: 1, events: 'notarray' }))).toThrow(/must contain version/);
+  });
+});
+
+// A-4: recording catch 错误分类(对接 game-bridge BridgeNotConnectedError/BridgeTimeoutError 子类)
+describe('A-4: recording catch 错误分类(Bridge 子类)', () => {
+  it('recording_start 游戏未运行(ECONNREFUSED→BridgeNotConnectedError) → BRIDGE_NOT_CONNECTED', async () => {
+    const actual = await vi.importActual('../src/tools/game-bridge.js');
+    vi.mocked(sendToBridge).mockRejectedValueOnce(new actual.BridgeNotConnectedError('Cannot connect to MCP Bridge. Is the game running?'));
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('recording', { action: 'recording_start', project_path: '/fake/p' }, fakeCtx);
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
+    expect(parsed.suggestion).toBeTruthy();
+  });
+
+  it('recording_start 游戏卡住(BridgeTimeoutError) → BRIDGE_TIMEOUT', async () => {
+    const actual = await vi.importActual('../src/tools/game-bridge.js');
+    vi.mocked(sendToBridge).mockRejectedValueOnce(new actual.BridgeTimeoutError('Bridge request timed out after 5000ms'));
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    const result = await handleTool('recording', { action: 'recording_start', project_path: '/fake/p' }, fakeCtx);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('BRIDGE_TIMEOUT');
   });
 });
 
