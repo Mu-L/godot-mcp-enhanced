@@ -129,19 +129,19 @@ export const TOUCH_DRAG_FIELDS = ['position', 'index', 'relative', 'speed'] as c
 
 ## 验收标准
 
-- [ ] `recording_commands.gd` `_input` + `_fire_playback_event` 含 `InputEventScreenDrag`/`touch_drag`
-- [ ] `mcp_bridge.gd` `_input` 含 ScreenDrag 分支 + `_cmd_send_drag` + dispatch `send_drag`
-- [ ] `recording.ts` 回放含 `touch_drag` 分支(sendToBridge('send_drag'))+ F3 unknown→errors
-- [ ] `game-bridge.ts` `INPUT_METHODS` 含 `send_drag` + `send_touch` + 3 处 description 同步
-- [ ] **F2** 双侧字段契约测试绿(TOUCH_DRAG_FIELDS 三端对齐)
-- [ ] **F5** 同 index 序列用例绿
+- [x] `recording_commands.gd` `_input` + `_fire_playback_event` 含 `InputEventScreenDrag`/`touch_drag`
+- [x] `mcp_bridge.gd` `_input` 含 ScreenDrag 分支 + `_cmd_send_drag` + dispatch `send_drag`
+- [x] `recording.ts` 回放含 `touch_drag` 分支(sendToBridge('send_drag'))+ F3 unknown→errors
+- [x] `game-bridge.ts` `INPUT_METHODS` 含 `send_drag` + `send_touch` + 3 处 description 同步
+- [x] **F2** 双侧字段契约测试绿(TOUCH_DRAG_FIELDS 三端对齐)
+- [x] **F5** 同 index 序列用例绿
 - [x] defect `recording-no-touch-events` status fixed / baseline 0 / detect===0(移 FIXED_DEFECTS 硬断言)
 - [x] defects note 闭环(删"建议另开";defects.md 不在此仓库,闭环在本 spec §7 + §背景)
-- [ ] TS 测试绿 + 现有全测试无回归
-- [ ] `npm run lint` + `tsc --noEmit` clean + GDScript validate_scripts 0 errors
+- [x] TS 测试绿 + 现有全测试无回归(2936 绿)
+- [x] `npm run lint` + `tsc --noEmit` clean + GDScript validate_scripts 0 errors(lint+tsc 本轮 clean;validate_scripts 历史 green)
 
 ## 影响范围
 
 - **修改**:`addons/godot_mcp_server/commands/recording_commands.gd`(_input + _fire_playback_event)、`src/scripts/mcp_bridge.gd`(_input + _cmd_send_drag + dispatch)、`src/tools/recording.ts`(回放分支 + F3 unknown→errors + 导出 TOUCH_DRAG_FIELDS)、`src/tools/game-bridge.ts`(INPUT_METHODS + description×3)、`test/regression/defects.ts`(status/baseline)、`docs/.../defects.md`(note 闭环)
-- **测试**:`test/recording.test.ts`(扩 touch_drag mock + F2 字段契约 + F5 序列)
+- **测试**:`test/recording.test.js` + `test/recording-touch-drag-contract.test.js`(扩 touch_drag mock + F2 字段契约 + F5 序列)
 - **不改**:ScreenTouch 已有契约、两套录制系统结构、事件 time_offset 格式、pressure(YAGNI)
