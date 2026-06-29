@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T14:26:20.252Z",
+  "generatedAt": "2026-06-29T13:39:25.425Z",
   "tools": [
     {
       "name": "android",
@@ -77,6 +77,12 @@
       "longRunning": true,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 4,
+        "write": 0,
+        "destructive": 0,
+        "process": 1
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -334,6 +340,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 10,
+        "write": 7,
+        "destructive": 3,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -485,6 +497,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 6,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -647,6 +665,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 6,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -754,6 +778,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 3,
+        "write": 1,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -832,6 +862,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 4,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -889,6 +925,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 3,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [
         "editor"
       ],
@@ -1049,6 +1091,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 11,
+        "write": 2,
+        "destructive": 0,
+        "process": 1
+      },
       "groupRequires": [
         "bridge"
       ],
@@ -1354,6 +1402,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 4,
+        "write": 2,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": true,
       "needsGodot": false,
@@ -1469,6 +1523,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 3,
+        "write": 8,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -1742,6 +1802,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 1,
+        "write": 5,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -1978,6 +2044,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 0,
+        "write": 5,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -2139,6 +2211,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 4,
+        "write": 1,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -2232,6 +2310,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 6,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -2422,6 +2506,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 9,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": true,
       "needsGodot": false,
@@ -2536,6 +2626,12 @@
       "longRunning": true,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 3,
+        "write": 4,
+        "destructive": 0,
+        "process": 4
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -2840,6 +2936,12 @@
       "longRunning": true,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 4,
+        "write": 12,
+        "destructive": 2,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -2950,6 +3052,12 @@
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 2,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -3146,6 +3254,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 1,
+        "write": 4,
+        "destructive": 1,
+        "process": 1
+      },
       "groupRequires": [],
       "offlineCapable": true,
       "needsGodot": false,
@@ -3245,6 +3359,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 3,
+        "write": 1,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -3500,6 +3620,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 2,
+        "write": 5,
+        "destructive": 1,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -4161,6 +4287,12 @@
       "longRunning": false,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 1,
+        "write": 9,
+        "destructive": 0,
+        "process": 0
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,
@@ -4346,6 +4478,16 @@
       "longRunning": true,
       "guarded": true,
       "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 10,
+        "write": 0,
+        "destructive": 0,
+        "process": 3
+      },
+      "trustedNonRead": [
+        "run_and_verify",
+        "verify_delivery"
+      ],
       "groupRequires": [],
       "offlineCapable": true,
       "needsGodot": false,
@@ -4475,10 +4617,11 @@
                     },
                     "type": {
                       "type": "string",
-                      "description": "Assertion type: gdscript (default) or screenshot_diff",
+                      "description": "Assertion type: gdscript (default), screenshot_diff, or frame_degradation",
                       "enum": [
                         "gdscript",
-                        "screenshot_diff"
+                        "screenshot_diff",
+                        "frame_degradation"
                       ]
                     },
                     "expect_present": {
@@ -4487,11 +4630,37 @@
                         "type": "string"
                       },
                       "description": "screenshot_diff: node names expected to be visible in scene tree"
+                    },
+                    "reference_path": {
+                      "type": "string",
+                      "description": "screenshot_diff: optional reference image path for cosine-similarity pre-filter"
+                    },
+                    "sim_threshold": {
+                      "type": "number",
+                      "description": "screenshot_diff: cosine similarity threshold (default 0.85)"
+                    },
+                    "frames_dir": {
+                      "type": "string",
+                      "description": "frame_degradation: directory of captured frames (omit if acceptance.frame_sequence captures them)"
                     }
                   },
                   "required": [
                     "description"
                   ]
+                }
+              },
+              "frame_sequence": {
+                "type": "object",
+                "description": "Capture N frames into a proof dir before assertions run; frames feed frame_degradation assertions",
+                "properties": {
+                  "count": {
+                    "type": "number",
+                    "description": "Number of frames to capture (2-60, default 12)"
+                  },
+                  "interval_frames": {
+                    "type": "number",
+                    "description": "Frames between captures at ~60fps (1-300, default 10)"
+                  }
                 }
               }
             }
@@ -4585,6 +4754,12 @@
       "longRunning": true,
       "guarded": true,
       "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 3,
+        "write": 1,
+        "destructive": 0,
+        "process": 2
+      },
       "groupRequires": [],
       "offlineCapable": false,
       "needsGodot": true,

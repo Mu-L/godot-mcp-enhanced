@@ -1,8 +1,19 @@
 // src/capability/extract.ts
-import { getAllToolDefinitions, getToolMeta, getGroupForTool, TOOL_GROUPS, OFFLINE_TOOLS } from '../core/tool-registry.js';
+import { getAllToolDefinitions, getToolMeta, getGroupForTool, getActionRisks, TOOL_GROUPS, OFFLINE_TOOLS, type RiskLevel } from '../core/tool-registry.js';
 import { isGuardedTool } from '../guard.js';
 import { classifySecurityLevel, type ToolCapability } from './schema.js';
 import { GROUP_SOURCE_FILES, scanDangerApi, findEditorCommandFile } from './static-grep.js';
+
+/**
+ * trusted-nonread：标 'read' 但实际启进程/有副作用、项目有意信任不确认的 action。
+ * 经人工核实 handler 确会 spawn Godot（见 task-8 Step 1）：
+ * - validation.run_and_verify → validation.ts:231/560/607 spawnGodot（启 Godot headless 运行场景）
+ * - validation.verify_delivery → delivery.ts:353/391/444 executeGdscript + batchValidateScripts（启 Godot 验证）
+ * 其余 read action（查询/读取/短期控制）不是。
+ */
+const TRUSTED_NONREAD: Record<string, string[]> = {
+  validation: ['run_and_verify', 'verify_delivery'],
+};
 
 /**
  * 提取全工具能力矩阵。须先调用 registerAllModules() 填充 registry。
@@ -39,6 +50,16 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
     const dangerApiHit = dangerGroups.has(group);
     const editorCmd = findEditorCommandFile(group, projectRoot);
 
+    // risk 四级分布：从 ToolMeta.actionRisks 聚合计数
+    const actionRisks = getActionRisks(tool.name);
+    let riskDistribution: Record<RiskLevel, number> | undefined;
+    if (actionRisks) {
+      const dist: Record<RiskLevel, number> = { read: 0, write: 0, destructive: 0, process: 0 };
+      for (const r of Object.values(actionRisks)) dist[r]++;
+      riskDistribution = dist;
+    }
+    const trustedNonRead = TRUSTED_NONREAD[tool.name];
+
     return {
       name: tool.name,
       group,
@@ -50,6 +71,8 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
       longRunning,
       guarded,
       securityLevel: classifySecurityLevel({ dangerApiHit, guarded }),
+      riskDistribution,
+      trustedNonRead,
       groupRequires,
       offlineCapable,
       needsGodot: !offlineCapable,

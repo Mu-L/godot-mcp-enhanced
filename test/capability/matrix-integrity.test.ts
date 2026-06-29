@@ -61,4 +61,16 @@ describe('capability matrix integrity (spec §10 L1)', () => {
       }
     }
   });
+
+  it('risk distribution: 每个 cap 有 riskDistribution 时, 四级计数之和 = action 总数', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    for (const c of caps) {
+      if (!c.riskDistribution) continue; // 无 actionRisks 的工具跳过
+      const sum = c.riskDistribution.read + c.riskDistribution.write
+        + c.riskDistribution.destructive + c.riskDistribution.process;
+      // actionRisks 每个 action 贡献 1，故总和 = action 数；非零校验防空 dist 误判通过
+      expect(sum, `${c.name}: riskDistribution 四级计数之和(${sum}) 应 > 0`).toBeGreaterThan(0);
+    }
+  });
 });

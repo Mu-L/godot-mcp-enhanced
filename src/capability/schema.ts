@@ -1,4 +1,6 @@
 // src/capability/schema.ts
+import type { RiskLevel } from '../core/tool-registry.js';
+
 /**
  * 安全敏感度分层，驱动 L2 安全回归优先级（spec §3.1）。
  *
@@ -22,6 +24,10 @@ export interface ToolCapability {
   longRunning: boolean;
   guarded: boolean;
   securityLevel: SecurityLevel;
+  /** 该工具各 action 的 risk 分布（read/write/destructive/process 计数）。无 actionRisks 的工具为 undefined。 */
+  riskDistribution?: Record<RiskLevel, number>;
+  /** 标 read 但实际启进程/有副作用、项目有意信任不确认的 action（如 validation.run_and_verify 启 Godot headless）。 */
+  trustedNonRead?: string[];
   // ── C. 依赖条件 ──
   groupRequires: ('bridge' | 'editor' | 'headless')[];
   offlineCapable: boolean;

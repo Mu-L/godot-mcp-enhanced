@@ -11,6 +11,13 @@ function buildMarkdown(caps: ToolCapability[]): string {
   const byLevel = { 'danger-api': 0, 'guarded': 0, 'safe': 0 };
   const byL2 = { covered: 0, partial: 0, none: 0 };
   for (const c of caps) { byLevel[c.securityLevel]++; byL2[c.verification.l2]++; }
+  // risk 四级聚合（全工具 actionRisks 计数汇总）
+  const riskTotals = { read: 0, write: 0, destructive: 0, process: 0 };
+  for (const c of caps) for (const [k, v] of Object.entries(c.riskDistribution ?? {})) {
+    riskTotals[k as keyof typeof riskTotals] += v;
+  }
+  // trusted-nonread：标 read 但实际启进程/有副作用（项目有意信任不确认）
+  const trustedList = caps.flatMap(c => (c.trustedNonRead ?? []).map(a => `\`${c.name}.${a}\``));
   const dangerTools = caps.filter(c => c.securityLevel === 'danger-api').map(c => `- \`${c.name}\` (${c.group})`).join('\n');
   const lines = [
     `# Capability Matrix`,
@@ -20,7 +27,9 @@ function buildMarkdown(caps: ToolCapability[]): string {
     `## 概览`,
     `- 工具总数：${total}`,
     `- securityLevel：danger-api ${byLevel['danger-api']} / guarded ${byLevel['guarded']} / safe ${byLevel['safe']}`,
+    `- risk：read ${riskTotals.read} / write ${riskTotals.write} / destructive ${riskTotals.destructive} / process ${riskTotals.process}`,
     `- L2 覆盖：covered ${byL2.covered} / partial ${byL2.partial} / none ${byL2.none}`,
+    ...(trustedList.length > 0 ? [`> 注：标 read 但实际启进程/有副作用(项目有意信任不确认): ${trustedList.join(', ')}`] : []),
     ``,
     `## danger-api 工具（L2 安全回归优先）`,
     dangerTools || '（无）',
