@@ -122,3 +122,45 @@ describe('physics actionRisks', () => {
     it(`physics.${action} → ${risk}`, () => expect(getActionRisk('physics', action)).toBe(risk));
   }
 });
+
+describe('game actionRisks', () => {
+  const cases = {
+    game_query:'read', game_input:'read', game_wait:'read', monitor_start:'read', monitor_stop:'read', monitor_poll:'read',
+    watch_start:'read', watch_stop:'read', watch_poll:'read', find_ui_elements:'read', click_button:'read',
+    game_bridge_install:'write', game_bridge_uninstall:'write', game_write:'process',
+  } as const;
+  for (const [a, r] of Object.entries(cases)) it(`game.${a}→${r}`, () => expect(getActionRisk('game', a)).toBe(r));
+});
+
+describe('runtime actionRisks', () => {
+  const cases = {
+    get_debug_output:'read', get_godot_version:'read', record_load:'read',
+    launch_editor:'process', run_project:'process', stop_project:'process', run_tests:'process',
+    record_start:'write', record_stop:'write', record_save:'write', record_play:'write',
+  } as const;
+  for (const [a, r] of Object.entries(cases)) it(`runtime.${a}→${r}`, () => expect(getActionRisk('runtime', a)).toBe(r));
+});
+
+describe('android actionRisks', () => {
+  const cases = { list_devices:'read', get_preset_info:'read', check_template:'read', logcat:'read', deploy:'process' } as const;
+  for (const [a, r] of Object.entries(cases)) it(`android.${a}→${r}`, () => expect(getActionRisk('android', a)).toBe(r));
+});
+
+describe('workflow actionRisks', () => {
+  const cases = { scene_snapshot:'read', batch_validate:'read', diff_scenes:'read', dev_loop:'process', run_verify:'process', create_files:'write' } as const;
+  for (const [a, r] of Object.entries(cases)) it(`workflow.${a}→${r}`, () => expect(getActionRisk('workflow', a)).toBe(r));
+});
+
+describe('validation actionRisks', () => {
+  const cases = {
+    run_and_verify:'read', analyze_error:'read', validate_project:'read', validate_scripts:'read', import_resources:'read',
+    export_list_presets:'read', export_get_preset:'read', validate_gdd:'read', chain_verify:'read', verify_delivery:'read',
+    export_build:'process', assert:'process', stress:'process',
+  } as const;
+  for (const [a, r] of Object.entries(cases)) it(`validation.${a}→${r}`, () => expect(getActionRisk('validation', a)).toBe(r));
+});
+
+describe('manage_tools actionRisks', () => {
+  const cases = { list_groups:'read', sync:'read', reconnect:'read', migrate:'read', activate:'write', deactivate:'write' } as const;
+  for (const [a, r] of Object.entries(cases)) it(`manage_tools.${a}→${r}`, () => expect(getActionRisk('manage_tools', a)).toBe(r));
+});

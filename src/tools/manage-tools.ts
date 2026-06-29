@@ -4,6 +4,7 @@
 // Belongs to the protected 'core' group and cannot be deactivated.
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import type { ConnectionState } from '../types.js';
@@ -195,7 +196,18 @@ function handleSync(): ToolResult {
 }
 
 export const TOOL_META = {
-  manage_tools: { readonly: true, long_running: false },
+  manage_tools: {
+    readonly: true,
+    long_running: false,
+    actionRisks: {
+      list_groups: 'read',
+      sync: 'read',
+      reconnect: 'read',
+      migrate: 'read',
+      activate: 'write',
+      deactivate: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };
 
 function handleMigrate(): ToolResult {

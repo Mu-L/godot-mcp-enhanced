@@ -10,6 +10,7 @@ import { handleRecordingAction } from './recording.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from '../core/logger.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 
 const ACTIONS = [
   'launch_editor',
@@ -367,6 +368,25 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  runtime: { readonly: false, long_running: true },
+export const TOOL_META: Record<
+  string,
+  { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }
+> = {
+  runtime: {
+    readonly: false,
+    long_running: true,
+    actionRisks: {
+      get_debug_output: 'read',
+      get_godot_version: 'read',
+      record_load: 'read',
+      launch_editor: 'process',
+      run_project: 'process',
+      stop_project: 'process',
+      run_tests: 'process',
+      record_start: 'write',
+      record_stop: 'write',
+      record_save: 'write',
+      record_play: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

@@ -10,6 +10,7 @@ import { gdEscape } from './shared.js';
 import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
 import { spawnGodot } from './spawn-helper.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { handleBatchAction } from './batch-tools.js';
 import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gdscripts.js';
 import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
@@ -840,8 +841,19 @@ export function validateScreenshotAssertion(
   return { valid: true };
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  workflow: { readonly: false, long_running: true },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  workflow: {
+    readonly: false,
+    long_running: true,
+    actionRisks: {
+      scene_snapshot: 'read',
+      batch_validate: 'read',
+      diff_scenes: 'read',
+      dev_loop: 'process',
+      run_verify: 'process',
+      create_files: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
   // Absorbed tool meta
   batch: { readonly: false, long_running: false },
 };

@@ -12,6 +12,7 @@ import { requireProjectPath, resolveWithinRoot, parseMcpScriptOutput, normalizeU
 import { analyzeOutput, type AnalysisResult, type AnalyzeOptions } from '../error-analyzer.js';
 import { lintGDScript } from './gdscript-lint.js';
 import { spawnGodot } from './spawn-helper.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
 import { handleTestAction } from './test-framework.js';
 import { handleGameDesignAction } from './game-design.js';
@@ -1066,8 +1067,26 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  validation: { readonly: false, long_running: true },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  validation: {
+    readonly: false,
+    long_running: true,
+    actionRisks: {
+      run_and_verify: 'read',
+      analyze_error: 'read',
+      validate_project: 'read',
+      validate_scripts: 'read',
+      import_resources: 'read',
+      export_list_presets: 'read',
+      export_get_preset: 'read',
+      validate_gdd: 'read',
+      chain_verify: 'read',
+      verify_delivery: 'read',
+      export_build: 'process',
+      assert: 'process',
+      stress: 'process',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
   // Absorbed tool meta
   test: { readonly: true, long_running: false },
   game_design: { readonly: true, long_running: false },

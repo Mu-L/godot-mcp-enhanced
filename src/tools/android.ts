@@ -9,6 +9,7 @@ import { spawnGodot } from './spawn-helper.js';
 import { detectGodotVersion } from '../core/godot-finder.js';
 import { buildSafeEnv } from '../helpers.js';
 import { resolveWithinRoot } from '../core/path-utils.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -320,6 +321,19 @@ export function getToolDefinitions(): Tool[] {
   }];
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  android: { readonly: false, long_running: true },  // per-tool 粒度: deploy/export 慢需 long_running; list_devices/get_preset_info 秒级被错标但无害(客户端多显等待提示, 操作秒回)
+export const TOOL_META: Record<
+  string,
+  { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }
+> = {
+  android: {
+    readonly: false,
+    long_running: true, // per-tool 粒度: deploy/export 慢需 long_running; list_devices/get_preset_info 秒级被错标但无害(客户端多显等待提示, 操作秒回)
+    actionRisks: {
+      list_devices: 'read',
+      get_preset_info: 'read',
+      check_template: 'read',
+      logcat: 'read',
+      deploy: 'process',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

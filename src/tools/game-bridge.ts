@@ -10,6 +10,7 @@ import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
 
 const BRIDGE_PORT = 9081;
@@ -771,8 +772,30 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  game: { readonly: false, long_running: false },
+export const TOOL_META: Record<
+  string,
+  { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }
+> = {
+  game: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      game_query: 'read',
+      game_input: 'read',
+      game_wait: 'read',
+      monitor_start: 'read',
+      monitor_stop: 'read',
+      monitor_poll: 'read',
+      watch_start: 'read',
+      watch_stop: 'read',
+      watch_poll: 'read',
+      find_ui_elements: 'read',
+      click_button: 'read',
+      game_bridge_install: 'write',
+      game_bridge_uninstall: 'write',
+      game_write: 'process',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };
 
 /** Reset all module state — for test isolation and service restart. */
