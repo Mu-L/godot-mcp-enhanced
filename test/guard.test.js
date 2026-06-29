@@ -118,6 +118,38 @@ describe('requiresConfirmation', () => {
     expect(requiresConfirmation('workflow')).toBe(false);
     expect(requiresConfirmation('screenshot')).toBe(false);
   });
+
+  // 非 GUARDED 工具零行为改变（Task 7 修复）：这些工具原不在 GUARDED 表中 →
+  // requiresConfirmation 此前对所有 action 返回 false → 迁移后必须保持 false。
+  // 锁定 spec §4.1：当前在 GUARDED 外的 action 一律标 read。
+  it.each([
+    ['animation_track', 'add_track'],
+    ['animation_track', 'remove_track'],
+    ['animation_track', 'add_keyframe'],
+    ['animation_track', 'remove_keyframe'],
+    ['animation_track', 'update_keyframe'],
+    ['animation_track', 'set_curve'],
+    ['editor', 'sync_start'],
+    ['editor', 'sync_stop'],
+    ['animtree', 'animtree_create'],
+    ['animtree', 'animtree_add_state'],
+    ['animtree', 'animtree_add_transition'],
+    ['animtree', 'animtree_set_blend'],
+    ['animtree', 'animtree_play'],
+    ['animtree', 'animtree_state_edit'],
+    ['profiler', 'start'],
+    ['profiler', 'stop'],
+    ['project', 'create_project'],
+    ['project', 'setup_project_rules'],
+    ['project', 'write_config'],
+    ['project', 'apply_template'],
+    ['screenshot', 'capture'],
+    ['screenshot', 'analyze'],
+    ['docs', 'get_class_info'],
+    ['docs', 'search_classes'],
+  ])('非 GUARDED 工具 %s.%s 保持不确认 (false)', (tool, action) => {
+    expect(requiresConfirmation(tool, { action })).toBe(false);
+  });
 });
 
 // ─── createPendingToken + consumeToken ──────────────────────────────────

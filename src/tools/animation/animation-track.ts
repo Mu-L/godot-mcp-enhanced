@@ -366,13 +366,15 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animation_track: {
     readonly: false,
     long_running: false,
+    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
+    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
     actionRisks: {
-      add_track: 'write',
-      remove_track: 'destructive',
-      add_keyframe: 'write',
-      remove_keyframe: 'destructive',
-      update_keyframe: 'write',
-      set_curve: 'write',
+      add_track: 'read',
+      remove_track: 'read',
+      add_keyframe: 'read',
+      remove_keyframe: 'read',
+      update_keyframe: 'read',
+      set_curve: 'read',
     },
   },
 };

@@ -455,10 +455,12 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   profiler: {
     readonly: false,
     long_running: false,
+    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
+    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
     actionRisks: {
       snapshot: 'read',
-      start: 'process',  // 启动性能分析会话
-      stop: 'process',  // 停止会话
+      start: 'read',
+      stop: 'read',
       get_data: 'read',
       get_active_processes: 'read',
       get_signal_connections: 'read',

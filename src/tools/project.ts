@@ -599,16 +599,18 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   project: {
     readonly: false,
     long_running: false,
+    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
+    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
     actionRisks: {
       list_projects: 'read',
       get_project_info: 'read',
       list_files: 'read',
       read_project_config: 'read',
-      create_project: 'write',  // 创建项目目录和文件
-      setup_project_rules: 'write',  // 写入 .claude/rules/
-      write_config: 'write',  // 修改 project.godot
+      create_project: 'read',
+      setup_project_rules: 'read',
+      write_config: 'read',
       list_templates: 'read',
-      apply_template: 'write',  // 应用模板写入文件
+      apply_template: 'read',
     },
   },
 };

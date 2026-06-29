@@ -448,13 +448,15 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animtree: {
     readonly: false,
     long_running: false,
+    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
+    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
     actionRisks: {
-      animtree_create: 'write',  // 创建 AnimationTree 节点
-      animtree_add_state: 'write',
-      animtree_add_transition: 'write',
-      animtree_set_blend: 'write',
-      animtree_play: 'process',  // 播放状态
-      animtree_state_edit: 'write',
+      animtree_create: 'read',
+      animtree_add_state: 'read',
+      animtree_add_transition: 'read',
+      animtree_set_blend: 'read',
+      animtree_play: 'read',
+      animtree_state_edit: 'read',
     },
   },
 };

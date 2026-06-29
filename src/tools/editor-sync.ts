@@ -10,9 +10,11 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   editor: {
     readonly: false,
     long_running: false,
+    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
+    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
     actionRisks: {
-      sync_start: 'process',  // 启动场景树监听
-      sync_stop: 'process',  // 停止监听
+      sync_start: 'read',
+      sync_stop: 'read',
       get_scene_tree: 'read',
     },
   },
