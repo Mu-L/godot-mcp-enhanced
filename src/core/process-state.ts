@@ -30,6 +30,15 @@ export function forceKillTree(proc: ChildProcess): void {
       proc.kill();
     }
   } else {
+    // P1.2: POSIX 对等 Windows taskkill /T — 先 pkill -P 杀直接子进程(Godot 可能
+    // spawn 导入/资源工具子进程),再 kill 主进程。pkill 失败不阻断主进程 kill。
+    if (proc.pid) {
+      try {
+        spawn('pkill', ['-P', String(proc.pid)], { stdio: 'ignore' });
+      } catch (err) {
+        getLogger().debug('process-state', `pkill failed, falling back to proc.kill: ${err}`);
+      }
+    }
     proc.kill('SIGTERM');
   }
 }
@@ -321,9 +330,13 @@ export async function killOrphanGodotProcesses(projectDir: string): Promise<numb
       const ps = spawn('powershell', [
         '-NoProfile', '-Command',
         // I-01 fix: use ('*'+$path+'*') instead of "*$path*" to avoid $ expansion in -like
+        // D4 fix: -like treats '['/']'/'*'/'?' as wildcards → path containing them mismatches.
+        //         Switch the path test to literal .Contains($path); keep '-like ''*--path*'''
+        //         (literal, no wildcard chars). '$_.CommandLine -and' guards null/empty
+        //         (-and short-circuits before .Contains so null CommandLine won't throw).
         `$path = '${safePath}'; ` +
         `Get-CimInstance Win32_Process -Filter "Name LIKE 'Godot%'" | ` +
-        `Where-Object { $_.CommandLine -like '*--path*' -and $_.CommandLine -like ('*' + $path + '*') } | ` +
+        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) } | ` +
         `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 

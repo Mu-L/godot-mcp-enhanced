@@ -249,6 +249,25 @@ describe('runtime handleTool — run_project', () => {
     expect(ctx.setProcessStartTime).toHaveBeenCalled();
     expect(ctx.setProjectDir).toHaveBeenCalledWith('/fake/project');
   });
+
+  // P1.1: spawn() 同步抛异常时,:178 的 'error' handler 尚未注册 → 必须主动释放槽,
+  // 否则 :140 acquireProcessSlot 获取的 busy 槽永久泄漏,后续 run_project 永远 busy。
+  it('releases process slot when spawn throws synchronously (P1.1)', async () => {
+    spawn.mockImplementationOnce(() => { throw new Error('spawn boom'); });
+    const ctx = createMockCtx();
+
+    const result = await handleTool('runtime', {
+      action: 'run_project',
+      project_path: '/fake/project',
+    }, ctx);
+
+    // 不应抛出,应返回错误文本
+    expect(result).not.toBeNull();
+    expect(result.content[0].text).toContain('failed to spawn');
+    // 槽已释放:busy 清零 + runningProcess 置空
+    expect(setProcessBusy).toHaveBeenCalledWith(false);
+    expect(ctx.setRunningProcess).toHaveBeenCalledWith(null);
+  });
 });
 
 // ─── handleTool — stop_project ──────────────────────────────────────────────

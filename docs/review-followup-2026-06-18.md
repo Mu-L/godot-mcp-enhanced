@@ -15,6 +15,72 @@
 | F1 | generate-doc-db.js execSync 命令注入 → execFileSync 数组参数 | 35afe1b |
 | F2 | `.cursor/mcp.json` 本地路径 git 跟踪 → example 化 + gitignore | 35afe1b |
 
+### ✅ P1 本会话处理（2026-06-19, commit ddcd40c / 11ae93a / f162c46）
+
+| # | 标题 | 提交 | 说明 |
+|---|---|---|---|
+| F3 | cli clients 损坏JSON静默覆盖 → readJsonConfigWithBackup 备份+warn | ddcd40c | claude-code/cursor/opencode 三处 |
+| D4 | killOrphanGodotProcesses -like 通配符 → .Contains($path)+null 守卫 | ddcd40c | 路径含 `[`/`]` 误判 |
+| S2 | confirm_and_execute 截断 args 拒绝(代码已修) → 补测试 | ddcd40c | guard 单元 + dispatcher ARGS_TRUNCATED 端到端 |
+| B2 | 接线 elicitation 强制 required + 修 error 缺 isError | 11ae93a | 接线暴露 isError 既 bug(MCP 协议合规) |
+| C1 | parseTscn 无 `[gd_scene]` 头 warn(防御性) | f162c46 | sawGdSceneHeader 标志 |
+
+**报告误判澄清**:S2 实际已修(35afe1b 之后,仅缺测试);C4 文件已迁移到 `src/tools/scene/scene-merge.ts`;
+B2 审计确认 elicitFn 生产 null(无交互)+顶层 required 几乎全是 `['action']`(已被 validateCommonArgs 覆盖)。
+
+### ✅ P2 本会话处理（2026-06-19, commit c5f0ccf）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| E3 | recording `_recorded_events` 无限增长 OOM → 降采样(16ms)+上限(50000) | recording_commands.gd, validate 0 |
+| B1 | editor 绕过 response-limiter → 两返回点包 truncateResponse | ToolDispatcher, +测试 |
+| D2 | scheduleReconnect 无 jitter + 不检查 reconnectEnabled → jitter+检查 | EditorConnection |
+| D3 | `_disconnectHandler` 清 syncActive 错乱 → 不清(保留意图,重连恢复) | EditorToolExecutor |
+
+push back: **D5**(acquireProcessSlot enqueueAsync 竞态概率极低+根治需锁架构) /
+**E4**(UndoRedo 4 文件大改 + 一致性非 bug,应作独立 epic)。
+报告路径误判: EditorConnection 在 `src/core/`(报告少 `core/`)。
+
+### ✅ P3 本会话处理（2026-06-19, commit 487a50a）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| C3 | scene-merge parseSub regex CRLF 不健壮 → `\r?\n\[` lookahead | scene-merge.ts |
+| E5 | heartbeat resume() 重置所有 peer → 仅 `_operation_peer_id` | heartbeat.gd, validate 0 |
+
+push back: **C2**(SubResource.id 类型统一方向歧义+消费者/引用风险) /
+  **F4**(codex --args,memory `cli-clients-mcp-add-contracts` 已记"正确勿改") /
+  **F5**(config-parser 边界保护,防御性低价值) /
+  **F6**(doctor.ts Grep 无 opencode,报告路径误判)。
+**P4**(G1/G2 测试加固): 留后续。
+
+### ✅ P4 本会话处理（2026-06-19）
+
+| # | 标题 | 说明 |
+|---|---|---|
+| G1 | 并发派发 findGodot override 隔离测试 | ToolDispatcher.test, C-CONC-1(Promise.all 两调用不串 override) |
+
+push back: ~~G2~~ → **已做**(commit 88f3e1c):isPathInAllowedRoots deny-by-default 专项测试
+  (path-security.test.ts,无 ALLOWED+非 UNRESTRICTED → cwd 外路径返回 false,C-07)。12 passed。
+
+### ⏸ C4 push back（2026-06-19）
+
+mergeTscn 引用防护已**充分**(C-BUG-2 防新增悬空 + path/sig dedup + id 映射重写 + 碰撞分配)。
+报告说的"已有悬空"是输入质量(ours/theirs 自身悬空,Godot 不生成),极罕见。
+加全量引用校验需解析所有 node 引用比对定义,复杂低价值。报告自评低优先 → push back。
+
+### ⚠️ 全量测试环境失败（非本次回归,2026-06-19）
+
+全量 2693/2700 passed,7 failed 全环境:
+- **editor-auth ×5**:**已修复**(commit 88f3e1c):vi.mock child_process 让 restrictFileWindows 的
+  icacls ACL 验证在测试 tmpdir 通过(真实 spawn 失败致 readEditorSecret 误 null)。
+  隔离 ACL 安全检查,测读取/等待逻辑。9 passed。非生产 bug(生产 icacls 在用户项目目录正常)。
+- **e2e ×2**(P3-skip/edit_node):**实测推翻"环境慢"判断**(P3-import 首次 3.3s / edit_node 3.1s → Godot 根本不慢,10s testTimeout 绰绰有余)。真因 Windows 偶发卡顿 flaky。两次核验区分:
+  - ✅ **确定真 bug**(值得独立修,但**非 38s 主因**):gdscript-executor `close` 裸 rm 残留(line 1194,fire-and-forget rm EPERM 被吞)+ `retryRm` `_staging_` 二次删除失败(line 590)→ staging 目录累积。`cleanupOldSessions` 有 MAX_CLEANUP_PER_RUN=10 × 最坏 1.2s ≈ **12s 上限,解释不了 38s**。
+  - ❓ **未证实 38s 归因**:`runImport`(line 1007,spawn `--headless --import` 60s timeout)是漏掉的嫌疑 — 待验证 `needsImport` 在 P3-skip 是否误返回 true 触发重复 import。**根治方向:验证 runImport,非后台化 cleanup**(后台化只消 ≤12s)。
+  - 止血:P3-skip 放宽 15s→60s + FIXME 注释(commit 待提交)。详见 `D:\workspace\review\.claude\reviews\2026-06-19-godot-mcp-e2e-flaky-verification.md`。
+- MISSING_PARAM 全量扫描为空 → 非 B2 elicitation 回归。
+
 ---
 
 ## ⏸ push back（报告自述 / 技术理由，非阻断）

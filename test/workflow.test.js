@@ -1,5 +1,37 @@
-import { expect, vi, describe, it } from 'vitest';
-import { getToolDefinitions } from '../src/tools/workflow.js';
+import { expect, vi, describe, it, beforeEach } from 'vitest';
+
+// vi.mock 由 vitest 自动 hoist 到所有 import 之前;工厂不引用外部变量。
+vi.mock('../src/gdscript-executor.js', () => ({
+  executeGdscript: vi.fn(async () => ({ success: true, outputs: [] })),
+  executeGdscriptTrusted: vi.fn(async () => ({ success: true, outputs: [] })),
+}));
+
+import { executeGdscriptTrusted } from '../src/gdscript-executor.js';
+import { getToolDefinitions, handleTool } from '../src/tools/workflow.js';
+
+const fakeCtx = { findGodot: async () => '/fake/godot' };
+
+// ─── scene_snapshot null-root guard (defect: gdscript-gen-null-root-deref 回归) ──
+// _mcp_get_root() 可返回 null(gdscript-executor.ts:829); add_child 前必须判空,
+// 防 null.add_child 崩溃。与 gdscript-templates.ts 既定模式一致。
+
+describe('scene_snapshot — _mcp_get_root() null guard before add_child', () => {
+  beforeEach(() => {
+    executeGdscriptTrusted.mockClear();
+  });
+
+  it('add_child 前判空 root(防 null.add_child 崩溃)', async () => {
+    await handleTool('workflow', {
+      action: 'scene_snapshot',
+      project_path: '/fake/proj',
+      scene_path: 'main.tscn',
+    }, fakeCtx);
+    expect(executeGdscriptTrusted).toHaveBeenCalled();
+    const code = executeGdscriptTrusted.mock.calls[0][0].code;
+    expect(code.includes('_mcp_get_root().add_child')).toBe(false);
+    expect(code.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+  });
+});
 
 describe('workflow tool definitions', () => {
   const tools = getToolDefinitions();

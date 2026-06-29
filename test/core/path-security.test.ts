@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { sanitizePath } from '../../src/core/path-security.js';
+import { isPathInAllowedRoots } from '../../src/core/path-utils.js';
 
 describe('sanitizePath', () => {
   afterEach(() => {
@@ -53,5 +54,22 @@ describe('sanitizePath', () => {
   it('accepts allowedRoots from env var', () => {
     process.env.GODOT_MCP_ALLOWED_ROOTS = 'D:/env-custom';
     expect(sanitizePath('D:/env-custom/file.txt')).toBe('D:/env-custom/file.txt');
+  });
+});
+
+// G2: deny-by-default 专项覆盖 — 无 ALLOWED_PROJECT_PATHS + 非 UNRESTRICTED 时,
+// 路径必须被拒(C-07: restrict to cwd)。isPathInAllowedRoots 无缓存,删 env 即时生效。
+describe('isPathInAllowedRoots deny-by-default (G2)', () => {
+  it('denies paths outside cwd when no ALLOWED_PROJECT_PATHS and UNRESTRICTED unset', () => {
+    const prevU = process.env.GODOT_MCP_UNRESTRICTED;
+    delete process.env.GODOT_MCP_UNRESTRICTED;
+    delete process.env.GODOT_MCP_ALLOWED_ROOTS;
+    try {
+      // 项目 cwd 外的系统路径 → 不在 cwd → deny-by-default 返回 false
+      const outside = process.platform === 'win32' ? 'C:/Windows/System32' : '/etc';
+      expect(isPathInAllowedRoots(outside)).toBe(false);
+    } finally {
+      if (prevU !== undefined) process.env.GODOT_MCP_UNRESTRICTED = prevU;
+    }
   });
 });

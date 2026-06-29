@@ -4,7 +4,7 @@ import type { ChildProcess } from 'child_process';
 import type { ReadOnlyGuard } from './ReadOnlyGuard.js';
 import type { EditorToolExecutor } from './EditorToolExecutor.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { executeMiddleware, createRateLimitMiddleware } from './middleware.js';
+import { executeMiddleware, createRateLimitMiddleware, createElicitationMiddleware } from './middleware.js';
 import { HealthMonitor } from './health-monitor.js';
 import { isFeatureEnabled } from './feature-flags.js';
 import {
@@ -314,7 +314,7 @@ export class ToolDispatcher {
           const content = hasDuration
             ? editorResult.content
             : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-          return this.attachFallbackWarning({ ...editorResult, content });
+          return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
         }
         return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride));
       }
@@ -352,7 +352,7 @@ export class ToolDispatcher {
         const content = hasDuration
           ? editorResult.content
           : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-        return this.attachFallbackWarning({ ...editorResult, content });
+        return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
       }
 
       // ── 5. headless dispatch ──
@@ -387,6 +387,15 @@ export class ToolDispatcher {
 
     // IMPORTANT-5: 全局 rate limit(防 AI 失控循环耗尽资源)。默认 60 次/秒软限。
     mw.push(createRateLimitMiddleware());
+
+    // B2: 接线 elicitation 强制顶层 required 校验。elicitFn=null(生产未配置 elicitation
+    //     交互)→纯 required 强制:顶层 required 缺失返回 MISSING_PARAM。补 validateCommonArgs
+    //     漏检的 action 键完全缺失 + 为新增工具提供 required 兜底。条件分支 required
+    //     (oneOf/anyOf)不在此校验,仍由各工具 handler 自行处理。
+    mw.push(createElicitationMiddleware(
+      (name: string) => getAllToolDefinitions().find(t => t.name === name) ?? null,
+      null,
+    ));
 
     return mw;
   }

@@ -317,6 +317,7 @@ export function parseTscn(content: string): ParsedScene {
   };
 
   let currentSection: 'header' | 'ext_resource' | 'sub_resource' | 'node' | 'connection' | 'unknown' = 'header';
+  let sawGdSceneHeader = false; // C1: track whether a [gd_scene] header section was matched
   let currentExt: Partial<ExtResource> | null = null;
   let currentSub: Partial<SubResource> & { id?: string } | null = null;
   let currentNode: Partial<ParsedNode> & { properties: NodeProperty[] } | null = null;
@@ -334,6 +335,7 @@ export function parseTscn(content: string): ParsedScene {
     // which never matched, leaving header permanently `{}`.
     if (trimmed.startsWith('[gd_scene')) {
       currentSection = 'header';
+      sawGdSceneHeader = true;
       const headerMatch = trimmed.match(/\[gd_scene\s+([^\]]*)\]/);
       const attrs = headerMatch ? headerMatch[1]! : '';
       const pairs = attrs.match(/(\w+)=(?:"([^"]*)"|((?:(?!\s+\w+=).)+))/g);
@@ -565,6 +567,11 @@ export function parseTscn(content: string): ParsedScene {
 
   // Root nodes (no parent) are the top-level
   result.nodeMap = nodeMap;
+
+  // C1: malformed input with no [gd_scene] header would otherwise silently yield an empty parse.
+  if (content.trim() && !sawGdSceneHeader) {
+    console.warn('[tscn-parser] input has no [gd_scene] header — malformed .tscn? Returning empty parse.');
+  }
 
   return result;
 }

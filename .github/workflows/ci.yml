@@ -7,6 +7,9 @@ on:
 
 jobs:
   check:
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -31,7 +34,60 @@ jobs:
       # 平台敏感(Linux 败/Windows 23/23 过),版本无关(4.1.7/4.1.9 双版本 Windows 全过)。
       # 非生产/测试逻辑 bug。T-2 守护 + game-bridge.ts 覆盖率退本地(Windows game-bridge.test.ts 23/23)。
       # 详见 https://github.com/wgt19861219/godot-mcp-enhanced/issues/15
-      - run: npx vitest run --exclude test/game-bridge.test.ts --coverage
+      - run: npx vitest run --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
+      - name: Install Godot 4.6.3 (M3c, job-isolated)
+        run: |
+          set -e
+          curl -L --fail -o /tmp/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          mkdir -p /tmp/godot-bin
+          unzip -o /tmp/godot.zip -d /tmp/godot-bin
+          chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
+          echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Check gdscript (M3c, non-blocking)
+        run: npm run check:gdscript
+        continue-on-error: true
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+      - name: npm audit (M3a, non-blocking)
+        run: npm run audit:json --silent > coverage/audit.json 2>/dev/null || true
+        continue-on-error: true
+      - name: Generate score.json (M1, non-blocking)
+        run: |
+          npm run build
+          npm run score
+        continue-on-error: true
+      - name: Score gate (M3b)
+        run: npm run score:gate
+      - name: Score pr-comment (M3b-PR)
+        if: always()
+        continue-on-error: true
+        run: npm run score:pr-comment
+      - name: Score html (M3b-HTML)
+        if: always()
+        continue-on-error: true
+        run: npm run score:html
+      - name: Sticky PR comment (M3b-PR)
+        if: always() && matrix.node-version == '22' && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-comment@v2
+        with:
+          header: scoring-pr-comment
+          path: coverage/pr-comment.md
+      - name: Upload score.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-json
+          path: coverage/score.json
+          if-no-files-found: warn
+      - name: Upload score-report.html
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-report-html
+          path: coverage/score-report.html
+          if-no-files-found: warn
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
@@ -66,4 +122,11 @@ jobs:
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
       - name: Run E2E (real Godot integration)
-        run: npx vitest run test/e2e-full-tool-verification.test.ts
+        run: npx vitest run test/e2e-full-tool-verification.test.ts --reporter=json --outputFile=coverage/e2e-report.json
+      - name: Upload e2e-report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: coverage/e2e-report.json
+          if-no-files-found: warn

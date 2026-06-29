@@ -1331,7 +1331,10 @@ func _cmd_click_button(params: Dictionary) -> Variant:
 			return {"error": {"code": -2, "message": "Node is not a Button: %s (type: %s)" % [path, node.get_class()]}}
 		target = node as BaseButton
 	elif text != "":
-		var stack: Array = [get_tree().root]
+		var _tree = get_tree()
+		if _tree == null:
+			return {"error": {"code": -1, "message": "Scene tree not available"}}
+		var stack: Array = [_tree.root]
 		while stack.size() > 0:
 			var node: Node = stack.pop_back()
 			# Traverse children first so disabled parents don't block child discovery

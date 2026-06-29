@@ -161,6 +161,7 @@ export function createElicitationMiddleware(
               error_code: 'MISSING_PARAM',
               missing_params: missing,
             }) }],
+            isError: true,
           },
         };
       }
@@ -184,6 +185,7 @@ export function createElicitationMiddleware(
             error_code: 'MISSING_PARAM',
             missing_params: primitiveMissing,
           }) }],
+          isError: true,
         },
       };
     },

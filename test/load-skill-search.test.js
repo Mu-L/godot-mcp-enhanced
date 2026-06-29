@@ -21,6 +21,17 @@ describe('load-skill-search', () => {
       join(libDir, 'references', 'never-rules.md'),
       '# NEVER Rules\n\nNever read input in _process. Use _unhandled_input.'
     );
+    // 含已知 CRITICAL 的 gd-agentic skill(用于 warning 附着测试)
+    await mkdir(join(libDir, 'skills', 'godot-adapt-desktop-to-mobile'), { recursive: true });
+    await writeFile(
+      join(libDir, 'skills', 'godot-adapt-desktop-to-mobile', 'SKILL.md'),
+      '---\nname: godot-adapt-desktop-to-mobile\ndescription: Touch joystick and mobile porting patterns\n---\n# Adapt Desktop to Mobile\nVirtual joystick and touch controls for mobile games.'
+    );
+    await mkdir(join(libDir, 'skills', 'godot-3d-lighting'), { recursive: true });
+    await writeFile(
+      join(libDir, 'skills', 'godot-3d-lighting', 'SKILL.md'),
+      '---\nname: godot-3d-lighting\ndescription: 3D lighting and global illumination\n---\n# 3D Lighting\nGI bounce and light LOD optimization.'
+    );
   });
 
   afterAll(async () => {
@@ -70,5 +81,36 @@ describe('load-skill-search', () => {
   it('limit 截断结果数', async () => {
     const { matches } = await searchSkills([libDir], 'coyote', 1);
     expect(matches.length).toBeLessThanOrEqual(1);
+  });
+
+  // CRITICAL warning:召回含已知 CRITICAL 的 skill 时,snippet 末尾附警示 block
+  // 来源:godot-ai-kit docs/enhanced-load-skill-warning-requirement.md(spec §4.3)
+  it('W1 命中含 CRITICAL 的 skill → snippet 末尾附 warning(adapt C1/C2/C3)', async () => {
+    const { matches } = await searchSkills([libDir], 'touch joystick mobile');
+    const adapt = matches.find(m => m.name === 'godot-adapt-desktop-to-mobile');
+    expect(adapt).toBeDefined();
+    expect(adapt.snippet).toContain('⚠️');
+    expect(adapt.snippet).toContain('CRITICAL');
+    expect(adapt.snippet).toContain('C1');
+    expect(adapt.snippet).toContain('C2');
+    expect(adapt.snippet).toContain('C3');
+    expect(adapt.snippet).toContain('enhanced-boundaries.md');
+  });
+
+  it('W2 命中 godot-3d-lighting → warning 含 C4/C5', async () => {
+    const { matches } = await searchSkills([libDir], 'lighting illumination');
+    const light = matches.find(m => m.name === 'godot-3d-lighting');
+    expect(light).toBeDefined();
+    expect(light.snippet).toContain('⚠️');
+    expect(light.snippet).toContain('C4');
+    expect(light.snippet).toContain('C5');
+  });
+
+  it('W3 升阶/普通 skill → 不附 warning', async () => {
+    const { matches } = await searchSkills([libDir], 'platformer coyote');
+    const plat = matches.find(m => m.name === 'platformer-movement');
+    expect(plat).toBeDefined();
+    expect(plat.snippet).not.toContain('⚠️');
+    expect(plat.snippet).not.toContain('CRITICAL');
   });
 });

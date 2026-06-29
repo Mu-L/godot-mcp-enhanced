@@ -3,6 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
+import { readJsonConfigWithBackup } from './json-config.js';
 
 export class CursorAdapter implements ClientAdapter {
   name = 'Cursor';
@@ -24,10 +25,8 @@ export class CursorAdapter implements ClientAdapter {
     const cursorDir = join(projectDir, '.cursor');
     const mcpPath = join(cursorDir, 'mcp.json');
     if (!existsSync(cursorDir)) mkdirSync(cursorDir, { recursive: true });
-    let config: Record<string, unknown> = {};
-    if (existsSync(mcpPath)) {
-      try { config = JSON.parse(readFileSync(mcpPath, 'utf-8')); } catch { /* ignore */ }
-    }
+    // F3: 损坏 JSON 时备份原文件 + warn,不静默覆盖用户配置
+    const config = readJsonConfigWithBackup(mcpPath);
     if (!config.mcpServers) config.mcpServers = {};
     (config.mcpServers as Record<string, unknown>).godot = {
       command: mcpCommand,

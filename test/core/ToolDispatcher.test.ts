@@ -377,6 +377,51 @@ describe('ToolDispatcher.handleCall', () => {
     expect(text).toContain('Invalid or expired');
   });
 
+  // [T6b] consumeToken 返回 wasTruncated → 拒绝执行(S2,ARGS_TRUNCATED)
+  it('refuses execution when token args were truncated (ARGS_TRUNCATED) (S2)', async () => {
+    mockConsumeToken.mockReturnValue({
+      toolName: 'script',
+      args: { action: 'execute_gdscript', code: 'a'.repeat(11_000) },
+      wasTruncated: true,
+    });
+    const dispatcher = createDispatcherForHandleCall();
+    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'truncated-token' } } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('ARGS_TRUNCATED');
+  });
+
+  // [B2] elicitation middleware 强制顶层 required(elicitFn=null,纯校验)
+  it('rejects calls missing top-level required params with MISSING_PARAM (B2)', async () => {
+    mockGetAllToolDefinitions.mockReturnValue([
+      { name: 'scene', description: 'x', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } },
+      ...FIXTURE_TOOLS,
+    ]);
+    mockRequiresConfirmation.mockReturnValue(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall();
+    const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('MISSING_PARAM');
+    expect(text).toContain('action');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  it('passes through when required params are present (B2)', async () => {
+    mockGetAllToolDefinitions.mockReturnValue([
+      { name: 'scene', description: 'x', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } },
+      ...FIXTURE_TOOLS,
+    ]);
+    mockRequiresConfirmation.mockReturnValue(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall();
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'read_scene' } } });
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+
   // [T7] confirm 分支二次 readOnlyGuard 检查
   it('re-checks readOnlyGuard for confirmed tool', async () => {
     const guard = createMockGuard(false);
@@ -470,6 +515,26 @@ describe('ToolDispatcher.handleCall', () => {
     dispatcher.setEditorExecutor(mockExecutor);
     await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'add_node' } } });
     expect(mockExecutor.execute).toHaveBeenCalledWith('scene', expect.objectContaining({ action: 'add_node', project_path: '/default/project' }));
+  });
+
+  // [B1] editor 模式大响应也经 truncateResponse(修复 editor 绕过 response-limiter)
+  it('truncates large editor responses via truncateResponse (B1)', async () => {
+    const prev = process.env.GODOT_MCP_RESPONSE_LIMIT;
+    process.env.GODOT_MCP_RESPONSE_LIMIT = 'true';
+    try {
+      const guard = createMockGuard(false);
+      const hugeText = 'x'.repeat(2.2 * 1024 * 1024); // >2MB 触发 truncateResponse warning 分支
+      const hugeResult = { content: [{ type: 'text' as const, text: hugeText }] };
+      const mockExecutor = { execute: vi.fn().mockResolvedValue(hugeResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+      const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+      dispatcher.setEditorExecutor(mockExecutor);
+      const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'read_scene' } } });
+      expect(result.content.length).toBeGreaterThan(1);
+      expect(result.content.some(c => 'text' in c && c.text.includes('exceeds 2MB'))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GODOT_MCP_RESPONSE_LIMIT;
+      else process.env.GODOT_MCP_RESPONSE_LIMIT = prev;
+    }
   });
 
   // [T13] editor 模式 executor 为 null → fallback headless
@@ -1084,6 +1149,30 @@ describe('ToolDispatcher: findGodot override propagation (CR-1/CR-2)', () => {
     const resolved = await ctx.findGodot();
     // 必须是 pending.args 的 godot_path,而非默认 findGodot 或 confirm_and_execute 的 args
     expect(resolved).toBe('/pending/godot.exe');
+  });
+
+  // [G1] C-CONC-1: 并发派发时 findGodot override 必须隔离(局部变量,不串)。
+  // 模拟 MCP SDK Promise.resolve().then 并发派发多个 tools/call。若用实例字段存 override,
+  // 后发调用会覆盖先发 → 两调用 ctx.findGodot 都返回同一值(串)。局部变量沿调用链传递则隔离。
+  it('concurrent dispatches isolate findGodot override (G1, C-CONC-1)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    // 用 project_path + findGodotSpy(无 godot_path → 走项目感知 findGodot,不触发 validate 真实 spawn)
+    const findGodotSpy = vi.fn((p?: string) => Promise.resolve(`/godot/for/${p ?? 'default'}`));
+    const dispatcher = makeDispatcher({ readOnlyGuard: guard, findGodot: findGodotSpy });
+
+    await Promise.all([
+      dispatcher.handleCall({ params: { name: 'scene', arguments: { project_path: '/proj/A' } } }),
+      dispatcher.handleCall({ params: { name: 'scene', arguments: { project_path: '/proj/B' } } }),
+    ]);
+
+    expect(mockModule.handleTool).toHaveBeenCalledTimes(2);
+    // 各调用的 ctx.findGodot 返回各自的 override(基于该调用 project_path)— 不串
+    const results = await Promise.all(
+      mockModule.handleTool.mock.calls.map(c => (c[2] as { findGodot: () => Promise<string> }).findGodot()),
+    );
+    expect(results.sort()).toEqual(['/godot/for//proj/A', '/godot/for//proj/B']);
   });
 
   // [FG4] 无 godot_path 无 project_path → findGodot 以 undefined 调用(回退默认查找逻辑)

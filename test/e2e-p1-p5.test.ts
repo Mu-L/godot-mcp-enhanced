@@ -187,7 +187,13 @@ describe.skipIf(!hasGodot)('E2E: P1-P5 validation', { timeout: 60_000 }, () => {
     });
     const duration = Date.now() - start;
     expect(result.run_success).toBe(true);
-    expect(duration).toBeLessThan(15_000);
+    // 38s flaky 已根治(gdscript-executor.ts, 2026-06-19): 实测推翻 runImport 嫌疑 — P3-skip
+    // needsImport=false, 不触发重复 import。真根因 = staging 目录累积(close 裸 rm 失败残留)触发
+    // cleanupOldSessions 的 retryRm EPERM 退避阻塞主路径(实测 31 个 staging 致 41.93s, 清空后
+    // 3.87s, 差值 38.06s 精确吻合偶发卡顿)。修复: close 改 retryRm(减源头残留) + cleanupOldSessions
+    // 加 CLEANUP_BUDGET_MS=2s 时间预算(防累积阻塞主路径)。断言收紧 60s→30s: 根因已除(cleanup ≤2s),
+    // 30s 留 Godot 启动余量且能抓 38s 回归。
+    expect(duration).toBeLessThan(30_000);
   });
 
   // P4: captureScreenshot

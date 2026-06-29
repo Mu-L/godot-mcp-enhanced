@@ -117,6 +117,19 @@ function main() {
     process.exit(1);
   }
 
+  // 版本一致性校验: extension_api.json 的 minor 须与 gdscript-lint godot_target 对齐,
+  // 避免数据库落后于 godot_target 声明(防止"标记层 4.7 / 数据层 4.6.2"脱节)。
+  const EXPECTED_GODOT_MINOR = 7; // 对齐 src/tools/gdscript-lint.ts LINT_VERSION.godot_target
+  if (apiData.header && apiData.header.version_minor !== EXPECTED_GODOT_MINOR) {
+    console.warn(
+      `\n⚠️  版本不一致: extension_api.json 是 Godot 4.${apiData.header.version_minor},` +
+      `但 gdscript-lint godot_target 是 4.${EXPECTED_GODOT_MINOR}。\n` +
+      `   重新生成: 在 Godot 4.${EXPECTED_GODOT_MINOR} 下运行 ` +
+      `godot --headless --dump-extension-api (4.7 写入当前目录 extension_api.json),\n` +
+      `   将其放到 docs/api/ 后重跑 npm run generate-docs。\n`
+    );
+  }
+
   // 获取版本信息
   let godotVersion = null;
   const godotBin = findGodotBinary();

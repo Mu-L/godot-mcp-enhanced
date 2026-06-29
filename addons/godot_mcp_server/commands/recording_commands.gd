@@ -6,6 +6,10 @@ var _plugin: EditorPlugin
 var _recording: bool = false
 var _recorded_events: Array = []
 var _record_start_time: int = 0
+# E3: mouse_motion 每帧多次触发 → 降采样 + 上限防 _recorded_events 无限增长 OOM
+const _MOTION_MIN_INTERVAL_MS := 16  # ~60fps,过密的 mouse_motion 跳过
+const _MAX_RECORDED_EVENTS := 50000  # 兜底上限,超限丢弃并警告
+var _last_motion_time: int = 0
 
 # CRITICAL-2 (R2): 回放事件总数上限防 OOM(百万级 events_json 致编辑器崩溃),与 TS MAX_RECORDING_EVENTS 对齐
 const MAX_PLAYBACK_EVENTS := 10000
@@ -16,6 +20,7 @@ func setup(plugin: EditorPlugin) -> void:
 func _input(event: InputEvent) -> void:
 	if not _recording:
 		return
+	var now := Time.get_ticks_msec()
 	if event is InputEventKey:
 		var entry: Dictionary = {
 			"type": "key",
@@ -24,25 +29,29 @@ func _input(event: InputEvent) -> void:
 			"shift": event.shift_pressed,
 			"ctrl": event.ctrl_pressed,
 			"alt": event.alt_pressed,
-			"time_offset": Time.get_ticks_msec() - _record_start_time
+			"time_offset": now - _record_start_time
 		}
-		_recorded_events.append(entry)
+		_append_event(entry)
 	elif event is InputEventMouseButton:
 		var entry: Dictionary = {
 			"type": "mouse_click",
 			"position": [event.position.x, event.position.y],
 			"button": event.button_index,
 			"pressed": event.pressed,
-			"time_offset": Time.get_ticks_msec() - _record_start_time
+			"time_offset": now - _record_start_time
 		}
-		_recorded_events.append(entry)
+		_append_event(entry)
 	elif event is InputEventMouseMotion:
+		# E3: 降采样 — 跳过过密的 mouse_motion(每帧多个),防 _recorded_events 无限增长 OOM
+		if now - _last_motion_time < _MOTION_MIN_INTERVAL_MS:
+			return
+		_last_motion_time = now
 		var entry: Dictionary = {
 			"type": "mouse_move",
 			"position": [event.position.x, event.position.y],
-			"time_offset": Time.get_ticks_msec() - _record_start_time
+			"time_offset": now - _record_start_time
 		}
-		_recorded_events.append(entry)
+		_append_event(entry)
 	elif event is InputEventScreenTouch:  # IMP-11 (2026-06-26 review): 触摸事件录制(触屏设备)
 		var entry: Dictionary = {
 			"type": "touch",
@@ -51,7 +60,7 @@ func _input(event: InputEvent) -> void:
 			"index": event.index,
 			"time_offset": Time.get_ticks_msec() - _record_start_time
 		}
-		_recorded_events.append(entry)
+		_append_event(entry)
 	elif event is InputEventScreenDrag:  # IMP-11 补全: 拖拽录制(对齐 bridge _input + _cmd_send_drag 契约)
 		var drag_entry: Dictionary = {
 			"type": "touch_drag",
@@ -61,7 +70,16 @@ func _input(event: InputEvent) -> void:
 			"speed": [event.speed.x, event.speed.y],
 			"time_offset": Time.get_ticks_msec() - _record_start_time
 		}
-		_recorded_events.append(drag_entry)
+		_append_event(drag_entry)
+
+
+# E3: 带上限的事件追加,超 _MAX_RECORDED_EVENTS 丢弃并警告(防 OOM)
+func _append_event(entry: Dictionary) -> void:
+	if _recorded_events.size() >= _MAX_RECORDED_EVENTS:
+		push_warning("[MCP] Recording: max events (%d) reached, dropping further events" % _MAX_RECORDED_EVENTS)
+		return
+	_recorded_events.append(entry)
+
 
 # ─── recording_start ────────────────────────────────────────────────────────
 

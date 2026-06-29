@@ -84,6 +84,50 @@ function validateLibraryPath(p: string): { ok: true } | { ok: false; reason: str
   return { ok: true };
 }
 
+// ─── CRITICAL 脚本警示(来源:godot-ai-kit docs/enhanced-load-skill-warning-requirement.md,spec §4.3)───
+// load_skill 召回 .md 文档;若所属 skill 含已知 CRITICAL 脚本,在 snippet 末尾附 warning,提示参考代码
+// 复制到生产前必须人工审。命中按 skill 名(match.path 含 <skill>/ 段),非精确 .gd 路径(.md≠.gd)。
+// 详见 godot-ai-kit docs/enhanced-boundaries.md #12。
+interface CriticalItem { cid: string; desc: string; }
+
+const CRITICAL_SKILLS: { skill: string; items: CriticalItem[] }[] = [
+  {
+    skill: 'godot-adapt-desktop-to-mobile',
+    items: [
+      { cid: 'C1', desc: '硬编码密钥+无完整性校验' },
+      { cid: 'C2', desc: '缺 InputEventMouseButton 分支' },
+      { cid: 'C3', desc: 'zoom.x 单分量非等比缩放' },
+    ],
+  },
+  {
+    skill: 'godot-3d-lighting',
+    items: [
+      { cid: 'C4', desc: '动态光泄漏' },
+      { cid: 'C5', desc: 'visible 硬切换与 distance_fade 冲突' },
+    ],
+  },
+  {
+    skill: 'godot-3d-materials',
+    items: [{ cid: 'C6', desc: '未判 null 必崩' }],
+  },
+];
+
+/** 召回 .md 路径所属 skill 含 CRITICAL 时返回其 CRITICAL 列表,否则 null。 */
+function findCritical(mdPath: string): CriticalItem[] | null {
+  const norm = mdPath.replace(/\\/g, '/');
+  for (const s of CRITICAL_SKILLS) {
+    if (norm === s.skill || norm.startsWith(s.skill + '/') || norm.includes('/' + s.skill + '/')) {
+      return s.items;
+    }
+  }
+  return null;
+}
+
+function buildWarning(items: CriticalItem[]): string {
+  const label = items.map(i => `${i.cid} ${i.desc}`).join(' / ');
+  return `\n\n⚠️ 参考代码含已知 CRITICAL(${label}),复制到生产前必须人工审。详见 godot-ai-kit docs/enhanced-boundaries.md #12。`;
+}
+
 export async function searchSkills(
   libraries: string[],
   query: string,
@@ -117,13 +161,15 @@ export async function searchSkills(
       const { name, description, body } = parseSkill(content, basename(filePath, '.md'));
       const score = q ? scoreMatch(q, name, description, body) : 0;
       if (score > 0) {
+        const relPath = relative(real, filePath) || filePath;
+        const crit = findCritical(relPath);
         matches.push({
           source,
-          path: relative(real, filePath) || filePath,
+          path: relPath,
           name,
           description,
           score,
-          snippet: body.slice(0, 200).trim(),
+          snippet: crit ? `${body.slice(0, 200).trim()}${buildWarning(crit)}` : body.slice(0, 200).trim(),
         });
       }
     }

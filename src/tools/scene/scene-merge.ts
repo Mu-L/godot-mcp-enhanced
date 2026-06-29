@@ -23,7 +23,7 @@ export function mergeTscn(ours: string, theirs: string): string {
   interface SubRes { type: string; originalId: string; body: string }
   const parseSub = (content: string): SubRes[] => {
     const result: SubRes[] = [];
-    const regex = /\[sub_resource\s+type="([^"]+)"\s+id="([^"]+)"\]([\s\S]*?)(?=\n\[sub_resource|\n\[node|\n\[ext_resource|$)/g;
+    const regex = /\[sub_resource\s+type="([^"]+)"\s+id="([^"]+)"\]([\s\S]*?)(?=\r?\n\[sub_resource|\r?\n\[node|\r?\n\[ext_resource|$)/g;
     let m: RegExpExecArray | null;
     while ((m = regex.exec(content)) !== null) {
       result.push({ type: m[1]!, originalId: m[2]!, body: m[3]!.trim() });

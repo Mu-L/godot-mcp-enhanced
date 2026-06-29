@@ -13,7 +13,8 @@ export class EditorToolExecutor {
 
   /** Bound handlers stored so we can remove them on destroy. */
   private readonly _disconnectHandler = (): void => {
-    this.syncActive = false;
+    // D3: 不清 syncActive — 保留用户 sync 意图。重连时 _reconnectHandler 据 syncActive
+    // re-subscribe(自动恢复);清了会致重连不 re-subscribe(语义错乱)+ handleSyncStop 误报 SYNC_NOT_ACTIVE。
     this.treeChangeRing = [];
     this.treeChangeHead = 0;
     this.treeChangeCount = 0;

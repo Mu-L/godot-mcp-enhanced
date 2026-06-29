@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -151,10 +151,21 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       clearOutputBuffer();
       ctx.setProcessStartTime(Date.now());
 
-      const proc = spawn(godot, ['--path', p, '--debug'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: buildSafeEnv(),
-      });
+      // P1.1: spawn() 同步抛异常时,:178 的 'error' handler 尚未注册 → 必须主动释放槽,
+      // 否则 :140 acquireProcessSlot 获取的 busy 槽永久泄漏,后续 run_project 永远 busy。
+      let proc: ChildProcess;
+      try {
+        proc = spawn(godot, ['--path', p, '--debug'], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: buildSafeEnv(),
+        });
+      } catch (err) {
+        setProcessBusy(false);
+        ctx.setRunningProcess(null);
+        const msg = err instanceof Error ? err.message : String(err);
+        appendOutput([`Spawn error: ${msg}`]);
+        return textResult(`Error: failed to spawn Godot: ${msg}`);
+      }
 
       proc.stdout?.on('data', (data: Buffer) => {
         appendOutput(data.toString().split('\n'));
