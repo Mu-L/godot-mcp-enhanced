@@ -92,4 +92,11 @@ describe('collectGdscript', () => {
     expect(r.score).toBe(-1);
     expect(r.status).toBe('na');
   });
+
+  it('超大文件(>10MB)→ na(A1:防撑爆内存)', () => {
+    writeFileSync(REPORT, Buffer.alloc(10 * 1024 * 1024 + 1));
+    const r = collectGdscript(REPORT);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('过大');
+  });
 });

@@ -35,10 +35,11 @@ export function extractClassNames(files: string[], contents: Record<string, stri
   return names;
 }
 
-/** 递归 glob .gd */
-function listGd(root: string): string[] {
+/** 递归 glob .gd。跳过 symlink 目录(B6:isDirectory() 会跟随 symlink,需显式 isSymbolicLink 排除防逃逸)。 */
+export function listGd(root: string): string[] {
   const out: string[] = [];
   for (const e of readdirSync(root, { withFileTypes: true })) {
+    if (e.isSymbolicLink()) continue;  // B6:不跟随 symlink(防逃逸出 root)
     const p = join(root, e.name);
     if (e.isDirectory()) out.push(...listGd(p));
     else if (e.name.endsWith('.gd')) out.push(p);

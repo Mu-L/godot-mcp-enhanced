@@ -69,4 +69,15 @@ describe('evaluateGate', () => {
       hardFails: [{ dimension: 'security', reason: 'r', threshold: 60, actual: 40 }],
     })).passed).toBe(false);
   });
+
+  it('total 为 NaN → fail-closed(A4:防 aggregate 异常时 NaN<PASS 为 false 放行)', () => {
+    const r = evaluateGate(makeScore({ total: Number.NaN }));
+    expect(r.passed).toBe(false);
+    expect(r.reasons.some(x => x.includes('无效'))).toBe(true);
+  });
+
+  it('total 为 Infinity → fail-closed', () => {
+    const r = evaluateGate(makeScore({ total: Number.POSITIVE_INFINITY }));
+    expect(r.passed).toBe(false);
+  });
 });

@@ -72,4 +72,20 @@ describe('collectIntegration', () => {
     expect(r.score).toBe(-1);
     expect(r.status).toBe('na');
   });
+
+  it('超大文件(>10MB)→ na(A1:防撑爆内存)', () => {
+    writeFileSync(JSON_PATH, Buffer.alloc(10 * 1024 * 1024 + 1));
+    const r = collectIntegration(JSON_PATH);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('过大');
+  });
+
+  it('计数字段非数字类型 → na(A3:防污染致通过率 NaN)', () => {
+    writeFileSync(JSON_PATH, JSON.stringify({
+      numTotalTests: 40, numPassedTests: 'corrupt', numFailedTests: 0, numPendingTests: 0,
+    }));
+    const r = collectIntegration(JSON_PATH);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('类型异常');
+  });
 });

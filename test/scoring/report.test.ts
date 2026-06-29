@@ -96,4 +96,15 @@ describe('renderScoreReport', () => {
     }));
     expect(md).toContain('0 err / 0 warn');
   });
+
+  it('hardFails reason 含表格分隔符 | 被转义(A2:防破坏表格结构)', () => {
+    const BS = String.fromCharCode(92);
+    const md = renderScoreReport(makeScore({
+      pass: false,
+      hardFails: [{ dimension: 'security', reason: 'a|b', threshold: 60, actual: 40 }],
+    }));
+    // | 被转义为反斜杠+管道;原样 a|b 不出现(否则增加表格列数)
+    expect(md).toContain('a' + BS + '|b');
+    expect(md).not.toContain('a|b');
+  });
 });

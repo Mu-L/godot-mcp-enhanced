@@ -1,6 +1,9 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import type { DimensionResult, DimensionStatus } from '../types.js';
 import { WEIGHTS, NA_SCORE, T_PASS_MS, T_WARN_MS } from '../dimensions.js';
+
+/** collector 读取的 CI artifact 最大字节(A1)。 */
+const MAX_REPORT_BYTES = 10 * 1024 * 1024; // 10MB
 
 /**
  * 分段线性:≤T_PASS→100;T_PASS<≤T_WARN→线性100→60;>T_WARN→线性60→0 clamp。单位 ms。
@@ -13,10 +16,13 @@ function perfScore(ms: number): number {
   return Math.max(0, 60 - (ms - T_WARN_MS) / T_WARN_MS * 60);
 }
 
-/** 解析 vitest json → 全套 wall-clock(max endTime - min startTime,非 Σ duration)→ 绝对阈值分段线性。文件缺失/无字段/负值 → na。 */
+/** 解析 vitest json → 全套 wall-clock(max endTime - min startTime,非 Σ duration)→ 绝对阈值分段线性。文件缺失/无字段/负值/超大 → na。 */
 export function collectPerformance(reportPath: string): DimensionResult {
   if (!existsSync(reportPath))
     return { score: NA_SCORE, weight: WEIGHTS.performance, status: 'na', detail: `报告不存在: ${reportPath}` };
+  const size = statSync(reportPath).size;
+  if (size > MAX_REPORT_BYTES)
+    return { score: NA_SCORE, weight: WEIGHTS.performance, status: 'na', detail: `报告过大: ${size} bytes > ${MAX_REPORT_BYTES}` };
   let report: { testResults?: { startTime?: number; endTime?: number }[] };
   try { report = JSON.parse(readFileSync(reportPath, 'utf8')); }
   catch (e) { return { score: NA_SCORE, weight: WEIGHTS.performance, status: 'na', detail: `解析失败: ${(e as Error).message}` }; }

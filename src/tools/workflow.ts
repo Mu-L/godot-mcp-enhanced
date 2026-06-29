@@ -13,7 +13,7 @@ import { spawnGodot } from './spawn-helper.js';
 import { handleBatchAction } from './batch-tools.js';
 import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gdscripts.js';
 import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
-import { createProofRun } from './frame-verify/proof-bundle.js';
+import { createProofRun, cleanupProofRun, type ProofRun } from './frame-verify/proof-bundle.js';
 
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
@@ -411,6 +411,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       if (acceptance) {
         // ── frame_sequence: 自动捕获 N 帧到 proof 目录，供 frame_degradation 断言引用 ──
         let capturedFramesDir: string | undefined;
+        let capturedRun: ProofRun | undefined; // B1:验证完成后清理 proof 临时目录
         const frameSeq = acceptance.frame_sequence as { count?: number; interval_frames?: number } | undefined;
         if (frameSeq && typeof frameSeq === 'object') {
           const count = Math.min(Math.max(Math.floor(frameSeq.count ?? 12), 2), 60);
@@ -438,6 +439,7 @@ func _initialize():
               }
             }
             capturedFramesDir = run.dir;
+            capturedRun = run;
             result.frame_sequence = { run_id: run.runId, dir: run.dir, count };
           } catch (err) {
             result.frame_sequence = { error: err instanceof Error ? err.message : String(err) };
@@ -469,8 +471,16 @@ func _initialize():
                 const partials: string[] = [];
 
                 // (a) reference 余弦相似度粗筛（若提供 reference_path）
-                const referencePath = (a as Record<string, unknown>).reference_path as string | undefined;
-                if (referencePath) {
+                const rawReferencePath = (a as Record<string, unknown>).reference_path as string | undefined;
+                if (rawReferencePath) {
+                  // B5:reference_path 限 res://、user:// 或项目内绝对路径,防项目外任意文件读取
+                  let referencePath: string;
+                  if (rawReferencePath.startsWith('res://') || rawReferencePath.startsWith('user://')) {
+                    referencePath = rawReferencePath;
+                  } else {
+                    try { referencePath = resolveWithinRoot(projectPath, rawReferencePath); }
+                    catch { assertionResults.push({ description: desc, passed: false, error: `reference_path 越出项目根目录: ${rawReferencePath}` }); continue; }
+                  }
                   const simThreshold = (a as Record<string, unknown>).sim_threshold as number | undefined ?? 0.85;
                   const simResult = await executeGdscript({
                     godotPath: godot, projectPath,
@@ -521,10 +531,18 @@ func _initialize():
                 continue;
               }
               // 若断言未提供 frames_dir 但 frame_sequence 已捕获，自动复用
-              const framesDir = (fd.frames_dir as string | undefined) ?? capturedFramesDir;
-              if (!framesDir) {
+              const rawFramesDir = (fd.frames_dir as string | undefined) ?? capturedFramesDir;
+              if (!rawFramesDir) {
                 assertionResults.push({ description: fd.description, passed: false, error: 'frame_degradation requires frames_dir or acceptance.frame_sequence to capture frames first' });
                 continue;
+              }
+              // B5:frames_dir 限 res://、user:// 或项目内绝对路径
+              let framesDir: string;
+              if (rawFramesDir.startsWith('res://') || rawFramesDir.startsWith('user://')) {
+                framesDir = rawFramesDir;
+              } else {
+                try { framesDir = resolveWithinRoot(projectPath, rawFramesDir); }
+                catch { assertionResults.push({ description: fd.description, passed: false, error: `frames_dir 越出项目根目录: ${rawFramesDir}` }); continue; }
               }
               try {
                 const metricsResult = await executeGdscript({
@@ -578,6 +596,9 @@ func _initialize():
               assertionResults.push({ description: desc, passed: false, error: err instanceof Error ? err.message : String(err) });
             }
           }
+
+          // B1:验证完成后清理 frame_sequence 捕获的 proof 临时目录(防 proof/ 无限堆积)
+          if (capturedRun) cleanupProofRun(capturedRun);
 
           result.acceptance = {
             passed: assertionResults.every(r => r.passed),

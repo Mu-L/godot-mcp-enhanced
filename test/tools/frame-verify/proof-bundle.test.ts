@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createProofRun, archiveFrame, writeMetrics } from '../../../src/tools/frame-verify/proof-bundle.js';
+import { createProofRun, archiveFrame, writeMetrics, cleanupProofRun } from '../../../src/tools/frame-verify/proof-bundle.js';
 
 describe('proof-bundle', () => {
   let tmp: string;
@@ -43,5 +43,19 @@ describe('proof-bundle', () => {
     const a = createProofRun(tmp);
     const b = createProofRun(tmp);
     expect(a.runId).not.toBe(b.runId);
+  });
+
+  it('archiveFrame 超 100MB 配额抛错(B3:防撑爆磁盘)', () => {
+    const run = createProofRun(tmp);
+    run.bytes = 100 * 1024 * 1024; // 已满配额
+    expect(() => archiveFrame(run, 0, Buffer.from([1]))).toThrow(/配额超限/);
+  });
+
+  it('cleanupProofRun 删除 run 目录(B1:验证后回收)', () => {
+    const run = createProofRun(tmp);
+    archiveFrame(run, 0, Buffer.from('x'));
+    expect(fs.existsSync(run.dir)).toBe(true);
+    cleanupProofRun(run);
+    expect(fs.existsSync(run.dir)).toBe(false);
   });
 });

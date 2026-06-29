@@ -103,4 +103,11 @@ describe('collectPerformance', () => {
     writeVitestJson([{ start: 5000, end: 1000 }]);
     expect(collectPerformance(REPORT).status).toBe('na');
   });
+
+  it('超大文件(>10MB)→ na(A1:防撑爆内存)', () => {
+    writeFileSync(REPORT, Buffer.alloc(10 * 1024 * 1024 + 1));
+    const r = collectPerformance(REPORT);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('过大');
+  });
 });

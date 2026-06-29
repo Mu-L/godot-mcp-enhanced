@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseGdscriptOutput, extractClassNames } from '../../src/scoring/check-gdscript.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { parseGdscriptOutput, extractClassNames, listGd } from '../../src/scoring/check-gdscript.js';
 
 describe('parseGdscriptOutput', () => {
   it('SCRIPT ERROR 行计入 errors', () => {
@@ -55,5 +58,41 @@ describe('extractClassNames', () => {
   it('无 class_name 的脚本不返回', () => {
     const names = extractClassNames(['a.gd'], { 'a.gd': 'extends Node\nvar x = 1\n' });
     expect(names).toEqual([]);
+  });
+});
+
+describe('listGd', () => {
+  it('递归收集 .gd 文件(排除非 .gd)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'listgd-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'a.gd'), 'x');
+      fs.mkdirSync(path.join(tmp, 'sub'));
+      fs.writeFileSync(path.join(tmp, 'sub', 'b.gd'), 'x');
+      fs.writeFileSync(path.join(tmp, 'c.txt'), 'x');
+      const files = listGd(tmp);
+      expect(files.length).toBe(2);
+      expect(files.some(f => f.endsWith('a.gd'))).toBe(true);
+      expect(files.some(f => f.endsWith('b.gd'))).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('跳过 symlink 目录(B6:防逃逸出 root)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'listgd-sym-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'listgd-out-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'real.gd'), 'x');
+      fs.writeFileSync(path.join(outside, 'evil.gd'), 'x');
+      let linked = false;
+      try { fs.symlinkSync(outside, path.join(tmp, 'link')); linked = true; } catch { /* Windows 非 dev mode 无 symlink 权限 */ }
+      if (!linked) return; // 平台不支持 symlink 创建 → 跳过(CI Linux 会真跑)
+      const files = listGd(tmp);
+      expect(files.some(f => f.includes('evil.gd'))).toBe(false); // 不跟随 symlink
+      expect(files.some(f => f.endsWith('real.gd'))).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

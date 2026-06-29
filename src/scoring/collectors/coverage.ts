@@ -1,11 +1,14 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import type { DimensionResult } from '../types.js';
 import { WEIGHTS, NA_SCORE } from '../dimensions.js';
+
+/** collector 读取的 CI artifact 最大字节(A1:防超大文件撑爆内存)。 */
+const MAX_REPORT_BYTES = 10 * 1024 * 1024; // 10MB
 
 /**
  * 解析 lcov.info,按 DA: 行(line data)算语句命中率。
  * 状态分级:>=60 pass,[40,60) warn,<40 fail。
- * 文件缺失或无 DA 行 → na。
+ * 文件缺失/无 DA 行/超大 → na。
  */
 export function collectCoverage(lcovPath: string): DimensionResult {
   if (!existsSync(lcovPath)) {
@@ -15,6 +18,10 @@ export function collectCoverage(lcovPath: string): DimensionResult {
       status: 'na',
       detail: `lcov 不存在: ${lcovPath}`,
     };
+  }
+  const size = statSync(lcovPath).size;
+  if (size > MAX_REPORT_BYTES) {
+    return { score: NA_SCORE, weight: WEIGHTS.coverage, status: 'na', detail: `lcov 过大: ${size} bytes > ${MAX_REPORT_BYTES}` };
   }
   const text = readFileSync(lcovPath, 'utf8');
   let found = 0;

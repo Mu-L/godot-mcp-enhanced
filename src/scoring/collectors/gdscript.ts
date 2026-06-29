@@ -1,6 +1,9 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import type { DimensionResult, DimensionStatus, GdscriptReport } from '../types.js';
 import { WEIGHTS, NA_SCORE, WARN_PENALTY } from '../dimensions.js';
+
+/** collector 读取的 CI artifact 最大字节(A1)。 */
+const MAX_REPORT_BYTES = 10 * 1024 * 1024; // 10MB
 
 /**
  * 解析 check-gdscript 产出的 report.json。三态:
@@ -13,6 +16,11 @@ export function collectGdscript(reportPath: string): DimensionResult {
   if (!existsSync(reportPath)) {
     return { score: NA_SCORE, weight: WEIGHTS.gdscript, status: 'na',
              detail: `报告不存在: ${reportPath}` };
+  }
+  const size = statSync(reportPath).size;
+  if (size > MAX_REPORT_BYTES) {
+    return { score: NA_SCORE, weight: WEIGHTS.gdscript, status: 'na',
+             detail: `报告过大: ${size} bytes > ${MAX_REPORT_BYTES}` };
   }
   let report: GdscriptReport;
   try {

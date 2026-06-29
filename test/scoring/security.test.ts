@@ -80,4 +80,21 @@ describe('collectSecurity', () => {
     expect(r.score).toBe(-1);
     expect(r.status).toBe('na');
   });
+
+  it('超大文件(>10MB)→ na(A1:防撑爆内存)', () => {
+    writeFileSync(AUDIT, Buffer.alloc(10 * 1024 * 1024 + 1));
+    const r = collectSecurity(AUDIT);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('过大');
+  });
+
+  it('severity 字段非数字类型 → na(A3:防污染致扣分 NaN)', () => {
+    writeFileSync(AUDIT, JSON.stringify({
+      auditReportVersion: 2, vulnerabilities: {},
+      metadata: { vulnerabilities: { high: 'corrupt', total: 2 } },
+    }));
+    const r = collectSecurity(AUDIT);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('类型异常');
+  });
 });

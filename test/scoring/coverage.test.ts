@@ -58,4 +58,11 @@ describe('collectCoverage', () => {
     const r = collectCoverage(LCOV);
     expect(r.status).toBe('na');
   });
+
+  it('超大文件(>10MB)→ na(A1:防撑爆内存)', () => {
+    writeFileSync(LCOV, Buffer.alloc(10 * 1024 * 1024 + 1));
+    const r = collectCoverage(LCOV);
+    expect(r.status).toBe('na');
+    expect(r.detail).toContain('过大');
+  });
 });
