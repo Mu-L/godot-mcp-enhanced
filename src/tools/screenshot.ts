@@ -2,6 +2,7 @@ import { isAbsolute, resolve, join, extname } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
@@ -184,6 +185,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  screenshot: { readonly: true, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  screenshot: {
+    readonly: true,
+    long_running: false,
+    actionRisks: {
+      capture: 'read',  // 截图写入文件，但本质是只读操作
+      analyze: 'read',  // 仅读取图片文件分析
+    },
+  },
 };

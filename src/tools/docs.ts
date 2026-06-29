@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import {
   getClassInfo,
@@ -192,6 +193,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
       return null;
   }
 }
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  docs: { readonly: true, long_running: false },
+
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  docs: {
+    readonly: true,
+    long_running: false,
+    actionRisks: {
+      get_class_info: 'read',
+      search_classes: 'read',
+      find_method: 'read',
+      get_inheritance: 'read',
+    },
+  },
 };

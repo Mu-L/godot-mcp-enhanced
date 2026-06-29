@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import {
   buildEngineVersion, buildRenderer, buildKeyPaths, buildMainScene,
@@ -594,8 +595,22 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  project: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  project: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      list_projects: 'read',
+      get_project_info: 'read',
+      list_files: 'read',
+      read_project_config: 'read',
+      create_project: 'write',  // 创建项目目录和文件
+      setup_project_rules: 'write',  // 写入 .claude/rules/
+      write_config: 'write',  // 修改 project.godot
+      list_templates: 'read',
+      apply_template: 'write',  // 应用模板写入文件
+    },
+  },
 };
 
 // ─── CI template generator ────────────────────────────────────────────────────

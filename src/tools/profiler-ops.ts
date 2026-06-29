@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { gdEscape, ff } from './shared.js';
@@ -450,6 +451,17 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  profiler: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  profiler: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      snapshot: 'read',
+      start: 'process',  // 启动性能分析会话
+      stop: 'process',  // 停止会话
+      get_data: 'read',
+      get_active_processes: 'read',
+      get_signal_connections: 'read',
+    },
+  },
 };

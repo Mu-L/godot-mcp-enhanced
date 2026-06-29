@@ -1,12 +1,21 @@
 // src/tools/editor-sync.ts — Editor real-time scene tree sync tools
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 
 const TOOL_NAMES = ['editor'] as const;
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  editor: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  editor: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      sync_start: 'process',  // 启动场景树监听
+      sync_stop: 'process',  // 停止监听
+      get_scene_tree: 'read',
+    },
+  },
 };
 
 const EDITOR_NOT_CONNECTED = JSON.stringify({

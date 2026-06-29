@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, ensureNumber, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
@@ -443,6 +444,17 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  animtree: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  animtree: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      animtree_create: 'write',  // 创建 AnimationTree 节点
+      animtree_add_state: 'write',
+      animtree_add_transition: 'write',
+      animtree_set_blend: 'write',
+      animtree_play: 'process',  // 播放状态
+      animtree_state_edit: 'write',
+    },
+  },
 };

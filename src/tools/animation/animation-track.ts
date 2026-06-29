@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
+import type { RiskLevel } from '../../core/tool-registry.js';
 import { requireProjectPath } from '../../helpers.js';
 import { executeGdscript } from '../../gdscript-executor.js';
 import { normalizeNodePath, gdEscape } from '../shared.js';
@@ -361,6 +362,17 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  animation_track: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  animation_track: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      add_track: 'write',
+      remove_track: 'destructive',
+      add_keyframe: 'write',
+      remove_keyframe: 'destructive',
+      update_keyframe: 'write',
+      set_curve: 'write',
+    },
+  },
 };
