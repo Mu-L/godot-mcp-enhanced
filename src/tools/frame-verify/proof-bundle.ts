@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /** 单次 proof run 最大字节(B3:防帧捕获失控撑爆磁盘)。 */
-const MAX_PROOF_BYTES = 100 * 1024 * 1024; // 100MB
+export const MAX_PROOF_BYTES = 100 * 1024 * 1024; // 100MB
 
 export interface ProofRun {
   runId: string;
@@ -30,6 +30,15 @@ export function archiveFrame(run: ProofRun, index: number, pngBuffer: Buffer): s
   const name = `frame_${String(index).padStart(2, '0')}.png`;
   fs.writeFileSync(path.join(run.dir, name), pngBuffer);
   return name;
+}
+
+/** 记录一个已写入 proof 目录的文件字节到 run 配额(B3:frame_sequence 用 GDScript 直写绕过 archiveFrame,
+ *  需显式累计)。超配额抛错,调用方 catch 决定停止捕获。 */
+export function recordFrameBytes(run: ProofRun, filePath: string): void {
+  run.bytes += fs.statSync(filePath).size;
+  if (run.bytes > MAX_PROOF_BYTES) {
+    throw new Error(`proof bundle 配额超限: ${run.bytes} bytes > ${MAX_PROOF_BYTES}`);
+  }
 }
 
 export function writeMetrics(run: ProofRun, metrics: Record<string, unknown>): string {

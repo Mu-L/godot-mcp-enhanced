@@ -13,7 +13,7 @@ import { spawnGodot } from './spawn-helper.js';
 import { handleBatchAction } from './batch-tools.js';
 import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gdscripts.js';
 import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
-import { createProofRun, cleanupProofRun, type ProofRun } from './frame-verify/proof-bundle.js';
+import { createProofRun, cleanupProofRun, recordFrameBytes, type ProofRun } from './frame-verify/proof-bundle.js';
 
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
@@ -418,11 +418,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const interval = Math.min(Math.max(Math.floor(frameSeq.interval_frames ?? 10), 1), 300);
           try {
             const run = createProofRun(projectPath);
+            let captureError: string | undefined;
+            let captureWarning: string | undefined;
             // proof 目录在项目内；Bridge take_screenshot 路径必须 user:// 开头，先截到 user:// 再用 GDScript 归档
             for (let i = 0; i < count; i++) {
               const tmpPath = `user://mcp_frame_${i}.png`;
               const ssResp = await sendToBridge('take_screenshot', { path: tmpPath }, 10000);
-              if (ssResp.error) break;
+              if (ssResp.error) { captureError = `frame ${i} 截图失败: ${ssResp.error.message ?? JSON.stringify(ssResp.error)}`; break; }
               // 通过 executeGdscript 把 user:// 的 PNG 字节读到 proof 目录（GDScript 函数体用 tab 缩进）
               const frameName = `frame_${String(i).padStart(2, '0')}.png`;
               const copyScript = `extends SceneTree
@@ -432,7 +434,12 @@ func _initialize():
 	f.store_buffer(img.save_png_to_buffer())
 	quit()
 `;
-              await executeGdscript({ godotPath: godot, projectPath, code: copyScript, timeout: Math.min(timeout, 15), loadAutoloads });
+              // N2: 检查归档结果——失败则停止(防 proof 缺帧致 frame_degradation 误判)
+              const copyResult = await executeGdscript({ godotPath: godot, projectPath, code: copyScript, timeout: Math.min(timeout, 15), loadAutoloads });
+              if (!copyResult.compile_success || !copyResult.run_success) { captureError = `frame ${i} 归档失败: ${copyResult.compile_error || copyResult.run_error}`; break; }
+              // N1: 配额累计(此路径用 GDScript 直写绕过 archiveFrame,需显式检查,防 60 帧撑爆磁盘)
+              try { recordFrameBytes(run, join(run.dir, frameName)); }
+              catch (e) { captureWarning = (e as Error).message; break; }
               if (i < count - 1) {
                 // controller 预查无 _sleep 方法，改用 TS 侧 sleep（interval_frames × 16ms ≈ 60fps 间隔）
                 await new Promise<void>(r => setTimeout(r, interval * 16));
@@ -440,7 +447,7 @@ func _initialize():
             }
             capturedFramesDir = run.dir;
             capturedRun = run;
-            result.frame_sequence = { run_id: run.runId, dir: run.dir, count };
+            result.frame_sequence = { run_id: run.runId, dir: run.dir, count, ...(captureError ? { error: captureError } : {}), ...(captureWarning ? { warning: captureWarning } : {}) };
           } catch (err) {
             result.frame_sequence = { error: err instanceof Error ? err.message : String(err) };
           }
@@ -481,7 +488,9 @@ func _initialize():
                     try { referencePath = resolveWithinRoot(projectPath, rawReferencePath); }
                     catch { assertionResults.push({ description: desc, passed: false, error: `reference_path 越出项目根目录: ${rawReferencePath}` }); continue; }
                   }
-                  const simThreshold = (a as Record<string, unknown>).sim_threshold as number | undefined ?? 0.85;
+                  // N3: sim_threshold 运行时类型校验(裸 as 对字符串值无效,致 sim < 字符串得 NaN 放行)
+                  const rawSimThreshold = (a as Record<string, unknown>).sim_threshold;
+                  const simThreshold = typeof rawSimThreshold === 'number' && Number.isFinite(rawSimThreshold) ? rawSimThreshold : 0.85;
                   const simResult = await executeGdscript({
                     godotPath: godot, projectPath,
                     code: referenceSimScript('user://mcp_assert_screenshot.png', referencePath),

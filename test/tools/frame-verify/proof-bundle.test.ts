@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createProofRun, archiveFrame, writeMetrics, cleanupProofRun } from '../../../src/tools/frame-verify/proof-bundle.js';
+import { createProofRun, archiveFrame, writeMetrics, cleanupProofRun, recordFrameBytes, MAX_PROOF_BYTES } from '../../../src/tools/frame-verify/proof-bundle.js';
 
 describe('proof-bundle', () => {
   let tmp: string;
@@ -57,5 +57,16 @@ describe('proof-bundle', () => {
     expect(fs.existsSync(run.dir)).toBe(true);
     cleanupProofRun(run);
     expect(fs.existsSync(run.dir)).toBe(false);
+  });
+
+  it('recordFrameBytes 累计已写文件字节,超配额抛错(B3:frame_sequence GDScript 直写路径)', () => {
+    const run = createProofRun(tmp);
+    const f = path.join(run.dir, 'frame_00.png');
+    fs.writeFileSync(f, Buffer.alloc(1024));
+    recordFrameBytes(run, f);
+    expect(run.bytes).toBe(1024);
+    // 预填到配额边缘,再 record 一个超限文件 → 抛错
+    run.bytes = MAX_PROOF_BYTES;
+    expect(() => recordFrameBytes(run, f)).toThrow(/配额超限/);
   });
 });

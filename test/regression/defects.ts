@@ -62,6 +62,20 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const frame = countMatchesInFile('src/tools/frame-verify/gdscripts.ts', /\$\{(?!gdEscape\()[^}]*\}/g);
       return exec + frame;
     } },
+  { key: 'frame-sequence-quota-bypass', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // fixed：frame_sequence 用 copyScript(GDScript 直写)绕过 archiveFrame 配额,补 recordFrameBytes 显式累计。
+      // 复发：copyScript 写盘(FileAccess.open WRITE + store_buffer)但无 recordFrameBytes/archiveFrame 配额检查。
+      const wf = readSrc('src/tools/workflow.ts');
+      const hasDirectWrite = /FileAccess\.open[\s\S]{0,120}FileAccess\.WRITE[\s\S]{0,60}store_buffer/.test(wf);
+      const hasQuotaCheck = /recordFrameBytes|archiveFrame/.test(wf);
+      return hasDirectWrite && !hasQuotaCheck ? 1 : 0;
+    } },
+  { key: 'sim-threshold-bare-as', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    detect: () => {
+      // fixed：sim_threshold 运行时 typeof 校验。复发：裸 as number(字符串值得 NaN, sim<NaN 放行)。
+      return countMatchesInFile('src/tools/workflow.ts', /sim_threshold\s+as\s+number/g);
+    } },
   { key: 'spawn-without-buildsafeenv', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
       // detect: 裸 spawn Godot 二进制处（runtime.ts/scene.ts/batch-tools.ts/workflow.ts 未走 buildSafeEnv）
