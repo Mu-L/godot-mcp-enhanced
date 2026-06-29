@@ -169,7 +169,6 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const godotVersion = (args.godot_version as string) || '4.4';
       const projectName = (args.project_name as string) || basename(p);
       const renderer = (args.renderer as string) || 'forward_plus';
-      const godotVersion = (args.godot_version as string) || '4.4';
       const validRenderers = ['forward_plus', 'mobile', 'gl_compatibility'];
       if (!validRenderers.includes(renderer)) {
         return textResult(`Error: Invalid renderer "${renderer}". Must be one of: ${validRenderers.join(', ')}`);

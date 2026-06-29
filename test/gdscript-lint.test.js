@@ -8,7 +8,7 @@ describe('GDScript Lint', () => {
     const result = lintGDScript(code);
     expect(result.errors.length).toBe(0);
     expect(result.warnings.length).toBe(0);
-    expect(result.meta.godot_target).toBe('4.7');
+    expect(result.meta.godot_target).toBe('4.6');
   });
 
   it('returns meta information', () => {
