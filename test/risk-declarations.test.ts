@@ -5,13 +5,13 @@ import { getActionRisk } from '../src/core/tool-registry.js';
 registerAllModules();
 
 describe('scene actionRisks', () => {
-  const cases: Record<string, 'read'|'write'|'destructive'|'process'> = {
+  const cases = {
     read_scene: 'read', query_scene_tree: 'read', inspect_node: 'read', health_check: 'read',
     create_scene: 'write', quick_scene: 'write', add_node: 'write', batch_add_nodes: 'write',
     edit_node: 'write', save_scene: 'write', load_sprite: 'write', instance_scene: 'write',
     set_instance_property: 'write', detach_instance: 'write', create_3d_node: 'write', commit: 'write',
     remove_node: 'destructive', merge_scene: 'destructive',
-  };
+  } as const;
   for (const [action, risk] of Object.entries(cases)) {
     it(`scene.${action} → ${risk}`, () => expect(getActionRisk('scene', action)).toBe(risk));
   }

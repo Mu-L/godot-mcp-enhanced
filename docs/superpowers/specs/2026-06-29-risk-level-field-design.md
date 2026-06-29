@@ -178,7 +178,7 @@ TOOL_META?: Record<string, {
 3. search_and_replace 动态豁免专项测试
 4. `readonly` 派生测试：READ_ONLY_MODE 工具集迁移前后一致
 5. capability matrix integrity：`guarded` 派生正确，`securityLevel` 分布无意外漂移（`diff-matrix`）
-6. 类型约束：`actionRisks` 的 key 约束为该工具 `ACTIONS` 常量的成员（`Record<typeof ACTIONS[number], RiskLevel>`），让漏标/拼错在编译期暴露。**精确核实（writing-plans 前置，已完成）**：12 个工具已有完整单一 `ACTIONS` 常量（类型约束直接可用）——`scene`（`scene/helpers.ts:9-16`）、`script`、`tilemap`、`game`、`particles`、`signal`、`nav`、`audio`、`physics`、`runtime`、`validation`（`validation.ts:98-110`）、`ui`。5 个工具只有 inline enum 无常量——`animation`（19 action）、`material`（11）、`android`（5）、`workflow`（6）、`manage_tools`（6）。**决策**：补齐这 5 个常量（从 inline enum 提取为 `const ACTIONS = [...] as const`，每个几行），实现全 17 工具类型约束全覆盖——双保险坐实，不退化为"部分工具仅运行期兜底"。补齐作为各工具迁移 task 的前置子步骤。
+6. 类型约束：`actionRisks` 的 key 约束为该工具 `ACTIONS` 常量的成员（`Record<typeof ACTIONS[number], RiskLevel>`），让漏标/拼错在编译期暴露。**精确核实（writing-plans 前置，已完成）**：12 个工具已有完整单一 `ACTIONS` 常量（类型约束直接可用）——`scene`（`scene/helpers.ts:9-16`）、`script`、`tilemap`、`game`、`particles`、`signal`、`nav`、`audio`、`physics`、`runtime`、`validation`（`validation.ts:98-110`）、`ui`。5 个工具只有 inline enum 无常量——`animation`（20 action）、`material`（11）、`android`（5）、`workflow`（6）、`manage_tools`（6）。**决策**：补齐这 5 个常量（从 inline enum 提取为 `const ACTIONS = [...] as const`，每个几行），实现全 17 工具类型约束全覆盖——双保险坐实，不退化为"部分工具仅运行期兜底"。补齐作为各工具迁移 task 的前置子步骤。
 
 ## 7. 影响面
 

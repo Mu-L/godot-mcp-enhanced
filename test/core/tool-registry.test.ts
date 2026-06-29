@@ -23,6 +23,17 @@ describe('ToolMeta actionRisks', () => {
     expect(getToolMeta('demo')?.readonly).toBe(false);
   });
 
+  it('A-10 隐式注册：TOOL_META 条目既无 actionRisks 也无显式 readonly → readonly=false', () => {
+    // A-10 自动注册分支的覆盖补全：当 TOOL_META 提供了空 meta（既无 actionRisks 也无 readonly）
+    // 时，派生 readonly 应回退到 false（非 true）。该分支逻辑未在迁移中改动，此处补测试坐实契约。
+    registerModule({
+      getToolDefinitions: () => [],
+      handleTool: async () => null,
+      TOOL_META: { demo: {} },
+    });
+    expect(getToolMeta('demo')?.readonly).toBe(false);
+  });
+
   it('显式 readonly 覆盖派生', () => {
     registerModule({
       getToolDefinitions: () => [],

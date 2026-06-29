@@ -195,7 +195,7 @@ function handleSync(): ToolResult {
   })));
 }
 
-export const TOOL_META = {
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
   manage_tools: {
     readonly: true,
     long_running: false,

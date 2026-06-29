@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { getActionRisk, getActionRisks, type RiskLevel } from './core/tool-registry.js';
+import { getActionRisk, getActionRisks } from './core/tool-registry.js';
 
 interface PendingToken {
   token: string;
@@ -53,7 +53,7 @@ function ensureCleanupTimer(): void {
 
 /** 动态豁免：args 内容决定 risk 的特例（当前仅 script.edit_script 的 search_and_replace 模式）。
  *  search_and_replace 模式为内容匹配、非破坏性（CRLF 安全），故降级为 read。 */
-function dynamicRiskOverride(toolName: string, action: string, args: Record<string, unknown> | undefined): RiskLevel | null {
+function dynamicRiskOverride(toolName: string, action: string, args: Record<string, unknown> | undefined): 'read' | null {
   if (toolName === 'script' && action === 'edit_script') {
     const sr = args?.search_and_replace;
     if (sr && typeof sr === 'object' && 'search' in sr) return 'read';

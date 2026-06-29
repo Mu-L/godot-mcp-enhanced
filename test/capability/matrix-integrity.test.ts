@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { registerAllModules } from '../../src/core/module-loader.js';
-import { getAllToolDefinitions } from '../../src/core/tool-registry.js';
+import { getAllToolDefinitions, getActionRisks } from '../../src/core/tool-registry.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
 import { GROUP_SOURCE_FILES, scanDangerApi } from '../../src/capability/static-grep.js';
 
@@ -69,8 +69,10 @@ describe('capability matrix integrity (spec §10 L1)', () => {
       if (!c.riskDistribution) continue; // 无 actionRisks 的工具跳过
       const sum = c.riskDistribution.read + c.riskDistribution.write
         + c.riskDistribution.destructive + c.riskDistribution.process;
-      // actionRisks 每个 action 贡献 1，故总和 = action 数；非零校验防空 dist 误判通过
-      expect(sum, `${c.name}: riskDistribution 四级计数之和(${sum}) 应 > 0`).toBeGreaterThan(0);
+      // spec §Task-8 Step 4: 精确等式。actionRisks 每个 action 贡献 1，
+      // 故四级计数之和必须 = getActionRisks 返回的 key 数（action 总数）。
+      const actionCount = Object.keys(getActionRisks(c.name) ?? {}).length;
+      expect(sum, `${c.name}: riskDistribution 四级计数之和(${sum}) 应 = action 总数(${actionCount})`).toBe(actionCount);
     }
   });
 });
