@@ -460,6 +460,12 @@ export class ToolDispatcher {
     const args: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawArgs)) {
       const snake = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+      // M-2: 原型污染防护。JSON.parse 会把 {"__proto__":{...}} 作为自有属性保留，Object.entries
+      // 列出后 args[snake]=value 对 __proto__ 触发原型 setter（改写对象原型链）；constructor/prototype
+      // 同属经典污染入口。直接丢弃这些键（无工具以它们为合法参数名），纵深防御。
+      if (snake === '__proto__' || snake === 'constructor' || snake === 'prototype') {
+        continue;
+      }
       // Recursively normalize nested plain objects (e.g. layout/flex params in UI tools)
       // A-16: Skip class instances (Error, etc.) — only recurse into plain objects
       if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)

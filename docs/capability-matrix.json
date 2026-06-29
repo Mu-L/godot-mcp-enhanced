@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T13:39:25.425Z",
+  "generatedAt": "2026-06-29T15:16:29.789Z",
   "tools": [
     {
       "name": "android",
@@ -2504,11 +2504,11 @@
       ],
       "readonly": false,
       "longRunning": false,
-      "guarded": false,
+      "guarded": true,
       "securityLevel": "danger-api",
       "riskDistribution": {
-        "read": 9,
-        "write": 0,
+        "read": 5,
+        "write": 4,
         "destructive": 0,
         "process": 0
       },

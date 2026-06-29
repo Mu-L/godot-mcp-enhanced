@@ -131,6 +131,27 @@ describe('Level B: Scene Operations', () => {
     expect(isSuccessful(removeResult)).toBeTruthy();
   });
 
+  // --- M-3: 只读查询 scene_path 防 ../ 逃逸（read 级信息泄露）---
+  it('M-3: query_scene_tree 拒绝含 ../ 的 scene_path', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'query_scene_tree',
+      scene_path: '../secret.tscn',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text || '').toMatch(/INVALID_PATH|path traversal/);
+  });
+
+  it('M-3: inspect_node 拒绝含 ../ 的 scene_path', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'inspect_node',
+      scene_path: '../secret.tscn',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text || '').toMatch(/INVALID_PATH|path traversal/);
+  });
+
   // --- 用例 5: remove_node confirmation token 流程 ---
   it('remove_node confirmation token — 无 token 时检查返回值', async () => {
     // 先添加节点

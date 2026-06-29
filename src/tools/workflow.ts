@@ -3,7 +3,7 @@ import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
-import { requireProjectPath, resolveWithinRoot } from '../helpers.js';
+import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
 import { executeGdscript, executeGdscriptTrusted } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, parseGdscriptResult, wrapAssertionCode, opsErrorResult, validateTimeout } from './shared.js';
 import { gdEscape } from './shared.js';
@@ -650,6 +650,8 @@ func _initialize():
       if (!scenePath) {
         return textResult('Error: "scene_path" is required for scene_snapshot.');
       }
+      // M-3: 校验 scene_path 在项目内（防 ../ 逃逸读项目外 .tscn；:657 仅补 res:// 前缀不防穿越，read 级信息泄露）
+      try { resolveWithinRoot(projectPath, normalizeUserProjectPath(scenePath)); } catch { return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
       const maxDepth = (args.max_depth as number) || 5;
       const godot = await ctx.findGodot();
 

@@ -270,7 +270,10 @@ export async function handleTool(
       let godot: string; try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
       const scriptsDir = dirname(ctx.opsScript); const treeScript = join(scriptsDir, 'query_scene_tree.gd');
       if (!existsSync(treeScript)) { releaseShortRunningSlot(); return textResult(`Error: query_scene_tree.gd not found at ${treeScript}`); }
-      const params = { scene_path: normalizeUserProjectPath(args.scene_path as string), max_depth: (args.max_depth as number) || 5 };
+      const _snapScenePath = normalizeUserProjectPath(args.scene_path as string);
+      // M-3: 校验 scene_path 在项目内（防 ../ 逃逸读项目外 .tscn；inspect_node.gd 只补 res:// 前缀不防穿越）
+      try { resolveWithinRoot(p, _snapScenePath); } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
+      const params = { scene_path: _snapScenePath, max_depth: (args.max_depth as number) || 5 };
       const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', treeScript, JSON.stringify(params)]);
       releaseShortRunningSlot();
       if (result.timedOut) return textResult('query_scene_tree timed out after 60s');
@@ -284,7 +287,10 @@ export async function handleTool(
       let godot: string; try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
       const scriptsDir = dirname(ctx.opsScript); const inspectScript = join(scriptsDir, 'inspect_node.gd');
       if (!existsSync(inspectScript)) { releaseShortRunningSlot(); return textResult(`Error: inspect_node.gd not found at ${inspectScript}`); }
-      const params = { scene_path: normalizeUserProjectPath(args.scene_path as string), node_path: args.node_path || 'root', max_depth: (args.max_depth as number) || 3, include_signals: args.include_signals !== false, include_properties: args.include_properties !== false };
+      const _inspScenePath = normalizeUserProjectPath(args.scene_path as string);
+      // M-3: 校验 scene_path 在项目内（防 ../ 逃逸读项目外 .tscn；inspect_node.gd 只补 res:// 前缀不防穿越）
+      try { resolveWithinRoot(p, _inspScenePath); } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
+      const params = { scene_path: _inspScenePath, node_path: args.node_path || 'root', max_depth: (args.max_depth as number) || 3, include_signals: args.include_signals !== false, include_properties: args.include_properties !== false };
       const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', inspectScript, JSON.stringify(params)]);
       releaseShortRunningSlot();
       if (result.timedOut) return textResult('inspect_node timed out after 60s');

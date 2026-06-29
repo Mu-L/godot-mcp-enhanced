@@ -599,18 +599,20 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   project: {
     readonly: false,
     long_running: false,
-    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
-    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
+    // H-1: 有真实副作用的 action 标 'write'（建目录+多文件、改 project.godot、写
+    // .claude/settings.json + CLAUDE.md + rules、注入 PostToolUse hook、生成脚手架多文件）
+    // → requiresConfirmation(guard.ts:64 读 actionRisks) 对这些 action 返回 true，触发确认。
+    // 纯查询 action 保持 'read'。project 已加入 risk-coverage.test.ts 的 GUARDED_KEYS。
     actionRisks: {
       list_projects: 'read',
       get_project_info: 'read',
       list_files: 'read',
       read_project_config: 'read',
-      create_project: 'read',
-      setup_project_rules: 'read',
-      write_config: 'read',
+      create_project: 'write',
+      setup_project_rules: 'write',
+      write_config: 'write',
       list_templates: 'read',
-      apply_template: 'read',
+      apply_template: 'write',
     },
   },
 };

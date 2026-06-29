@@ -139,16 +139,26 @@ describe('requiresConfirmation', () => {
     ['animtree', 'animtree_state_edit'],
     ['profiler', 'start'],
     ['profiler', 'stop'],
-    ['project', 'create_project'],
-    ['project', 'setup_project_rules'],
-    ['project', 'write_config'],
-    ['project', 'apply_template'],
     ['screenshot', 'capture'],
     ['screenshot', 'analyze'],
     ['docs', 'get_class_info'],
     ['docs', 'search_classes'],
   ])('非 GUARDED 工具 %s.%s 保持不确认 (false)', (tool, action) => {
     expect(requiresConfirmation(tool, { action })).toBe(false);
+  });
+
+  // H-1: project 现为 GUARDED 工具——有真实副作用的 action 标 'write' 触发确认；
+  // 纯查询 action 保持 'read' 不确认。（反向证明 H-1 修复生效）
+  it('H-1: project 副作用 action 需确认，查询 action 不确认', () => {
+    expect(requiresConfirmation('project', { action: 'create_project' })).toBe(true);
+    expect(requiresConfirmation('project', { action: 'setup_project_rules' })).toBe(true);
+    expect(requiresConfirmation('project', { action: 'write_config' })).toBe(true);
+    expect(requiresConfirmation('project', { action: 'apply_template' })).toBe(true);
+    expect(requiresConfirmation('project', { action: 'list_projects' })).toBe(false);
+    expect(requiresConfirmation('project', { action: 'get_project_info' })).toBe(false);
+    expect(requiresConfirmation('project', { action: 'list_files' })).toBe(false);
+    expect(requiresConfirmation('project', { action: 'read_project_config' })).toBe(false);
+    expect(requiresConfirmation('project', { action: 'list_templates' })).toBe(false);
   });
 });
 

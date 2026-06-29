@@ -89,4 +89,55 @@ describe('FileStateStore', () => {
     const loaded = await store.load();
     expect(loaded!.agents['__default__'].activeProfile).toBe('profile-2');
   });
+
+  it('M-4: flush 原子写后无 .mcp-tmp 残留且内容完整', async () => {
+    const state = {
+      version: 1 as const,
+      savedAt: Date.now(),
+      agents: { __default__: { selectedInstance: null, activeProfile: 'full', contextMeta: null } },
+      globalProfile: 'full',
+      lastConnectedPort: null,
+    };
+    store.markDirty(() => state);
+    await store.flush();
+    const stateFile = path.join(tmpDir, '.godot', 'mcp-state.json');
+    expect(fs.existsSync(stateFile + '.mcp-tmp')).toBe(false); // 临时文件已被 rename 消费
+    expect(fs.existsSync(stateFile)).toBe(true);
+    const reloaded = await store.load();
+    expect(reloaded!.agents['__default__'].activeProfile).toBe('full');
+  });
+
+  it('M-4: validate 清零畸形 selectedInstance（非法 type/value），合法保留', async () => {
+    const dir = path.join(tmpDir, '.godot');
+    fs.mkdirSync(dir, { recursive: true });
+    const state = {
+      version: 1,
+      savedAt: Date.now(),
+      agents: {
+        a: { selectedInstance: { type: 'evil', value: 'x' }, activeProfile: 'full', contextMeta: null },
+        b: { selectedInstance: { type: 'port', value: 999 }, activeProfile: 'full', contextMeta: null },
+        c: { selectedInstance: { type: 'port', value: '65001' }, activeProfile: 'full', contextMeta: null },
+      },
+      globalProfile: 'full',
+      lastConnectedPort: null,
+    };
+    fs.writeFileSync(path.join(dir, 'mcp-state.json'), JSON.stringify(state), 'utf-8');
+    const loaded = await store.load();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.agents['a'].selectedInstance).toBeNull(); // 非法 type → 清零
+    expect(loaded!.agents['b'].selectedInstance).toBeNull(); // value 非 string → 清零
+    expect(loaded!.agents['c'].selectedInstance).toEqual({ type: 'port', value: '65001' }); // 合法保留
+  });
+
+  it('M-4: validate 畸形 agents/globalProfile 返回 fresh 状态', async () => {
+    const dir = path.join(tmpDir, '.godot');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'mcp-state.json'), JSON.stringify({
+      version: 1, savedAt: Date.now(), agents: null, globalProfile: 123, lastConnectedPort: null,
+    }), 'utf-8');
+    const loaded = await store.load();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.agents).toEqual({}); // agents=null → fresh
+    expect(loaded!.globalProfile).toBe('full'); // globalProfile 非 string → fresh
+  });
 });

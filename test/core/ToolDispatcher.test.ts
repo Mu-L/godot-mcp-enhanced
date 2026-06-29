@@ -920,6 +920,23 @@ describe('ToolDispatcher.handleCall', () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toMatch(/depth limit|normalization failed/i);
   });
+
+  // [M-2] 原型污染防护：normalizeArgs 丢弃 __proto__/constructor/prototype 键
+  it('drops __proto__/constructor/prototype keys (M-2 原型污染防护)', () => {
+    const guard = createMockGuard(false);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    // JSON.parse 用 CreateDataProperty 语义，__proto__ 作为自有属性保留（区别于对象字面量的原型 setter），
+    // 故能进入 Object.entries 被 normalizeArgs 遍历到——这正是攻击向量。
+    const rawArgs = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"x":1},"prototype":2,"normalKey":"v"}');
+    const result = (dispatcher as unknown as { normalizeArgs: (a: unknown) => Record<string, unknown> }).normalizeArgs(rawArgs);
+    // 污染键全部丢弃，仅保留 normalKey（camelCase → snake_case）
+    expect(Object.keys(result)).toEqual(['normal_key']);
+    expect(result.normal_key).toBe('v');
+    // args 原型未被改写为攻击者对象（未防护时 args.__proto__={polluted:true} 会改原型）
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    // 全局 Object.prototype 未被污染（双保险）
+    expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+  });
 });
 
 // ── getFilteredTools with activeGroups ────────────────────────────────────

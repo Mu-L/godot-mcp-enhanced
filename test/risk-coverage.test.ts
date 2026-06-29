@@ -9,12 +9,15 @@ import { getAllToolDefinitions, getActionRisks } from '../src/core/tool-registry
 // 注册所有工具模块（必须在测试前执行）
 registerAllModules();
 
-/** 17 个 GUARDED 工具：其 actionRisks 允许声明非 read 风险（write/destructive/process）。
- * 任何不在此集合中的工具，其所有 action 的 risk 必须为 'read'（零行为改变不变量）。 */
+/** 18 个 GUARDED 工具：其 actionRisks 允许声明非 read 风险（write/destructive/process）。
+ * 任何不在此集合中的工具，其所有 action 的 risk 必须为 'read'（零行为改变不变量）。
+ * project（H-1 修复）：create_project/setup_project_rules/write_config/apply_template 有真实
+ * 副作用（建目录/多文件、改 project.godot、写 .claude/settings.json+CLAUDE.md+rules、注入 hook），
+ * 已标 'write' 触发确认；纯查询 action 仍 'read'。 */
 const GUARDED_KEYS = new Set([
   'scene', 'script', 'animation', 'tilemap', 'game', 'material', 'particles',
   'signal', 'nav', 'audio', 'ui', 'physics', 'runtime', 'android', 'workflow',
-  'validation', 'manage_tools',
+  'validation', 'manage_tools', 'project',
 ]);
 
 /** 从 inputSchema.action.enum 提取某工具全部 action 名 */

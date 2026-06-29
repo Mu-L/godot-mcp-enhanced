@@ -64,16 +64,22 @@ export class FileStateStore {
     // C-01 fix: 记录写入前的 generation，写入完成后仅在没有新脏数据时清空
     const genBeforeWrite = this.generation;
     const state: PersistedState = { ...this.cachedState, savedAt: Date.now() };
+    const tmp = this.filePath + '.mcp-tmp';
 
     try {
       const dir = path.dirname(this.filePath);
       await fs.promises.mkdir(dir, { recursive: true });
-      await fs.promises.writeFile(this.filePath, JSON.stringify(state, null, 2), 'utf-8');
+      // M-4: 原子写——先写临时文件再 rename（同盘 rename 原子）。避免崩溃/断电留下截断 JSON，
+      // 导致 load() 的 catch 吞掉 JSON.parse 错误而静默丢失全部 agent 状态。
+      await fs.promises.writeFile(tmp, JSON.stringify(state, null, 2), 'utf-8');
+      await fs.promises.rename(tmp, this.filePath);
       // 仅在没有新 markDirty 调用时清空缓存，避免覆盖更新快照
       if (this.generation === genBeforeWrite) {
         this.cachedState = null;
       }
     } catch (err) {
+      // M-4: 清理残留临时文件（rename 失败时 tmp 可能残留），再记日志
+      await fs.promises.unlink(tmp).catch(() => { /* tmp 未创建或已被 rename 消费 */ });
       // A-18: Log flush failure instead of silently swallowing
       getLogger().error('state-store', `flush failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -87,7 +93,32 @@ export class FileStateStore {
   }
 
   private validate(state: PersistedState): PersistedState {
-    if (state.version !== 1) return { version: 1, savedAt: Date.now(), agents: {}, globalProfile: 'full', lastConnectedPort: null };
+    const fresh = (): PersistedState => ({
+      version: 1, savedAt: Date.now(), agents: {}, globalProfile: 'full', lastConnectedPort: null,
+    });
+    if (state.version !== 1) return fresh();
+
+    // M-4: 结构校验——防畸形/被篡改的 mcp-state.json 导致后续处理异常。
+    // 注意："selectedInstance 指向攻击者端口"的风险不成立——InstanceRouter.getSelectedInstance
+    // 从注册表 instanceMap 查询(instance-router.ts:46)，非法 selectedId 返回 null 不路由。
+    // 此处仅做结构合法性校验（低成本加固），完整"实例存在于注册表"由路由端注册表查询保证。
+    if (typeof state.agents !== 'object' || state.agents === null) return fresh();
+    if (typeof state.globalProfile !== 'string') return fresh();
+    for (const id of Object.keys(state.agents)) {
+      const agent = state.agents[id];
+      if (!agent || typeof agent !== 'object') { delete state.agents[id]; continue; }
+      if (typeof agent.activeProfile !== 'string') agent.activeProfile = 'full';
+      // selectedInstance 结构: InstanceRef = { type: 'port'|'path', value: string } | null
+      const si = agent.selectedInstance as unknown;
+      if (si !== null && si !== undefined) {
+        const sio = si as Record<string, unknown>;
+        if (typeof sio !== 'object' || sio === null ||
+            (sio.type !== 'port' && sio.type !== 'path') ||
+            typeof sio.value !== 'string') {
+          agent.selectedInstance = null;
+        }
+      }
+    }
 
     const isStale = Date.now() - state.savedAt > STALE_AGENT_THRESHOLD_MS;
     if (isStale) {
