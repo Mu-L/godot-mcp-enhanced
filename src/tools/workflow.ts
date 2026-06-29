@@ -11,6 +11,9 @@ import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
 import { spawnGodot } from './spawn-helper.js';
 import { handleBatchAction } from './batch-tools.js';
+import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gdscripts.js';
+import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
+import { createProofRun } from './frame-verify/proof-bundle.js';
 
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
@@ -137,10 +140,21 @@ export function getToolDefinitions(): Tool[] {
                     description: { type: 'string', description: 'Human-readable assertion description' },
                     gdscript: { type: 'string', description: 'GDScript code using _mcp_output to output results' },
                     expect: { type: 'string', description: 'Expected output value (string comparison)' },
-                    type: { type: 'string', description: 'Assertion type: gdscript (default) or screenshot_diff', enum: ['gdscript', 'screenshot_diff'] },
+                    type: { type: 'string', description: 'Assertion type: gdscript (default), screenshot_diff, or frame_degradation', enum: ['gdscript', 'screenshot_diff', 'frame_degradation'] },
                     expect_present: { type: 'array', items: { type: 'string' }, description: 'screenshot_diff: node names expected to be visible in scene tree' },
+                    reference_path: { type: 'string', description: 'screenshot_diff: optional reference image path for cosine-similarity pre-filter' },
+                    sim_threshold: { type: 'number', description: 'screenshot_diff: cosine similarity threshold (default 0.85)' },
+                    frames_dir: { type: 'string', description: 'frame_degradation: directory of captured frames (omit if acceptance.frame_sequence captures them)' },
                   },
                   required: ['description'],
+                },
+              },
+              frame_sequence: {
+                type: 'object',
+                description: 'Capture N frames into a proof dir before assertions run; frames feed frame_degradation assertions',
+                properties: {
+                  count: { type: 'number', description: 'Number of frames to capture (2-60, default 12)' },
+                  interval_frames: { type: 'number', description: 'Frames between captures at ~60fps (1-300, default 10)' },
                 },
               },
             },
@@ -395,6 +409,41 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         ? rawAcceptance as Record<string, unknown>
         : undefined;
       if (acceptance) {
+        // ── frame_sequence: 自动捕获 N 帧到 proof 目录，供 frame_degradation 断言引用 ──
+        let capturedFramesDir: string | undefined;
+        const frameSeq = acceptance.frame_sequence as { count?: number; interval_frames?: number } | undefined;
+        if (frameSeq && typeof frameSeq === 'object') {
+          const count = Math.min(Math.max(Math.floor(frameSeq.count ?? 12), 2), 60);
+          const interval = Math.min(Math.max(Math.floor(frameSeq.interval_frames ?? 10), 1), 300);
+          try {
+            const run = createProofRun(projectPath);
+            // proof 目录在项目内；Bridge take_screenshot 路径必须 user:// 开头，先截到 user:// 再用 GDScript 归档
+            for (let i = 0; i < count; i++) {
+              const tmpPath = `user://mcp_frame_${i}.png`;
+              const ssResp = await sendToBridge('take_screenshot', { path: tmpPath }, 10000);
+              if (ssResp.error) break;
+              // 通过 executeGdscript 把 user:// 的 PNG 字节读到 proof 目录（GDScript 函数体用 tab 缩进）
+              const frameName = `frame_${String(i).padStart(2, '0')}.png`;
+              const copyScript = `extends SceneTree
+func _initialize():
+	var img := Image.load_from_file("${tmpPath}")
+	var f := FileAccess.open("${run.dir}/${frameName}", FileAccess.WRITE)
+	f.store_buffer(img.save_png_to_buffer())
+	quit()
+`;
+              await executeGdscript({ godotPath: godot, projectPath, code: copyScript, timeout: Math.min(timeout, 15), loadAutoloads });
+              if (i < count - 1) {
+                // controller 预查无 _sleep 方法，改用 TS 侧 sleep（interval_frames × 16ms ≈ 60fps 间隔）
+                await new Promise<void>(r => setTimeout(r, interval * 16));
+              }
+            }
+            capturedFramesDir = run.dir;
+            result.frame_sequence = { run_id: run.runId, dir: run.dir, count };
+          } catch (err) {
+            result.frame_sequence = { error: err instanceof Error ? err.message : String(err) };
+          }
+        }
+
         const assertionList = (acceptance.assertions as Array<Record<string, string>>) ?? [];
         if (assertionList.length > 0) {
           const assertionResults: Array<Record<string, unknown>> = [];
@@ -404,41 +453,103 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             const desc = a.description ?? `assertion ${i}`;
             const assertType = (a as Record<string, unknown>).type as string || 'gdscript';
 
-            // ── screenshot_diff assertion ──
+            // ── screenshot_diff assertion（真视觉对比）──
             if (assertType === 'screenshot_diff') {
               const validation = validateScreenshotAssertion(a as Record<string, unknown>);
               if (!validation.valid) {
                 assertionResults.push({ description: desc, passed: false, error: validation.error });
                 continue;
               }
-              // Requires Bridge connection — if bridge step failed, sendToBridge will error
-              // (no pre-check needed; the sendToBridge calls below have their own error handling)
               try {
                 const ssResp = await sendToBridge('take_screenshot', { path: 'user://mcp_assert_screenshot.png' }, 10000);
                 if (ssResp.error) {
                   assertionResults.push({ description: desc, passed: false, error: `Screenshot failed: ${ssResp.error.message ?? JSON.stringify(ssResp.error)}` });
                   continue;
                 }
-                // If expect_present specified, verify nodes exist in scene tree
-                const expectPresent = (a as Record<string, unknown>).expect_present as string[] | undefined;
-                if (expectPresent && expectPresent.length > 0) {
-                  const treeResp = await sendToBridge('get_tree', {}, 10000);
-                  if (treeResp.error) {
-                    assertionResults.push({ description: desc, passed: false, error: `get_tree failed: ${treeResp.error.message ?? JSON.stringify(treeResp.error)}` });
+                const partials: string[] = [];
+
+                // (a) reference 余弦相似度粗筛（若提供 reference_path）
+                const referencePath = (a as Record<string, unknown>).reference_path as string | undefined;
+                if (referencePath) {
+                  const simThreshold = (a as Record<string, unknown>).sim_threshold as number | undefined ?? 0.85;
+                  const simResult = await executeGdscript({
+                    godotPath: godot, projectPath,
+                    code: referenceSimScript('user://mcp_assert_screenshot.png', referencePath),
+                    timeout: Math.min(timeout, 15), loadAutoloads,
+                  });
+                  if (!simResult.compile_success || !simResult.run_success) {
+                    assertionResults.push({ description: desc, passed: false, error: `reference sim failed: ${simResult.compile_error || simResult.run_error}` });
                     continue;
                   }
-                  const treeStr = JSON.stringify(treeResp);
-                  const missing = expectPresent.filter(name => !treeStr.includes(name));
-                  if (missing.length > 0) {
-                    assertionResults.push({ description: desc, passed: false, actual: `missing nodes: ${missing.join(', ')}`, expected: `all present: ${expectPresent.join(', ')}` });
-                  } else {
-                    assertionResults.push({ description: desc, passed: true, actual: 'screenshot taken, all nodes present' });
+                  const sim = Number(simResult.outputs.find(e => e.key === 'reference_sim')?.value ?? -1);
+                  partials.push(`reference_sim=${sim.toFixed(3)} (threshold ${simThreshold})`);
+                  if (sim < simThreshold) {
+                    assertionResults.push({ description: desc, passed: false, actual: partials.join('; '), expected: `reference_sim >= ${simThreshold}` });
+                    continue;
                   }
-                } else {
-                  assertionResults.push({ description: desc, passed: true, actual: 'screenshot captured successfully' });
                 }
+
+                // (b) 真可见性检查（替代旧 get_tree + includes 假检查）
+                const expectPresent = (a as Record<string, unknown>).expect_present as string[] | undefined;
+                if (expectPresent && expectPresent.length > 0) {
+                  const visResp = await sendToBridge('find_ui_elements', { pattern: '*', visible_only: true, limit: 500 }, 10000);
+                  if (visResp.error) {
+                    assertionResults.push({ description: desc, passed: false, error: `find_ui_elements failed: ${visResp.error.message ?? JSON.stringify(visResp.error)}` });
+                    continue;
+                  }
+                  const visStr = JSON.stringify(visResp);
+                  const missing = expectPresent.filter(name => !visStr.includes(name));
+                  if (missing.length > 0) {
+                    assertionResults.push({ description: desc, passed: false, actual: `missing visible: ${missing.join(', ')}`, expected: `all visible: ${expectPresent.join(', ')}` });
+                    continue;
+                  }
+                  partials.push(`visible: ${expectPresent.join(', ')}`);
+                }
+
+                assertionResults.push({ description: desc, passed: true, actual: partials.join('; ') || 'screenshot captured' });
               } catch (err) {
                 assertionResults.push({ description: desc, passed: false, error: err instanceof Error ? err.message : String(err) });
+              }
+              continue;
+            }
+
+            // ── frame_degradation assertion（帧退化检测，Godogen 灵魂）──
+            if (assertType === 'frame_degradation') {
+              const fd = a as Record<string, unknown>;
+              if (typeof fd.description !== 'string') {
+                assertionResults.push({ description: 'frame_degradation', passed: false, error: 'requires description' });
+                continue;
+              }
+              // 若断言未提供 frames_dir 但 frame_sequence 已捕获，自动复用
+              const framesDir = (fd.frames_dir as string | undefined) ?? capturedFramesDir;
+              if (!framesDir) {
+                assertionResults.push({ description: fd.description, passed: false, error: 'frame_degradation requires frames_dir or acceptance.frame_sequence to capture frames first' });
+                continue;
+              }
+              try {
+                const metricsResult = await executeGdscript({
+                  godotPath: godot, projectPath,
+                  code: extractFrameMetricsScript(framesDir),
+                  timeout: Math.min(timeout, 30), loadAutoloads,
+                });
+                if (!metricsResult.compile_success || !metricsResult.run_success) {
+                  assertionResults.push({ description: fd.description, passed: false, error: `metrics extraction failed: ${metricsResult.compile_error || metricsResult.run_error}` });
+                  continue;
+                }
+                const out = (key: string) => metricsResult.outputs.find(e => e.key === key)?.value;
+                const frameCount = Number(out('frame_count') ?? 0);
+                // Task 4 协议：consecutive_sims/first_frame_sims 是 JSON.stringify 字符串，需还原
+                const consecutive = JSON.parse(String(out('consecutive_sims') ?? '[]')) as number[];
+                const firstFrame = JSON.parse(String(out('first_frame_sims') ?? '[]')) as number[];
+                const verdict = classifyDegradation({ frameCount, consecutiveSims: consecutive, firstFrameSims: firstFrame } as FrameMetrics);
+                assertionResults.push({
+                  description: fd.description,
+                  passed: !verdict.degraded,
+                  actual: verdict.degraded ? `DEGRADED: ${verdict.reason}` : `healthy (meanConsecutive=${verdict.metrics.meanConsecutive.toFixed(3)}, maxChange=${verdict.metrics.maxChange.toFixed(3)})`,
+                  expected: 'frames show real motion (not identical/stalled)',
+                });
+              } catch (err) {
+                assertionResults.push({ description: fd.description, passed: false, error: err instanceof Error ? err.message : String(err) });
               }
               continue;
             }
@@ -683,6 +794,14 @@ export function validateScreenshotAssertion(
   const ep = assertion.expect_present;
   if (ep !== undefined && !Array.isArray(ep)) {
     return { valid: false, error: 'expect_present must be a string array' };
+  }
+  const rp = assertion.reference_path;
+  if (rp !== undefined && typeof rp !== 'string') {
+    return { valid: false, error: 'reference_path must be a string' };
+  }
+  const st = assertion.sim_threshold;
+  if (st !== undefined && (typeof st !== 'number' || st < 0 || st > 1)) {
+    return { valid: false, error: 'sim_threshold must be a number in [0, 1]' };
   }
   return { valid: true };
 }
