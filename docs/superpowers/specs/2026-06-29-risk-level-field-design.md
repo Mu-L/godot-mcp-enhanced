@@ -8,7 +8,7 @@
 
 ### 1.1 现状
 
-本项目工具的"需确认"信息集中硬编码在 `D:\GitHub\godot-mcp-enhanced\src\guard.ts:52-78` 的 `GUARDED` 表（工具级 key + action 级 `Set<string>`，~50 个 action 跨 16 个工具）。`requiresConfirmation(toolName, args)` 查这张表决定是否要求 confirm-token。
+本项目工具的"需确认"信息集中硬编码在 `D:\GitHub\godot-mcp-enhanced\src\guard.ts:52-78` 的 `GUARDED` 表（工具级 key + action 级 `Set<string>`，86 个 action 跨 17 个工具键）。`requiresConfirmation(toolName, args)` 查这张表决定是否要求 confirm-token。
 
 `ToolMeta`（`D:\GitHub\godot-mcp-enhanced\src\core\tool-registry.ts:9-13`）当前只有工具级 `readonly: boolean` + `long_running: boolean`，无 action 级风险信息。
 
@@ -43,7 +43,7 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 分级粒度 | 四级 read/write/destructive/process | 与 devtool 对齐；destructive（不可逆删除）与 process（启外部进程）语义清晰，区别于普通 write |
+| 分级粒度 | 四级 read/write/destructive/process | 与 devtool 对齐并扩展 process 语义为"启进程或任意代码执行"（见 §4.4），使 execute_gdscript/game_write 等代码执行通道归同类而非低估为 write |
 | risk 用途 | 纯元数据：matrix 展示 + 确认日志分级；确认行为统一"非 read 即 confirm-token" | 最小改动达成核心目标；差异化 UX 留作未来 |
 | risk 载体 | action 级就近声明（淘汰中央表） | 唯一真正根除漏标的方案；类型可约束 |
 | 迁移策略 | 彻底替换 GUARDED（删表，不保留 fallback） | 保留 fallback = 没真淘汰硬编码；由覆盖完整性测试兜底 |
@@ -102,14 +102,17 @@ TOOL_META?: Record<string, {
   ```
 - **动态豁免 escape hatch**（保留现有唯一一个 args-based 特例）：guard 内保留小函数 `dynamicRiskOverride(toolName, action, args): RiskLevel | null`，处理 `script.edit_script + search_and_replace` → 返回 `'read'`。它是"确认行为微调"，不是风险分级本身；集中一处，不影响主流程
 - `isGuardedTool(toolName)`（`guard.ts:209-211`，给 capability matrix 用）改为从 `actionRisks` 派生：`Object.values(getActionRisks(toolName) ?? {}).some(r => r !== 'read')`
+- **null 语义收窄（零影响）**：旧 `requiresConfirmation`（`guard.ts:81-83`）支持 `GUARDED[tool] === null`——"整工具无条件确认，无需指定 action"。新模型是 action 级的，无此语义。当前 17 个工具键全是 `Set`（无 null），故零行为改变。未来若需整工具确认，须在该工具所有 action 上显式声明 risk。
 
 ### 4.4 GUARDED → actionRisks 分级草案
 
-按操作性质细分（GUARDED 内的 ~50 action）：
+按操作性质细分（GUARDED 内的 86 个 action）：
 
-**process（启动外部进程）**
+**process（启动外部进程 或 任意代码/方法执行）**
+> 语义扩展（vs devtool 原意"启进程"）：process 涵盖"能执行任意代码或外部进程"的高危通道。`execute_gdscript`（执行任意 GDScript）与 `game_write` 的 `call_method`（任意方法 RPC，不经沙箱）风险等同——都绕过静态约束，故归同类而非拆到 write。这样 matrix 风险面呈现更准（避免任意代码执行通道与 `edit_node` 同级 write 低估）。
 - `runtime`: `launch_editor`, `run_project`, `stop_project`, `run_tests`
 - `script`: `execute_gdscript`
+- `game`: `game_write`（set_node_property/call_method 任意方法 RPC，不经 execute_gdscript 沙箱，等同代码执行）
 - `android`: `deploy`（启 adb 子进程）
 - `workflow`: `dev_loop`（执行任意 GDScript）, `run_verify`（启 headless Godot）—— 注：`run_verify` 是 workflow 的 action（启 Godot 验证），与 `validation.run_and_verify` 不同，后者项目当前不确认故标 read
 - `validation`: `export_build`（启 Godot export）, `assert`（执行 GDScript 断言）, `stress`（压力测试）
@@ -125,7 +128,7 @@ TOOL_META?: Record<string, {
 - `script`: `write_script`, `edit_script`, `generate_test`, `create_test_scene`
 - `animation`: `create`, `update_props`, `add_track`, `add_keyframe`, `update_keyframe`, `ik_modifier_create`, `ik_modifier_set`（删除类 `delete`/`remove_track`/`remove_keyframe` 归 destructive，见下）
 - `tilemap`: `tilemap_set_cell`, `tilemap_erase_cell`, `tilemap_fill_rect`, `tilemap_paste`, `tilemap_set_transform`
-- `game`: `game_bridge_install`, `game_bridge_uninstall`, `game_write`
+- `game`: `game_bridge_install`, `game_bridge_uninstall`
 - `material`: `set_params`, `create`, `save`, `load`, `shader_write`, `shader_load_file`, `shader_save_file`, `shader_apply_template`
 - `particles`: `particles_create`, `particles_set_emission`, `particles_set_process`, `particles_load_preset`, `particles_set_material`
 - `signal`: `signal_emit`
@@ -147,6 +150,7 @@ TOOL_META?: Record<string, {
 - `extract.ts:25` 的 `guarded` 字段改为从 `actionRisks` 派生（`some(r !== 'read')`），不再调 `isGuardedTool` 的 GUARDED 版本（`isGuardedTool` 自身已改为派生 actionRisks，故 extract 调用点不变，只是底层实现变了）
 - `securityLevel`（danger-api/guarded/safe）合成逻辑（`extract.ts:52` `classifySecurityLevel({ dangerApiHit, guarded })`）不变
 - `build-matrix.ts` 概览新增 risk 四级分布计数：`- risk：read N / write N / destructive N / process N`（按 action 计数，跨所有工具的 action 汇总）
+- **trusted-nonread 标记**：对"语义非 read 但项目有意不确认"的 action（如 `validation.run_and_verify` 实际启 Godot 进程），matrix 输出加 `*` 脚注或单独 `trusted-nonread` 字段，避免读者把 read 误读为"无副作用"。具体清单在实施时按"启进程/有副作用但 GUARDED 外"核实——当前已知 `run_and_verify`，可能还有 `verify_delivery` 等，由 §6 覆盖完整性测试同时盘点。
 - 迁移后跑 `npm run diff-matrix` 验证 `securityLevel` 无意外降级/升级（`guarded` 派生源变了，需确认结果一致）
 
 ### 4.6 数据流
@@ -174,14 +178,14 @@ TOOL_META?: Record<string, {
 3. search_and_replace 动态豁免专项测试
 4. `readonly` 派生测试：READ_ONLY_MODE 工具集迁移前后一致
 5. capability matrix integrity：`guarded` 派生正确，`securityLevel` 分布无意外漂移（`diff-matrix`）
-6. 类型约束：`actionRisks` 的 key 约束为该工具 ACTIONS 常量的成员（`Record<typeof ACTIONS[number], RiskLevel>`），让漏标/拼错在编译期暴露——与 §6.1 运行期完整性测试互补，双保险
+6. 类型约束（**有条件**）：`actionRisks` 的 key 约束为该工具 `ACTIONS` 常量的成员（`Record<typeof ACTIONS[number], RiskLevel>`），让漏标/拼错在编译期暴露。**前提**：该工具有完整、单一来源的 `ACTIONS` 常量且 inputSchema 的 action enum 引用它。grep 初核：`script`/`tilemap`/`game`/`particles`/`signal`/`nav`/`audio`/`ui`/`physics`/`runtime` 等有完整 `const ACTIONS = [...] as const`；但 `scene`（跨 `scene/` 多文件）、`animation`（用 `TOOL_NAMES` 非 ACTIONS，且 ik 散在 `ik-tools.ts`）、`material`（用 `TOOL_NAMES`）、`workflow`（`batch-tools.ts` 仅列 3 个，`dev_loop` 等在别处）、`validation`（action 分散 `validation.ts` + `test-framework.ts`）、`android`/`manage_tools`（未见常量）**不满足单一完整常量前提**。对这些工具，防漏标**只靠 §6.1 运行期测试**兜底。**writing-plans 首步**：精确核实每个工具键的 ACTIONS 完整性，二选一——(a) 先补齐/统一 ACTIONS 常量使类型约束全覆盖，或 (b) 接受部分工具仅运行期兜底（§6.1 在 CI 已是可靠拦截）。
 
 ## 7. 影响面
 
 **改动文件**：
 - `D:\GitHub\godot-mcp-enhanced\src\core\tool-registry.ts`：`RiskLevel` 类型、`ToolMeta`/`ToolModule.TOOL_META` 扩展、`registerModule` 派生逻辑、新增 `getActionRisks`/`getActionRisk`
 - `D:\GitHub\godot-mcp-enhanced\src\guard.ts`：删 `GUARDED`、`requiresConfirmation`/`isGuardedTool` 改造、新增 `getActionRisk`/`dynamicRiskOverride`
-- ~16 个工具模块（`src/tools/*.ts`）：新增/补全 `TOOL_META.actionRisks`（部分模块当前无 TOOL_META，走 A-10 自动注册，需补上 actionRisks）
+- 17 个工具键对应的工具模块（`src/tools/*.ts`，部分工具跨多文件如 `animation/`、`scene/`）：新增/补全 `TOOL_META.actionRisks`（部分模块当前无 TOOL_META，走 A-10 自动注册，需补上 actionRisks）
 - `D:\GitHub\godot-mcp-enhanced\src\capability\extract.ts`：`guarded` 派生改 actionRisks（底层）
 - `D:\GitHub\godot-mcp-enhanced\src\capability\build-matrix.ts`：概览加 risk 分布计数
 - 测试：`guard.test.ts`、新增覆盖完整性测试、`matrix-integrity.test.ts`
