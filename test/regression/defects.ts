@@ -54,8 +54,13 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'gdscript-template-injection', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      // fixed：用户代码不再经 `${userCode}` 模板插值（改数组 join / 转义）。命中裸插值即复发
-      return countMatchesInFile('src/gdscript-executor.ts', /\$\{userCode\}|\$\{[^}]*userSnippet[^}]*\}/g);
+      // fixed：用户/外部路径不再裸 ${} 插值（改 gdEscape 转义）。命中裸插值即复发。
+      // 源头1: gdscript-executor.ts 的 ${userCode}/${userSnippet}
+      const exec = countMatchesInFile('src/gdscript-executor.ts', /\$\{userCode\}|\$\{[^}]*userSnippet[^}]*\}/g);
+      // 源头2: frame-verify/gdscripts.ts 的路径插值（reference_path/frames_dir 来自 MCP 工具参数，不可信）。
+      // 裸 ${var}（未被 gdEscape(...) 包裹）即复发。该文件仅做路径插值，数值插值不应出现（YAGNI）。
+      const frame = countMatchesInFile('src/tools/frame-verify/gdscripts.ts', /\$\{(?!gdEscape\()[^}]*\}/g);
+      return exec + frame;
     } },
   { key: 'spawn-without-buildsafeenv', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
