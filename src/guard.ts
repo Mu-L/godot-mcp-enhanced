@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { getActionRisk, getActionRisks, type RiskLevel } from './core/tool-registry.js';
 
 interface PendingToken {
   token: string;
@@ -43,54 +44,28 @@ function ensureCleanupTimer(): void {
   if (_cleanupTimer.unref) _cleanupTimer.unref();
 }
 
-// Map: merged tool name → Set of guarded actions (null = entire tool is guarded)
+// IMPORTANT: 本守卫依赖 GodotServer.ts 按 MERGED 工具名（如 'scene'/'script'/'game'）路由，
+// 而非旧的独立工具名。若调用方绕过 merged-name 路由器直接用旧名（如 'remove_node'），
+// 守卫将捕获不到。GodotServer.handleToolCall() 是单一入口，始终解析为 merged 名。
 //
-// IMPORTANT: This guard relies on GodotServer.ts routing by MERGED tool name (e.g. 'scene',
-// 'script', 'game') rather than legacy individual names. If a caller bypasses the merged-name
-// router and uses the old name directly (e.g. 'remove_node'), the guard WILL NOT catch it.
-// GodotServer.handleToolCall() is the single entry point and always resolves to merged names.
-export const GUARDED: Record<string, Set<string> | null> = {
-  // CRITICAL-1 (2026-06-26 review, issue #15): GUARDED 扩到所有写/删除/执行类 action。
-  // 原 confirm-token-trust-broken fix-forward 要求。读/查询不守;边界(input/monitor/click_button/
-  // signal_connect/audio_play 等运行时输入/短期控制)不守。详见 docs/review-fix-backlog-2026-06-26.md。
-  scene: new Set([
-    'create_scene', 'quick_scene', 'add_node', 'batch_add_nodes', 'edit_node',
-    'remove_node', 'save_scene', 'load_sprite', 'instance_scene',
-    'set_instance_property', 'detach_instance', 'merge_scene', 'create_3d_node', 'commit',
-  ]),
-  // script: edit_script 的 search_and_replace 模式在 requiresConfirmation 内豁免(非破坏性,内容匹配)
-  script: new Set(['write_script', 'edit_script', 'execute_gdscript', 'project_replace', 'generate_test', 'create_test_scene']),
-  animation: new Set(['create', 'delete', 'update_props', 'add_track', 'remove_track', 'add_keyframe', 'remove_keyframe', 'update_keyframe', 'ik_modifier_create', 'ik_modifier_set']),
-  tilemap: new Set(['tilemap_set_cell', 'tilemap_erase_cell', 'tilemap_fill_rect', 'tilemap_clear', 'tilemap_paste', 'tilemap_set_transform']),
-  game: new Set(['game_bridge_install', 'game_bridge_uninstall', 'game_write']),  // game_write: set_node_property/call_method(任意方法 RPC,最高危,不经 execute_gdscript 沙箱)
-  material: new Set(['set_params', 'create', 'save', 'load', 'shader_write', 'shader_load_file', 'shader_save_file', 'shader_apply_template']),
-  particles: new Set(['particles_create', 'particles_set_emission', 'particles_set_process', 'particles_load_preset', 'particles_set_material']),
-  signal: new Set(['signal_emit']),  // connect/disconnect 边界不守;emit 触发已连接回调
-  nav: new Set(['create_region', 'bake_mesh', 'create_agent', 'set_params', 'create_link']),
-  audio: new Set(['audio_set_param']),  // play/stop 短期执行不守
-  ui: new Set(['ui_create_control', 'ui_set_layout', 'ui_anchor_preset', 'ui_set_theme', 'ui_container_add', 'theme_create', 'theme_set_property', 'ui_draw_recipe', 'ui_build_layout']),
-  physics: new Set(['collision_overlay']),  // raycast/body_info/diagnose/query_spatial 读
-  runtime: new Set(['run_project', 'launch_editor', 'stop_project', 'run_tests', 'record_start', 'record_stop', 'record_play', 'record_save']),
-  android: new Set(['deploy']),  // list_devices/get_preset_info 读不守;deploy install 改设备
-  workflow: new Set(['dev_loop', 'create_files', 'run_verify']),  // scene_snapshot/batch_validate/diff_scenes 读不守
-  validation: new Set(['export_build', 'assert', 'stress']),  // validate_*/analyze_error/import_resources 读不守
-  manage_tools: new Set(['activate', 'deactivate']),  // migrate 只读(返回迁移映射, TOOL_META.readonly=true)/list_groups/sync/reconnect 不守
-};
+// 判定依据：ToolMeta.actionRisks（每个工具模块的 TOOL_META 声明）。
+// risk !== 'read' 的 action 需确认；动态豁免（如 edit_script 的 search_and_replace）见 dynamicRiskOverride。
+
+/** 动态豁免：args 内容决定 risk 的特例（当前仅 script.edit_script 的 search_and_replace 模式）。
+ *  search_and_replace 模式为内容匹配、非破坏性（CRLF 安全），故降级为 read。 */
+function dynamicRiskOverride(toolName: string, action: string, args: Record<string, unknown> | undefined): RiskLevel | null {
+  if (toolName === 'script' && action === 'edit_script') {
+    const sr = args?.search_and_replace;
+    if (sr && typeof sr === 'object' && 'search' in sr) return 'read';
+  }
+  return null;
+}
 
 export function requiresConfirmation(toolName: string, args?: Record<string, unknown>): boolean {
-  const guarded = GUARDED[toolName];
-  if (guarded === undefined) return false;
-  if (guarded === null) return true;
   const action = (args?.action ?? args?.method) as string | undefined;
-  if (action == null || !guarded.has(action)) return false;
-
-  // Fine-grained exemptions: search_and_replace is non-destructive (content-matched, CRLF-safe)
-  const sr = args?.search_and_replace;
-  if (toolName === 'script' && action === 'edit_script' && sr && typeof sr === 'object' && 'search' in sr) {
-    return false;
-  }
-
-  return true;
+  if (action == null) return false;
+  const risk = dynamicRiskOverride(toolName, action, args) ?? getActionRisk(toolName, action);
+  return risk !== undefined && risk !== 'read';
 }
 
 export function createPendingToken(toolName: string, args: Record<string, unknown>): string {
@@ -205,7 +180,8 @@ function truncateArgs(args: Record<string, unknown>): { args: Record<string, unk
   return { args: out, truncated };
 }
 
-/** Whether a tool has ANY guarded action (null or Set). Used by capability matrix. */
+/** Whether a tool has ANY guarded action (任意 action 的 risk 非 read). Used by capability matrix. */
 export function isGuardedTool(toolName: string): boolean {
-  return GUARDED[toolName] !== undefined;
+  const risks = getActionRisks(toolName);
+  return risks !== undefined && Object.values(risks).some(r => r !== 'read');
 }

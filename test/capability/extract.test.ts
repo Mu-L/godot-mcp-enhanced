@@ -32,7 +32,7 @@ describe('extractCapabilities', () => {
     expect(Array.isArray(scene!.optionalParams)).toBe(true);
     // B. 执行特征
     expect(scene!.readonly).toBe(false);        // scene 含写工具
-    expect(scene!.guarded).toBe(true);          // GUARDED['scene'] 存在
+    expect(scene!.guarded).toBe(true);          // scene 的 actionRisks 含非 read 级别
     expect(scene!.securityLevel).toBe('danger-api'); // core 组（scene 工具 group=core）的 script.ts 含 execute_gdscript 命中 DANGER_PATTERNS → 组级保守标注 danger-api（spec §3.1）
     // C. 依赖条件
     expect(scene!.offlineCapable).toBe(false);  // scene 不在 OFFLINE_TOOLS

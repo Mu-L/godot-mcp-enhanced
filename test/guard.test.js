@@ -4,6 +4,10 @@ import {
   requiresConfirmation, createPendingToken, consumeToken, pendingCount, resetState,
   TOKEN_TTL_MS,
 } from '../src/guard.js';
+import { registerAllModules } from '../src/core/module-loader.js';
+
+// 注册所有模块的 actionRisks，供 requiresConfirmation 派生判定
+registerAllModules();
 
 // ─── requiresConfirmation (merged-tool guard) ────────────────────────────
 
@@ -217,9 +221,9 @@ describe('TOKEN_TTL_MS', () => {
   });
 });
 
-// ─── GUARDED workflow/validation/manage_tools (CRITICAL-3 子项4) ───────────
+// ─── workflow/validation/manage_tools 守卫 (CRITICAL-3 子项4) ───────────
 
-describe('GUARDED workflow/validation/manage_tools', () => {
+describe('workflow/validation/manage_tools 守卫', () => {
   it('workflow: dev_loop/create_files/run_verify guarded; read not', () => {
     expect(requiresConfirmation('workflow', { action: 'dev_loop' })).toBe(true);
     expect(requiresConfirmation('workflow', { action: 'create_files' })).toBe(true);
@@ -243,5 +247,41 @@ describe('GUARDED workflow/validation/manage_tools', () => {
     expect(requiresConfirmation('manage_tools', { action: 'sync' })).toBe(false);
     expect(requiresConfirmation('manage_tools', { action: 'reconnect' })).toBe(false);
     expect(requiresConfirmation('manage_tools', { action: 'migrate' })).toBe(false);  // 只读(返回迁移映射)
+  });
+});
+
+// ─── requiresConfirmation 零行为改变契约（Task 6）──────────────────────
+// 此测试锁定：requiresConfirmation 从 GUARDED 切换到 actionRisks 判定后，行为零改变。
+// 切换前（GUARDED 驱动）应 PASS，切换后（actionRisks 驱动）仍应 PASS。
+describe('requiresConfirmation 零行为改变', () => {
+  // 抽样覆盖 4 级（read/write/destructive/process）+ 动态豁免 + 边界 read
+  it.each([
+    ['scene', 'remove_node', true],        // destructive
+    ['scene', 'read_scene', false],        // read
+    ['scene', 'add_node', true],           // write
+    ['script', 'execute_gdscript', true],  // process
+    ['script', 'read_script', false],
+    ['game', 'game_write', true],          // process（任意方法 RPC）
+    ['game', 'game_query', false],
+    ['validation', 'run_and_verify', false], // trusted-nonread
+    ['validation', 'export_build', true],    // process
+    ['runtime', 'run_project', true],
+    ['runtime', 'get_godot_version', false],
+    ['particles', 'particles_create', true],
+    ['signal', 'signal_emit', true],
+    ['signal', 'signal_connect', false],
+    ['unknown_tool', 'x', false],          // 未注册工具
+  ])('%s.%s 确认=%s', (tool, action, expected) => {
+    expect(requiresConfirmation(tool, { action })).toBe(expected);
+  });
+
+  it('script.edit_script + search_and_replace 动态豁免 → false', () => {
+    expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: { search: 'a', replace: 'b' } })).toBe(false);
+  });
+  it('script.edit_script 无 search_and_replace → true', () => {
+    expect(requiresConfirmation('script', { action: 'edit_script' })).toBe(true);
+  });
+  it('无 action 参数 → false', () => {
+    expect(requiresConfirmation('scene', {})).toBe(false);
   });
 });
