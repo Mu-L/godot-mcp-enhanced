@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
@@ -790,6 +791,14 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  material: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  material: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      read: 'read', shader_read: 'read', shader_list_templates: 'read',
+      set_params: 'write', create: 'write', save: 'write', load: 'write',
+      shader_write: 'write', shader_load_file: 'write', shader_save_file: 'write', shader_apply_template: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

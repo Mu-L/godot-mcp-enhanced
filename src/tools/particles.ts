@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
@@ -513,6 +514,13 @@ export async function handleTool(
 
 // ─── Tool Meta ─────────────────────────────────────────────────────────────
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  particles: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  particles: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      particles_create: 'write', particles_set_emission: 'write', particles_set_process: 'write',
+      particles_load_preset: 'write', particles_set_material: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

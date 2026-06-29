@@ -2,6 +2,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
+import type { RiskLevel } from '../../core/tool-registry.js';
 import { getErrorMessage } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { executeGdscriptTrusted } from '../../gdscript-executor.js';
@@ -438,6 +439,14 @@ export async function handleTool(
 
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  ui: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  ui: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      ui_get_layout: 'read', ui_create_control: 'write', ui_set_layout: 'write',
+      ui_anchor_preset: 'write', ui_set_theme: 'write', ui_container_add: 'write',
+      ui_draw_recipe: 'write', ui_build_layout: 'write', theme_create: 'write', theme_set_property: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

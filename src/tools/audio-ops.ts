@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
@@ -248,6 +249,12 @@ export async function handleTool(
 
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  audio: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  audio: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      audio_play: 'read', audio_stop: 'read', audio_query: 'read', audio_set_param: 'write',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };
