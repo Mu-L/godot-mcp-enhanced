@@ -14,7 +14,7 @@ import {
 describe('navigation 生成器: set_owner 判空守卫(防回归)', () => {
   const pos = { x: 0, y: 0, z: 0 };
 
-  it('genCreateRegionScript: set_owner 经 _owner 判空', () => {
+  it('genCreateRegionScript: set_owner 经 _root 判空', () => {
     const script = genCreateRegionScript('TestNav', 'root', pos, false);
     expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script).toContain('if _root != null:');
@@ -23,7 +23,7 @@ describe('navigation 生成器: set_owner 判空守卫(防回归)', () => {
     expect(script).not.toContain('set_owner(_mcp_get_root())');
   });
 
-  it('genCreateAgentScript: set_owner 经 _owner 判空', () => {
+  it('genCreateAgentScript: set_owner 经 _root 判空', () => {
     const script = genCreateAgentScript('TestAgent', 'root', pos, 0.5, 1.0, false);
     expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script).toContain('if _root != null:');
@@ -31,7 +31,7 @@ describe('navigation 生成器: set_owner 判空守卫(防回归)', () => {
     expect(script).not.toContain('set_owner(_mcp_get_root())');
   });
 
-  it('genCreateLinkScript: set_owner 经 _owner 判空', () => {
+  it('genCreateLinkScript: set_owner 经 _root 判空', () => {
     const script = genCreateLinkScript('TestLink', 'root', pos, pos, true);
     expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script).toContain('if _root != null:');
