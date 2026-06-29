@@ -14,6 +14,7 @@
 | 子系统 | 入口工具 | 核心能力 | 前提 | rule 文件 |
 |--------|---------|---------|------|----------|
 | **模式选择** | — | Headless/Editor/Bridge 决策树 | — | core |
+| **引擎陷阱** | — | Godot 引擎行为知识（无错误提示的隐蔽陷阱，按工具分组） | — | engine-quirks |
 | Editor | launch_editor | 实时场景树同步、undo | 编辑器运行中 | editor |
 | Bridge | game_bridge_install | 查询/输入/写入/等待/监控/信号/UI发现 | 游戏运行中 | bridge |
 | UI 布局 | ui_build_layout | CSS Flexbox/Grid 翻译 | headless | ui |

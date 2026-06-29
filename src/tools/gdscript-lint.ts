@@ -247,7 +247,7 @@ const RULES: LintRule[] = [
     message: "RigidBody3D.bounce 在 Godot 4 中不存在，需使用 PhysicsMaterial",
     suggestion: "使用 PhysicsMaterial:\n  var mat := PhysicsMaterial.new()\n  mat.bounce = 0.4\n  body.physics_material_override = mat",
     requiresSemanticValidation: true,
-    contextFilter: (match, context): boolean => {
+    contextFilter: (_match, context): boolean => {
       if (hasTypeContext(context.precedingLines, ['PhysicsMaterial'])) return false;
       return hasTypeContext(context.precedingLines, ['RigidBody3D', 'RigidDynamicBody3D', 'PhysicsBody3D']);
     },
@@ -260,7 +260,7 @@ const RULES: LintRule[] = [
     message: "visibility_range_* 属性位于 GeometryInstance3D，不在 Node3D 上",
     suggestion: "确保使用的是 MeshInstance3D/GPUParticles3D 等 GeometryInstance3D 子类",
     requiresSemanticValidation: true,
-    contextFilter: (match, context): boolean => {
+    contextFilter: (_match, context): boolean => {
       const geoSubclasses = ['MeshInstance3D', 'GPUParticles3D', 'CPUParticles3D',
         'MultiMeshInstance3D', 'Decal', 'FogVolume', 'GeometryInstance3D',
         'VisualInstance3D', 'SpriteBase3D', 'Label3D'];
