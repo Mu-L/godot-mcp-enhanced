@@ -16,7 +16,11 @@ import {
 } from '../core/tool-registry.js';
 import { opsSuccess, opsError } from './shared.js';
 
-type ManageAction = 'list_groups' | 'activate' | 'deactivate' | 'sync' | 'reconnect' | 'migrate';
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const ACTIONS = ['list_groups', 'activate', 'deactivate', 'sync', 'reconnect', 'migrate'] as const;
+
+type ManageAction = (typeof ACTIONS)[number];
 
 export interface ConnectionStatus {
   editor: { installed: boolean; connected: boolean; state: ConnectionState | null };
@@ -59,7 +63,7 @@ export function getToolDefinitions(): Tool[] {
         properties: {
           action: {
             type: 'string',
-            enum: ['list_groups', 'activate', 'deactivate', 'sync', 'reconnect', 'migrate'],
+            enum: [...ACTIONS],
             description: '操作类型',
           },
           groups: {

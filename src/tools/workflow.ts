@@ -15,6 +15,10 @@ import { referenceSimScript, extractFrameMetricsScript } from './frame-verify/gd
 import { classifyDegradation, type FrameMetrics } from './frame-verify/degradation.js';
 import { createProofRun, cleanupProofRun, recordFrameBytes, type ProofRun } from './frame-verify/proof-bundle.js';
 
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const ACTIONS = ['dev_loop', 'scene_snapshot', 'batch_validate', 'create_files', 'run_verify', 'diff_scenes'] as const;
+
 // ─── Session State helpers (file-as-memory pattern) ──────────────────────────
 
 export interface SessionState {
@@ -92,7 +96,7 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Path to Godot project directory' },
           action: {
             type: 'string',
-            enum: ['dev_loop', 'scene_snapshot', 'batch_validate', 'create_files', 'run_verify', 'diff_scenes'],
+            enum: [...ACTIONS],
             description: 'Action type',
           },
           // dev_loop params

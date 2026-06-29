@@ -11,7 +11,14 @@ import { handleIkAction } from '../ik-tools.js';
 
 const TOOL_NAMES = ['animation'] as const;
 
-export { TOOL_NAMES };
+const ACTIONS = [
+  'list_players', 'get_info', 'get_details', 'get_keyframes', 'play', 'stop',
+  'seek', 'blend', 'create', 'delete', 'update_props', 'add_track', 'remove_track',
+  'add_keyframe', 'remove_keyframe', 'update_keyframe', 'ik_modifier_create',
+  'ik_modifier_get', 'ik_modifier_set', 'ik_list_bones',
+] as const;
+
+export { TOOL_NAMES, ACTIONS };
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
@@ -28,15 +35,7 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           action: {
             type: 'string',
-            enum: [
-              'list_players', 'get_info', 'get_details', 'get_keyframes',
-              'play', 'stop', 'seek', 'blend',
-              'create', 'delete', 'update_props',
-              'add_track', 'remove_track',
-              'add_keyframe', 'remove_keyframe', 'update_keyframe',
-              // ── IK actions (merged from ik-tools.ts, v0.18.0) ──
-              'ik_modifier_create', 'ik_modifier_get', 'ik_modifier_set', 'ik_list_bones',
-            ],
+            enum: [...ACTIONS],
             description: '操作类型',
           },
           root_path: { type: 'string', description: '搜索起始节点路径（list_players）' },

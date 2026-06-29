@@ -10,6 +10,10 @@ import { detectGodotVersion } from '../core/godot-finder.js';
 import { buildSafeEnv } from '../helpers.js';
 import { resolveWithinRoot } from '../core/path-utils.js';
 
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const ACTIONS = ['list_devices', 'get_preset_info', 'deploy', 'check_template', 'logcat'] as const;
+
 const ERROR_CODES = {
   ADB_NOT_FOUND: 'ADB_NOT_FOUND',
   NO_DEVICES: 'NO_DEVICES',
@@ -300,7 +304,7 @@ export function getToolDefinitions(): Tool[] {
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list_devices', 'get_preset_info', 'deploy', 'check_template', 'logcat'] },
+        action: { type: 'string', enum: [...ACTIONS] },
         project_path: { type: 'string', description: 'Godot 项目目录' },
         lines: { type: 'number', description: 'logcat: dump 行数(默认 100)' },
         filter: { type: 'string', description: 'logcat: 过滤(如 *:E / GDScript:*)' },

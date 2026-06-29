@@ -9,6 +9,12 @@ import { BLOCKED_PROPS } from './scene/helpers.js';  // IMP-1 (2026-06-26 review
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
+const ACTIONS = [
+  'read', 'set_params', 'create', 'save', 'load',
+  'shader_read', 'shader_write', 'shader_load_file', 'shader_save_file',
+  'shader_list_templates', 'shader_apply_template',
+] as const;
+
 export const MATERIAL_ERROR_CODES = {
   MATERIAL_NOT_FOUND: 'MATERIAL_NOT_FOUND',
   INVALID_MATERIAL_TYPE: 'INVALID_MATERIAL_TYPE',
@@ -599,7 +605,7 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Godot project directory path' },
           action: {
             type: 'string',
-            enum: ['read', 'set_params', 'create', 'save', 'load', 'shader_read', 'shader_write', 'shader_load_file', 'shader_save_file', 'shader_list_templates', 'shader_apply_template'],
+            enum: [...ACTIONS],
             description: 'Operation type',
           },
           node_path: { type: 'string', description: 'Scene tree node path' },
