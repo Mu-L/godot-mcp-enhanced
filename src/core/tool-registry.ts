@@ -6,16 +6,23 @@ import { getLogger } from './logger.js';
 
 // ─── Tool metadata ──────────────────────────────────────────────────────────
 
+export type RiskLevel = 'read' | 'write' | 'destructive' | 'process';
+
 export interface ToolMeta {
   name: string;
   readonly: boolean;
   long_running: boolean;
+  actionRisks?: Record<string, RiskLevel>;
 }
 
 // ─── Tool module interface ───────────────────────────────────────────────────
 
 export interface ToolModule {
-  TOOL_META?: Record<string, { readonly: boolean; long_running: boolean }>;
+  TOOL_META?: Record<string, {
+    readonly?: boolean;
+    long_running?: boolean;
+    actionRisks?: Record<string, RiskLevel>;
+  }>;
   getToolDefinitions(): Tool[];
   handleTool(toolName: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null>;
 }
@@ -35,7 +42,16 @@ export function registerModule(mod: ToolModule): void {
   const meta = mod.TOOL_META;
   if (meta) {
     for (const [name, m] of Object.entries(meta)) {
-      const entry: ToolMeta = { name, ...m };
+      const actionRisks = m.actionRisks;
+      const derivedReadonly = actionRisks
+        ? Object.values(actionRisks).every(r => r === 'read')
+        : false;
+      const entry: ToolMeta = {
+        name,
+        readonly: m.readonly ?? derivedReadonly,
+        long_running: m.long_running ?? false,
+        actionRisks,
+      };
       metaRegistry.set(name, entry);
       moduleRegistry.set(name, mod);
     }
@@ -89,6 +105,14 @@ export function getAllToolNames(): string[] {
 
 export function getToolMeta(name: string): ToolMeta | undefined {
   return metaRegistry.get(name);
+}
+
+export function getActionRisks(name: string): Record<string, RiskLevel> | undefined {
+  return metaRegistry.get(name)?.actionRisks;
+}
+
+export function getActionRisk(toolName: string, action: string): RiskLevel | undefined {
+  return getActionRisks(toolName)?.[action];
 }
 
 export function getModuleForTool(name: string): ToolModule | undefined {
