@@ -6,6 +6,7 @@ import { normalizeNodePath, gdEscape, validateIdentifier } from '../shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { LOOP_MODES, TRACK_TYPES, ensureNumber, valueToGd, argsToGd, animErrorMapper } from './animation-shared.js';
 import { handleIkAction } from '../ik-tools.js';
+import type { RiskLevel } from '../../core/tool-registry.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -677,6 +678,17 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  animation: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  animation: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      list_players: 'read', get_info: 'read', get_details: 'read', get_keyframes: 'read',
+      play: 'read', stop: 'read', seek: 'read', blend: 'read',
+      ik_modifier_get: 'read', ik_list_bones: 'read',
+      create: 'write', update_props: 'write', add_track: 'write', add_keyframe: 'write',
+      update_keyframe: 'write', ik_modifier_create: 'write', ik_modifier_set: 'write',
+      delete: 'destructive', remove_track: 'destructive', remove_keyframe: 'destructive',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

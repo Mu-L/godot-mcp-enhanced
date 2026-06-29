@@ -12,6 +12,7 @@ import { getTemplateSuggestion } from './code-templates.js';
 import { gdEscape, opsErrorResult } from './shared.js';
 import { validateTimeout } from './shared.js';
 import { getLogger } from '../core/logger.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 
 function detectDuplicateLines(lines: string[]): string[] {
   const warnings: string[] = [];
@@ -1033,6 +1034,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  script: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  script: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      read_script: 'read', write_script: 'write', edit_script: 'write',
+      generate_test: 'write', create_test_scene: 'write',
+      execute_gdscript: 'process', project_replace: 'destructive',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

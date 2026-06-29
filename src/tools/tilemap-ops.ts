@@ -5,6 +5,7 @@ import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -461,6 +462,15 @@ export async function handleTool(
   }
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  tilemap: { readonly: false, long_running: false },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  tilemap: {
+    readonly: false,
+    long_running: false,
+    actionRisks: {
+      tilemap_read: 'read', tilemap_copy: 'read',
+      tilemap_set_cell: 'write', tilemap_erase_cell: 'write', tilemap_fill_rect: 'write',
+      tilemap_paste: 'write', tilemap_set_transform: 'write',
+      tilemap_clear: 'destructive',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };

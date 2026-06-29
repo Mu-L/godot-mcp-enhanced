@@ -17,6 +17,7 @@ import { handleInstanceScene, handleSetInstanceProperty, handleDetachInstance } 
 import { mergeTscn, checkSceneHealth } from './scene-merge.js';
 import { handleCreate3dNode } from '../node-3d-ops.js';
 import { handleCommitAction } from './scene-commit-tool.js';
+import type { RiskLevel } from '../../core/tool-registry.js';
 
 export { mergeTscn, checkSceneHealth };
 
@@ -397,6 +398,16 @@ export async function handleTool(
 }
 
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  scene: { readonly: false, long_running: true },
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  scene: {
+    readonly: false,
+    long_running: true,
+    actionRisks: {
+      read_scene: 'read', query_scene_tree: 'read', inspect_node: 'read', health_check: 'read',
+      create_scene: 'write', quick_scene: 'write', add_node: 'write', batch_add_nodes: 'write',
+      edit_node: 'write', save_scene: 'write', load_sprite: 'write', instance_scene: 'write',
+      set_instance_property: 'write', detach_instance: 'write', create_3d_node: 'write', commit: 'write',
+      remove_node: 'destructive', merge_scene: 'destructive',
+    } satisfies Record<typeof ACTIONS[number], RiskLevel>,
+  },
 };
