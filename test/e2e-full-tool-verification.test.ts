@@ -344,7 +344,7 @@ describe.skipIf(!hasProject)('E2E: scene_commit', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // 5. ui — build_layout / create_control
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasProject)('E2E: ui tool', () => {
+describe.skipIf(!hasGodot || !hasProject)('E2E: ui tool', () => {
   it('build_layout: VBoxContainer with children', async () => {
     const r = await callTool('ui', {
       action: 'ui_build_layout',
