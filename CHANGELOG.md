@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-06-30
+
+### Added — cpp GDExtension 脚手架 + 全工具验证靶子
+
+- **cpp `scaffold_gdextension`**：新工具，生成 8 文件 C++ GDExtension 工程骨架（不联网/不编译），填补竞品 C++/GDExtension 赛道空白
+- **全工具验证靶子**：`test/fixtures/real-project/` 真实多子系统无 autoload 靶子 + 三层（L1 headless 静态 / L2 运行态 / L3 特殊环境）全自动化验证，覆盖 28/30 顶层工具正路径
+- 含 R3 审查修复、全面安全审查 H1-M4 修复（累计自 v0.19.1 的本地增量）
+
 ## [0.19.1] - 2026-06-27
 
 ### Fixed — 版本元数据同步
