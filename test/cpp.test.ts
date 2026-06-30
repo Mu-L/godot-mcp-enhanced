@@ -1,7 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// fs mock 覆盖 handleTool 写盘 + 路径校验链(validatePath/isPathInAllowedRoots)可能用到的 fs 方法。
+// 范式对齐 test/android.test.ts(realpathSync/statSync/lstatSync 等)。
+const fsMock = vi.hoisted(() => ({
+  existsSync: vi.fn(() => false),
+  readdirSync: vi.fn(() => [] as string[]),
+  mkdirSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  realpathSync: vi.fn((p: string) => p),
+  statSync: vi.fn(() => ({ size: 0 }) as any),
+  lstatSync: vi.fn(() => ({ isSymbolicLink: () => false }) as any),
+  readFileSync: vi.fn(() => ''),
+}));
+vi.mock('fs', () => fsMock);
+// 旁路 ALLOWED_PROJECT_PATHS 校验,使 requireProjectPath 不抛 —— 等价 path-security 测试隔离。
+vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
+
 import {
   renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE,
 } from '../src/tools/cpp-templates.js';
+import { handleTool } from '../src/tools/cpp.js';
 
 describe('cpp-templates renderScaffold', () => {
   const ctx = { className: 'Example', parentClass: 'Node', parentInc: 'node', lib: 'example', godotVersion: '4.6' };
@@ -60,5 +78,67 @@ describe('cpp-templates renderScaffold', () => {
 
   it('SUPPORTED_GODOT_VERSIONS 含 4.4/4.5/4.6', () => {
     expect([...SUPPORTED_GODOT_VERSIONS]).toEqual(['4.4', '4.5', '4.6']);
+  });
+});
+
+describe('cpp scaffold_gdextension handleTool', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fsMock.existsSync.mockReturnValue(false);
+    fsMock.readdirSync.mockReturnValue([] as any);
+  });
+
+  it('生成全部 8 文件并返回清单', async () => {
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext', class_name: 'Foo', parent_class: 'Node' },
+      {} as any);
+    const parsed = JSON.parse(r!.content[0].text);
+    expect(parsed.files).toHaveLength(8);
+    expect(parsed.godot_cpp_clone_hint).toContain('godot-4.6-stable'); // 默认版本
+    expect(fsMock.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('src'), { recursive: true });
+    expect(fsMock.writeFileSync).toHaveBeenCalledTimes(8);
+  });
+
+  it('非法 parent_class → 报错且不写盘', async () => {
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext', parent_class: 'Sprite' /* 不在白名单 */ },
+      {} as any);
+    expect(r!.content[0].text).toContain('Error');
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('非法 class_name → 报错', async () => {
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext', class_name: 'lower' },
+      {} as any);
+    expect(r!.content[0].text).toContain('Error');
+  });
+
+  it('非法 godot_version → 报错', async () => {
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext', godot_version: '3.5' },
+      {} as any);
+    expect(r!.content[0].text).toContain('Error');
+  });
+
+  it('目标已存在非空 + 未 force → 拒绝', async () => {
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readdirSync.mockReturnValue(['a.cpp'] as any);
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext' },
+      {} as any);
+    expect(r!.content[0].text).toContain('Error');
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('force=true 时覆盖已存在非空目录', async () => {
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readdirSync.mockReturnValue(['a.cpp'] as any);
+    const r = await handleTool('cpp',
+      { action: 'scaffold_gdextension', project_path: '/proj/ext', force: true },
+      {} as any);
+    const parsed = JSON.parse(r!.content[0].text);
+    expect(parsed.files).toHaveLength(8);
+    expect(fsMock.writeFileSync).toHaveBeenCalledTimes(8);
   });
 });
