@@ -1,6 +1,21 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/main_2d.gd" id="1_main2d"]
+
+[sub_resource type="StandardMaterial3D" id="mat_override"]
+albedo_color = Color(0.8, 0.2, 0.2, 1)
+
+[sub_resource type="BoxMesh" id="box_mesh"]
+material = SubResource("mat_override")
+
+[sub_resource type="Animation" id="anim_l1anim"]
+resource_name = "L1Anim"
+length = 1.0
+
+[sub_resource type="AnimationLibrary" id="animlib_default"]
+_data = {
+"L1Anim": SubResource("anim_l1anim")
+}
 
 [node name="Main2D" type="Node2D"]
 script = ExtResource("1_main2d")
@@ -13,6 +28,15 @@ script = ExtResource("1_main2d")
 amount = 8
 
 [node name="AnimPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+"": SubResource("animlib_default")
+}
+
+[node name="BgmPlayer" type="AudioStreamPlayer" parent="."]
+
+[node name="TestMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("box_mesh")
+surface_material_override_0 = SubResource("mat_override")
 
 [node name="UIBox" type="VBoxContainer" parent="."]
 offset_right = 400.0

@@ -689,6 +689,72 @@ describe.skipIf(!hasGodot || !hasRealProject)('L1 real-project: 文件类 + 基�
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L1 real-project: 领域工具真实对象正路径
+// 消费靶子真实节点(AnimPlayer/TileLayer/Particles/SignalHost/BgmPlayer/NavRegion/Body3D/TestMesh)。
+// 反假绿:action 名核对源码 case;tilemap/particles/signal 带 module 前缀;
+// audio/nav 无 list action → 改用 audio_query(查询)/create_region(创建)验证工具响应。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasGodot || !hasRealProject)('L1 real-project: 领域工具真实对象正路径', { timeout: 60_000 }, () => {
+
+  it('animation list_players: 返回 AnimPlayer', async () => {
+    const r = await callToolReal('animation', { action: 'list_players', scene_path: SCENE_2D });
+    expectSuccess(r, 'AnimPlayer');
+  });
+
+  it('animation_track add_track: 真实加轨道', async () => {
+    // fixture AnimPlayer 预定义 L1Anim animation(持久化,避免跨进程 create 丢失)
+    const r = await callToolReal('animation_track', {
+      action: 'add_track', scene_path: SCENE_2D, node_path: 'root/Main2D/AnimPlayer',
+      animation_name: 'L1Anim', track_type: 'value', track_path: 'Camera2D:position:x',
+    });
+    expectSuccess(r);
+  });
+
+  it('animtree create: 真实建 AnimationTree', async () => {
+    const r = await callToolReal('animtree', { action: 'animtree_create', scene_path: SCENE_2D, name: 'L1Tree', animation_player_path: 'root/Main2D/AnimPlayer' });
+    expectSuccess(r);
+  });
+
+  it('tilemap read: 返回 TileLayer 真实数据', async () => {
+    const r = await callToolReal('tilemap', { action: 'tilemap_read', scene_path: SCENE_2D, node_path: 'Main2D/TileLayer' });
+    expectSuccess(r); // 真实 TileMapLayer,非 not-found
+  });
+
+  it('particles create 2D: 真实建粒子', async () => {
+    const r = await callToolReal('particles', { action: 'particles_create', scene_path: SCENE_2D, parent_path: '.', name: 'NewParts', node_type: 'GPUParticles2D' });
+    expectSuccess(r);
+  });
+
+  it('material read: 返回 TestMesh 节点信息', async () => {
+    // material 不读 scene_path(默认 main scene),用 main_2d 的 TestMesh(fixture 内置)
+    const r = await callToolReal('material', { action: 'read', node_path: 'root/Main2D/TestMesh' });
+    expectSuccess(r);
+  });
+
+  it('signal list: 返回 Main2D 真实信号', async () => {
+    // signal 工具不读 scene_path(在默认 main scene 操作),用 main_2d 的 Main2D 节点(main_2d.gd 的 action_pressed)
+    const r = await callToolReal('signal', { action: 'signal_list', node_path: 'root/Main2D' });
+    expectSuccess(r, 'action_pressed');
+  });
+
+  it('audio query: 查询 BgmPlayer 状态', async () => {
+    // audio 工具不读 scene_path(在默认 main scene 操作),查 main_2d 的 BgmPlayer(fixture 内置)
+    const r = await callToolReal('audio', { action: 'audio_query', node_path: 'root/Main2D/BgmPlayer' });
+    expectSuccess(r);
+  });
+
+  it('nav create_region: 创建空 NavigationRegion3D', async () => {
+    const r = await callToolReal('nav', { action: 'create_region', name: 'L1NavTest', parent: 'root', bake: false });
+    expectSuccess(r); // nav 无 read/list action,用 create_region 验证工具响应
+  });
+
+  it('physics raycast: 射线查询', async () => {
+    const r = await callToolReal('physics', { action: 'raycast', from: { x: 0, y: 10, z: 0 }, to: { x: 0, y: 0, z: 0 } });
+    expectSuccess(r); // 射线查询(命中/未命中均返回结构化结果)
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CLEANUP
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('E2E: Cleanup', () => {
