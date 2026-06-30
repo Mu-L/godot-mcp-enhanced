@@ -755,6 +755,51 @@ describe.skipIf(!hasGodot || !hasRealProject)('L1 real-project: 领域工具真�
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L1 real-project: cpp scaffold_gdextension
+// cpp 工具在 project_path 下生成 8 文件 GDExtension 工程骨架(无 output_dir 参数,plan 有误)。
+// 用 REAL_PROJECT 子目录 + force:true 避免污染 fixture,afterAll 清理。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasRealProject)('L1 real-project: cpp scaffold_gdextension', { timeout: 30_000 }, () => {
+  const cppDir1 = resolve(REAL_PROJECT, 'cpp_l1_test');
+  const cppDir2 = resolve(REAL_PROJECT, 'cpp_l1_test2');
+
+  it('scaffold: 生成 8 文件 GDExtension 工程骨架并落盘', async () => {
+    const r = await callToolReal('cpp', {
+      project_path: cppDir1, // cpp 工具用 project_path 作生成根(无 output_dir 参数)
+      action: 'scaffold_gdextension',
+      class_name: 'L1TestNode',
+      parent_class: 'Node',
+      force: true,
+    });
+    expectSuccess(r, 'files'); // 返回 JSON 含 files 清单 + gdextension_path
+    // 校验关键文件落盘(renderScaffold 8 文件:src/类.h/.cpp + register_types.h/.cpp + SConstruct + .gdextension + .gitignore + README)
+    expect(existsSync(resolve(cppDir1, 'SConstruct'))).toBe(true);
+    expect(existsSync(resolve(cppDir1, 'src', 'L1TestNode.cpp'))).toBe(true);
+    expect(existsSync(resolve(cppDir1, 'src', 'register_types.cpp'))).toBe(true);
+    expect(existsSync(resolve(cppDir1, 'l1testnode.gdextension'))).toBe(true); // lib = className.toLowerCase()
+  });
+
+  it('gdextension_file 内容含 entry 段', async () => {
+    const r = await callToolReal('cpp', {
+      project_path: cppDir2,
+      action: 'scaffold_gdextension',
+      class_name: 'L1Node2',
+      force: true,
+    });
+    expectSuccess(r);
+    const gdext = readFileSync(resolve(cppDir2, 'l1node2.gdextension'), 'utf-8');
+    expect(gdext).toContain('entry'); // entry_symbol = "..._library_init"
+  });
+
+  afterAll(() => {
+    // 清理:cpp 生成的工程不进 git,删除避免 fixture 污染
+    for (const d of [cppDir1, cppDir2]) {
+      if (existsSync(d)) rmSync(d, { recursive: true, force: true });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CLEANUP
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('E2E: Cleanup', () => {
