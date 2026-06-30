@@ -848,6 +848,64 @@ describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: bridge 正路径
     if (projectGodotSnap) {
       try { writeFileSync(resolve(REAL_PROJECT, 'project.godot'), projectGodotSnap, 'utf-8'); } catch { /* best effort */ }
     }
+    // 清理 install 副作用:mcp_bridge.gd autoload 脚本(install copyFileSync 到项目根)+ 密钥
+    const bridgeScript = resolve(REAL_PROJECT, 'mcp_bridge.gd');
+    if (existsSync(bridgeScript)) { try { rmSync(bridgeScript, { force: true }); } catch { /* best effort */ } }
+    const secret = resolve(REAL_PROJECT, '.godot', 'mcp_bridge_9081.secret');
+    if (existsSync(secret)) { try { rmSync(secret, { force: true }); } catch { /* best effort */ } }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L2 real-project: recording + profiler
+// recording 需游戏运行 + bridge 输入捕获(单 it,同 Task 8 模式);
+// profiler 通过 executeGdscript(headless),不需游戏运行。
+// action:recording 用 runtime record_start/stop/play(plan 写 recording_* 错);
+//         profiler snapshot/start/get_data/stop。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: recording + profiler', { timeout: 150_000 }, () => {
+  let projectGodotSnap = '';
+
+  beforeAll(() => {
+    projectGodotSnap = readFileSync(resolve(REAL_PROJECT, 'project.godot'), 'utf-8');
+    process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
+  });
+
+  it('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
+    // 单 it:afterEach 在 it 间 kill 进程,故 recording 链路(依赖游戏运行)单 it 内完成
+    const install = await callToolReal('game', { action: 'game_bridge_install' });
+    expectSuccess(install);
+    const run = await callToolReal('runtime', { action: 'run_project', wait_for_bridge: true, bridge_timeout: 30, timeout: 120 });
+    expectSuccess(run);
+    const start = await callToolReal('runtime', { action: 'record_start' });
+    expectHasText(start);
+    await callToolReal('game', { action: 'game_input', method: 'send_key', params: { key: 'Key_W', pressed: true } });
+    const stop = await callToolReal('runtime', { action: 'record_stop' });
+    expectHasText(stop);
+    // record_stop 返回 events_json(memory 方式 B),直接传 record_play
+    const play = await callToolReal('runtime', { action: 'record_play', events_json: stop.text, speed: 1.0 });
+    expectHasText(play);
+  });
+
+  it('profiler snapshot/start/get_data/stop(headless executeGdscript)', async () => {
+    // profiler 通过 executeGdscript(headless 独立 Godot 进程),不需游戏运行
+    const snap = await callToolReal('profiler', { action: 'snapshot' });
+    expectHasText(snap);
+    const start = await callToolReal('profiler', { action: 'start' });
+    expectHasText(start);
+    const data = await callToolReal('profiler', { action: 'get_data', dimensions: ['process'], frame_count: 30 });
+    expectHasText(data);
+    const stop = await callToolReal('profiler', { action: 'stop' });
+    expectHasText(stop);
+  });
+
+  afterAll(async () => {
+    try { await callToolReal('runtime', { action: 'stop_project' }); } catch { /* best effort */ }
+    if (projectGodotSnap) {
+      try { writeFileSync(resolve(REAL_PROJECT, 'project.godot'), projectGodotSnap, 'utf-8'); } catch { /* best effort */ }
+    }
+    const bridgeScript = resolve(REAL_PROJECT, 'mcp_bridge.gd');
+    if (existsSync(bridgeScript)) { try { rmSync(bridgeScript, { force: true }); } catch { /* best effort */ } }
     const secret = resolve(REAL_PROJECT, '.godot', 'mcp_bridge_9081.secret');
     if (existsSync(secret)) { try { rmSync(secret, { force: true }); } catch { /* best effort */ } }
   });
