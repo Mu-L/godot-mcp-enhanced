@@ -397,7 +397,7 @@ export async function handleTool(
     case 'commit':
       return handleCommitAction(args, ctx);
 
-    default: return null;
+    default: return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
   // Unreachable for well-formed action strings, but satisfies TS control flow
   return null;

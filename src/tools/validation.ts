@@ -529,7 +529,7 @@ export function getToolDefinitions(): Tool[] {
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'validation') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   switch (action) {
     case 'run_and_verify': {
@@ -1063,7 +1063,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       return handleVerifyDelivery(args, ctx);
 
     default:
-      return null;
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

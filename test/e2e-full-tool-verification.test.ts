@@ -347,7 +347,7 @@ describe.skipIf(!hasProject)('E2E: scene_commit', () => {
 describe.skipIf(!hasProject)('E2E: ui tool', () => {
   it('build_layout: VBoxContainer with children', async () => {
     const r = await callTool('ui', {
-      action: 'build_layout',
+      action: 'ui_build_layout',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       parent_path: '.',
       tree: {
@@ -365,7 +365,7 @@ describe.skipIf(!hasProject)('E2E: ui tool', () => {
 
   it('create_control: single Button', async () => {
     const r = await callTool('ui', {
-      action: 'create_control',
+      action: 'ui_create_control',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       parent_path: '.',
       node_type: 'Button',
@@ -397,7 +397,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: create_3d_node (via scene tool)'
 // ═══════════════════════════════════════════════════════════════════════════════
 describe.skipIf(!hasProject)('E2E: project', () => {
   it('info: returns project metadata', async () => {
-    const r = await callTool('project', { action: 'info' });
+    const r = await callTool('project', { action: 'get_project_info' });
     expect(r.text.length).toBeGreaterThan(0);
   });
 
@@ -984,6 +984,23 @@ describe.skipIf(!hasRealProject)('L3: android(adb)', { timeout: 60_000 }, () => 
   it.skip('deploy: 需连接设备(手动启用)', async () => {
     const r = await callToolReal('android', { action: 'deploy' });
     expectHasText(r);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L2 run_project bridge-not-ready → isError(问题 2 修复验证)
+// 不 install bridge,run_project wait_for_bridge → bridge 不就绪 → isError
+// (修复前 isError:false 误报,到 ping 才暴露 BRIDGE_NOT_CONNECTED)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasGodot || !hasRealProject)('L2 run_project bridge-not-ready → isError', { timeout: 60_000 }, () => {
+  it('wait_for_bridge + 无 bridge install → isError:true', async () => {
+    const r = await callToolReal('runtime', { action: 'run_project', wait_for_bridge: true, bridge_timeout: 3, timeout: 30 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('Bridge not ready');
+  });
+
+  afterAll(async () => {
+    try { await callToolReal('runtime', { action: 'stop_project' }); } catch { /* best effort */ }
   });
 });
 

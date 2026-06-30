@@ -661,7 +661,7 @@ export async function handleTool(
       }
 
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown tool name: ${name}`);
     }
 
     const result = await executeGdscript({

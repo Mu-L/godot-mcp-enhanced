@@ -1,4 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { opsErrorResult } from './shared.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
@@ -190,7 +191,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
           return textResult(JSON.stringify({ class: className, inheritance_chain: chain }, null, 2));
         }
     default:
-      return null;
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

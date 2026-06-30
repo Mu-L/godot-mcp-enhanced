@@ -427,7 +427,7 @@ export async function handleTool(
       }
 
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
 
     const result = await executeGdscript({

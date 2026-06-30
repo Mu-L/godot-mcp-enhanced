@@ -88,7 +88,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     switch (action) {
       case 'assert': return await handleTestAssert(args, godot, projectPath);
       case 'stress': return await handleTestStress(args, godot, projectPath);
-      default: return null;
+      default: return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
   } catch (err) {
     return opsErrorResult('INVALID_PATH', err instanceof Error ? err.message : String(err));

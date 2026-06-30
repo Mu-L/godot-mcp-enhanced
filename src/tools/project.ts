@@ -6,6 +6,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
+import { opsErrorResult } from './shared.js';
 import {
   buildEngineVersion, buildRenderer, buildKeyPaths, buildMainScene,
   buildAutoloads, buildInputMap, buildPhysics, buildLayerNames, buildMcpMapping,
@@ -88,7 +89,7 @@ export function getToolDefinitions(): Tool[] {
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'project') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   switch (action) {
     case 'list_projects': {
@@ -591,7 +592,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     }
 
     default:
-      return null;
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

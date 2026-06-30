@@ -264,6 +264,7 @@ export function chainOfVerification(verdict: string, context: string): CoVResult
 // ─── MCP Tool Registration ────────────────────────────────────────────────────
 
 import { readFileSync } from "fs";
+import { opsErrorResult } from './shared.js';
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { getErrorMessage } from '../types.js';
@@ -354,7 +355,7 @@ export async function handleTool(
       };
     }
     default:
-      return null;
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

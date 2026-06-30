@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { opsErrorResult } from './shared.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
-import { textResult } from '../types.js';
+import { textResult, errorResult } from '../types.js';
 import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
 import { isBridgeReady } from './game-bridge.js';
@@ -100,12 +101,22 @@ export function getToolDefinitions(): Tool[] {
   ];
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+// computeRunTimeout:run_project 的 auto-stop timeout 计算(提取为纯函数便于测试)。
+// wait_for_bridge 时 timeout 至少 bridge_timeout + 10,防 auto-stop 与 bridge 就绪 race
+// (修复前默认 timeout=30 与 bridge_timeout=30 同量级,游戏在 bridge 就绪前被 auto-stop kill)。
+export function computeRunTimeout(rawTimeout: unknown, bridgeTimeout: number, waitForBridge: boolean): number {
+  const base = Math.max(5, Number(rawTimeout) || 30);
+  return waitForBridge ? Math.max(bridgeTimeout + 10, base) : base;
+}
+
 // ─── Tool handler ───────────────────────────────────────────────────────────
 
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'runtime') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   switch (action) {
     case 'launch_editor': {
@@ -127,9 +138,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       if (!existsSync(join(p, 'project.godot'))) {
         return textResult(`Error: Not a Godot project (no project.godot found): ${p}`);
       }
-      const timeout = Math.max(5, Number(args.timeout) || 30);
       const waitForBridge = args.wait_for_bridge === true;
       const bridgeTimeout = Math.max(1, Number(args.bridge_timeout) || 10);
+      const timeout = computeRunTimeout(args.timeout, bridgeTimeout, waitForBridge);
       const godot = await ctx.findGodot();
 
       // Version mismatch warning
@@ -208,7 +219,6 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       ctx.setRunningProcess(proc, true); // skip busy check — slot acquired via acquireProcessSlot above
 
-      let bridgeMsg = '';
       if (waitForBridge) {
         // M3: 显式命名 ms(isBridgeReady 接收 ms;bridgeTimeout 是秒,见 :130)
         const bridgeTimeoutMs = bridgeTimeout * 1000;
@@ -216,9 +226,18 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           proc,
           isCancelled: () => ctx.runningProcess !== proc,
         });
-        bridgeMsg = r.ready ? 'Bridge ready. ' : `⚠ Bridge not ready (${r.reason}). `;
+        if (!r.ready) {
+          // 问题 2 修复:bridge 未就绪 → isError(此前 textResult isError:false 误报,
+          // 到 game_query ping 才暴露 BRIDGE_NOT_CONNECTED)。清理进程(游戏无 bridge 无用)。
+          if (ctx.runningProcess === proc) {
+            setProcessBusy(false);
+            void killProcess(proc);
+            ctx.setRunningProcess(null);
+          }
+          return errorResult(`${warnPrefix}Bridge not ready (${r.reason}). Game stopped. timeout=${timeout}s, bridge_timeout=${bridgeTimeout}s. 确认已 game_bridge_install 且游戏运行.`);
+        }
       }
-      return textResult(warnPrefix + bridgeMsg + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
+      return textResult(warnPrefix + 'Bridge ready. ' + `Running project at ${p} (timeout: ${timeout}s). Use get_debug_output or stop_project to check.`);
     }
 
     case 'stop_project': {
@@ -364,7 +383,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     }
 
     default:
-      return null;
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

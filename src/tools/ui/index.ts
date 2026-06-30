@@ -410,7 +410,7 @@ export async function handleTool(
         break;
       }
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
 
     const result = await executeGdscriptTrusted({

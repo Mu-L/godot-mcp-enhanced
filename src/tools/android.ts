@@ -294,7 +294,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       return textResult(JSON.stringify({ lines, output: r.stdout, device: deviceSerial ?? '(default)' }));
     }
     default:
-      return null;  // get_preset_info/deploy 后续 task 实现
+      return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 }
 

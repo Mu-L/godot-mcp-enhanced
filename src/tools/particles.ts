@@ -367,7 +367,7 @@ export async function handleTool(
 ): Promise<ToolResult | null> {
   if (name !== 'particles') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   try {
     const projectPath = requireProjectPath(args);
@@ -486,7 +486,7 @@ export async function handleTool(
         break;
       }
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
 
     // Execute the generated GDScript

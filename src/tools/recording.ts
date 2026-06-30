@@ -188,7 +188,7 @@ export async function handleTool(
 ): Promise<ToolResult | null> {
   if (name !== 'recording') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   try {
     const projectPath = requireProjectPath(args);
@@ -410,7 +410,7 @@ export async function handleTool(
         return { content: [{ type: 'text', text: JSON.stringify(result) }], isError: played === 0 };
       }
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
   } catch (err) {
     const msg = getErrorMessage(err);

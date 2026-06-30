@@ -6,6 +6,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
+import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import {
   renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE,
@@ -52,7 +53,7 @@ export async function handleTool(
 ): Promise<ToolResult | null> {
   if (name !== 'cpp') return null;
   const action = args.action as string;
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
 
   // 路径安全校验（越界 throw 由外层 ToolDispatcher 统一捕获）
   const projectPath = requireProjectPath(args);

@@ -292,7 +292,7 @@ export async function handleTool(
         break;
       }
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
 
     const result = await executeGdscript({
@@ -329,7 +329,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
 export async function handleIkAction(
   action: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
-  if (!(ACTIONS as readonly string[]).includes(action)) return null;
+  if (!(ACTIONS as readonly string[]).includes(action)) return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   // 复用现有 handleTool，透传 action
   return handleTool('ik', { ...args, action }, ctx);
 }

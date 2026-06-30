@@ -754,7 +754,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       default:
-        return null;
+        return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
   } catch (err) {
     const msg = getErrorMessage(err);
