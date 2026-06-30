@@ -177,7 +177,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   signal:     { description: '信号', tools: ['signal'], requires: [] },
   profiler:   { description: '性能分析', tools: ['profiler', 'workflow'], requires: [] },
   test:       { description: '测试（已并入 validation）', tools: [], requires: [] },
-  code:       { description: '代码工具', tools: ['docs', 'load_skill'], requires: [] },
+  code:       { description: '代码工具', tools: ['docs', 'load_skill', 'cpp'], requires: [] },
   // v0.18.0 合并说明:
   // ik → animation (ik_modifier_create/get/set/list_bones)
   // recording → runtime (record_start/stop/save/load/play)
@@ -282,7 +282,7 @@ export const MINIMAL_TOOLS: Set<string> = resolveProfile('minimal');
 /** Tools that can run without an active Godot connection. */
 export const OFFLINE_TOOLS = new Set([
   'project', 'script', 'validation', 'confirm_and_execute',
-  'manage_tools', 'godot_advanced_tool', 'load_skill',
+  'manage_tools', 'godot_advanced_tool', 'load_skill', 'cpp',
 ]);
 
 /** Check if a tool can run in offline mode. */
