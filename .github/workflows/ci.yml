@@ -117,8 +117,10 @@ jobs:
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
-      - name: Run E2E (real Godot integration)
-        run: npx vitest run test/e2e-full-tool-verification.test.ts --reporter=json --outputFile=coverage/e2e-report.json
+      - name: Install xvfb (virtual X — L2 run_project spawn `godot --debug` 需 X server)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Run E2E (real Godot integration, xvfb virtual X)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npx vitest run test/e2e-full-tool-verification.test.ts --reporter=json --outputFile=coverage/e2e-report.json
       - name: Upload e2e-report.json
         if: always()
         uses: actions/upload-artifact@v4
