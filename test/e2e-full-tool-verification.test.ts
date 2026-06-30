@@ -108,7 +108,9 @@ async function callToolReal(toolName: string, args: Record<string, unknown>): Pr
   const mod = getModuleForTool(toolName);
   if (!mod) return { text: `MODULE_NOT_FOUND: ${toolName}`, isError: true };
   const result = await mod.handleTool(toolName, { project_path: REAL_PROJECT, ...args }, makeCtx());
-  if (!result) return { text: 'null result', isError: false };
+  // 反假绿(IMPORTANT-9b):null = action 未匹配任何 case(default return null,如 ui/project 模块),
+  // 判为错误而非通过。避免 action 名笔误导致的假绿(现有 e2e 的 ui build_layout/project info 即此陷阱)。
+  if (!result) return { text: 'null result (action 未匹配任何 case — 疑似假绿,核对 action 名)', isError: true };
   if (!isToolResult(result)) return { text: `UNEXPECTED_RESULT: ${JSON.stringify(result).slice(0, 200)}`, isError: true };
   const text = result.content.map(c => c.text).join('\n') ?? '';
   return { text, isError: result.isError === true };
@@ -598,6 +600,91 @@ describe('E2E: editor (error path)', () => {
     const r = await callTool('editor', { action: 'sync_start' });
     expect(r.text).toBeDefined();
     expect(r.text.length).toBeGreaterThan(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L1 real-project: 文件类 + 基础工具正路径
+// 消费 real-project 靶子(无 autoload),验证 10 个工具的 L1 headless 正路径。
+// 反假绿(IMPORTANT-9b):强断言优先(expectSuccess);ui action 必须带 ui_ 前缀
+// (底层 case 名),不带前缀会 default return null → 假绿。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasGodot || !hasRealProject)('L1 real-project: 文件类 + 基础工具正路径', { timeout: 60_000 }, () => {
+
+  it('script read: 读 real-project main_2d.gd', async () => {
+    const r = await callToolReal('script', {
+      action: 'read_script',
+      script_path: resolve(REAL_PROJECT, 'scripts', 'main_2d.gd'), // read_script 要求绝对路径
+    });
+    expectSuccess(r, 'action_pressed'); // main_2d.gd 真实 signal 名
+  });
+
+  it('scene read: 读 main_3d 含 MeshInstance3D', async () => {
+    const r = await callToolReal('scene', {
+      action: 'read_scene',
+      scene_path: resolve(REAL_PROJECT, 'scenes', '3d', 'main_3d.tscn'),
+    });
+    expectSuccess(r, 'MeshInstance3D');
+  });
+
+  it('scene inspect_node: 返回 Camera3D 节点信息', async () => {
+    const r = await callToolReal('scene', { // inspect_node 是 scene 工具 action,非 runtime(runtime 无此 case → default null 假绿)
+      action: 'inspect_node',
+      scene_path: SCENE_3D,
+      node_path: 'Camera3D',
+    });
+    expectSuccess(r); // 正路径 = read 工具不报错
+  });
+
+  it('project info: 返回 real-project 元数据', async () => {
+    const r = await callToolReal('project', { action: 'get_project_info' }); // 底层 case 名,非 'info'(后者 default null 假绿)
+    expectSuccess(r, 'real-project'); // config/name
+  });
+
+  it('validation validate_project: 校验 real-project 健康', async () => {
+    const r = await callToolReal('validation', { action: 'validate_project' }); // 底层 case 名,非 'run_validation'(后者 default null 假绿)
+    expectSuccess(r);
+  });
+
+  it('screenshot capture 3D: 返回图片数据(非 BLANK)', async () => {
+    const r = await callToolReal('screenshot', {
+      action: 'capture',
+      scene_path: SCENE_3D,
+      image_path: 'user://l1_3d.png',
+    });
+    expect(r.isError).toBe(false);
+    expect(r.text).not.toContain('BLANK_DETECTED'); // 3D headless 应正常渲染
+  });
+
+  it('screenshot capture 2D: 容许 BLANK(headless 2D 已知限制)', async () => {
+    const r = await callToolReal('screenshot', {
+      action: 'capture',
+      scene_path: SCENE_2D,
+      image_path: 'user://l1_2d.png',
+    });
+    expectHasText(r); // 2D headless 可能 BLANK_DETECTED,不算失败
+  });
+
+  it('workflow dev_loop: 真实执行', async () => {
+    const r = await callToolReal('workflow', {
+      action: 'dev_loop',
+      code: 'var _v = "l1_ok"\n_mcp_output("t", _v)\n_mcp_done()',
+    });
+    expectSuccess(r, 'l1_ok');
+  });
+
+  it('docs list: 返回文档清单', async () => {
+    const r = await callToolReal('docs', { action: 'list' });
+    expectHasText(r);
+  });
+
+  it('ui get_layout: 读 UIBox 真实布局', async () => {
+    const r = await callToolReal('ui', {
+      action: 'ui_get_layout', // 带 ui_ 前缀(底层 case 名);不带前缀会 default return null → 假绿
+      scene_path: SCENE_2D,
+      node_path: 'Main2D/UIBox',
+    });
+    expectSuccess(r);
   });
 });
 
