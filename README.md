@@ -581,7 +581,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
-| **v0.20.0** | 2026-06-30 | cpp GDExtension 脚手架(scaffold_gdextension 生成 8 文件 C++ 工程骨架)+ 全工具验证靶子(real-project 三层 L1/L2/L3 自动化,28 工具正路径)+ R3/安全审查修复 |
+| **v0.20.0** | 2026-06-30 | cpp GDExtension 脚手架(scaffold_gdextension 生成 8 文件 C++ 工程骨架)+ 全工具验证靶子(real-project 三层 L1/L2/L3 自动化,28 工具正路径)+ 工具行为修复(default-null 统一/run_project isError/timeout race)+ R3/安全审查修复 |
 | **v0.19.1** | 2026-06-27 | 版本元数据同步(manifest/plugin.cfg/README/使用指南)— 功能无变化,补 v0.19.0 npm 元数据漂移 |
 | **v0.19.0** | 2026-06-27 | R2 审查响应链 — editor 4 模块 undo_manager(nav/particle/animtree/ui Ctrl+Z 撤销) + super() IMP-4 + IMP-11 touch 双侧契约 + 安全同源 4 点(UI/audio/instance) + @748 detach 双 parent fix + 阶段1b 守卫,2894 测试 |
 | **v0.18.2** | 2026-06-18 | 安全加固 — 沙箱绕过组 + 防御深度 + 注入收敛,2670 测试 |

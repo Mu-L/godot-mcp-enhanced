@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **全工具验证靶子**：`test/fixtures/real-project/` 真实多子系统无 autoload 靶子 + 三层（L1 headless 静态 / L2 运行态 / L3 特殊环境）全自动化验证，覆盖 28/30 顶层工具正路径
 - 含 R3 审查修复、全面安全审查 H1-M4 修复（累计自 v0.19.1 的本地增量）
 
+### Fixed — 工具行为一致性(反假绿驱动)
+
+- **default-null 统一**:25 处 `default return null` + 6 处 action 校验 null → `opsErrorResult('UNKNOWN_ACTION')`(工具自报,替代 dispatcher 兜底 HANDLER_NULL);同步修现有 e2e 假绿(ui build_layout/create_control、project info 从未真执行却"通过")
+- **run_project bridge-not-ready isError**(bug):`wait_for_bridge + !ready` → `errorResult`(isError:true);修复前 `textResult` isError:false 误报(到 game_query ping 才暴露 BRIDGE_NOT_CONNECTED)
+- **run_project timeout race**:提取 `computeRunTimeout` 纯函数,`wait_for_bridge` 时 `timeout ≥ bridge_timeout + 10`(防 auto-stop 与 bridge 就绪 race 致游戏被提前 kill)
+
 ## [0.19.1] - 2026-06-27
 
 ### Fixed — 版本元数据同步
