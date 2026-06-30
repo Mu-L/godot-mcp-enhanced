@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/audio_host.gd" id="1_host"]
+
+[node name="AudioDemo" type="Node"]
+
+[node name="BgmPlayer" type="AudioStreamPlayer" parent="."]
+
+[node name="SignalHost" type="Node" parent="."]
+script = ExtResource("1_host")
