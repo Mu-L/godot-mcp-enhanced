@@ -67,13 +67,9 @@ jobs:
         if: always()
         continue-on-error: true
         run: npm run score:html
-      - name: Sticky PR comment (M3b-PR)
-        if: always() && matrix.node-version == '22' && github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: marocchino/sticky-pull-comment@v2
-        with:
-          header: scoring-pr-comment
-          path: coverage/pr-comment.md
+      # Sticky PR comment 移除:marocchino/sticky-pull-comment 仓库已删除(GitHub),
+      # 致 check job Set up 解析 action 失败(即使 if:false)。scoring pr-comment 仍由
+      # score:pr-comment npm 生成 + 上传 artifact,仅失去 PR 自动贴评论(可后续换 action)。
       - name: Upload score.json
         if: always()
         uses: actions/upload-artifact@v4

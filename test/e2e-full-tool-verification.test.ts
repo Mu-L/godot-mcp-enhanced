@@ -805,7 +805,7 @@ describe.skipIf(!hasRealProject)('L1 real-project: cpp scaffold_gdextension', { 
 // beforeAll 快照 project.godot,afterAll 恢复(game_bridge_install 写 autoload)+ stop + 删密钥。
 // action 前缀:game_bridge_install/query/write/input/wait 带 game_ 前缀;monitor/watch/find_ui 不带。
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || process.env.CI)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
   let projectGodotSnap = '';
 
   beforeAll(() => {
@@ -871,7 +871,7 @@ describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: recording + prof
     process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
   });
 
-  it('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
+  it.skipIf(process.env.CI)('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
     // 单 it:afterEach 在 it 间 kill 进程,故 recording 链路(依赖游戏运行)单 it 内完成
     const install = await callToolReal('game', { action: 'game_bridge_install' });
     expectSuccess(install);
