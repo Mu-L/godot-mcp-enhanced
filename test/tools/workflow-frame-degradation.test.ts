@@ -71,7 +71,7 @@ describe('proof-bundle createProofRun 集成（frame_sequence 归档目标）', 
     const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-proof-'));
     try {
       const run = createProofRun(tmpProject);
-      expect(run.runId).toMatch(/^run_\d+$/);
+      expect(run.runId).toMatch(/^run_\d+_[0-9a-f-]{36}$/);
       expect(run.dir).toContain('proof');
       expect(fs.existsSync(run.dir)).toBe(true);
       expect(run.dir.startsWith(tmpProject)).toBe(true);

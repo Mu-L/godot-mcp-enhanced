@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,7 +11,7 @@ describe('proof-bundle', () => {
 
   it('createProofRun creates proof/<runId>/ under project', () => {
     const run = createProofRun(tmp);
-    expect(run.runId).toMatch(/^run_\d+$/);
+    expect(run.runId).toMatch(/^run_\d+_[0-9a-f-]{36}$/);
     expect(fs.existsSync(run.dir)).toBe(true);
     expect(run.dir.startsWith(path.join(tmp, 'proof'))).toBe(true);
   });
@@ -43,6 +43,14 @@ describe('proof-bundle', () => {
     const a = createProofRun(tmp);
     const b = createProofRun(tmp);
     expect(a.runId).not.toBe(b.runId);
+  });
+
+  it('同毫秒两次 run 仍得不同 runId(Date.now 碰撞防护)', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    const a = createProofRun(tmp);
+    const b = createProofRun(tmp);
+    expect(a.runId).not.toBe(b.runId);
+    vi.restoreAllMocks();
   });
 
   it('archiveFrame 超 100MB 配额抛错(B3:防撑爆磁盘)', () => {

@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 
 /** 单次 proof run 最大字节(B3:防帧捕获失控撑爆磁盘)。 */
 export const MAX_PROOF_BYTES = 100 * 1024 * 1024; // 100MB
@@ -14,8 +15,9 @@ export interface ProofRun {
 }
 
 export function createProofRun(projectPath: string): ProofRun {
-  // runId 用 Date.now() 保证唯一（TS 服务端可用 Date，非 Workflow 脚本限制范围）
-  const runId = `run_${Date.now()}`;
+  // runId = 时间戳(可读时间序) + randomUUID(消同毫秒碰撞)。
+  // 单纯 Date.now() 同毫秒并发会撞(实测见 proof-bundle.test.ts 同毫秒用例),uuid 后缀保证唯一。
+  const runId = `run_${Date.now()}_${randomUUID()}`;
   const dir = path.join(projectPath, 'proof', runId);
   fs.mkdirSync(dir, { recursive: true });
   return { runId, dir, bytes: 0 };
