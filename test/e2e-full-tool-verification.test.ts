@@ -41,6 +41,14 @@ const MAIN_SCENE = resolve(TEST_PROJECT, 'scenes', 'main.tscn');
 const NEW_SCENE_PATH = resolve(TEST_PROJECT, 'scenes', 'e2e_verify_test.tscn');
 const NEW_SCRIPT_PATH = resolve(TEST_PROJECT, 'scripts', 'e2e_verify_test.gd');
 
+// v0.20.0 real-project 靶子(无 autoload,多子系统,供 L1/L2/L3 正路径)
+// 详见 docs/superpowers/specs/2026-06-30-v0.20.0-full-tool-verification-design.md
+const REAL_PROJECT = resolve(__dirname, 'fixtures', 'real-project');
+const hasRealProject = existsSync(REAL_PROJECT) && existsSync(resolve(REAL_PROJECT, 'project.godot'));
+const SCENE_2D = 'res://scenes/2d/main_2d.tscn';
+const SCENE_3D = 'res://scenes/3d/main_3d.tscn';
+const SCENE_AUDIO = 'res://scenes/audio_demo.tscn';
+
 // I-01: 移入 beforeAll 避免模块顶层全局副作用
 let _registered = false;
 
@@ -77,6 +85,29 @@ async function callTool(toolName: string, args: Record<string, unknown>): Promis
   const mod = getModuleForTool(toolName);
   if (!mod) return { text: `MODULE_NOT_FOUND: ${toolName}`, isError: true };
   const result = await mod.handleTool(toolName, { project_path: TEST_PROJECT, ...args }, makeCtx());
+  if (!result) return { text: 'null result', isError: false };
+  if (!isToolResult(result)) return { text: `UNEXPECTED_RESULT: ${JSON.stringify(result).slice(0, 200)}`, isError: true };
+  const text = result.content.map(c => c.text).join('\n') ?? '';
+  return { text, isError: result.isError === true };
+}
+
+// v0.20.0 L1 正路径 helper(消费 real-project 靶子) ──────────────────────────
+// 正路径断言:禁止 isError,text 含期望子串(升级现有 text.length>5 浅断言)
+function expectSuccess(r: { text: string; isError: boolean }, substr?: string) {
+  expect(r.isError).toBe(false);
+  if (substr) expect(r.text).toContain(substr);
+}
+// 容错断言:允许 error,但必须返回结构化文本(not-found / 空列表也算通过)
+function expectHasText(r: { text: string; isError: boolean }) {
+  expect(r.text).toBeDefined();
+  expect(r.text.length).toBeGreaterThan(0);
+}
+
+// 指向 real-project 的 callTool 变体(L1/L2 正路径用)
+async function callToolReal(toolName: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+  const mod = getModuleForTool(toolName);
+  if (!mod) return { text: `MODULE_NOT_FOUND: ${toolName}`, isError: true };
+  const result = await mod.handleTool(toolName, { project_path: REAL_PROJECT, ...args }, makeCtx());
   if (!result) return { text: 'null result', isError: false };
   if (!isToolResult(result)) return { text: `UNEXPECTED_RESULT: ${JSON.stringify(result).slice(0, 200)}`, isError: true };
   const text = result.content.map(c => c.text).join('\n') ?? '';
