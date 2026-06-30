@@ -912,6 +912,82 @@ describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: recording + prof
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L2 editor(GUI 合取守卫)— 默认 skip + stderr 告警(反假绿 IMPORTANT-9b)
+// ═══════════════════════════════════════════════════════════════════════════════
+const hasEditorFlag = !!process.env.E2E_EDITOR;
+if (!hasEditorFlag) {
+  process.stderr.write('[E2E-SKIP] editor 正路径未启用(设 E2E_EDITOR=1;需 GUI 编辑器,CI 不可行)\n');
+}
+
+describe.skipIf(!hasGodot || !hasRealProject || !hasEditorFlag)('L2 real-project: editor 正路径(GUI)', { timeout: 120_000 }, () => {
+  it('launch_editor + sync_start + get_scene_tree', async () => {
+    const launch = await callToolReal('runtime', { action: 'launch_editor' });
+    expectHasText(launch);
+    const sync = await callToolReal('editor', { action: 'sync_start' });
+    expectSuccess(sync);
+    const tree = await callToolReal('editor', { action: 'get_scene_tree' });
+    expectHasText(tree);
+  });
+
+  afterAll(async () => {
+    try { await callToolReal('editor', { action: 'sync_stop' }); } catch { /* best effort */ }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L3 multi_instance + dynamic(GODOT_MCP_MULTI_INSTANCE 守卫)— 默认 skip + stderr
+// ═══════════════════════════════════════════════════════════════════════════════
+const hasMultiInstance = !!process.env.GODOT_MCP_MULTI_INSTANCE;
+if (!hasMultiInstance) {
+  process.stderr.write('[E2E-SKIP] multi_instance 测试未启用(设 GODOT_MCP_MULTI_INSTANCE=true)\n');
+}
+
+describe.skipIf(!hasMultiInstance)('L3: multi_instance + dynamic', { timeout: 60_000 }, () => {
+  it('godot_list_instances: 返回实例列表', async () => {
+    const r = await callTool('godot_list_instances', {});
+    expectHasText(r);
+  });
+  it('godot_select_instance: 选中实例', async () => {
+    const r = await callTool('godot_select_instance', { project_path: REAL_PROJECT });
+    expectHasText(r);
+  });
+  it('godot_list_dynamic_routes: 返回动态路由', async () => {
+    const r = await callTool('godot_list_dynamic_routes', {});
+    expectHasText(r);
+  });
+  it('godot_advanced_tool: 代理 test', async () => {
+    const r = await callTool('godot_advanced_tool', { tool_name: 'test', arguments: {} });
+    expectHasText(r);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L3 android(adb)— list/preset/template/logcat 正路径;deploy 设备依赖 it.skip
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasRealProject)('L3: android(adb)', { timeout: 60_000 }, () => {
+  it('list_devices: 返回设备列表(空也算正路径)', async () => {
+    const r = await callToolReal('android', { action: 'list_devices' });
+    expectHasText(r); // 无设备返回空列表,无 adb 返回 error,均算工具响应
+  });
+  it('get_preset_info: 返回 preset', async () => {
+    const r = await callToolReal('android', { action: 'get_preset_info' });
+    expectHasText(r);
+  });
+  it('check_template: 校验模板', async () => {
+    const r = await callToolReal('android', { action: 'check_template' });
+    expectHasText(r);
+  });
+  it('logcat: 一次性快照', async () => {
+    const r = await callToolReal('android', { action: 'logcat' });
+    expectHasText(r);
+  });
+  it.skip('deploy: 需连接设备(手动启用)', async () => {
+    const r = await callToolReal('android', { action: 'deploy' });
+    expectHasText(r);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CLEANUP
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('E2E: Cleanup', () => {
