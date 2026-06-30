@@ -1,0 +1,25 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/main_2d.gd" id="1_main2d"]
+
+[node name="Main2D" type="Node2D"]
+script = ExtResource("1_main2d")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="TileLayer" type="TileMapLayer" parent="."]
+
+[node name="Particles2D" type="GPUParticles2D" parent="."]
+amount = 8
+
+[node name="AnimPlayer" type="AnimationPlayer" parent="."]
+
+[node name="UIBox" type="VBoxContainer" parent="."]
+offset_right = 400.0
+offset_bottom = 200.0
+
+[node name="Title" type="Label" parent="UIBox"]
+text = "Real Project 2D"
+
+[node name="ActionBtn" type="Button" parent="UIBox"]
+text = "Click"
