@@ -800,6 +800,60 @@ describe.skipIf(!hasRealProject)('L1 real-project: cpp scaffold_gdextension', { 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// v0.20.0 L2 real-project: bridge(game)正路径
+// 真启 Godot 游戏进程 + bridge TCP 9081。sequential(单端口串行)。
+// beforeAll 快照 project.godot,afterAll 恢复(game_bridge_install 写 autoload)+ stop + 删密钥。
+// action 前缀:game_bridge_install/query/write/input/wait 带 game_ 前缀;monitor/watch/find_ui 不带。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
+  let projectGodotSnap = '';
+
+  beforeAll(() => {
+    projectGodotSnap = readFileSync(resolve(REAL_PROJECT, 'project.godot'), 'utf-8');
+    // 治 bridge 密钥权限循环(memory S4 陷阱):复用 secret 不收紧/删除。
+    // buildSafeEnv 传 GODOT_MCP_BRIDGE_* env 到游戏进程(helpers.ts:141)
+    process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
+  });
+
+  it('install + run + query/write/monitor/watch/find_ui 完整链路', async () => {
+    // 单 it:全局 afterEach(line ~100)会在每个 it 后 kill 游戏进程,故 bridge 链路必须在单 it 内完成
+    const install = await callToolReal('game', { action: 'game_bridge_install' });
+    expectSuccess(install);
+    const run = await callToolReal('runtime', { action: 'run_project', wait_for_bridge: true, bridge_timeout: 30, timeout: 120 });
+    expectSuccess(run);
+    const ping = await callToolReal('game', { action: 'game_query', method: 'ping' });
+    expectSuccess(ping);
+    const tree = await callToolReal('game', { action: 'game_query', method: 'get_tree' });
+    expectSuccess(tree);
+    const find = await callToolReal('game', { action: 'game_query', method: 'find_nodes', params: { pattern: 'Camera' } });
+    expectHasText(find);
+    const set = await callToolReal('game', { action: 'game_write', method: 'set_node_property',
+      params: { path: '/root/Main2D/Camera2D', property: 'position', value: { x: 100, y: 50 } } });
+    expectHasText(set);
+    const monStart = await callToolReal('game', { action: 'monitor_start', node_path: 'root/Main2D', properties: ['position'], interval_frames: 10 });
+    expectHasText(monStart);
+    const monStop = await callToolReal('game', { action: 'monitor_stop' });
+    expectHasText(monStop);
+    const watchStart = await callToolReal('game', { action: 'watch_start', node_path: 'root/Main2D', signal_name: 'action_pressed', max_events: 10 });
+    expectHasText(watchStart);
+    const watchStop = await callToolReal('game', { action: 'watch_stop' });
+    expectHasText(watchStop);
+    const findUi = await callToolReal('game', { action: 'find_ui_elements', type: 'Button', visible_only: true });
+    expectHasText(findUi);
+  });
+
+  afterAll(async () => {
+    try { await callToolReal('runtime', { action: 'stop_project' }); } catch { /* best effort */ }
+    // 恢复 project.godot(game_bridge_install 写了 autoload,避免 fixture 污染)
+    if (projectGodotSnap) {
+      try { writeFileSync(resolve(REAL_PROJECT, 'project.godot'), projectGodotSnap, 'utf-8'); } catch { /* best effort */ }
+    }
+    const secret = resolve(REAL_PROJECT, '.godot', 'mcp_bridge_9081.secret');
+    if (existsSync(secret)) { try { rmSync(secret, { force: true }); } catch { /* best effort */ } }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CLEANUP
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('E2E: Cleanup', () => {
