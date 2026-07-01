@@ -28,7 +28,7 @@
 ## 2. 架构（双轨，复用 frame-verify 惯例）
 
 ### TS 纯函数侧（可单测）
-- `parseCsv(text)`：**前置格式校验**（行数一致 / filename_column 存在 / 非空）。**不嵌入值到脚本**（仅校验）。
+- `parseCsv(text)`：**前置 header 校验**（filename_column 存在 + 非空 header）。**不嵌入值到脚本**（仅校验）。注：TS 侧仅解析 header 行做前置校验，**行值/列数一致性由 GDScript `get_csv_line` 权威解析 + 行级宽容处理**（spec §5 错误聚合表对齐）——这是设计决策，非实现疏漏。
 - `generateImportScript(classPath, outputDir, filenameCol, csvTmpPath, opts)`：生成 GDScript 脚本。脚本只接这 4 个 MCP 参数（AI 提供，**全部经 `gdEscape` 转义**），CSV 数据本身不进脚本字符串。
 - 写 CSV 原文到临时文件（项目 tmpdir 惯例），传 `csvTmpPath` 给脚本。
 
@@ -52,7 +52,7 @@ AI 调 csv_to_resources({
   output_dir,               // res://resources/items/（经 gdEscape + resolveWithinRoot）
   filename_column,          // 用哪列作文件名（如 "id"）
 })
-  → TS: parseCsv(text) 前置校验（行数一致 / filename_column 存在 / 非空）→ 失败即 return error
+  → TS: parseCsv(text) 前置 header 校验（filename_column 存在 + 非空 header）→ 失败即 return error
   → TS: 写 CSV 原文到临时文件 csvTmpPath（tmpdir）
   → TS: generateImportScript(classPath, outputDir, filenameCol, csvTmpPath) → GDScript 字符串
        （4 参数经 gdEscape；CSV 数据零进脚本）
@@ -148,7 +148,7 @@ AI 调 csv_to_resources({
 ## 7. 测试策略（TDD）
 
 ### 纯函数单测
-- `parseCsv`：行数一致 / filename_column 存在 / 空文件 / 单行列 / CRLF（格式校验语义）
+- `parseCsv`：filename_column 存在 / 非空 header / 空文件 / 单行列 / CRLF（header 校验语义；行值列数一致性由 GDScript `get_csv_line` 权威解析，不在 TS 前置校验范围）
 - `generateImportScript`：生成脚本含 `load(class_path)` / 反射 / `FileAccess.get_csv_line` / `ResourceSaver.save` 关键片段；**4 参数经 gdEscape**（断言含转义后值）；**CSV 数据零嵌入**（断言脚本不含 CSV 行数据）
 - **CRITICAL-1 注入单测**：CSV 含 `" ${ \n ;` 等闭串字符 → 脚本不含这些（数据走 FileAccess）+ 执行不逃逸
 - **CRITICAL-2 路径遍历单测**：filename=`../x` / `a\b` / `a b` → 白名单拒（error）；output_dir 含 `..` → resolveWithinRoot 拒

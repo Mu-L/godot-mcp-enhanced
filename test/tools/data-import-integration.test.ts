@@ -219,11 +219,10 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
   }, 60000);
 
   it('类型不匹配 → 记 error,其他字段仍 set(damage="abc" 拒, name 仍 set)', async () => {
-    // damage 给 "abc" → int("abc") 在 GDScript 4.x 默认返回 0(不抛),
-    // 但模板 _type_convert 对 TYPE_INT 走 int(raw)。若 raw 非数字,int() 返回 0 不报错。
-    // 为触发"类型转换失败记 error"路径,用 Color 字段给非法值(无法转换 → null → error)。
-    // color="notacolor":不 begins_with #,split(',') size<3 → 返回 null → error。
     // damage 正常给数字,name 正常 → 这两个字段仍 set。
+    // 为覆盖另一条转换失败路径(Color),用 color 字段给非法值(无法转换 → null → error)。
+    // color="notacolor":不 begins_with #,split(',') size<3 → 返回 null → error。
+    // 注:TYPE_INT 的转换失败路径由 I-1 场景(damage="abc")覆盖。
     const csv =
       'id,name,damage,color\n' +
       'mix,混合,7,notacolor\n';
@@ -251,5 +250,38 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
     expect(out).toContain('FIELD name=混合');
     expect(out).toContain('FIELD damage=7');
     expect(out).toContain('FIELD color=(1.0, 1.0, 1.0, 1.0)'); // 类默认 WHITE(转换失败保留)
+  }, 60000);
+
+  it('I-1: TYPE_INT 转换失败(damage="abc")→记 error,不静默归零', async () => {
+    // I-1 修复前:int("abc") 静默返回 0(GDScript 无异常),违反 spec §4/§9"转换失败→跳过+记 error"。
+    // I-1 修复后:模板 _type_convert 对 TYPE_INT 先 is_valid_int() 校验,
+    // "abc" 非法 → 返回 null → 命中 _errors.append(type convert failed) → 该行 damage 保留类默认。
+    // generated 仍含该行(字段级错误不阻塞整行),errors 含 damage convert failed。
+    const csv =
+      'id,name,damage\n' +
+      'badval,坏值,abc\n';
+    const r = await handleTool(
+      'csv_to_resources',
+      {
+        action: 'csv_to_resources',
+        project_path: REAL_PROJECT,
+        class_path: 'res://resources/test_resource.gd',
+        output_dir: OUT_REL,
+        filename_column: 'id',
+        csv_content: csv,
+      },
+      makeCtx(),
+    );
+    expect(r).not.toBeNull();
+    const parsed = parseResult(r!);
+    // 文件仍生成(字段级错误不阻止整行;ResourceSaver 仍执行)。
+    expect(parsed.stats.generated).toBe(1);
+    // errors 含 damage 字段的 type convert failed(I-1 新增 is_valid_int 守卫触发)。
+    expect(parsed.errors.some((e) => e.field === 'damage' && e.reason.includes('type convert'))).toBe(true);
+
+    // 读回:name=坏值(set 成功),damage=0(类默认,转换失败保留,非静默归零覆盖)。
+    const out = await readBack(parsed.generated, ['name', 'damage']);
+    expect(out).toContain('FIELD name=坏值');
+    expect(out).toContain('FIELD damage=0'); // 类默认(I-1:保留默认,非 abc→0 静默覆盖)
   }, 60000);
 });

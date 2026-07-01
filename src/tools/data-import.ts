@@ -67,8 +67,14 @@ func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \tif field.type == TYPE_INT and (field.hint == PROPERTY_HINT_ENUM or (field.has("hint_string") and field.hint_string != "")):
 \t\treturn _convert_enum(raw, field, cls_name)
 \tmatch field.type:
-\t\tTYPE_INT: return int(raw)
-\t\tTYPE_FLOAT: return float(raw)
+\t\t# I-1: int("abc")/float("abc") GDScript 静默返回 0(无异常),违反 spec §4/§9 "转换失败→跳过+记 error"。
+\t\t# 先 is_valid_* 校验,失败返回 null → 命中 _errors.append(type convert failed) 路径,杜绝损坏数据静默归零。
+\t\tTYPE_INT:
+\t\t\tif not raw.is_valid_int(): return null
+\t\t\treturn int(raw)
+\t\tTYPE_FLOAT:
+\t\t\tif not raw.is_valid_float(): return null
+\t\t\treturn float(raw)
 \t\tTYPE_STRING: return raw
 \t\tTYPE_BOOL:
 \t\t\tvar l := raw.to_lower()
@@ -215,6 +221,12 @@ export async function handleTool(
 
   if (!classPath || !outputDir || !filenameCol) {
     return opsErrorResult('INVALID_PARAMS', 'class_path, output_dir, filename_column are required');
+  }
+
+  // I-3: csv_content/csv_path 必须提供其一,否则 parseCsv("") 返回误导性 "empty csv"。
+  // 显式校验给出准确的 INVALID_PARAMS 错误,而非把"未提供"伪装成"内容为空"。
+  if (!args.csv_content && !args.csv_path) {
+    return opsErrorResult('INVALID_PARAMS', 'csv_content or csv_path is required');
   }
 
   // CSV 来源:csv_content 优先,否则 csv_path(项目内沙箱读取)
