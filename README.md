@@ -3,7 +3,7 @@
 > 免费 · 开源 · 安全 —— 截至 2026-06-28 调研,Godot MCP 赛道里
 > 少见提供「系统化安全防护 + 三层架构」的开源方案。
 
-给 AI(Claude Code、Cursor 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
+给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
 工具层:28 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
@@ -445,7 +445,7 @@ claude mcp add godot -- npx -y godot-mcp-enhanced  # local scope，仅当前项�
 
 #### 腾讯 CodeBuddy（国内用户）
 CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 → MCP 标签 → Add MCP**，粘贴与上面相同的 json。也可从其 MCP Market 一键安装（上架后）。
-> ⚠️ 端到端接入验证待补：配置方法基于 CodeBuddy MCP 文档，godot-mcp-enhanced 尚未在其内跑通。
+> ✅ 端到端已验证（2026-07-01）：CodeBuddy IDE 内 `read_scene` 读 `main_3d.tscn` 成功（返回完整场景结构），stdio MCP 接入跑通。解锁 MCP Market 上架（#10）。
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
