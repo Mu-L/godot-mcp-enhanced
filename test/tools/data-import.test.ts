@@ -40,6 +40,14 @@ describe('generateImportScript (CRITICAL-1 注入防护)', () => {
   });
 });
 
+describe('generateImportScript (CRITICAL-2 路径遍历防护)', () => {
+  it('模板含 filename 白名单正则', () => {
+    const s = generateImportScript({ classPath: 'r', outputDir: 'o', filenameCol: 'id', csvTmpPath: 't.csv' });
+    expect(s).toContain('^[A-Za-z0-9_.-]+$');
+    expect(s).toContain('..');  // 段级拒 .. 逻辑
+  });
+});
+
 describe('writeTmpCsv', () => {
   it('写 CSV 到临时文件,返回可读路径', () => {
     const p = writeTmpCsv('id,name\n1,a\n');
