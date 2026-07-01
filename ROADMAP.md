@@ -81,9 +81,9 @@
 |---|---|---|---|
 | 6 | 编辑器打开场景/脚本写入 guard | ✅ | `addons/godot_mcp_server/editor_guards.gd:62,99`(guard_offline_scene_save+guard_text_resource_write,已接入 scene_commands/command_handler;2026-06-28 核实已实现) |
 
-## M4 — 功能补齐 P2(目标 v0.22+,部分 💤)
+## M4 — 功能补齐 P2(目标 v0.22+,✅ 全完成)
 
-主题:**补齐竞品已占能力**。核实(2026-06-28)后 #8/#9 已实现,仅 #7 Android 仍 💤。
+主题:**补齐竞品已占能力**。核实(2026-06-28)+ 后续:#7 Android / #8 profiling / #9 UndoRedo **全已实现 ✅**(见下表)。M4 完成。
 
 | # | 行动项 | 状态 | 关联 |
 |---|---|---|---|
