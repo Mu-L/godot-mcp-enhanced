@@ -38,7 +38,7 @@ export interface ImportScriptOpts {
 // _mcp_output 将 value 经 JSON.stringify 编码为字符串(executeGdscript Result.outputs[].value: string),
 // handler 侧 JSON.parse 还原。
 const GDSCRIPT_TEMPLATE = (cp: string, od: string, fc: string, csv: string) => `extends SceneTree
-var _outputs := []
+var _mcp_outputs := []
 var _class_path := "${gdEscape(cp)}"
 var _output_dir := "${gdEscape(od)}"
 var _filename_col := "${gdEscape(fc)}"
@@ -48,7 +48,7 @@ var _generated := []
 var _row_count := 0
 var _failed := 0
 
-func _mcp_output(k, v): _outputs.append({"key": k, "value": JSON.stringify(v)})
+func _mcp_output(k, v): _mcp_outputs.append({"key": k, "value": JSON.stringify(v)})
 
 func _convert_enum(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t# 优先 hint_string(spec §4 修订 + T1 PoC 实证):@export_enum("SWORD,BOW") 产生逗号分隔列表,索引即 int
@@ -95,7 +95,7 @@ func _initialize():
 \tif Class == null:
 \t\t_errors.append({"row": 0, "reason": "load class failed: " + _class_path})
 \t\t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
-\t\t_mcp_output("stats", {"rows": 0, "generated": 0, "failed": 0}); print("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _outputs})); quit(); return
+\t\t_mcp_output("stats", {"rows": 0, "generated": 0, "failed": 0}); print("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs})); quit(); return
 \tvar inst0 = Class.new()
 \tvar cls_name: String = inst0.get_class()
 \tvar all_props: Array = inst0.get_property_list()
@@ -106,11 +106,12 @@ func _initialize():
 \t\t\tfields.append(p)
 \tvar f := FileAccess.open(_csv_path, FileAccess.READ)
 \tif f == null:
-\t\t_errors.append({"row": 0, "reason": "open csv failed"}); _done(); return
+\t\t_errors.append({"row": 0, "reason": "open csv failed"}); _mcp_done(); return
 \tvar header: PackedStringArray = f.get_csv_line()
 \tvar fn_idx: int = header.find(_filename_col)
 \tif fn_idx == -1:
-\t\t_errors.append({"row": 0, "reason": "filename_column not found: " + _filename_col}); _done(); return
+\t\t_errors.append({"row": 0, "reason": "filename_column not found: " + _filename_col}); _mcp_done(); return
+\t# Godot 4.x API(3.x 为 make_dir_recursive)。spec 仅承诺 4.x,故用 4.x 名。
 \tDirAccess.make_dir_recursive_absolute(_output_dir)
 \tvar fn_re := RegEx.create_from_string("^[A-Za-z0-9_.-]+$")
 \twhile not f.eof_reached():
@@ -141,12 +142,12 @@ func _initialize():
 \t\tvar full_path: String = _output_dir + "/" + filename + ".tres"
 \t\tResourceSaver.save(res, full_path)
 \t\t_generated.append(full_path)
-\t_done()
+\t_mcp_done()
 
-func _done():
+func _mcp_done():
 \t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
 \t_mcp_output("stats", {"rows": _row_count, "generated": _generated.size(), "failed": _failed})
-\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _outputs})); quit()
+\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs})); quit()
 `;
 
 export function generateImportScript(o: ImportScriptOpts): string {

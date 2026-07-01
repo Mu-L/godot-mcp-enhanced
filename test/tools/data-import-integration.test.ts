@@ -96,6 +96,36 @@ async function readBack(
   return combined;
 }
 
+// T7: Color 字段用 is_equal_approx 在 GDScript 侧比较,输出 COLORCHK 标记(脱离 print 格式耦合)。
+// 避免 Godot 4.x print "(1.0, 0.0, 0.0, 1.0)" 字符串格式假设,改比较 r/g/b/a 分量值。
+// expects: [{ resId, field, r, g, b, a }] → 输出 "COLORCHK <field> OK/FAIL"。
+async function readBackColors(
+  checks: { resId: string; field: string; r: number; g: number; b: number; a: number }[],
+): Promise<string> {
+  let combined = '';
+  for (const c of checks) {
+    const resPath = `res://resources/_csv_test_out/${c.resId}.tres`;
+    const lines: string[] = ['extends SceneTree', 'func _initialize():'];
+    lines.push(`\tvar r = load("${resPath}")`);
+    lines.push(`\tif r == null:`);
+    lines.push(`\t\tprint("READBACK_LOAD_NULL ${resPath}")`);
+    lines.push(`\t\tquit()`);
+    lines.push(`\t\treturn`);
+    lines.push(`\tvar col = r.${c.field}`);
+    lines.push(`\tvar ok = is_equal_approx(col.r, ${c.r}) and is_equal_approx(col.g, ${c.g}) and is_equal_approx(col.b, ${c.b}) and is_equal_approx(col.a, ${c.a})`);
+    lines.push(`\tprint("COLORCHK ${c.field} ", "OK" if ok else "FAIL", " got=", col.r, ",", col.g, ",", col.b, ",", col.a)`);
+    lines.push('\tquit()', '');
+    const r = await executeGdscript({
+      godotPath: GODOT_PATH,
+      projectPath: REAL_PROJECT,
+      code: lines.join('\n'),
+      timeout: 30,
+    });
+    combined += r.raw_output ?? '';
+  }
+  return combined;
+}
+
 // ─── 清理 ────────────────────────────────────────────────────────────────────
 
 afterEach(() => {
@@ -121,9 +151,9 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
 
   it('CSV → N 个 .tres,各类型正确(String/int/bool/Color/@export_enum)', async () => {
     const csv =
-      'id,name,damage,enabled,color,weapon_kind\n' +
-      'sword,剑,10,true,#ff0000,SWORD\n' +
-      'bow,弓,5,false,#00ff00,BOW\n';
+      'id,name,damage,enabled,color,weapon_kind,tags\n' +
+      'sword,剑,10,true,#ff0000,SWORD,"sharp,metal"\n' +
+      'bow,弓,5,false,#00ff00,BOW,"wood,bow"\n';
     const r = await handleTool(
       'csv_to_resources',
       {
@@ -141,21 +171,29 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
     expect(parsed.stats.generated).toBe(2);
     expect(parsed.errors).toEqual([]);
 
-    // 读回验证(真 Godot load)。Color print 格式:(1.0, 0.0, 0.0, 1.0)(带小数)。
-    const out = await readBack(parsed.generated, ['name', 'damage', 'enabled', 'color', 'weapon_kind']);
+    // 读回验证(真 Godot load)。非 Color 字段经 readBack print 断言。
+    const out = await readBack(parsed.generated, ['name', 'damage', 'enabled', 'weapon_kind', 'tags']);
     // sword(#ff0000 → Color(1,0,0,1))
     expect(out).toContain('FIELD name=剑');
     expect(out).toContain('FIELD damage=10');
     expect(out).toContain('FIELD enabled=true');
-    expect(out).toContain('FIELD color=(1.0, 0.0, 0.0, 1.0)');
     expect(out).toContain('FIELD weapon_kind=0'); // SWORD → 0
+    // T3: PackedStringArray 字段(CSV "sharp,metal" → split(",") → set 成功,print 格式 ["a", "b"])
+    expect(out).toContain('FIELD tags=["sharp", "metal"]');
     // bow(#00ff00 → Color(0,1,0,1))。readBack 每文件独立 executeGdscript,
     // 输出按 generated 顺序拼接,断言用 bow 的唯一特征值(无需切片定位)。
     expect(out).toContain('FIELD name=弓');
     expect(out).toContain('FIELD damage=5');
     expect(out).toContain('FIELD enabled=false');
-    expect(out).toContain('FIELD color=(0.0, 1.0, 0.0, 1.0)');
     expect(out).toContain('FIELD weapon_kind=1'); // BOW → 1
+    expect(out).toContain('FIELD tags=["wood", "bow"]');
+    // T7: Color 字段用 is_equal_approx 比较分量(脱离 Godot 4.x print "(1.0, 0.0, 0.0, 1.0)" 格式耦合)。
+    const cout = await readBackColors([
+      { resId: 'sword', field: 'color', r: 1, g: 0, b: 0, a: 1 },   // #ff0000
+      { resId: 'bow', field: 'color', r: 0, g: 1, b: 0, a: 1 },     // #00ff00
+    ]);
+    expect(cout).toContain('COLORCHK color OK');
+    expect(cout).not.toContain('COLORCHK color FAIL');
   }, 60000);
 
   it('空单元格 + 缺失列 → 保留类默认(damage=0, color=WHITE)', async () => {
@@ -181,11 +219,14 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
     expect(parsed.stats.generated).toBe(1);
     expect(parsed.errors).toEqual([]); // 空单元格/缺列非错误(保留默认)
 
-    const out = await readBack(parsed.generated, ['name', 'damage', 'enabled', 'color']);
+    const out = await readBack(parsed.generated, ['name', 'damage', 'enabled']);
     expect(out).toContain('FIELD name=默认');
     expect(out).toContain('FIELD damage=0'); // 空单元格 → 类默认 0
     expect(out).toContain('FIELD enabled=false'); // 显式 false 覆盖
-    expect(out).toContain('FIELD color=(1.0, 1.0, 1.0, 1.0)'); // Color.WHITE
+    // T7: Color.WHITE 分量比较(脱离 print 格式)。
+    const cout = await readBackColors([{ resId: 'def', field: 'color', r: 1, g: 1, b: 1, a: 1 }]);
+    expect(cout).toContain('COLORCHK color OK');
+    expect(cout).not.toContain('COLORCHK color FAIL');
   }, 60000);
 
   it('filename 含 ../ → 拒(generated=0, output_dir 外无文件)', async () => {
@@ -246,10 +287,13 @@ describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
     expect(parsed.errors.some((e) => e.field === 'color' && e.reason.includes('type convert'))).toBe(true);
 
     // 读回:damage=7(set 成功),name=混合(set 成功),color=WHITE(类默认,转换失败未覆盖)。
-    const out = await readBack(parsed.generated, ['name', 'damage', 'color']);
+    const out = await readBack(parsed.generated, ['name', 'damage']);
     expect(out).toContain('FIELD name=混合');
     expect(out).toContain('FIELD damage=7');
-    expect(out).toContain('FIELD color=(1.0, 1.0, 1.0, 1.0)'); // 类默认 WHITE(转换失败保留)
+    // T7: Color.WHITE 分量比较(类默认,转换失败保留)。
+    const cout = await readBackColors([{ resId: 'mix', field: 'color', r: 1, g: 1, b: 1, a: 1 }]);
+    expect(cout).toContain('COLORCHK color OK');
+    expect(cout).not.toContain('COLORCHK color FAIL');
   }, 60000);
 
   it('I-1: TYPE_INT 转换失败(damage="abc")→记 error,不静默归零', async () => {
