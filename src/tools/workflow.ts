@@ -592,7 +592,7 @@ func _initialize():
               continue;
             }
             try {
-              const wrappedCode = wrapAssertionCode(a.gdscript, desc);
+              const wrappedCode = wrapAssertionCode(a.gdscript, desc, true, a.expect);
               const assertResult = await executeGdscript({
                 godotPath: godot, projectPath, code: wrappedCode, timeout: Math.min(timeout, 15), loadAutoloads,
               });
