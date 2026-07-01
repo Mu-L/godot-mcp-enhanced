@@ -22,7 +22,7 @@ export function parseCsv(text: string): ParseCsvResult {
 // T3: generateImportScript — 生成 GDScript 脚本,CSV 值通过 FileAccess.get_csv_line 运行时读取
 // (零进脚本字符串 = CRITICAL-1 注入根治)。4 参数(classPath/outputDir/filenameCol/csvTmpPath)
 // 经 gdEscape 转义后插值,防闭串注入。
-import { gdEscape } from './shared.js';
+import { gdEscape, MARKER_RESULT } from './shared.js';
 
 export interface ImportScriptOpts {
   classPath: string;
@@ -34,6 +34,9 @@ export interface ImportScriptOpts {
 // GDScript 模板:tab 缩进(GDScript 强制 tab,空格被拒)。CSV 值走 FileAccess,不进脚本源码。
 // 枚举转换:hint_string 优先(spec §4 修订 + T1 PoC 实证:纯 @export var x:int 无 hint=0,
 // ClassDB 路径失效;只有 @export_enum 产生 hint=2 + hint_string,索引即 int),ClassDB fallback。
+// T4 修订:输出走 gdscript-executor 的 MARKER_RESULT 协议(parseMcpMarkers 只识别带前缀的行),
+// _mcp_output 将 value 经 JSON.stringify 编码为字符串(executeGdscript Result.outputs[].value: string),
+// handler 侧 JSON.parse 还原。
 const GDSCRIPT_TEMPLATE = (cp: string, od: string, fc: string, csv: string) => `extends SceneTree
 var _outputs := []
 var _class_path := "${gdEscape(cp)}"
@@ -45,7 +48,7 @@ var _generated := []
 var _row_count := 0
 var _failed := 0
 
-func _mcp_output(k, v): _outputs.append({"key": k, "value": v})
+func _mcp_output(k, v): _outputs.append({"key": k, "value": JSON.stringify(v)})
 
 func _convert_enum(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t# 优先 hint_string(spec §4 修订 + T1 PoC 实证):@export_enum("SWORD,BOW") 产生逗号分隔列表,索引即 int
@@ -86,7 +89,7 @@ func _initialize():
 \tif Class == null:
 \t\t_errors.append({"row": 0, "reason": "load class failed: " + _class_path})
 \t\t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
-\t\t_mcp_output("stats", {"rows": 0, "generated": 0, "failed": 0}); print(JSON.stringify(_outputs)); quit(); return
+\t\t_mcp_output("stats", {"rows": 0, "generated": 0, "failed": 0}); print("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _outputs})); quit(); return
 \tvar inst0 = Class.new()
 \tvar cls_name: String = inst0.get_class()
 \tvar all_props: Array = inst0.get_property_list()
@@ -136,9 +139,147 @@ func _initialize():
 func _done():
 \t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
 \t_mcp_output("stats", {"rows": _row_count, "generated": _generated.size(), "failed": _failed})
-\tprint(JSON.stringify(_outputs)); quit()
+\tprint("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _outputs})); quit()
 `;
 
 export function generateImportScript(o: ImportScriptOpts): string {
   return GDSCRIPT_TEMPLATE(o.classPath, o.outputDir, o.filenameCol, o.csvTmpPath);
 }
+
+// ─── T4: writeTmpCsv + csvToResources action handler ──────────────────────────
+
+import { writeFileSync, readFileSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { ToolContext, ToolResult } from '../types.js';
+import type { RiskLevel } from '../core/tool-registry.js';
+import { textResult } from '../types.js';
+import { opsErrorResult } from './shared/errors.js';
+import { resolveWithinRoot } from '../helpers.js';
+import { executeGdscript } from '../gdscript-executor.js';
+
+/** 写 CSV 文本到 OS 临时目录,返回绝对路径。csvToResources 用它把 csv_content 传给 GDScript FileAccess。 */
+export function writeTmpCsv(text: string): string {
+  const p = join(tmpdir(), `csv-import-${Date.now()}-${Math.random().toString(36).slice(2)}.csv`);
+  writeFileSync(p, text, 'utf8');
+  return p;
+}
+
+const ACTIONS = ['csv_to_resources'] as const;
+
+// ─── Tool definition ──────────────────────────────────────────────────────────
+
+export function getToolDefinitions(): Tool[] {
+  return [
+    {
+      name: 'csv_to_resources',
+      description: 'CSV→Resource 批量生成。读取 CSV(class_path 指向的 GDScript Resource 类),按 filename_column 列命名,批量生成 .tres 到 output_dir。CSV 行数据走 GDScript FileAccess.get_csv_line(零进脚本字符串,防注入)。output_dir 经 resolveWithinRoot 沙箱(TS pre);filename 白名单(GDScript 正则 + .. 段级拒)。',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          action: {
+            type: 'string',
+            enum: [...ACTIONS],
+            description: '操作类型',
+          },
+          project_path: { type: 'string', description: 'Path to Godot project directory' },
+          class_path: { type: 'string', description: 'GDScript Resource 类路径(如 res://item.gd),CSV 每行实例化此类' },
+          output_dir: { type: 'string', description: '输出目录(项目内,res:// 或相对路径,经沙箱校验)' },
+          filename_column: { type: 'string', description: 'CSV 中作为输出文件名的列名' },
+          csv_content: { type: 'string', description: 'CSV 文本内容(与 csv_path 二选一)' },
+          csv_path: { type: 'string', description: 'CSV 文件路径(项目内,与 csv_content 二选一)' },
+        },
+        required: ['action', 'project_path', 'class_path', 'output_dir', 'filename_column'],
+      },
+    },
+  ];
+}
+
+// ─── Tool handler ────────────────────────────────────────────────────────────
+
+export async function handleTool(
+  name: string, args: Record<string, unknown>, ctx: ToolContext,
+): Promise<ToolResult | null> {
+  if (name !== 'csv_to_resources') return null;
+  const action = args.action as string;
+  if (!(ACTIONS as readonly string[]).includes(action)) {
+    return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
+  }
+
+  const projectPath = ctx.projectDir;
+  const classPath = args.class_path as string;
+  const outputDir = args.output_dir as string;
+  const filenameCol = args.filename_column as string;
+
+  if (!classPath || !outputDir || !filenameCol) {
+    return opsErrorResult('INVALID_PARAMS', 'class_path, output_dir, filename_column are required');
+  }
+
+  // CSV 来源:csv_content 优先,否则 csv_path(项目内沙箱读取)
+  const csvContent = (args.csv_content as string) ?? (
+    args.csv_path
+      ? readFileSync(resolveWithinRoot(projectPath, args.csv_path as string), 'utf8')
+      : ''
+  );
+
+  // 前置校验:parseCsv 解析 header(filename_column 必须在 header 中)
+  const parsed = parseCsv(csvContent);
+  if (!parsed.ok || !parsed.headers!.includes(filenameCol)) {
+    return opsErrorResult('INVALID_PARAMS', parsed.error ?? `filename_column "${filenameCol}" not in CSV header`);
+  }
+
+  // CRITICAL-2: output_dir 沙箱(TS pre,防路径遍历)。越界 throw 由 ToolDispatcher 统一捕获。
+  const safeOutputDir = resolveWithinRoot(projectPath, outputDir);
+
+  // 写临时 CSV(GDScript FileAccess 读,数据零进脚本源码 = CRITICAL-1 注入根治)
+  const csvTmpPath = writeTmpCsv(csvContent);
+  try {
+    const godot = await ctx.findGodot();
+    const script = generateImportScript({ classPath, outputDir: safeOutputDir, filenameCol, csvTmpPath });
+    const r = await executeGdscript({
+      godotPath: godot,
+      projectPath,
+      code: script,
+      timeout: 60,
+      loadAutoloads: false,
+    });
+
+    if (!r.compile_success) {
+      return opsErrorResult('SCRIPT_EXEC_FAILED', r.compile_error);
+    }
+    if (!r.run_success) {
+      return opsErrorResult('SCRIPT_EXEC_FAILED', r.run_error);
+    }
+
+    // 输出走 MARKER_RESULT 协议:executeGdscript 解析 outputs[](value 为 JSON 字符串)。
+    // GDScript 侧 _mcp_output 已将 value 经 JSON.stringify 编码,这里 JSON.parse 还原。
+    const data: Record<string, unknown> = {};
+    for (const entry of r.outputs) {
+      try {
+        data[entry.key] = JSON.parse(entry.value);
+      } catch {
+        data[entry.key] = entry.value; // 非 JSON,保留原始字符串
+      }
+    }
+    return textResult(JSON.stringify({
+      generated: data['generated'] ?? [],
+      errors: data['errors'] ?? [],
+      stats: data['stats'] ?? {},
+    }));
+  } finally {
+    try { unlinkSync(csvTmpPath); } catch { /* 已删或清理失败,忽略 */ }
+  }
+}
+
+// ─── Tool metadata ────────────────────────────────────────────────────────────
+
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks: Record<string, RiskLevel> }> = {
+  csv_to_resources: {
+    readonly: false,
+    long_running: true, // 启动 Godot headless 执行 GDScript,耗时较长
+    // 写 .tres 文件到 output_dir → 'write',guard.ts requiresConfirmation 触发确认令牌。
+    // 须在 test/risk-coverage.test.ts 的 GUARDED_KEYS 内,否则零行为改变不变量测试失败。
+    actionRisks: { csv_to_resources: 'write' },
+  },
+};

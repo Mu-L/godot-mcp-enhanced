@@ -52,6 +52,7 @@ import * as advancedProxy from '../tools/advanced-proxy.js';
 import * as loadSkill from '../tools/load-skill.js';
 import * as androidOps from '../tools/android.js';
 import * as cpp from '../tools/cpp.js';
+import * as dataImport from '../tools/data-import.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ const ALL_MODULES = [
   loadSkill,
   androidOps,
   cpp,
+  dataImport,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

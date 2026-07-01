@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseCsv, generateImportScript } from '../../src/tools/data-import.js';
+import { existsSync, readFileSync, rmSync } from 'fs';
+import { parseCsv, generateImportScript, writeTmpCsv } from '../../src/tools/data-import.js';
 
 describe('parseCsv 前置校验', () => {
   it('空文本 → ok:false', () => {
@@ -36,5 +37,31 @@ describe('generateImportScript (CRITICAL-1 注入防护)', () => {
     // generateImportScript 不接 CSV 内容参数,只接 csvTmpPath
     const s = generateImportScript({ classPath: 'r', outputDir: 'o', filenameCol: 'id', csvTmpPath: 't.csv' });
     expect(s).not.toContain('row_data'); // 无 CSV 值嵌入
+  });
+});
+
+describe('writeTmpCsv', () => {
+  it('写 CSV 到临时文件,返回可读路径', () => {
+    const p = writeTmpCsv('id,name\n1,a\n');
+    try {
+      expect(existsSync(p)).toBe(true);
+      expect(readFileSync(p, 'utf8')).toBe('id,name\n1,a\n');
+      expect(p.endsWith('.csv')).toBe(true);
+    } finally {
+      try { rmSync(p); } catch { /* 已删 */ }
+    }
+  });
+
+  it('每次调用生成不同文件名', () => {
+    const a = writeTmpCsv('x\n1\n');
+    const b = writeTmpCsv('x\n1\n');
+    try {
+      expect(a).not.toBe(b);
+      expect(existsSync(a)).toBe(true);
+      expect(existsSync(b)).toBe(true);
+    } finally {
+      try { rmSync(a); } catch { /* */ }
+      try { rmSync(b); } catch { /* */ }
+    }
   });
 });
