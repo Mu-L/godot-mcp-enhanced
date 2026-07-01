@@ -96,7 +96,7 @@ AI 调 csv_to_resources({
 | `Vector2` / `Vector2i` | `"x,y"` split → parse |
 | `Color` | `"#rrggbb"` 或 `"r,g,b"` → Color |
 | `Array` / `PackedStringArray` | `"a,b,c"` split |
-| **枚举** | `ClassDB.class_get_integer_constant(class_name, enum_key)` 转 int（Godot 枚举 set 要 int，非字符串） |
+| **枚举** | 优先 `property.hint_string` 索引（`@export_enum("SWORD,BOW")` 产生的逗号分隔列表，索引即 int）；fallback `ClassDB.class_get_integer_constant`（class enum）。**T1 PoC 实证**：纯 `@export var x: int` 无 hint（hint=0），枚举探测**必须依赖 `@export_enum` 注解** |
 | 其他未知类型 | 跳过该字段 + 记 error（reason: unsupported type） |
 
 **转换失败**：该字段跳过 + 记 error（行+字段+值+期望类型），**不中断整行**（部分 set）。
@@ -165,7 +165,7 @@ headless executeGdscript 能否 `load` 自定义 Resource 类（需 `class_name`
 **T1 退出标准（4 项可测断言，必须全过）**：
 1. `load(class_path)` 返回非 null（class_name 缓存命中 `global_script_class_cache.cfg`）
 2. 反射拿到 @export 字段名+类型（`ClassDB.class_get_property_list` 非空）
-3. 枚举字段 `ClassDB.class_get_integer_constant` 转 int 成功 + `res.set(enum_field, int_val)` 不报错
+3. 枚举字段探测：`@export_enum` 产生 hint_string（hint=2），CSV 值匹配 hint_string 项的索引（int）；`res.set(enum_field, idx)` 不报错（T1 PoC 实证：ClassDB 路径对 @export_enum 无效，用 hint_string 索引）
 4. `ResourceSaver.save` 落盘 .tres + 重新 `load` 读回字段值一致
 
 **备选**：若反射/load 不通，降级到 TS 拼 .tres 文本（自定义类 .tres 格式：ext_resource 引用 .gd + sub_resource；复杂但可行；CSV 注入防护改为 TS 侧 gdEscape 每格 + 补注入单测）。
