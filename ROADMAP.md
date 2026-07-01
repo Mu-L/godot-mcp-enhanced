@@ -22,7 +22,7 @@
 | 1 | 补 LICENSE(双版权 MIT) | ✅ | feat/roadmap `640020b`(待合并 master) |
 | 2 | README.md 重定位改写 | ✅ | feat/roadmap `640020b`(待合并 master);spec: 2026-06-27-readme-repositioning-design.md |
 | 12 | README.en 完整双语重构 | ✅ | 策略A:关键节英译+工具表链接中文(遵循"工具描述中文"策略);去滞后注;对齐 28/安全立句/对比表 |
-| 11 | CodeBuddy 端到端接入验证 | 📋 | 验证通过解锁 #10 |
+| 11 | CodeBuddy 端到端接入验证 | ✅ | 2026-07-01 CodeBuddy IDE 内 read_scene 读 main_3d.tscn 成功(返回 Main3D Node3D + 7 子节点结构);stdio MCP 接入验证通过,解锁 #10 |
 | 10 | 上架 CodeBuddy MCP Market | 📋 | 依赖 #11 验证通过 |
 | 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 📋 | 分发战略,06-28 复核结论 |
 | 14 | 写「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南 | ✅ | docs/migration-from-coding-solo.md + README 入口;蹭龙头流量 |
