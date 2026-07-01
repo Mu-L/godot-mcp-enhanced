@@ -63,24 +63,24 @@ func _convert_enum(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \treturn null
 
 func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
-\t# 枚举: TYPE_INT(2) + hint=PROPERTY_HINT_ENUM(2) 或 hint_string 非空
-\tif field.type == 2 and (field.hint == 2 or (field.has("hint_string") and field.hint_string != "")):
+\t# 枚举: TYPE_INT + hint=PROPERTY_HINT_ENUM 或 hint_string 非空(spec §4 + T1 PoC)
+\tif field.type == TYPE_INT and (field.hint == PROPERTY_HINT_ENUM or (field.has("hint_string") and field.hint_string != "")):
 \t\treturn _convert_enum(raw, field, cls_name)
 \tmatch field.type:
-\t\t2: return int(raw)
-\t\t3: return float(raw)
-\t\t4: return raw
-\t\t1:
+\t\tTYPE_INT: return int(raw)
+\t\tTYPE_FLOAT: return float(raw)
+\t\tTYPE_STRING: return raw
+\t\tTYPE_BOOL:
 \t\t\tvar l := raw.to_lower()
 \t\t\treturn l == "true" or l == "1"
-\t\t5:
+\t\tTYPE_VECTOR2:
 \t\t\tvar p: PackedStringArray = raw.split(",")
 \t\t\tif p.size() >= 2: return Vector2(float(p[0]), float(p[1]))
-\t\t12:
+\t\tTYPE_COLOR:  # Godot 4: TYPE_COLOR=20 (Godot 3: 12)。用符号常量跨版本正确。
 \t\t\tif raw.begins_with("#"): return Color.html(raw)
 \t\t\tvar c: PackedStringArray = raw.split(",")
 \t\t\tif c.size() >= 3: return Color(float(c[0]), float(c[1]), float(c[2]))
-\t\t28, 30:  # TYPE_PACKED_STRING_ARRAY / TYPE_ARRAY
+\t\tTYPE_PACKED_STRING_ARRAY, TYPE_ARRAY:
 \t\t\treturn raw.split(",")
 \treturn null
 
@@ -95,7 +95,8 @@ func _initialize():
 \tvar all_props: Array = inst0.get_property_list()
 \tvar fields: Array = []
 \tfor p in all_props:
-\t\tif (p.usage & 8192) != 0:  # PROPERTY_USAGE_SCRIPT_VARIABLE
+\t\t# PROPERTY_USAGE_SCRIPT_VARIABLE: Godot 4.x=4096, Godot 3.x=8192。用符号常量跨版本正确。
+\t\tif (p.usage & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0:
 \t\t\tfields.append(p)
 \tvar f := FileAccess.open(_csv_path, FileAccess.READ)
 \tif f == null:
@@ -156,8 +157,8 @@ import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared/errors.js';
-import { resolveWithinRoot } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
+import { executeGdscriptTrusted as executeGdscript } from '../gdscript-executor.js';
 
 /** 写 CSV 文本到 OS 临时目录,返回绝对路径。csvToResources 用它把 csv_content 传给 GDScript FileAccess。 */
 export function writeTmpCsv(text: string): string {
@@ -219,7 +220,7 @@ export async function handleTool(
   // CSV 来源:csv_content 优先,否则 csv_path(项目内沙箱读取)
   const csvContent = (args.csv_content as string) ?? (
     args.csv_path
-      ? readFileSync(resolveWithinRoot(projectPath, args.csv_path as string), 'utf8')
+      ? readFileSync(resolveWithinRoot(projectPath, normalizeUserProjectPath(args.csv_path as string)), 'utf8')
       : ''
   );
 
@@ -230,7 +231,8 @@ export async function handleTool(
   }
 
   // CRITICAL-2: output_dir 沙箱(TS pre,防路径遍历)。越界 throw 由 ToolDispatcher 统一捕获。
-  const safeOutputDir = resolveWithinRoot(projectPath, outputDir);
+  // T7 修订:res:// 前缀必须先剥离(resolveWithinRoot 不识别 res://,会生成 real-project\res:\... 畸形路径)。
+  const safeOutputDir = resolveWithinRoot(projectPath, normalizeUserProjectPath(outputDir));
 
   // 写临时 CSV(GDScript FileAccess 读,数据零进脚本源码 = CRITICAL-1 注入根治)
   const csvTmpPath = writeTmpCsv(csvContent);
