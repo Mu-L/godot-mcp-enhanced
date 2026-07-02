@@ -29,7 +29,7 @@ spec-review: `D:\workspace\review\.claude\reviews\2026-07-02-godot-mcp-enhanced-
 
 ### 1. add_node 幂等(完整吸收,原 #5)[IMPORTANT-1/2 修订]
 
-**核实**:`src/tscn/tscn-editor-add.ts:261-371` `_addNodeInner`(scene/index.ts:137 `add_node` → :165 调 `addNode` → :250 `_addNodeInner`)流程:校验 name/type/parent 格式(:268-276)→ 找父节点(:296-323)→ 找插入点(:326)→ 插入 [node] 段(:329-359)。**无同级重名扫描**(不检查目标父下是否已有同名 node)。→ batch_add_nodes 后再单独 add 同名子节点不会报错,产生重复 [node] 段(Godot 加载时拒绝)。
+**核实**:`src/tscn/tscn-editor-add.ts:261-371` `_addNodeInner`(scene/index.ts:137 `add_node` → :165 调 `addNode` → :255 `_addNodeInner`)流程:校验 name/type/parent 格式(:268-276)→ 找父节点(:296-323)→ 找插入点(:326)→ 插入 [node] 段(:329-359)。**无同级重名扫描**(不检查目标父下是否已有同名 node)。→ batch_add_nodes 后再单独 add 同名子节点不会报错,产生重复 [node] 段(Godot 加载时拒绝)。
 
 **溯源**:defects.md:429 `addnode-no-duplicate-check`(OPEN, IMPORTANT, 2026-06-26)跟踪同一行为,detect 指向 tscn-editor-add.ts:261-371。两者互补共存:defect=回归检测/修复指引(待修:addNode 前扫描同级名);本 rules 条目=使用者规避指南(query 前置)。同区域 defects.md:438 `addnode-parent-allows-dotdot`(parent 正则放行 `..`,OPEN)。
 
