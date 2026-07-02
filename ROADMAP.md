@@ -24,7 +24,7 @@
 | 12 | README.en 完整双语重构 | ✅ | 策略A:关键节英译+工具表链接中文(遵循"工具描述中文"策略);去滞后注;对齐 28/安全立句/对比表 |
 | 11 | CodeBuddy 端到端接入验证 | ✅ | 2026-07-01 CodeBuddy IDE 内 read_scene 读 main_3d.tscn 成功(返回 Main3D Node3D + 7 子节点结构);stdio MCP 接入验证通过,解锁 #10 |
 | 10 | 上架 CodeBuddy MCP Market | 💤 | **门槛不符搁置**:腾讯 MCP 广场仅接企业级(个人不接)+默认 Hosted(godot 依赖本地 Godot 不适合,Local 需协商);#11 验证 ✅ + README Hero 移入已达成曝光价值,Market 上架需企业主体 |
-| 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 📋 | 分发战略,06-28 复核结论 |
+| 13 | 被主要 MCP 目录收录(best-of-mcp-servers / mcp.directory / PulseMCP) | 🚧 | awesome-mcp-servers PR [#9067](https://github.com/punkpeye/awesome-mcp-servers/pull/9067) 已发待审核(`fcaa22f`);MCP Registry 待下次发版(npm 包需带 mcpName);材料 docs/distribution/ |
 | 14 | 写「从 Coding-Solo/godot-mcp 升级到 enhanced」迁移指南 | ✅ | docs/migration-from-coding-solo.md + README 入口;蹭龙头流量 |
 
 > #11 → #10 顺序硬约束:验证未通过不上架。#10 上架后,README Hero 兼容列表才可移入 CodeBuddy。
@@ -42,6 +42,7 @@
 - **目标**:被 best-of-mcp-servers / mcp.directory / PulseMCP 等主要 MCP 目录收录(流量入口)
 - **来源**:06-28 复核——龙头 Coding-Solo 4.4k★ 主因即被这些目录收录 + 教程固化
 - **验收**:至少 1 个目录收录本项目(提交 PR 被合并)
+- **进展(2026-07-02)**:渠道1 awesome-mcp-servers PR [#9067](https://github.com/punkpeye/awesome-mcp-servers/pull/9067) 已发(📇 🏠 条目在 Coding-Solo 旁,commit `fcaa22f`)等审核;渠道2 MCP Registry `server.json` 就绪(validate ✅,`c07d725`)但 npm 包 0.20.0 旧版无 mcpName,publish 推迟到下次正式发版;渠道3 mcp.directory/PulseMCP 依赖渠道2。详见 [docs/distribution/README.md](docs/distribution/README.md)
 - **依赖**:无
 </details>
 
