@@ -193,6 +193,9 @@ export class ToolDispatcher {
     }
 
     // 从 _meta 中提取 agent 身份标识
+    // 注意：agentId / agent_id 是对未文档化客户端行为的假设——MCP 规范未定义
+    // tools/call._meta 中的 caller 身份字段，主流客户端亦未承诺注入。
+    // 跟踪 anthropics/claude-code#32514；落地前此值通常为 undefined（多 Agent 路径不可用）。
     const meta = (request as { params?: { _meta?: Record<string, unknown> } }).params?._meta;
     const agentId = (meta?.agentId ?? meta?.agent_id) as string | undefined;
     if (this.options.agentContext) {

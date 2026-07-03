@@ -2,10 +2,12 @@
 
 > 基于 unity-mcp-server v2.30.0 研究，为 godot-mcp-enhanced 引入多 Agent 并发支持、多实例路由、状态持久化、懒加载。
 
-**状态**：已批准
+**状态**：已批准（部分落地）
 **版本**：1.0
 **日期**：2026-06-10
 **影响版本**：v0.18.0 → v0.20.0
+
+> **⚠️ 落地状态复核（2026-07-02）**：截至 v0.20.0，多实例路由与多 Agent 并发为 **EXPERIMENTAL 独立子系统**——发送端（`sendToInstance` / `dynamicSender`）已实现并有单测，但接收端 HTTP API 未完成（见 `docs/使用指南.md`「HTTP API 未完成」、CHANGELOG F-04 与 v0.18.2「零生产接线」warn），故端到端不可用。Agent 身份字段 `_meta.agentId` 为对未文档化客户端行为的假设（MCP 规范未定义 `tools/call._meta` 中的 caller 身份字段，主流客户端亦未承诺注入），跟踪 anthropics/claude-code#32514。续做须待：MCP 规范标准化 caller 身份字段 / #32514 落地 / 出现真实多 agent 用例（目前零证据）。
 
 ---
 
