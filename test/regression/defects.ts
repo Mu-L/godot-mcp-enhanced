@@ -239,13 +239,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       return Math.max(0, n - guarded);
     } },
   { key: 'plugin-no-super-call', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
-    // R2 阶段5 super() IMP-4(commit 654b162)已修 plugin/websocket/status_panel,detect=0 移 FIXED 防复发
+    // 反语义(2026-07-04): 654b162 曾误把 super() 加进原生类(EditorPlugin/Node/VBoxContainer)虚函数,
+    // 触发 Godot 4.6.2+ Parse Error "Cannot call the parent class' virtual function ... hasn't been defined"。
+    // IMP-4 "虚函数首行调 super" 仅适用 extends 自定义基类(见 CHANGELOG mcp_bridge.gd 移除 super 先例;
+    // docs/review-followup-2026-06-18.md:93)。detect 反转计数原生类虚函数里 *有* super() 的数量(应=0),
+    // 防 654b162 式回归。4.7+4.6.2 --import 实测 addon 全量编译通过(test/fixtures/gdscript-check)。
     detect: () => {
       let total = 0;
       for (const rel of ['addons/godot_mcp_server/plugin.gd', 'addons/godot_mcp_server/websocket_server.gd', 'addons/godot_mcp_server/ui/status_panel.gd']) {
         const f = readSrc(rel);
-        const funcs = f.match(/func _(?:enter_tree|exit_tree|ready|process|physics_process)\(\)[\s\S]*?(?=\nfunc |\n#|$)/g) ?? [];
-        total += funcs.filter(b => !/super\(\)/.test(b)).length;
+        const funcs = f.match(/func _(?:enter_tree|exit_tree|ready|process|physics_process)\([^)]*\)[\s\S]*?(?=\nfunc |\n#|$)/g) ?? [];
+        total += funcs.filter(b => /super\(\)/.test(b)).length;
       }
       return total;
     } },
@@ -293,6 +297,32 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       if (!/InputEventScreenTouch/.test(f)) missing++;
       if (!/InputEventScreenDrag/.test(f)) missing++;
       return missing;
+    } },
+  { key: 'secret-write-powershell-injection', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // F-1(2026-07-04 审查): Windows 写 secret 用 PowerShell WriteAllText,path 字面拼接进单引号字符串
+    // (_secret_file/path 含项目目录,NTFS 允许 ' 在目录名 → 逃逸注入任意命令,plugin _enter_tree 自动触发无需交互)。
+    // 修复:path 经 $env:_MCP_SECRET_PATH 传递(env 值不解析为命令语法,注入消失)。
+    // detect 计数 WriteAllText('" 字面拼接模式(修复后应=0)。
+    detect: () => {
+      let n = 0;
+      for (const rel of ['addons/godot_mcp_server/websocket_server.gd', 'src/scripts/mcp_bridge.gd']) {
+        const f = readSrc(rel);
+        n += (f.match(/WriteAllText\('"/g) ?? []).length;
+      }
+      return n;
+    } },
+  { key: 'os-execute-blocking-false-exit-code', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // F-2(2026-07-04 审查): OS.execute("powershell", args, [], false) 第五参 false=non-blocking,
+    // 返回 fork 启动状态非 exit code,write_ok=(ec==OK) 乐观判断可能误报成功(key 未写但日志说成功)。
+    // 修复:去 false(blocking 默认 true),ec 为真实 exit code。
+    // detect 计数 powershell 调用带 false 的数量(修复后应=0)。
+    detect: () => {
+      let n = 0;
+      for (const rel of ['addons/godot_mcp_server/websocket_server.gd', 'src/scripts/mcp_bridge.gd']) {
+        const f = readSrc(rel);
+        n += (f.match(/OS\.execute\("powershell"[^)]*,\s*false\s*\)/g) ?? []).length;
+      }
+      return n;
     } },
 ];
 
@@ -403,7 +433,8 @@ export const OPEN_DEFECTS: DefectEntry[] = [
       return missing;
     },
     baseline: 1 }, // master 实测=1（缺所有者/uid；signature 或 validateGodotBinary 已部分命中）
-  // plugin-no-super-call 移 FIXED(2026-06-27 detect=0;R2 super IMP-4 654b162 已修)
+  // plugin-no-super-call(2026-07-04 detect 反转): 654b162 误加 super 触发 4.6.2+ parse error,
+  //   移除 6 处 super 后 detect 反转计数"原生类虚函数有 super"=0,留 FIXED 防 654b162 式回归
   // recording-no-touch-events 移 FIXED(2026-06-27 ScreenDrag 补全 feat/recording-screen-drag,两类齐备 detect=0)
   // normalizeargs-depth-limit 移 FIXED(2026-06-27 detect 改查裸 depth>5 字面量,排除 .MAX_NORMALIZE_DEPTH 引用 → 0)
 ];

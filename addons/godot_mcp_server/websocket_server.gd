@@ -33,7 +33,6 @@ func set_panel(panel: Control) -> void:
 		panel.set_cancel_callback(cancel_current_operation)
 
 func _ready() -> void:
-	super()
 	_crypto = Crypto.new()
 	_heartbeat = preload("heartbeat.gd").new()
 	add_child(_heartbeat)
@@ -67,14 +66,46 @@ func _generate_and_write_secret() -> void:
 	if dir and not dir.dir_exists(".godot"):
 		dir.make_dir(".godot")
 	_secret_file = godot_dir.path_join("mcp_editor.key")
-	var f := FileAccess.open(_secret_file, FileAccess.WRITE)
-	if f:
-		f.store_string(_secret)
-		f.close()
+	# Windows: FileAccess.close 走 atomic rename(drivers/windows/file_access_windows.cpp:276, Godot #40366),
+	# 杀软拦 rename → "Safe save failed" 红字(非致命但误导用户)。改用 PowerShell WriteAllText 直接写绕开。
+	# 配合 _restrict_secret_permissions 用 icacls USERNAME:F + /inheritance:r(USERNAME 全控、其他用户无权限,
+	# 比 USERNAME:R 更合理——R 是 anti-pattern: addon 以 USERNAME 身份却要覆盖自己只读的 key,
+	# 只能靠 atomic rename 绕 ACL,正是红字根源)。secret 经环境变量传递(不经命令行暴露,见 I-3)。
+	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
+	var write_ok := false
+	if OS.get_name() == "Windows":
+		OS.set_environment("_MCP_SECRET_TMP", _secret)
+		OS.set_environment("_MCP_SECRET_PATH", _secret_file)
+		# F-1(2026-07-04 审查): path 经 env 传递($env:_MCP_SECRET_PATH),不字面拼接进 PowerShell
+		# 单引号字符串 —— 项目目录名含 ' 即可逃逸注入任意命令。env 值不解析为命令语法,注入消失。
+		# F-2(2026-07-04 审查): OS.execute 第五参 false=non-blocking,返回 fork 启动状态非 exit code,
+		# write_ok=(ec==OK) 乐观判断可能误报成功。去 false(blocking 默认 true),ec 是真实 exit code。
+		var ps_args := PackedStringArray(["-NoProfile", "-Command", "[IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
+		var ec := OS.execute("powershell", ps_args, [])
+		OS.unset_environment("_MCP_SECRET_TMP")
+		OS.unset_environment("_MCP_SECRET_PATH")
+		write_ok = (ec == OK)
+		if not write_ok:
+			push_warning("[MCP] PowerShell write failed (exit %d), fallback to FileAccess" % ec)
+	else:
+		var f := FileAccess.open(_secret_file, FileAccess.WRITE)
+		if f:
+			f.store_string(_secret)
+			f.close()
+			write_ok = true
+	if write_ok:
 		_restrict_secret_permissions(_secret_file)
 		print("[MCP] Auth secret written to %s" % _secret_file)
 	else:
-		push_warning("[MCP] Failed to write auth secret to %s" % _secret_file)
+		# Windows 末级 fallback: FileAccess(会触发 Safe save 红字但 key 写成功)
+		var f2 := FileAccess.open(_secret_file, FileAccess.WRITE)
+		if f2:
+			f2.store_string(_secret)
+			f2.close()
+			_restrict_secret_permissions(_secret_file)
+			print("[MCP] Auth secret written to %s (FileAccess fallback)" % _secret_file)
+		else:
+			push_warning("[MCP] Failed to write auth secret to %s" % _secret_file)
 
 # I-8: Godot FileAccess 无权限参数,secret 明文落盘。用 OS.execute 调系统命令收紧权限,
 # 与 TS 端 instance-api-auth.ts 的 icacls/chmod 对齐(本地单用户默认安全,此为多用户加固)。
@@ -93,7 +124,11 @@ func _restrict_secret_permissions(path: String) -> void:
 		if username.is_empty() or not RegEx.create_from_string("^[A-Za-z0-9_-]+$").search(username):
 			push_warning("[MCP] Cannot restrict secret permissions: username '%s' has unexpected chars" % username)
 			return
-		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:R" % username]), [])
+		# USERNAME:F(全控) + /inheritance:r(移除继承,其他用户无 ACE 无权限)。
+		# 原 USERNAME:R 是 anti-pattern: addon 以 USERNAME 身份运行却要覆盖自己只读的 key,
+		# 只能靠 FileAccess atomic rename 绕 ACL → 触发 "Safe save failed" 红字(Godot #40366)。
+		# F 让 _generate_and_write_secret 的 PowerShell WriteAllText 能直接覆盖写,其他用户仍无权限(比 R 更严)。
+		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:F" % username]), [])
 		if exit_code != 0:
 			push_warning("[MCP] icacls failed (exit %d), secret may keep default permissions: %s" % [exit_code, path])
 	elif os_name in ["Linux", "FreeBSD", "macOS"]:
@@ -157,7 +192,6 @@ func _start_server() -> void:
 	push_error("[MCP] All ports (%d-%d) occupied" % [BASE_PORT, MAX_PORT])
 
 func _process(delta: float) -> void:
-	super()
 	if not _server: return
 
 	if _server.is_connection_available():
@@ -356,7 +390,6 @@ func _constant_time_compare(a: String, b: String) -> bool:
 	return result == 0
 
 func _exit_tree() -> void:
-	super()
 	set_process(false)
 	if _heartbeat:
 		_heartbeat.timeout_detected.disconnect(_on_heartbeat_timeout)

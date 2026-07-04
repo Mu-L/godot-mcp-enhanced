@@ -288,10 +288,39 @@ func _get_project_dir() -> String:
 func _write_secret_to_file(path: String) -> bool:
 	# I-3/I-8 SECURITY: secret 明文写入,Godot FileAccess 无权限参数。
 	# I-8: 写完后用 OS.execute 收紧权限(与 TS 端/websocket_server.gd 对齐)。
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f:
-		f.store_string(_secret)
-		f.close()
+	# Safe save 规避(Godot #40366): Windows FileAccess.close 走 atomic rename,杀软拦 → 红字
+	# (非致命但误导)。改用 PowerShell WriteAllText 直接写绕开;secret 经环境变量传递(见 I-3)。
+	# 配合 _restrict_secret_permissions 用 USERNAME:F(全控)+ inheritance:r,PowerShell 能覆盖 F key。
+	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
+	var write_ok := false
+	if OS.get_name() == "Windows":
+		OS.set_environment("_MCP_SECRET_TMP", _secret)
+		OS.set_environment("_MCP_SECRET_PATH", path)
+		# F-1(2026-07-04 审查): path 经 env 传递($env:_MCP_SECRET_PATH),不字面拼接进 PowerShell
+		# 单引号字符串(项目目录名含 ' 即可逃逸注入)。env 值不解析为命令语法,注入消失。
+		# F-2(2026-07-04 审查): OS.execute 去 blocking=false,ec 为真实 exit code(原 non-blocking 返回
+		# fork 启动状态,write_ok=(ec==OK) 乐观判断可能误报成功)。与 websocket_server.gd 同步。
+		var ps_args := PackedStringArray(["-NoProfile", "-Command", "[IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
+		var ec := OS.execute("powershell", ps_args, [])
+		OS.unset_environment("_MCP_SECRET_TMP")
+		OS.unset_environment("_MCP_SECRET_PATH")
+		write_ok = (ec == OK)
+		if not write_ok:
+			push_warning("[MCP Bridge] PowerShell write failed (exit %d), fallback to FileAccess" % ec)
+	else:
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f:
+			f.store_string(_secret)
+			f.close()
+			write_ok = true
+	if write_ok:
+		_restrict_secret_permissions(path)
+		return true
+	# Windows 末级 fallback: FileAccess(会触发 Safe save 红字但 key 写成功)
+	var f2 := FileAccess.open(path, FileAccess.WRITE)
+	if f2:
+		f2.store_string(_secret)
+		f2.close()
 		_restrict_secret_permissions(path)
 		return true
 	return false
@@ -311,7 +340,11 @@ func _restrict_secret_permissions(path: String) -> void:
 		if username.is_empty() or not RegEx.create_from_string("^[A-Za-z0-9_-]+$").search(username):
 			push_warning("[MCP Bridge] Cannot restrict secret permissions: username '%s' has unexpected chars" % username)
 			return
-		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:R" % username]), [])
+		# USERNAME:F(全控) + /inheritance:r(其他用户无 ACE)。原 USERNAME:R 是 anti-pattern
+		# (bridge 以 USERNAME 身份运行却要覆盖自己只读的 key → 靠 FileAccess atomic rename 绕 ACL
+		# → Safe save 红字, Godot #40366)。F 让 _write_secret_to_file 的 PowerShell 能直接覆盖,
+		# 其他用户仍无权限(比 R 更严)。与 websocket_server.gd:_restrict_secret_permissions 同步。
+		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:F" % username]), [])
 		if exit_code != 0:
 			push_warning("[MCP Bridge] icacls failed (exit %d), secret may keep default permissions: %s" % [exit_code, path])
 	elif os_name in ["Linux", "FreeBSD", "macOS"]:

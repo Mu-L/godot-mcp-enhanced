@@ -6,7 +6,6 @@ var cancel_button: Button
 var _cancel_fn: Callable = Callable()  # C-02: set by websocket_server to avoid hardcoded path
 
 func _ready() -> void:
-	super()
 	status_label = Label.new()
 	status_label.text = "MCP: Disconnected"
 	add_child(status_label)

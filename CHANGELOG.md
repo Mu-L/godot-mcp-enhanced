@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — editor 插件原生类虚函数 super() 回归（654b162）
+
+- **移除 6 处 super()**（`addons/godot_mcp_server/plugin.gd` `_enter_tree`/`_exit_tree` + `websocket_server.gd` `_ready`/`_process`/`_exit_tree` + `ui/status_panel.gd` `_ready`）：`super()`（无方法名）对原生类（EditorPlugin/Node/VBoxContainer）虚函数是 Godot Parse Error "Cannot call the parent class' virtual function ... hasn't been defined"（**4.6.2+ 均报，非 4.7 特有**），addon 加载失败/9090 不监听。IMP-4 "虚函数首行调 super" 仅适用 extends 自定义基类。
+- **溯源**：654b162（v0.19.0）违反 `docs/review-followup-2026-06-18.md:93` 与 `mcp_bridge.gd` 移除 super 先例，误将 IMP-4 用到原生类；提交自承"editor 实测待专项"，从未真验证。同期 `.claude/rules/godot-mcp-editor.md` "2026-06-26 4.7 `--check-only` 全编译通过"系假绿（`--check-only <file>` 空跑不触发编译）。
+- **验证**：reproducer 红绿闭环（4.7+4.6.2 super 在→parse error / super 删→通过）+ `--headless --import`（`test/fixtures/gdscript-check`）addon 全量编译干净；`defects.ts` `plugin-no-super-call` detect 反转计数"原生类虚函数有 super"=0 留 FIXED 防 654b162 式回归。
+
+### Fixed — editor 插件 Safe save 红字（Godot #40366）
+
+- **消除 `websocket_server.gd` "Safe save failed" 红字**：Windows 上 `FileAccess.open(WRITE).close()` 总走 atomic（写 .tmp + rename，`drivers/windows/file_access_windows.cpp:276`），杀软拦 rename → 红字（非致命，fallback 直接写仍成功，addon 照常起、9090 监听，但红字误导用户以为 addon 损坏）。代码层绕开：Windows 改用 `OS.execute("powershell", WriteAllText)` 直接写（secret 经环境变量传递，不经命令行暴露）；Linux/macOS 的 `FileAccess.close` 不走 atomic，保留 `FileAccess`；PowerShell 失败有 `FileAccess` fallback 兜底。
+- **修 `_restrict_secret_permissions` anti-pattern**：`icacls /inheritance:r /grant:r USERNAME:R`（自己只读）→ `USERNAME:F`（自己全控）。R 是 anti-pattern——addon 以 USERNAME 身份运行却要覆盖自己只读的 key，只能靠 FileAccess atomic rename 绕 ACL，正是红字根源。F 让 PowerShell 能直接覆盖写；其他用户因 `inheritance:r` 无 ACE（比 R + 继承残留更严，实测仅 `USERNAME:F`）。
+- **验证**：4.7 `--editor --headless` 实测两次（key 新建 + 覆盖）零 Safe save 红字 + `Listening 9090` + key 写成功；`icacls` 实测 ACL 仅 `USERNAME:F`、其他用户零 ACE；F key 可覆盖写。
+- **同步 `src/scripts/mcp_bridge.gd`**（DUPLICATE 注释约束）：`_write_secret_to_file` + `_restrict_secret_permissions` 同款修复（Windows PowerShell 绕 atomic + F ACL）。4.7+4.6.2 `--headless` load 编译干净。
+
 ## [0.20.0] - 2026-06-30
 
 ### Added — cpp GDExtension 脚手架 + 全工具验证靶子
