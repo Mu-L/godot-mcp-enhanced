@@ -24,11 +24,11 @@ func setup(plugin: EditorPlugin) -> void:
 	add_child(_editor_guards)
 
 	_scene_commands = preload("commands/scene_commands.gd").new()
-	_scene_commands.setup(_undo_manager, _editor_guards)
+	_scene_commands.setup(plugin, _undo_manager, _editor_guards)
 	add_child(_scene_commands)
 
 	_node_commands = preload("commands/node_commands.gd").new()
-	_node_commands.setup(_undo_manager)
+	_node_commands.setup(plugin, _undo_manager)
 	add_child(_node_commands)
 
 	_test_commands = preload("commands/test_commands.gd").new()
@@ -52,7 +52,7 @@ func setup(plugin: EditorPlugin) -> void:
 	add_child(_animtree_commands)
 
 	_sync_commands = preload("commands/sync_commands.gd").new()
-	_sync_commands.setup(self)
+	_sync_commands.setup(self, plugin)
 	add_child(_sync_commands)
 
 	_animation_commands = preload("commands/animation_commands.gd").new()

@@ -8,19 +8,23 @@ extends Node
 # 由不同 executor 处理,客户端不会混淆。新增 sync 错误时优先复用本表。
 
 var _command_handler: Node
+var _plugin: EditorPlugin
 var _syncing: bool = false
 var _node_paths: Dictionary = {}  # { instance_id (int): { path: String, type: String } }
 
 
-func setup(handler: Node) -> void:
+func setup(handler: Node, plugin: EditorPlugin) -> void:
 	_command_handler = handler
+	_plugin = plugin
 
 # I-06: null-safe EditorInterface accessor
+# 4.7: EditorInterface 不再作为 Engine singleton 注册(Engine.get_singleton("EditorInterface") 返回 null),
+# 改用 EditorPlugin.get_editor_interface()(与 editor_guards.gd/export_commands.gd 一致)。
 func _get_ei() -> EditorInterface:
-	var ei = Engine.get_singleton("EditorInterface") as EditorInterface
-	if ei == null:
-		push_error("[MCP] EditorInterface not available")
-	return ei
+	if _plugin == null:
+		push_error("[MCP] EditorPlugin not available")
+		return null
+	return _plugin.get_editor_interface()
 
 
 func start_sync() -> Dictionary:

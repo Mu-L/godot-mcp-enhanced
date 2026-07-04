@@ -2,17 +2,20 @@ extends Node
 
 var _undo_manager: Node
 var _editor_guards: Node
+var _plugin: EditorPlugin
 
-func setup(undo_manager: Node, editor_guards: Node) -> void:
+func setup(plugin: EditorPlugin, undo_manager: Node, editor_guards: Node) -> void:
 	_undo_manager = undo_manager
 	_editor_guards = editor_guards
+	_plugin = plugin
 
 # I-06: null-safe EditorInterface accessor
+# 4.7: EditorInterface 不再作为 Engine singleton 注册,改用 EditorPlugin.get_editor_interface()。
 func _get_ei() -> EditorInterface:
-	var ei = Engine.get_singleton("EditorInterface") as EditorInterface
-	if ei == null:
-		push_error("[MCP] EditorInterface not available")
-	return ei
+	if _plugin == null:
+		push_error("[MCP] EditorPlugin not available")
+		return null
+	return _plugin.get_editor_interface()
 
 
 # C-1 / IMP-2-CONSISTENCY: 段级 .. 阻断复用 CommandHelpers.has_path_traversal(单一实现,与 ui_commands 对齐)

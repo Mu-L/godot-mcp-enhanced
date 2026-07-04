@@ -1,6 +1,7 @@
 extends Node
 
 var _undo_manager: Node
+var _plugin: EditorPlugin
 
 const ALLOWED_NODE_TYPES: Array = [
 	"Node3D", "MeshInstance3D", "StaticBody3D", "RigidBody3D",
@@ -13,15 +14,17 @@ const ALLOWED_NODE_TYPES: Array = [
 	"AnimationPlayer", "AnimationTree", "Timer",
 ]
 
-func setup(undo_manager: Node) -> void:
+func setup(plugin: EditorPlugin, undo_manager: Node) -> void:
 	_undo_manager = undo_manager
+	_plugin = plugin
 
 # I-06: null-safe EditorInterface accessor
+# 4.7: EditorInterface 不再作为 Engine singleton 注册,改用 EditorPlugin.get_editor_interface()。
 func _get_ei() -> EditorInterface:
-	var ei = Engine.get_singleton("EditorInterface") as EditorInterface
-	if ei == null:
-		push_error("[MCP] EditorInterface not available")
-	return ei
+	if _plugin == null:
+		push_error("[MCP] EditorPlugin not available")
+		return null
+	return _plugin.get_editor_interface()
 
 func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 	var ei := _get_ei()
