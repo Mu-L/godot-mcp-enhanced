@@ -6,7 +6,7 @@
  * Adding a new tool module requires editing ONLY this file.
  */
 
-import { registerModule, TOOL_GROUPS } from './tool-registry.js';
+import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel } from './tool-registry.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 // ─── Tool module imports ─────────────────────────────────────────────────────
@@ -85,15 +85,67 @@ function buildToolGroupMap(): Map<string, string> {
 
 const toolGroupMap = buildToolGroupMap();
 
-/** Inject annotations.tags into tool definitions based on TOOL_GROUPS mapping. */
+/**
+ * Derive MCP-standard ToolAnnotations hints from a tool's actionRisks.
+ *
+ * Maps the project's internal RiskLevel taxonomy (read/write/destructive/process)
+ * to the four MCP-standard hints (spec 2025-06-18). Clients use these to decide
+ * whether to prompt for user confirmation before executing the tool.
+ *
+ * Rules (conservative — never over-claim safety):
+ * - readOnlyHint:    true only if every action is 'read'
+ * - destructiveHint: true if any action is 'destructive'
+ * - idempotentHint:  true only if readOnlyHint (side-effect-free ⇒ re-runnable)
+ * - openWorldHint:   omitted (tools operate on Godot's closed world; default false)
+ *
+ * Tools without actionRisks default to write semantics (readOnlyHint=false),
+ * matching the registry's default readonly=false for untagged tools (A-10).
+ */
+function deriveMcpHints(actionRisks?: Record<string, RiskLevel>): {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+} {
+  if (!actionRisks) {
+    return { readOnlyHint: false, destructiveHint: false, idempotentHint: false };
+  }
+  const risks = Object.values(actionRisks);
+  if (risks.length === 0) {
+    return { readOnlyHint: false, destructiveHint: false, idempotentHint: false };
+  }
+  const hasDestructive = risks.some(r => r === 'destructive');
+  const hasWrite = risks.some(r => r === 'write' || r === 'destructive' || r === 'process');
+  const isReadOnly = !hasWrite; // every action is 'read'
+  return {
+    readOnlyHint: isReadOnly,
+    destructiveHint: hasDestructive,
+    idempotentHint: isReadOnly,
+  };
+}
+
+/**
+ * Inject annotations.tags (group:xxx) AND MCP-standard hints into tool definitions.
+ *
+ * Tags come from the TOOL_GROUPS mapping. Hints come from each tool's actionRisks
+ * via deriveMcpHints. Manually-set hints on a tool definition take precedence —
+ * auto-derivation only fills hints the tool author left unset, so explicit
+ * annotations (e.g. marking a tool destructiveHint=true manually) are respected.
+ */
 function injectTags(defs: Tool[]): Tool[] {
-  return defs.map(def => ({
-    ...def,
-    annotations: {
-      ...def.annotations,
-      tags: [`group:${toolGroupMap.get(def.name) ?? 'unknown'}`],
-    },
-  }));
+  return defs.map(def => {
+    const hints = deriveMcpHints(getToolMeta(def.name)?.actionRisks);
+    return {
+      ...def,
+      annotations: {
+        ...def.annotations,
+        tags: [`group:${toolGroupMap.get(def.name) ?? 'unknown'}`],
+        // 手动标注优先, 缺失才用 RiskLevel 派生（MCP spec 2025-06-18）
+        readOnlyHint: def.annotations?.readOnlyHint ?? hints.readOnlyHint,
+        destructiveHint: def.annotations?.destructiveHint ?? hints.destructiveHint,
+        idempotentHint: def.annotations?.idempotentHint ?? hints.idempotentHint,
+      },
+    };
+  });
 }
 
 let registered = false;
