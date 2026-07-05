@@ -103,7 +103,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // （否则 committed 字段 undefined 会误报所有工具 contractChange）。
       ensureTsDriftReady();
       const live = extractCapabilities(PROJECT_ROOT);
-      let committed: ToolCapability[] = [];
+      let committed: ToolCapability[];
       try { committed = (JSON.parse(readSrc('docs/capability-matrix.json')).tools ?? []) as ToolCapability[]; } catch { return 1; }
       return diffMatrices(committed, live).hasDrift ? 1 : 0;
     } },
@@ -323,6 +323,50 @@ export const FIXED_DEFECTS: DefectEntry[] = [
         n += (f.match(/OS\.execute\("powershell"[^)]*,\s*false\s*\)/g) ?? []).length;
       }
       return n;
+    } },
+  // ── 2026-07-04 数据导入子系统 F-5/F-6/F-7/F-8(审查 IMPORTANT 修复,2026-07-05 复审登记)──
+  { key: 'csv-import-float-no-isfinite-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // F-8(2026-07-04 审查 + 2026-07-05 复审 P1 扩展): is_valid_float 对 inf/-inf/nan/infinity 返回 true,
+    // float() 返回 INF/-INF/NAN 落盘损坏数值(对照 value-serializer.ts isFinite 守卫)。
+    // 修复:抽 _safe_float helper(is_valid_float + is_finite),覆盖 TYPE_FLOAT/TYPE_VECTOR2/TYPE_COLOR 三分支
+    // (原 F-8 仅守 FLOAT,VECTOR2/COLOR 漏 → Vector2(INF,INF)/Color(NAN,..) 落盘视觉损坏)。
+    // detect 查 _safe_float helper 定义存在 + 内含 is_finite(若删 helper 或 is_finite 守卫 → detect=1 复发)。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const helper = f.match(/func _safe_float[\s\S]*?(?=\nfunc _type_convert)/);
+      if (!helper) return 1;
+      return /is_finite\(/.test(helper[0]) ? 0 : 1;
+    } },
+  { key: 'csv-import-mkdir-return-ignored', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // F-6: DirAccess.make_dir_recursive_absolute 返回 Error,失败必须 early return(否则后续 save 全失败仍谎报)。
+    // 修复(2026-07-05 净化):手拼 MARKER_RESULT 改为 _mcp_done(); return(消除代码重复,与 _mcp_done 路径一致)。
+    // detect 查"返回值被捕获 + 守卫存在"(若删 var mkdir_err 捕获或 mkdir_err != OK 守卫 → detect=1 复发)。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const hasCapture = /var\s+mkdir_err\s*:\s*int\s*=\s*DirAccess\.make_dir_recursive_absolute/.test(f);
+      const hasGuard = /mkdir_err\s*!=\s*OK/.test(f);
+      return hasCapture && hasGuard ? 0 : 1;
+    } },
+  { key: 'csv-import-save-return-ignored', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // F-5: ResourceSaver.save 返回 Error,失败必须记 error + _failed+=1 + continue(否则 _generated.append 谎报)。
+    // detect 查"返回值被捕获 + 守卫存在"(若删 var save_err 捕获或 save_err != OK 守卫 → detect=1 复发)。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const hasCapture = /var\s+save_err\s*:\s*int\s*=\s*ResourceSaver\.save/.test(f);
+      const hasGuard = /save_err\s*!=\s*OK/.test(f);
+      return hasCapture && hasGuard ? 0 : 1;
+    } },
+  { key: 'csv-import-no-byte-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // F-7(2026-07-04 审查): csv_content 字节上限,防 OOM/tmpdir 满(同构 tscn-parser-no-byte-limit)。
+    // 修复(2026-07-05 P1-2 增强): csv_path 分支加 statSync().size 预检(防 readFileSync 阶段 OOM,
+    // 大文件在 Buffer.byteLength 守卫前已全量载入内存)。
+    // detect 查 MAX_CSV_BYTES 常量 + Buffer.byteLength 守卫 + statSync 预检(三者缺一即复发)。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const hasConst = /MAX_CSV_BYTES\s*=\s*\d+\s*\*\s*1024\s*\*\s*1024/.test(f);
+      const hasByteGuard = /Buffer\.byteLength\([^)]+,\s*['"]utf8['"]\)/.test(f);
+      const hasStatSync = /statSync\([^)]+\)\.size/.test(f);
+      return hasConst && hasByteGuard && hasStatSync ? 0 : 1;
     } },
 ];
 

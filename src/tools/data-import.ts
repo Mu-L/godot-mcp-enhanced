@@ -1,6 +1,10 @@
 // CSV 前置校验:仅解析 header 行(RFC4180 引号),不解析所有行值(权威解析在 GDScript get_csv_line)。
 export interface ParseCsvResult { ok: boolean; headers?: string[]; error?: string; }
 
+/** CSV 列数上限(P3 防御纵深,2026-07-05 复审):F-7 字节上限锁 10MB,但仍允许超多列(如 "x,".repeat(5M))
+ *  撑爆 headers 数组 + 后续 headers.includes O(N) 扫描 + GDScript get_csv_line 同构放大。1000 列覆盖正常 CSV。 */
+const MAX_CSV_COLUMNS = 1000;
+
 export function parseCsv(text: string): ParseCsvResult {
   if (!text || !text.trim()) return { ok: false, error: 'empty csv' };
   const firstLine = text.split(/\r?\n/)[0]!;
@@ -16,6 +20,7 @@ export function parseCsv(text: string): ParseCsvResult {
   }
   headers.push(cur);
   if (headers.length === 0) return { ok: false, error: 'no header columns' };
+  if (headers.length > MAX_CSV_COLUMNS) return { ok: false, error: `exceeds ${MAX_CSV_COLUMNS} columns limit (${headers.length} columns)` };
   return { ok: true, headers };
 }
 
@@ -62,6 +67,16 @@ func _convert_enum(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t\treturn ClassDB.class_get_integer_constant(cls_name, raw)
 \treturn null
 
+func _safe_float(raw: String) -> Variant:
+\t# F-8(2026-07-04 审查 + 2026-07-05 复审 P1 扩展): is_valid_float 对 inf/-inf/nan/infinity 返回 true,
+\t# float() 返回 INF/-INF/NAN → 落盘损坏数值(对照 value-serializer.ts isFinite 守卫)。
+\t# 抽 helper 统一守卫 TYPE_FLOAT/TYPE_VECTOR2/TYPE_COLOR 三分支(原 F-8 仅守 FLOAT,VECTOR2/COLOR 漏)。
+\t# 失败返回 null → 调用方 _type_convert 命中 type convert failed error,杜绝 INF/NAN 落盘。
+\tif not raw.is_valid_float(): return null
+\tvar fv: float = float(raw)
+\tif not is_finite(fv): return null
+\treturn fv
+
 func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t# 枚举: TYPE_INT + hint=PROPERTY_HINT_ENUM 或 hint_string 非空(spec §4 + T1 PoC)
 \tif field.type == TYPE_INT and (field.hint == PROPERTY_HINT_ENUM or (field.has("hint_string") and field.hint_string != "")):
@@ -73,19 +88,27 @@ func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t\t\tif not raw.is_valid_int(): return null
 \t\t\treturn int(raw)
 \t\tTYPE_FLOAT:
-\t\t\tif not raw.is_valid_float(): return null
-\t\t\treturn float(raw)
+\t\t\treturn _safe_float(raw)
 \t\tTYPE_STRING: return raw
 \t\tTYPE_BOOL:
 \t\t\tvar l := raw.to_lower()
 \t\t\treturn l == "true" or l == "1"
 \t\tTYPE_VECTOR2:
 \t\t\tvar p: PackedStringArray = raw.split(",")
-\t\t\tif p.size() >= 2: return Vector2(float(p[0]), float(p[1]))
+\t\t\tif p.size() >= 2:
+\t\t\t\tvar fx: Variant = _safe_float(p[0])
+\t\t\t\tvar fy: Variant = _safe_float(p[1])
+\t\t\t\tif fx == null or fy == null: return null
+\t\t\t\treturn Vector2(fx, fy)
 \t\tTYPE_COLOR:  # Godot 4: TYPE_COLOR=20 (Godot 3: 12)。用符号常量跨版本正确。
 \t\t\tif raw.begins_with("#"): return Color.html(raw)
 \t\t\tvar c: PackedStringArray = raw.split(",")
-\t\t\tif c.size() >= 3: return Color(float(c[0]), float(c[1]), float(c[2]))
+\t\t\tif c.size() >= 3:
+\t\t\t\tvar cr: Variant = _safe_float(c[0])
+\t\t\t\tvar cg: Variant = _safe_float(c[1])
+\t\t\t\tvar cb: Variant = _safe_float(c[2])
+\t\t\t\tif cr == null or cg == null or cb == null: return null
+\t\t\t\treturn Color(cr, cg, cb)
 \t\tTYPE_PACKED_STRING_ARRAY, TYPE_ARRAY:
 \t\t\treturn raw.split(",")
 \treturn null
@@ -94,8 +117,7 @@ func _initialize():
 \tvar Class = load(_class_path)
 \tif Class == null:
 \t\t_errors.append({"row": 0, "reason": "load class failed: " + _class_path})
-\t\t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
-\t\t_mcp_output("stats", {"rows": 0, "generated": 0, "failed": 0}); print("${MARKER_RESULT}" + JSON.stringify({"success": true, "outputs": _mcp_outputs})); quit(); return
+\t\t_mcp_done(); return
 \tvar inst0 = Class.new()
 \tvar cls_name: String = inst0.get_class()
 \tvar all_props: Array = inst0.get_property_list()
@@ -112,7 +134,11 @@ func _initialize():
 \tif fn_idx == -1:
 \t\t_errors.append({"row": 0, "reason": "filename_column not found: " + _filename_col}); _mcp_done(); return
 \t# Godot 4.x API(3.x 为 make_dir_recursive)。spec 仅承诺 4.x,故用 4.x 名。
-\tDirAccess.make_dir_recursive_absolute(_output_dir)
+\t# F-6(2026-07-04 审查): make_dir_recursive_absolute 返回 Error,失败 early return(防后续 save 全失败仍谎报)。
+\tvar mkdir_err: int = DirAccess.make_dir_recursive_absolute(_output_dir)
+\tif mkdir_err != OK:
+\t\t_errors.append({"row": 0, "reason": "create output dir failed: " + str(mkdir_err)})
+\t\t_mcp_done(); return
 \tvar fn_re := RegEx.create_from_string("^[A-Za-z0-9_.-]+$")
 \twhile not f.eof_reached():
 \t\tvar row: PackedStringArray = f.get_csv_line()
@@ -140,10 +166,19 @@ func _initialize():
 \t\t\t\t_errors.append({"row": _row_count, "field": field.name, "value": raw, "reason": "type convert failed"}); continue
 \t\t\tres.set(field.name, converted)
 \t\tvar full_path: String = _output_dir + "/" + filename + ".tres"
-\t\tResourceSaver.save(res, full_path)
+\t\t# F-5(2026-07-04 审查): ResourceSaver.save 返回 Error,失败记 error + continue(不谎报 generated)。
+\t\tvar save_err: int = ResourceSaver.save(res, full_path)
+\t\tif save_err != OK:
+\t\t\t_errors.append({"row": _row_count, "value": filename, "reason": "save failed: " + str(save_err)})
+\t\t\t_failed += 1
+\t\t\tcontinue
 \t\t_generated.append(full_path)
 \t_mcp_done()
 
+# _mcp_done 输出 success:true 即使 _errors 非空(errors 通过 outputs[].errors 数组传,不通过 success 字段)。
+# handler 侧读 data.errors 拿错误列表,不用 success 判断有无错误。
+# F-5/F-6 的部分失败(单个 save/mkdir 失败 early return)也走此路径,保持 success:true 语义一致
+# (headless 管道 executeGdscript.run_success 仅反映脚本是否跑完,不反映业务错误)。
 func _mcp_done():
 \t_mcp_output("generated", _generated); _mcp_output("errors", _errors)
 \t_mcp_output("stats", {"rows": _row_count, "generated": _generated.size(), "failed": _failed})
@@ -156,7 +191,7 @@ export function generateImportScript(o: ImportScriptOpts): string {
 
 // ─── T4: writeTmpCsv + csvToResources action handler ──────────────────────────
 
-import { writeFileSync, readFileSync, unlinkSync } from 'fs';
+import { writeFileSync, readFileSync, unlinkSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -167,8 +202,18 @@ import { opsErrorResult } from './shared/errors.js';
 import { resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted as executeGdscript } from '../gdscript-executor.js';
 
+/** CSV 字节上限(F-7 防 OOM/tmpdir 满,复发 tscn-parser-no-byte-limit 同构)。
+ *  handleTool 入口校验 csv_content/csv_path;writeTmpCsv 内部再校验作不变量(P3 防御纵深:
+ *  防未来新增调用方绕过 handleTool 直接调本函数)。 */
+export const MAX_CSV_BYTES = 10 * 1024 * 1024; // 10MB
+
 /** 写 CSV 文本到 OS 临时目录,返回绝对路径。csvToResources 用它把 csv_content 传给 GDScript FileAccess。 */
 export function writeTmpCsv(text: string): string {
+  // P3 不变量防御:正常路径下 handleTool 已在 F-7 守卫,此处不会触发;仅防御绕过 handleTool 的调用方。
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > MAX_CSV_BYTES) {
+    throw new Error(`csv content exceeds ${MAX_CSV_BYTES} bytes limit (${bytes} bytes)`);
+  }
   const p = join(tmpdir(), `csv-import-${Date.now()}-${Math.random().toString(36).slice(2)}.csv`);
   writeFileSync(p, text, 'utf8');
   return p;
@@ -230,12 +275,30 @@ export async function handleTool(
     return opsErrorResult('INVALID_PARAMS', 'csv_content or csv_path is required');
   }
 
-  // CSV 来源:csv_content 优先,否则 csv_path(项目内沙箱读取)
-  const csvContent = (args.csv_content as string) ?? (
-    args.csv_path
-      ? readFileSync(resolveWithinRoot(projectPath, normalizeUserProjectPath(args.csv_path as string)), 'utf8')
-      : ''
-  );
+  // CSV 来源:csv_content 优先,否则 csv_path(项目内沙箱读取)。
+  // F-7 字节上限:csv_content 分支由 Buffer.byteLength 守卫;csv_path 分支必须先 statSync 预检
+  // (P1-2,2026-07-05 复审:防 readFileSync 阶段 OOM —— 大文件在字节守卫前已全量载入内存,
+  // 复发 tscn-parser-no-byte-limit 同构)。resolveWithinRoot 在 statSync 前(先沙箱后读)。
+  // MAX_CSV_BYTES 是模块级 export 常量(writeTmpCsv 共用)。
+  let csvContent: string;
+  if (args.csv_content) {
+    csvContent = args.csv_content as string;
+  } else if (args.csv_path) {
+    const csvAbsPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.csv_path as string));
+    const size = statSync(csvAbsPath).size;
+    if (size > MAX_CSV_BYTES) {
+      return opsErrorResult('INVALID_PARAMS', `csv_path file exceeds ${MAX_CSV_BYTES} bytes limit (${size} bytes)`);
+    }
+    csvContent = readFileSync(csvAbsPath, 'utf8');
+  } else {
+    csvContent = '';
+  }
+  // F-7(2026-07-04 审查)字节上限(csv_content 分支主守卫;csv_path 已由 statSync 预检,此处作不变量复核)。
+  // csvBytes 缓存避免重复 O(n) 扫描(P3 微优化)。
+  const csvBytes = Buffer.byteLength(csvContent, 'utf8');
+  if (csvBytes > MAX_CSV_BYTES) {
+    return opsErrorResult('INVALID_PARAMS', `csv_content exceeds ${MAX_CSV_BYTES} bytes limit (${csvBytes} bytes)`);
+  }
 
   // 前置校验:parseCsv 解析 header(filename_column 必须在 header 中)
   const parsed = parseCsv(csvContent);

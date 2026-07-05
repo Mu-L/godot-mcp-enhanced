@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 27 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 37 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -17,7 +17,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 33 条且无重名', () => {
+  it('FIXED_DEFECTS 覆盖 37 条且无重名', () => {
     // 31 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者 2026-07-04 detect 反转——
     //   654b162 误加 super 触发 4.6.2+ parse error,移除 6 处 super 后 detect 计数"原生类虚函数有 super"=0 防回归）
@@ -33,9 +33,13 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     //   小计 19+3+1+3+1+2=29,另 +2 为历史小计外新增（未逐一条目化）,
     //   +2(2026-07-04 审查 F-1/F-2 PowerShell 写 secret 注入 + blocking 误用:
     //   secret-write-powershell-injection / os-execute-blocking-false-exit-code),合计 33。
-    expect(FIXED_DEFECTS.length).toBe(33);
+    //   +4(2026-07-04 审查 F-5/F-6/F-7/F-8 数据导入子系统 + 2026-07-05 复审 P1 扩展:
+    //   csv-import-float-no-isfinite-guard(F-8 抽 _safe_float 守 FLOAT/VECTOR2/COLOR)/
+    //   csv-import-mkdir-return-ignored(F-6 _mcp_done 净化)/ csv-import-save-return-ignored(F-5)/
+    //   csv-import-no-byte-limit(F-7 + csv_path statSync 预检 P1-2)),合计 37。
+    expect(FIXED_DEFECTS.length).toBe(37);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(33);
+    expect(new Set(keys).size, '存在重名 key').toBe(37);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
