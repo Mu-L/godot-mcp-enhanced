@@ -99,16 +99,21 @@ func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t\t\t\tvar fx: Variant = _safe_float(p[0])
 \t\t\t\tvar fy: Variant = _safe_float(p[1])
 \t\t\t\tif fx == null or fy == null: return null
-\t\t\t\treturn Vector2(fx, fy)
+\t\t\t\treturn Vector2(float(fx), float(fy))
 \t\tTYPE_COLOR:  # Godot 4: TYPE_COLOR=20 (Godot 3: 12)。用符号常量跨版本正确。
-\t\t\tif raw.begins_with("#"): return Color.html(raw)
+\t\t\t# 审查 I-2(2026-07-05): Color.html 对无效 hex 静默归零 Color(0,0,0,1)(不抛错),
+\t\t\t# 破坏 F-8 "失败应记 error" 语义一致性 → CSV 颜色写错时落盘黑色 + stats.generated 谎报。
+\t\t\t# is_valid_html_color 校验,失败返回 null 命中 type convert failed error。
+\t\t\tif raw.begins_with("#"):
+\t\t\t\tif not raw.is_valid_html_color(): return null
+\t\t\t\treturn Color.html(raw)
 \t\t\tvar c: PackedStringArray = raw.split(",")
 \t\t\tif c.size() >= 3:
 \t\t\t\tvar cr: Variant = _safe_float(c[0])
 \t\t\t\tvar cg: Variant = _safe_float(c[1])
 \t\t\t\tvar cb: Variant = _safe_float(c[2])
 \t\t\t\tif cr == null or cg == null or cb == null: return null
-\t\t\t\treturn Color(cr, cg, cb)
+\t\t\t\treturn Color(float(cr), float(cg), float(cb))
 \t\tTYPE_PACKED_STRING_ARRAY, TYPE_ARRAY:
 \t\t\treturn raw.split(",")
 \treturn null
@@ -191,7 +196,7 @@ export function generateImportScript(o: ImportScriptOpts): string {
 
 // ─── T4: writeTmpCsv + csvToResources action handler ──────────────────────────
 
-import { writeFileSync, readFileSync, unlinkSync, statSync } from 'fs';
+import { writeFileSync, readFileSync, unlinkSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -285,6 +290,11 @@ export async function handleTool(
     csvContent = args.csv_content as string;
   } else if (args.csv_path) {
     const csvAbsPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.csv_path as string));
+    // existsSync 短路(审查 I-1,对齐 android.ts:162/180 惯例):文件不存在时返回精确 INVALID_PARAMS,
+    // 而非让 statSync 抛 ENOENT 走 ToolDispatcher 通用 catch 降级为 TOOL_ERROR(错误码精度退化)。
+    if (!existsSync(csvAbsPath)) {
+      return opsErrorResult('INVALID_PARAMS', `csv_path not found: ${args.csv_path as string}`);
+    }
     const size = statSync(csvAbsPath).size;
     if (size > MAX_CSV_BYTES) {
       return opsErrorResult('INVALID_PARAMS', `csv_path file exceeds ${MAX_CSV_BYTES} bytes limit (${size} bytes)`);

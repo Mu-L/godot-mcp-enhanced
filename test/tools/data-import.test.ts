@@ -146,12 +146,19 @@ describe('generateImportScript F-5/F-6/F-8 守卫(防复发)', () => {
     expect(color, 'TYPE_COLOR 分支必须存在').not.toBeNull();
     expect(v2![0]).toMatch(/_safe_float/);
     expect(color![0]).toMatch(/_safe_float/);
-    // 正向断言:VECTOR2/COLOR 分支用 _safe_float(p[/c[),而非裸 float(p[/c[
+    // 正向断言:VECTOR2/COLOR 分支用 _safe_float(p[/c[)
     expect(v2![0]).toMatch(/_safe_float\(p\[/);
     expect(color![0]).toMatch(/_safe_float\(c\[/);
-    // 反向断言:无裸 float()(用 lookbehind 排除 _safe_ 前缀,避免 _safe_float 子串误判)
-    expect(v2![0]).not.toMatch(/(?<!_safe_)float\(/);
-    expect(color![0]).not.toMatch(/(?<!_safe_)float\(/);
+    // 显式 float() cast(审查 I-3,2026-07-05):Vector2(float(fx), float(fy)) 消除 Variant→float
+    // 隐式转换的 4.7 type system 收紧风险 + 严格 warning(Warnings as errors)编译失败。
+    expect(v2![0]).toMatch(/Vector2\(float\(fx\),\s*float\(fy\)\)/);
+    expect(color![0]).toMatch(/Color\(float\(cr\),\s*float\(cg\),\s*float\(cb\)\)/);
+    // 反向断言:无裸 float(p[/c[(原始字符串直接 float,绕过 _safe_float 守卫)。
+    // lookbehind 排除 _safe_ 前缀(避免 _safe_float(p[0]) 子串 float(p[ 误判)。
+    expect(v2![0]).not.toMatch(/(?<!_safe_)float\(p\[/);
+    expect(color![0]).not.toMatch(/(?<!_safe_)float\(c\[/);
+    // Color.html 校验(审查 I-2):is_valid_html_color 守卫,失败 return null(防 #ZZZZZZ 静默归零谎报)
+    expect(color![0]).toMatch(/is_valid_html_color/);
   });
 
   it('F-5: ResourceSaver.save 返回值被捕获(失败记 error + continue,不谎报 generated)', () => {
@@ -269,4 +276,29 @@ describe('F-7 csv_content 字节上限', () => {
       try { rmSync(csvAbs); } catch { /* 已删 */ }
     }
   }, 30000);
+
+  it('审查 I-1(2026-07-05): csv_path 指向不存在文件 → 精确 INVALID_PARAMS,非 TOOL_ERROR', async () => {
+    // 修复前:statSync 抛 ENOENT → ToolDispatcher 通用 catch → TOOL_ERROR(错误码精度退化)。
+    // 修复后:existsSync 短路 → 精确 INVALID_PARAMS(对齐 android.ts:162/180 惯例)。
+    const projDir = tmpdir();
+    let findGodotCalled = false;
+    const r = await handleTool(
+      'csv_to_resources',
+      {
+        action: 'csv_to_resources',
+        project_path: projDir,
+        class_path: 'res://r.gd',
+        output_dir: 'out',
+        filename_column: 'id',
+        csv_path: join(projDir, `nonexistent-${Math.random().toString(36).slice(2)}.csv`),
+      },
+      { findGodot: async () => { findGodotCalled = true; return 'godot'; }, projectDir: projDir } as unknown as ToolContext,
+    );
+    expect(findGodotCalled, 'csv_path 不存在应在 findGodot 前 early return').toBe(false);
+    expect(r).not.toBeNull();
+    const r2 = r as { content: { type: string; text: string }[]; isError?: boolean };
+    const payload = JSON.parse(r2.content[0]!.text);
+    expect(payload.error_code).toBe('INVALID_PARAMS');
+    expect(String(payload.error)).toMatch(/not found/i);
+  });
 });
