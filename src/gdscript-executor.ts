@@ -394,9 +394,14 @@ export function loadExtraDangerousPatterns(): Array<{ pattern: RegExp; label: st
 }
 
 export function scanGdscriptSandbox(code: string): string[] {
+  // P0-1 (2026-07-06 RCE 审查): 双开关 — SANDBOX=disabled 需同时设 GODOT_MCP_UNRESTRICTED=true 才生效,
+  // 防 CI/Docker/.envrc 误设单 env 关闭整个沙箱。UNRESTRICTED 是项目级“开发者自担风险”总开关。
   if (process.env.GODOT_MCP_SANDBOX === 'disabled') {
-    getLogger().warn('security', '⚠️ GODOT_MCP_SANDBOX=disabled — ALL sandbox checks bypassed. Any GDScript code will execute with unrestricted host access.');
-    return [];
+    if (process.env.GODOT_MCP_UNRESTRICTED === 'true') {
+      getLogger().warn('security', '⚠️ GODOT_MCP_SANDBOX=disabled + UNRESTRICTED=true — ALL sandbox checks bypassed. Any GDScript code will execute with unrestricted host access.');
+      return [];
+    }
+    getLogger().warn('security', 'GODOT_MCP_SANDBOX=disabled ignored — requires GODOT_MCP_UNRESTRICTED=true (P0-1 double-opt-in). Sandbox stays active.');
   }
   const warnings: string[] = [];
 
@@ -972,11 +977,14 @@ export async function executeGdscript(
   const skipSandbox = (options as unknown as Record<symbol, boolean>)[_trustedSymbol] === true;
   const sandboxWarnings = skipSandbox ? [] : scanGdscriptSandbox(code);
   // C-02: Support both new GODOT_MCP_DISABLE_SAFETY and legacy GODOT_MCP_ALLOW_UNSAFE
-  const safetyDisabled = process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true';
+  // P0-1 (2026-07-06 RCE 审查): 双开关 — 上述 flag 需同时设 GODOT_MCP_UNRESTRICTED=true 才生效,
+  // 防误设单 env 绕过沙箱报警。kill switch (ALLOW_EXECUTE_GDSCRIPT=false, 上方) 优先于此。
+  const safetyDisabled = process.env.GODOT_MCP_UNRESTRICTED === 'true'
+    && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
   if (sandboxWarnings.length > 0 && !safetyDisabled) {
     return {
       success: false, compile_success: false,
-      compile_error: `Sandbox violation: code contains dangerous patterns. Set GODOT_MCP_DISABLE_SAFETY=true to override.\n${sandboxWarnings.join('\n')}`,
+      compile_error: `Sandbox violation: code contains dangerous patterns. Set GODOT_MCP_DISABLE_SAFETY=true + GODOT_MCP_UNRESTRICTED=true to override (P0-1 double-opt-in).\n${sandboxWarnings.join('\n')}`,
       errors: [], run_success: false, run_error: '', outputs: [], raw_output: '', duration_ms: 0, autoload_detected: autoloadDetected,
     };
   }

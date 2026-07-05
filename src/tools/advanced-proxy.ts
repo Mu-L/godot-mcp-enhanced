@@ -181,6 +181,14 @@ export async function handleTool(
   if (toolArgsBytes > 256 * 1024) {
     return textResult(JSON.stringify(opsError('INVALID_PARAMS', `toolArgs too large (${toolArgsBytes} > 256KB), refuse to proxy`)));
   }
+  // P1-3 (2026-07-06 RCE 审查): 动态路由不重入 ReadOnlyGuard(advanced-proxy 自身 readonly=true 直接放行)。
+  // 只读模式下拒绝动态路由:目标 godot_* 工具未注册,deny-by-default 与 ReadOnlyGuard.check 一致。
+  // delegateCall 路径不受影响(它重入 handleCall 跑 guard)。
+  if (process.env.GODOT_MCP_READ_ONLY === 'true') {
+    return textResult(JSON.stringify(opsError('READ_ONLY',
+      `Dynamic routing blocked in read-only mode (GODOT_MCP_READ_ONLY=true). Tool '${targetTool}' is not a registered read-only tool.`)));
+  }
+
   const sender = _dynamicSender;
   if (!sender) {
     return textResult(JSON.stringify(opsError('NO_DYNAMIC_SENDER',

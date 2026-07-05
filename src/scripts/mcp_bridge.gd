@@ -60,6 +60,15 @@ const ALLOWED_METHODS := [
 	"is_inside_tree", "is_part_of_edited_scene", "get_owner",
 ]
 
+# P1-6 (2026-07-06 RCE 审查): EXTRA_METHODS 危险方法黑名单 — 即使 env GODOT_MCP_BRIDGE_EXTRA_METHODS
+# 显式列出也拒绝。这些方法可改变运行时结构/执行任意代码,与 call_method 白名单"只读安全"设计冲突:
+# set_script 加载任意脚本(=RCE)、queue_free/free 销毁节点、add_child/remove_child 改树结构、
+# call/callv 间接调用任意方法(绕白名单)、emit_signal 触发已连接回调、connect/disconnect 改信号拓扑。
+const EXTRA_METHODS_BLOCKLIST := [
+	"set_script", "set_owner", "queue_free", "free", "add_child", "remove_child",
+	"call", "callv", "emit_signal", "connect", "disconnect",
+]
+
 # ─── Lifecycle ─────────────────────────────────────────────────────────────
 
 func _ready() -> void:
@@ -710,6 +719,9 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 			if (_m as String).strip_edges() == method:
 				_extra_ok = true
 				break
+	# P1-6: EXTRA_METHODS 即使显式列出,危险方法仍拒绝(防 env 误设致 RCE/运行时结构破坏)
+	if _extra_ok and method in EXTRA_METHODS_BLOCKLIST:
+		return {"error": {"code": -6, "message": "Method blocked even with GODOT_MCP_BRIDGE_EXTRA_METHODS (dangerous, changes runtime structure): %s" % method}}
 	if not method in ALLOWED_METHODS and not _extra_ok:
 		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):

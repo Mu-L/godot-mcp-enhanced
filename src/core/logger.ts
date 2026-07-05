@@ -118,9 +118,16 @@ function sanitizeMeta(meta: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
-/** Sanitize msg */
+// P2-10: msg 中的敏感 key=value 值脱敏 — sanitizeMsg 此前仅 truncate，是脆弱设计
+// （未来新增调用方若把 secret 拼进 msg 字符串而非放进 meta 敏感 key 即泄露）。复用
+// SENSITIVE_RE 词表做 KV 模式匹配，值（含引号/无引号）替换为 ***，保留 key 与分隔符。
+// 注：子串匹配（如 "monkey" 含 "key"）会偶发误报，与 sanitizeMeta 行为一致，安全侧宁过脱敏。
+const SENSITIVE_KV_RE = /(\b\w*(?:password|secret|token|key|auth)\w*)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;)]+)/gi;
+
+/** Sanitize msg — 截断 + 敏感 key=value 值脱敏（P2-10） */
 function sanitizeMsg(msg: string): string {
-  return truncate(msg);
+  const redacted = msg.replace(SENSITIVE_KV_RE, '$1$2***');
+  return truncate(redacted);
 }
 
 /** stderr 格式化：[module] LEVEL msg — LEVEL 仅 warn/error 显示 */

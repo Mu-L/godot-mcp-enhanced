@@ -130,6 +130,30 @@ describe('Sanitizer', () => {
     const e = entries.find(x => x.module === 'san' && x.msg === 'trunc-meta');
     expect((e.meta.data as string).length).toBeLessThanOrEqual(200);
   });
+
+  // P2-10: sanitizeMsg 值级脱敏 — 防调用方把 secret 拼进 msg 字符串（当前无活跃泄露但脆弱设计）
+  it('msg 中敏感 key=value 值脱敏为 *** (P2-10)', () => {
+    const logger = getLogger({ logDir: TEST_LOG_DIR });
+    logger.info('san', 'auth failed secret=abc123 token=xyz789 safe=ok');
+    logger.flush();
+    const entries = readJsonl();
+    const e = entries.find(x => x.module === 'san' && x.msg.includes('auth failed'));
+    expect(e.msg).toContain('secret=***');
+    expect(e.msg).toContain('token=***');
+    expect(e.msg).toContain('safe=ok');
+    expect(e.msg).not.toContain('abc123');
+    expect(e.msg).not.toContain('xyz789');
+  });
+
+  it('msg 中带冒号+引号的敏感值也脱敏 (P2-10)', () => {
+    const logger = getLogger({ logDir: TEST_LOG_DIR });
+    logger.info('san', 'loaded key: "deadbeef1234"');
+    logger.flush();
+    const entries = readJsonl();
+    const e = entries.find(x => x.module === 'san' && x.msg.startsWith('loaded'));
+    expect(e.msg).toContain('key: ***');
+    expect(e.msg).not.toContain('deadbeef');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -277,4 +277,25 @@ describe('scanGdscriptSandbox', () => {
     expect(warnings.length).toBeGreaterThan(0);
     expect(warnings.some(w => w.includes('indexed access'))).toBe(true);
   });
+
+  // P0-1 (2026-07-06 RCE 审查): 双开关 — SANDBOX=disabled 需同时设 UNRESTRICTED=true 才生效
+  it('SANDBOX=disabled alone (no UNRESTRICTED) keeps sandbox active (P0-1)', () => {
+    const prevU = process.env.GODOT_MCP_UNRESTRICTED;
+    delete process.env.GODOT_MCP_UNRESTRICTED;  // 覆盖 setup.js 默认 true
+    try {
+      process.env.GODOT_MCP_SANDBOX = 'disabled';
+      const warnings = scanGdscriptSandbox('OS.execute("rm", ["-rf", "/"])');
+      expect(warnings.length).toBeGreaterThan(0);  // 沙箱仍开启
+    } finally {
+      if (prevU !== undefined) process.env.GODOT_MCP_UNRESTRICTED = prevU;
+      else delete process.env.GODOT_MCP_UNRESTRICTED;
+    }
+  });
+
+  it('SANDBOX=disabled + UNRESTRICTED=true bypasses sandbox (P0-1)', () => {
+    process.env.GODOT_MCP_UNRESTRICTED = 'true';
+    process.env.GODOT_MCP_SANDBOX = 'disabled';
+    const warnings = scanGdscriptSandbox('OS.execute("rm", ["-rf", "/"])');
+    expect(warnings).toEqual([]);  // 双开关满足,沙箱关闭
+  });
 });

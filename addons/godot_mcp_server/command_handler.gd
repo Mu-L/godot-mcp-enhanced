@@ -193,8 +193,10 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			if _editor_guards == null:
 				return {"error": {"code": -32003, "message": "Editor guards not available"}}
 			var guard_path: String = params.get("path", "")
-			var force: bool = params.get("force", false)
-			var guard_result = _editor_guards.guard_text_resource_write(guard_path, force)
+			# P1-7 (2026-07-06 RCE 审查): 忽略客户端 force — 防已认证 WS 客户端直传 force=true
+			# 绕过文本资源写守卫。force 仅供服务端内部逻辑（如未来经 confirm_and_execute
+			# 校验 confirm token 后才设 true），客户端 force 永远视为 false。
+			var guard_result = _editor_guards.guard_text_resource_write(guard_path, false)
 			if guard_result.is_empty():
 				return {"result": {"status": "ok", "path": guard_path}}
 			return guard_result

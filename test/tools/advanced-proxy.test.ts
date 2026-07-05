@@ -323,6 +323,32 @@ describe('advanced-proxy', () => {
       expect(parsed.success).toBe(false);
       expect(parsed.error_code).toBe('TOOL_ALREADY_AVAILABLE');
     });
+
+    // P1-3 (2026-07-06 RCE 审查): 动态路由不重入 ReadOnlyGuard,只读模式下必须显式拦截
+    it('rejects dynamic routing in read-only mode even with sender configured (P1-3)', async () => {
+      const prevRO = process.env.GODOT_MCP_READ_ONLY;
+      process.env.GODOT_MCP_READ_ONLY = 'true';
+      try {
+        const mockSender = vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: '{"success":true}' }],
+        });
+        setDynamicSender(mockSender);
+
+        const result = await handleTool('godot_advanced_tool', {
+          tool_name: 'godot_custom_light_bake',
+          arguments: { intensity: 1.0 },
+        }, mockCtx);
+
+        const text = (result?.content?.[0] as any)?.text;
+        const parsed = JSON.parse(text);
+        expect(parsed.success).toBe(false);
+        expect(parsed.error_code).toBe('READ_ONLY');
+        expect(mockSender).not.toHaveBeenCalled();  // sender 未被调用(拦截在前)
+      } finally {
+        if (prevRO === undefined) delete process.env.GODOT_MCP_READ_ONLY;
+        else process.env.GODOT_MCP_READ_ONLY = prevRO;
+      }
+    });
   });
 
   describe('godot_list_dynamic_routes', () => {
