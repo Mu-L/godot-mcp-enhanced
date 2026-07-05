@@ -355,8 +355,8 @@
           "path": null
         },
         "editor": {
-          "exists": true,
-          "path": "addons/godot_mcp_server/commands/animation_commands.gd"
+          "exists": false,
+          "path": null
         }
       },
       "relatedDefects": [],
@@ -680,8 +680,8 @@
           "path": null
         },
         "editor": {
-          "exists": true,
-          "path": "addons/godot_mcp_server/commands/animation_commands.gd"
+          "exists": false,
+          "path": null
         }
       },
       "relatedDefects": [],
@@ -1998,8 +1998,8 @@
           "path": null
         },
         "editor": {
-          "exists": true,
-          "path": "addons/godot_mcp_server/commands/nav_commands.gd"
+          "exists": false,
+          "path": null
         }
       },
       "relatedDefects": [],
@@ -4483,8 +4483,8 @@
           "path": null
         },
         "editor": {
-          "exists": true,
-          "path": "addons/godot_mcp_server/commands/ui_commands.gd"
+          "exists": false,
+          "path": null
         }
       },
       "relatedDefects": [],

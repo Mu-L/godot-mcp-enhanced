@@ -40,7 +40,7 @@ function buildMarkdown(caps: ToolCapability[]): string {
     `## gdScriptImpl 说明`,
     `- editor 侧：addons/godot_mcp_server/commands/*_commands.gd 按 group 匹配`,
     `- headless 侧：恒为 exists=false（GDScript 由 gdscript-executor 运行时生成，无静态 1:1 文件）`,
-    `- editor 侧局限：粗粒度探测（DEFAULT_GROUP_COMMANDS 键粒度），core/visual/profiler 等组当前 exists=false，M1 后续完善；不影响 drift 检测（Task 7 靠契约 diff）`,
+    `- editor 侧：按工具命令精确路由（EDITOR_COMMAND_ROUTING，源 command_handler.gd handle() 路由表）`,
   ];
   return lines.join('\n');
 }

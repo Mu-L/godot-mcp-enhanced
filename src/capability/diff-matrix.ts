@@ -24,7 +24,7 @@ const LEVEL_RANK: Record<SecurityLevel, number> = {
 /**
  * 纯函数：对比两份能力矩阵，产出漂移报告。
  * 只查 4 维：added / removed / contractChanges / securityLevelDowngrades。
- * 不查 gdScriptImpl（其 editor 维度有已知 Minor 局限，不参与 drift）。
+ * 不查 gdScriptImpl（editor 实现路径属元数据，非契约字段，不参与 drift）。
  */
 export function diffMatrices(prev: ToolCapability[], curr: ToolCapability[]): DriftReport {
   const prevMap = new Map(prev.map((c) => [c.name, c]));

@@ -2,7 +2,7 @@
 import { getAllToolDefinitions, getToolMeta, getGroupForTool, getActionRisks, TOOL_GROUPS, OFFLINE_TOOLS, type RiskLevel } from '../core/tool-registry.js';
 import { isGuardedTool } from '../guard.js';
 import { classifySecurityLevel, type ToolCapability } from './schema.js';
-import { GROUP_SOURCE_FILES, scanDangerApi, findEditorCommandFile } from './static-grep.js';
+import { GROUP_SOURCE_FILES, scanDangerApi, findEditorCommandForTool } from './static-grep.js';
 
 /**
  * trusted-nonread：标 'read' 但实际启进程/有副作用、项目有意信任不确认的 action。
@@ -48,7 +48,7 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
     const groupRequires = (TOOL_GROUPS[group]?.requires ?? []) as ('bridge' | 'editor' | 'headless')[];
     const offlineCapable = OFFLINE_TOOLS.has(tool.name);
     const dangerApiHit = dangerGroups.has(group);
-    const editorCmd = findEditorCommandFile(group, projectRoot);
+    const editorCmd = findEditorCommandForTool(tool.name);
 
     // risk 四级分布：从 ToolMeta.actionRisks 聚合计数
     const actionRisks = getActionRisks(tool.name);
