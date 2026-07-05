@@ -25,6 +25,10 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run build
+      - name: Check capability matrix drift (spec §10)
+        # drift = 实时提取 vs committed docs/capability-matrix.json 不一致。
+        # 改了工具契约（inputSchema/securityLevel/risk）须跑 npm run build-matrix 并 commit。
+        run: node build/capability/diff-matrix.js
       - name: Check rules version bump（spec §4 不变式）
         run: node scripts/check-rules-version-bump.mjs
       - name: Check version metadata consistency

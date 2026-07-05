@@ -53,7 +53,8 @@ function main(): void {
 
   const docsDir = join(projectRoot, 'docs');
   mkdirSync(docsDir, { recursive: true });
-  writeFileSync(join(docsDir, 'capability-matrix.json'), JSON.stringify({ generatedAt: new Date().toISOString(), tools: caps }, null, 2));
+  // generatedAt 字段已移除：每次构建写 new Date() 产生无意义 git diff，diff-matrix 不读此字段。
+  writeFileSync(join(docsDir, 'capability-matrix.json'), JSON.stringify({ tools: caps }, null, 2));
   writeFileSync(join(docsDir, 'capability-matrix.md'), buildMarkdown(caps));
   console.log(`[build-matrix] ${caps.length} tools → docs/capability-matrix.{json,md}`);
 }

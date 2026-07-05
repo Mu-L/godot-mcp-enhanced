@@ -1,8 +1,8 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 19 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发）。
+// FIXED_DEFECTS 33 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
-// OPEN_DEFECTS 18 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
+// OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
 // detect 谓词忠实复现 defects.md 行 196-538。
 import { countMatchesInFile, countMatchesInDir, fileContains, readSrc, PROJECT_ROOT } from './detect-helpers.js';
 // ts-gdscript-tool-drift 复用 M1
@@ -32,7 +32,7 @@ function ensureTsDriftReady(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FIXED（27 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
+// FIXED（33 条）— 硬断言 detect() === 0（防复发）。detect 谓词源自 defects.md 行 196-460。
 // 原 21 条中 4 条（godot-version-hardcoded-create-project / api-db-version-stale /
 // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking）实测 detect != 0，
 // 按 spec §8 闭环改 status='open' 移到 OPEN_DEFECTS。
@@ -361,7 +361,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   //   detect 改查真缺陷形态实测 0 移 FIXED）；2 降 ADVISORY（module-level-mutable-state / regex-danger-api-bypassable
   //   detect/baseline 不变，承认合理设计/已认知防御层，severity IMPORTANT→ADVISORY，保留 OPEN baseline 防恶化）。
   // 2026-06-27 recording-no-touch-events：ScreenDrag 补全移 FIXED（detect=0），OPEN −1。
-  // OPEN 总计 10 条（4 闭环 + 14 Task 3 − 4 移 fixed − 3 移 fixed − 1 移 fixed）。
+  // OPEN 总计 8 条（初始 18 − 历次移 fixed 10 条，详见上下注释；以 OPEN_DEFECTS.length 为准，test 断言 === 8）。
   // ═══════════════════════════════════════════════════════════════════════════════
   // ── 上下文类（§6 计数化：越大越坏；#13 反向转正）──
   // gdscript-gen-null-root-deref 移 FIXED(2026-06-27 detect=0)
