@@ -9,7 +9,7 @@ import { getAllToolDefinitions, getActionRisks } from '../src/core/tool-registry
 // 注册所有工具模块（必须在测试前执行）
 registerAllModules();
 
-/** 19 个 GUARDED 工具：其 actionRisks 允许声明非 read 风险（write/destructive/process）。
+/** GUARDED 工具集合（见下方 new Set）：其 actionRisks 允许声明非 read 风险（write/destructive/process）。
  * 任何不在此集合中的工具，其所有 action 的 risk 必须为 'read'（零行为改变不变量）。
  * project（H-1 修复）：create_project/setup_project_rules/write_config/apply_template 有真实
  * 副作用（建目录/多文件、改 project.godot、写 .claude/settings.json+CLAUDE.md+rules、注入 hook），
@@ -51,7 +51,7 @@ describe('actionRisks 覆盖完整性（根除漏标）', () => {
 });
 
 describe('非 GUARDED 工具的零行为改变不变量', () => {
-  // 锁定：未在 19 个 GUARDED 工具键中的工具，其每个 action 的 risk 必须为 'read'。
+  // 锁定：未在上方 GUARDED_KEYS 集合中的工具，其每个 action 的 risk 必须为 'read'。
   // 防止曾经无需确认的工具被静默升级为 write/destructive/process（行为改变）。
   const toolNames = getAllToolDefinitions().map(t => t.name);
 
