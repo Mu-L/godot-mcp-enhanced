@@ -118,13 +118,13 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 		"particles_create":
 			return _particle_commands.handle_particles_create(params, request_id)
 		"particles_set_emission":
-			return _particle_commands.handle_particles_set_emission(params)
+			return _particle_commands.handle_particles_set_emission(params, request_id)
 		"particles_set_process":
-			return _particle_commands.handle_particles_set_process(params)
+			return _particle_commands.handle_particles_set_process(params, request_id)
 		"particles_load_preset":
-			return _particle_commands.handle_particles_load_preset(params)
+			return _particle_commands.handle_particles_load_preset(params, request_id)
 		"particles_set_material":
-			return _particle_commands.handle_particles_set_material(params)
+			return _particle_commands.handle_particles_set_material(params, request_id)
 		"nav_create_region":
 			return _nav_commands.handle_nav_create_region(params, request_id)
 		"nav_bake_mesh":

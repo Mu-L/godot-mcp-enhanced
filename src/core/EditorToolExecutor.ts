@@ -87,7 +87,12 @@ export class EditorToolExecutor {
       // Distinguish connection-lost errors from tool execution failures
       const isConnectionError = message.includes('Connection lost') || message.includes('Not connected') || message.includes('Request timeout');
       const errorPayload: Record<string, unknown> = { error: message };
-      if (isConnectionError) errorPayload.editor_disconnected = true;
+      if (isConnectionError) {
+        errorPayload.editor_disconnected = true;
+        // ipc P0-1: 连接断开期间 in-flight 调用结果未知(编辑器侧可能已执行并入 undo 栈),
+        // 客户端不应自动重试 — 否则重试命中新连接会重复执行(add_node 同名冲突 / undo 栈多一项)。
+        errorPayload.do_not_retry = true;
+      }
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(errorPayload) }],
         isError: true,
