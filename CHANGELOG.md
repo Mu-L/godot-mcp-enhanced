@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-06
+
+### Added — csv_to_resources 新工具（CSV → Godot 资源批量导入）
+
+- **`csv_to_resources` action**（data-import）：从 CSV 批量生成 Godot .tres 资源，双轨实现（TS parseCsv/generateImportScript + GDScript 反射/FileAccess/ResourceSaver）。CRITICAL-1 注入防护（FileAccess 零进脚本，类型白名单反射）+ CRITICAL-2 遍历防护（白名单 + resolveWithinRoot）。集成测试覆盖真 Godot 各类型 + 空值 + 遍历 + 类型错误
+- **MCP 标准 ToolAnnotations**（core）：从 actionRisks 派生 `readOnly`/`destructive` hints，客户端据此优化 UI（破坏性操作确认提示等）
+- **测试基础设施**：capability reviewer 设施（按子系统切 5 个只读 reviewer agent：bridge/editor-plugin/headless/data-import/recording）+ e2e L2 opt-in（`GODOT_MCP_E2E_L2=1`，默认 skip flaky bridge/recording）
+
+### Fixed — Security（多轮独立审查核实修复）
+
+- **RCE 安全审查 5 条**：EXTRA_METHODS 危险方法黑名单 / command_handler 客户端 force 永远视为 false / DISABLE_SAFETY+SANDBOX=disabled 双开关需 UNRESTRICTED / sanitizeMsg 敏感值脱敏 / 动态路由调 sender 前补只读拦截
+- **三份审查报告 9 条 P0/P1**（ipc do_not_retry 防断连期间重试 + particle 4 setter undo + undo is_instance_valid + nav commit 顺序 + editor 录制禁用 + EditorToolExecutor 串行化 + websocket ping 响应/send_text 检查/params 防御 + sync_commands 信号清理 + gdscript-executor slot 兜底）
+- **GDScript defect 批**（P1-5/P1-6/P2#1/P1-9）
+- **data-import F-5~F-8 审查闭环**：`_safe_float` is_finite 守（Vector2(INF) 落盘视觉损坏）/ csv_path statSync 预检（绕过 readFileSync 阶段 OOM）/ Vector2·Color 显式 `float()` cast + Color.html `is_valid_html_color` 校验
+
+### Fixed — Reliability（ipc + 综合审查）
+
+- **ipc P1-4** connectGeneration 防 disconnect 后进行中 connect() 复活已断开连接
+- **ipc P1-7** gdscript-executor slot 泄漏兜底
+- **ipc P1-8** game-bridge invalidate race（`_socket === sock` 守卫防废弃 socket 异步 close 错误 invalidate 新 socket）
+- **综合审查 P1-1** editor 模式 -32601 Unknown method 自动回退 headless（command_handler 只认扁平 method，TS (tool,action) 工具转发后落 -32601 静默失效，EditorToolExecutor 无回退）
+- **综合审查 P1-2** editor_guards 接线（TS 写脚本/场景经 WS 调 guard_text_resource_write/guard_offline_scene_save，防绕过 ScriptEditor/ResourceLoader 缓存致磁盘/内存版本撕裂）
+- **综合审查 P1-3** heartbeat 暂停超时改恢复 normal 检测（原 emit timeout_detected 断连与暂停容忍长操作的语义相反）
+
+### Fixed — editor 插件 EditorInterface 4.7 兼容
+
+- Engine singleton → `EditorPlugin.get_editor_interface()`（4.7 EditorInterface 不再注册为 Engine singleton）
+
+### Changed
+
+- **capability gdScriptImpl.editor 按工具命令精确路由**（EDITOR_COMMAND_ROUTING 取代 group→单文件粗粒度映射）
+- **M2 证伪订正 + drift CI gate**（移除 generatedAt 噪音）
+
+### Docs
+
+- core.md 吸收 enhanced-boundaries 3 条工具陷阱
+- agent-arch 落地状态复核 callout + agentId 假设注释
+- ROADMAP #13 分发（awesome-mcp-servers PR #9067 已发 + MCP Registry 待 npm 包带 mcpName）
+
 ### Fixed — editor 插件原生类虚函数 super() 回归（654b162）
 
 - **移除 6 处 super()**（`addons/godot_mcp_server/plugin.gd` `_enter_tree`/`_exit_tree` + `websocket_server.gd` `_ready`/`_process`/`_exit_tree` + `ui/status_panel.gd` `_ready`）：`super()`（无方法名）对原生类（EditorPlugin/Node/VBoxContainer）虚函数是 Godot Parse Error "Cannot call the parent class' virtual function ... hasn't been defined"（**4.6.2+ 均报，非 4.7 特有**），addon 加载失败/9090 不监听。IMP-4 "虚函数首行调 super" 仅适用 extends 自定义基类。
