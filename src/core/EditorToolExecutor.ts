@@ -10,6 +10,8 @@ export class EditorToolExecutor {
   private treeChangeCount = 0;
   private static readonly MAX_BUFFER_SIZE = 10000;
   private readonly conn: EditorConnection;
+  // security P1#2: editor 工具串行化链(防并发 ws.send 致 undo 栈 LIFO 错乱)
+  private executeChain: Promise<unknown> = Promise.resolve();
 
   /** Bound handlers stored so we can remove them on destroy. */
   private readonly _disconnectHandler = (): void => {
@@ -38,6 +40,21 @@ export class EditorToolExecutor {
   }
 
   async execute(toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // security P1#2 fix: 串行化 editor 工具调用 - MCP SDK 异步并发派发多个 tools/call, 并发 ws.send 到达
+    // GDScript 顺序不可靠, 致 undo 栈 LIFO 错乱(commit 顺序与逻辑依赖相反 -> undo 弹栈 target==null/undo 丢失).
+    // Promise 链排队: 每个 execute 等前一个完成再发 request, 保证 commit_action 顺序确定.
+    const run = this.executeChain.then(
+      () => this._executeInner(toolName, args),
+      () => this._executeInner(toolName, args),  // 前一个 reject 不阻塞下一个
+    );
+    this.executeChain = run.then(
+      () => undefined,
+      () => undefined,  // chain 不因单失败而 reject, 保持后续可调度
+    );
+    return run;
+  }
+
+  private async _executeInner(toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
     try {
       if (toolName === 'editor') {
         const action = args.action as string;

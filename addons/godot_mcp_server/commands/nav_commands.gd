@@ -31,6 +31,11 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 	if pos != null and pos is Dictionary:
 		nav.position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
 
+	# P0-2 修复: mesh 在入栈前初始化(附着 nav, 随 reference 保护, undo/redo 不丢)
+	var mesh = NavigationMesh.new()
+	mesh.geometry_parsed_collision_mask = 0xFFFFFFFF
+	nav.navigation_mesh = mesh
+
 	if _undo_manager != null:
 		_undo_manager.create_action_mixed("Create Nav Region (req:%d)" % request_id,
 			[
@@ -45,10 +50,6 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 	else:
 		parent_node.add_child(nav)
 		nav.owner = root
-
-	var mesh = NavigationMesh.new()
-	mesh.geometry_parsed_collision_mask = 0xFFFFFFFF
-	nav.navigation_mesh = mesh
 
 	var bake_result: bool = false
 	if params.get("bake", false):

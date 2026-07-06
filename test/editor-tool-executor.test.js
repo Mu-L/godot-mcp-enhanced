@@ -257,16 +257,21 @@ describe('EditorToolExecutor treeChangeRing (mocked conn)', () => {
     expect(parsed.buffered_changes).toHaveLength(1);
   });
 
-  it('disconnect handler resets sync state', () => {
+  it('disconnect handler clears ring buffer but preserves syncActive (D3)', async () => {
+    // security P1#2 串行化后 sync_start 必先完成, syncActive=true 确定设置.
+    await executor.execute('editor', { action: 'sync_start' });
+    // Buffer a tree change into ring
+    const handler = mockConn.onNotification.mock.calls[0][1];
+    handler({ type: 'node_added', path: 'root/A', node_type: 'Node' });
+    // Disconnect: D3 设计为清 ring buffer 但保留 syncActive (保留用户 sync 意图供重连 re-subscribe;
+    // 清 syncActive 会致 handleSyncStop 误报 SYNC_NOT_ACTIVE).
     const disconnectHandler = mockConn.addOnDisconnectHandler.mock.calls[0][0];
-    // Start sync manually
-    executor.execute('editor', { action: 'sync_start' });
-    // Simulate disconnect
     disconnectHandler();
-    // sync_stop should now say NOT_ACTIVE
-    return executor.execute('editor', { action: 'sync_stop' }).then((result) => {
-      expect(result.isError).toBe(true);
-    });
+    // sync_stop 正常返回 (syncActive 保留 → 非 NOT_ACTIVE), buffered_changes 空 (ring 被 disconnect 清)
+    const result = await executor.execute('editor', { action: 'sync_stop' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(result.isError).toBeFalsy();
+    expect(parsed.buffered_changes).toHaveLength(0);
   });
 
   it('reconnect handler re-registers notification if sync was active', async () => {

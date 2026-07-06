@@ -98,7 +98,7 @@ export class ToolDispatcher {
     registerInlineTool('confirm_and_execute', { readonly: true, long_running: false });
 
     // Health monitor for middleware pipeline
-    this.healthMonitor = new HealthMonitor();
+    this.healthMonitor = new HealthMonitor({ heartbeatIntervalMs: 15_000 });  // ipc P0-2: 心跳 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀
     this.middleware = this.buildMiddleware();
 
     // Phase 3a: Wire proxy delegate through handleCall for full middleware chain

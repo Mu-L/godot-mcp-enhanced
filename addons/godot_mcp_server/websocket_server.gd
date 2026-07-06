@@ -300,7 +300,7 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		return
 
 	if parsed.get("method") == "operation_end":
-		_heartbeat.resume()
+		_heartbeat.resume(pid)  # P1#1 fix: per-peer resume
 		_update_panel("MCP: %d client(s) connected" % _peers.size())
 		var _op_panel := _get_panel()
 		if _op_panel: _op_panel.set_operation_active(false)
@@ -313,6 +313,7 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 
 	if parsed.get("method") == "ping":
 		_heartbeat.reset_activity(peer.get_instance_id())
+		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "result": {}}))  # ipc P0-2 fix: ping 回响应
 		return
 
 	_request_counter = (_request_counter + 1) % 1000000
@@ -326,7 +327,11 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		reply["error"] = response.error
 	else:
 		reply["result"] = response.result
-	peer.send_text(JSON.stringify(reply))
+	# security P1#3 fix: peer.send_text 对 >1MB 消息返回 ERR_INVALID_DATA, 检查返回值
+	# 失败时 reply 本身发不出, 改发精简 error(远小于 1MB), 让客户端收到明确 -32010 而非 30s 超时
+	var _reply_str := JSON.stringify(reply)
+	if peer.send_text(_reply_str) != OK:
+		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "error": {"code": -32010, "message": "Response exceeds 1MB WebSocket limit"}}))
 
 func _send_session_sync(peer: WebSocketPeer) -> void:
 	var open_scenes: Array = []

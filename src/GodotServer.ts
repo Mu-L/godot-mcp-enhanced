@@ -358,6 +358,11 @@ export class GodotServer {
         this.dispatcher?.degradeToHeadless();
         this.editorConn = null;
       });
+      // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
+      // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
+      this.dispatcher?.getHealthMonitor().startHeartbeat(
+        () => (this.editorConn ? this.editorConn.request('ping').then(() => true).catch(() => false) : Promise.resolve(false)),
+      );
       this.connectionMode = 'editor';
       this.dispatcher?.setConnectionMode('editor');
       return { connected: true, detail: `Connected to Godot plugin on port ${port}` };

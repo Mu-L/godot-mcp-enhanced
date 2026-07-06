@@ -44,8 +44,8 @@ func create_action_mixed(action_name: String, do_ops: Array, undo_ops: Array) ->
 
 
 func _add_method(undo_redo: UndoRedo, mode: String, target: Object, method: String, args: Array) -> void:
-	if target == null:
-		push_warning("undo_manager: null target for method '%s'" % method)
+	if not is_instance_valid(target):
+		push_warning("undo_manager: invalid (freed/null) target for method '%s'" % method)
 		return
 	var cb := Callable(target, method)
 	if args.size() > 0:
@@ -70,8 +70,8 @@ func _apply_op(undo_redo: UndoRedo, mode: String, op: Dictionary) -> void:
 			_add_method_call(undo_redo, mode, op)
 		"property":
 			var target: Object = op.target
-			if target == null:
-				push_warning("undo_manager: null target for property '%s'" % str(op.get("property", "")))
+			if not is_instance_valid(target):
+				push_warning("undo_manager: invalid (freed/null) target for property '%s'" % str(op.get("property", "")))
 				return
 			var prop: String = str(op.get("property", ""))
 			if prop.is_empty():
@@ -85,12 +85,12 @@ func _apply_op(undo_redo: UndoRedo, mode: String, op: Dictionary) -> void:
 		"reference":
 			# Issue 1: add_do_reference/add_undo_reference 仅限 Node，不接受 Resource
 			var val = op.value
-			if val is Node:
+			if val is Node and is_instance_valid(val):
 				if mode == "do":
 					undo_redo.add_do_reference(val)
 				else:
 					undo_redo.add_undo_reference(val)
 			else:
-				push_warning("undo_manager: reference skipped — value is %s, not Node" % ("" if val == null else val.get_class()))
+				push_warning("undo_manager: reference skipped — value is %s, not valid Node" % ("" if val == null else val.get_class()))
 		_:
 			push_warning("undo_manager: unknown op type '%s', skipping" % op_type)
