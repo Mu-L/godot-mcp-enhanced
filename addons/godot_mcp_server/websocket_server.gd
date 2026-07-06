@@ -192,7 +192,8 @@ func _start_server() -> void:
 	push_error("[MCP] All ports (%d-%d) occupied" % [BASE_PORT, MAX_PORT])
 
 func _process(delta: float) -> void:
-	if not _server: return
+	# P1-5 fix: _exit_tree 后残留 deferred _process 调用时 _server 可能已 stop/free, is_instance_valid 守卫防误用
+	if not _server or not is_instance_valid(_server): return
 
 	if _server.is_connection_available():
 		var tcp_peer = _server.take_connection()
@@ -245,6 +246,11 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid JSON-RPC"}}))
 		return
 
+	# security P2#1 fix: params 非 Dictionary 防御(防畸形输入致 handle 内 params.get 报错中断帧处理, 多 peer 互影响)
+	var _rpc_params = parsed.get("params", {})
+	if _rpc_params != null and not (_rpc_params is Dictionary):
+		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "error": {"code": -32602, "message": "Invalid params: must be an object"}}))
+		return
 	# Auth endpoint — always allowed
 	if parsed.get("method") == "auth":
 		if _secret == "":
@@ -405,3 +411,4 @@ func _exit_tree() -> void:
 	_auth_fail_count.clear()
 	_auth_locked_until.clear()
 	_delete_secret_file()
+	_server = null  # P1-5 fix: 置 null 防 deferred _process 误用已 stop 的 server

@@ -109,8 +109,15 @@ func _on_node_removed(node: Node) -> void:
 
 
 func cleanup() -> void:
-	if _syncing:
-		stop_sync()
+	# P1-6 fix: 无条件尝试断开信号(防御 start_sync 中 connect 成功但 _syncing 状态异常的竞态 → 信号永久泄漏)
+	var tree = get_tree()
+	if tree != null:
+		if tree.node_added.is_connected(_on_node_added):
+			tree.node_added.disconnect(_on_node_added)
+		if tree.node_removed.is_connected(_on_node_removed):
+			tree.node_removed.disconnect(_on_node_removed)
+	_syncing = false
+	_node_paths.clear()
 
 
 func _serialize_tree(node: Node, depth: int, max_depth: int) -> Dictionary:
