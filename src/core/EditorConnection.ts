@@ -37,6 +37,7 @@ export class EditorConnection {
   private connected = false;
   private reconnectEnabled = true;
   private connectAttempt = false;
+  private connectGeneration = 0;  // ipc P1-4: 防 disconnect 后进行中的 connect() 复活已断开连接
 
   private disconnectHandlers = new Set<() => void>();
   private reconnectHandlers = new Set<() => void>();
@@ -138,6 +139,7 @@ export class EditorConnection {
   }
 
   async connect(): Promise<void> {
+    const gen = ++this.connectGeneration;  // ipc P1-4: 本轮 connect 的 generation
     // C-06: Clean up stale WebSocket before creating new one
     if (this.ws) {
       this.ws.removeAllListeners();
@@ -160,6 +162,8 @@ export class EditorConnection {
       const ws = new WebSocket(url);
       ws.on('open', async () => {
         if (settled) return; clearTimeout(timer);
+        // ipc P1-4: disconnect/supersede 期间 connect 完成时 gen 过期 -> 丢弃 ws 防复活, reject 让 connect Promise 不永挂
+        if (gen !== this.connectGeneration) { ws.removeAllListeners(); ws.terminate(); if (!settled) { settled = true; reject(new Error('Connection superseded by disconnect/reconnect')); } return; }
         this.ws = ws;
         this.connected = true;
         this.connectAttempt = false;
@@ -478,6 +482,7 @@ export class EditorConnection {
 
   disconnect(): void {
     this.reconnectEnabled = false;
+    this.connectGeneration++;  // ipc P1-4: 让进行中的 connect() 过期(open 检查 gen 不等 -> 丢弃)
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
