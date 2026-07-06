@@ -1192,13 +1192,23 @@ export async function executeGdscript(
       }
     });
 
+    // ipc P1-7 fix: settled 防close/error/timer 重复触发; timer 兜底释放 slot + reject
+    // 防 forceKillTree 后进程不 emit close(Windows taskkill 失败/driver bug) 致 slot 永占 + pending 永悬
+    let settled = false;
     const timer = setTimeout(() => {
+      if (settled) return;
       if (!proc.killed) {
         forceKillTree(proc);
       }
+      settled = true;
+      releaseShortRunningSlot();
+      retryRm(sessionDir).catch(() => {});
+      reject(new Error(`Godot process timed out after ${timeout}s`));
     }, timeout * 1000);
 
     proc.on('close', (exitCode) => {
+      if (settled) return;  // ipc P1-7: timer 已 reject(timeout)
+      settled = true;
       clearTimeout(timer);
       const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
       const stderr = Buffer.concat(stderrChunks).toString('utf-8');
@@ -1271,6 +1281,8 @@ export async function executeGdscript(
     });
 
     proc.on('error', (err) => {
+      if (settled) return;  // ipc P1-7: timer 已 reject
+      settled = true;
       clearTimeout(timer);
       releaseShortRunningSlot();
       rm(sessionDir, { recursive: true, force: true }).catch(() => {});
