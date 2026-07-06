@@ -254,6 +254,56 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
+  describe('P1-8: 废弃 socket 的延迟 close/error 不破坏新 socket (invalidate race)', () => {
+    // 复现报告 P1-8 真实 race: A 连上 _socket=A → B _doConnect 入口 _invalidateSocket() destroy A、_socket=null
+    // → B 连上 _socket=B → A.destroy() 的 close **异步触发**(此时 _socket 已是 B)→ 持久 close handler 若无守卫
+    // 会 _invalidateSocket() destroy B。修复: handler 加 _socket === sock 守卫。
+    it('A 被替换后, A 的延迟 close 事件不 invalidate 新 socket B', async () => {
+      let sockA!: EventEmitter;
+      let createCount = 0;
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        createCount++;
+        const sock = new EventEmitter();
+        (sock as any).write = vi.fn((data: string) => {
+          let req: { id?: number };
+          try { req = JSON.parse(data); } catch { return; }
+          queueMicrotask(() => {
+            const resp = req.id === 0
+              ? { id: 0, result: { authenticated: true } }
+              : { id: req.id, result: { ok: true } };
+            sock.emit('data', Buffer.from(JSON.stringify(resp) + '\n'));
+          });
+        });
+        (sock as any).destroy = vi.fn();  // mock destroy 不自动 emit close(模拟 Node Socket.destroy 的异步 close 需手动 emit)
+        (sock as any).writable = true;
+        if (createCount === 1) sockA = sock;
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+
+      const ctx = { projectDir: '/p' } as any;
+      // 1. 连接 A
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(createCount).toBe(1);
+
+      // 2. 强制 invalidate A(setBridgeProjectDir 换路径触发 _invalidateSocket → A.destroy + _socket=null)
+      setBridgeProjectDir('/__reset__');
+      setBridgeProjectDir('/p');
+
+      // 3. 新请求 → _socket null → 连接 B
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(createCount).toBe(2);
+
+      // 4. 延迟 emit A 的 close(A.destroy() 的 close 异步触发,此时 _socket 已是 B)
+      sockA.emit('close');
+
+      // 5. 新请求: 修复前 B 被 A 延迟 close 错误 invalidate → 新连 C(createCount=3)
+      //         修复后 _socket === sockA 守卫拦截 → B 保留 → 复用(createCount 仍 2)
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(createCount).toBe(2);  // 关键断言: B 未被 A 的延迟 close 破坏
+    });
+  });
+
   describe('T-1: game path /root/ 前置校验', () => {
     it('game_write set_node_property path 非 /root/ → isError=true + 提示 /root/', async () => {
       setupBridgeSocket('result');  // 修复前会走到 sendToBridge(避免 throw),修复后 path 校验提前 return

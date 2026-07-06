@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 37 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 38 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -17,7 +17,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 37 条且无重名', () => {
+  it('FIXED_DEFECTS 覆盖 38 条且无重名', () => {
     // 31 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者 2026-07-04 detect 反转——
     //   654b162 误加 super 触发 4.6.2+ parse error,移除 6 处 super 后 detect 计数"原生类虚函数有 super"=0 防回归）
@@ -37,9 +37,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     //   csv-import-float-no-isfinite-guard(F-8 抽 _safe_float 守 FLOAT/VECTOR2/COLOR)/
     //   csv-import-mkdir-return-ignored(F-6 _mcp_done 净化)/ csv-import-save-return-ignored(F-5)/
     //   csv-import-no-byte-limit(F-7 + csv_path statSync 预检 P1-2)),合计 37。
-    expect(FIXED_DEFECTS.length).toBe(37);
+//   +1(2026-07-06 ipc 审查 P1-8: game-bridge-invalidate-race,_socket === sock 守卫防废弃 socket
+//   异步 close/error invalidate 新 socket),合计 38。
+    expect(FIXED_DEFECTS.length).toBe(38);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(37);
+    expect(new Set(keys).size, '存在重名 key').toBe(38);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

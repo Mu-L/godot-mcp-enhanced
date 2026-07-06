@@ -368,6 +368,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasStatSync = /statSync\([^)]+\)\.size/.test(f);
       return hasConst && hasByteGuard && hasStatSync ? 0 : 1;
     } },
+  { key: 'game-bridge-invalidate-race', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // P1-8(2026-07-06 ipc 审查): _doConnect 持久 close/error handler + sendToBridge onError/onClose/timer
+    // 的 _invalidateSocket 必须有 _socket === sock 守卫。废弃 socket(A 被 B 替换后)的异步 close/error
+    // 事件若不加守卫会错误 invalidate 新 socket B。detect 计守卫数,期望 5(2 持久 + timer + onError + onClose)。
+    detect: () => {
+      const f = readSrc('src/tools/game-bridge.ts');
+      const guards = (f.match(/if \(_socket === sock\) _invalidateSocket\(\)/g) || []).length;
+      return Math.max(0, 5 - guards);
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

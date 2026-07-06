@@ -188,8 +188,10 @@ async function _doConnect(timeout: number): Promise<Socket> {
             sock.removeAllListeners('error');
             sock.removeAllListeners('close');
             // Register persistent monitors so a dead/lost connection is detected automatically
-            sock.on('close', () => { _invalidateSocket(); });
-            sock.on('error', () => { _invalidateSocket(); });
+            // P1-8: 守卫 _socket === sock — 防止已废弃 socket 的延迟 close/error 事件错误 invalidate
+            // 新 socket(A 被 B 替换后,A.destroy() 的 close 异步触发,此时 _socket 已是 B,无守卫会 destroy B)。
+            sock.on('close', () => { if (_socket === sock) _invalidateSocket(); });
+            sock.on('error', () => { if (_socket === sock) _invalidateSocket(); });
             // 首次 Bridge 连接成功时自动在新终端启动 Dashboard TUI
             launchDashboardOnce();
             resolve(sock);
@@ -244,10 +246,7 @@ function _ensureConnection(timeout: number): Promise<Socket> {
       }
       return sock;
     })
-    .catch(err => {
-      _connectionLock = null; // Clear lock before propagating so next call can retry
-      throw err;
-    })
+    // P1-8: 删除 catch 内冗余 _connectionLock=null(finally 必执行已覆盖;catch 仅 re-throw 等价无操作,整个 catch 块移除)。
     .finally(() => { _connectionLock = null; });
   return _connectionLock;
 }
@@ -280,7 +279,7 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
       function doReject(err: Error) { if (!settled) { settled = true; clearTimeout(timer); reject(err); } }
 
       const timer = setTimeout(() => {
-        _invalidateSocket();
+        if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
         doReject(new BridgeTimeoutError(`Bridge request timed out after ${timeout}ms`));
       }, timeout);
 
@@ -316,12 +315,12 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
       };
 
       const onError = (err: Error) => {
-        _invalidateSocket();
+        if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
         doReject(new Error(`Bridge connection error: ${err.message}`));
       };
 
       const onClose = () => {
-        _invalidateSocket();
+        if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
         doReject(new Error('Bridge connection closed before response'));
       };
 
