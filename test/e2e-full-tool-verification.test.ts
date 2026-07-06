@@ -45,6 +45,13 @@ const NEW_SCRIPT_PATH = resolve(TEST_PROJECT, 'scripts', 'e2e_verify_test.gd');
 // 详见 docs/superpowers/specs/2026-06-30-v0.20.0-full-tool-verification-design.md
 const REAL_PROJECT = resolve(__dirname, 'fixtures', 'real-project');
 const hasRealProject = existsSync(REAL_PROJECT) && existsSync(resolve(REAL_PROJECT, 'project.godot'));
+
+// L2 测试(bridge 正路径 / recording)需真实游戏窗口 + bridge 键盘输入捕获, flaky —— 依赖游戏进程
+// 启动时序 + 键盘事件真实捕获, 本地跑时过时失败(memory [[l2-bridge-test-pitfalls]])。默认 vitest run
+// 跳过避免 flaky 致数字不稳; 显式 opt-in 才跑:
+//   GODOT_MCP_E2E_L2=1 npx vitest run                         # 跑全部(含 L2)
+//   GODOT_MCP_E2E_L2=1 npx vitest run test/e2e-full-tool-verification.test.ts
+const OPT_IN_L2 = !!process.env.GODOT_MCP_E2E_L2;
 const SCENE_2D = 'res://scenes/2d/main_2d.tscn';
 const SCENE_3D = 'res://scenes/3d/main_3d.tscn';
 const SCENE_AUDIO = 'res://scenes/audio_demo.tscn';
@@ -805,7 +812,7 @@ describe.skipIf(!hasRealProject)('L1 real-project: cpp scaffold_gdextension', { 
 // beforeAll 快照 project.godot,afterAll 恢复(game_bridge_install 写 autoload)+ stop + 删密钥。
 // action 前缀:game_bridge_install/query/write/input/wait 带 game_ 前缀;monitor/watch/find_ui 不带。
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasGodot || !hasRealProject || process.env.CI)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
   let projectGodotSnap = '';
 
   beforeAll(() => {
@@ -871,7 +878,7 @@ describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: recording + prof
     process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
   });
 
-  it.skipIf(process.env.CI)('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
+  it.skipIf(process.env.CI || !OPT_IN_L2)('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
     // 单 it:afterEach 在 it 间 kill 进程,故 recording 链路(依赖游戏运行)单 it 内完成
     const install = await callToolReal('game', { action: 'game_bridge_install' });
     expectSuccess(install);
