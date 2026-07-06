@@ -547,6 +547,60 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
+  // [P1-1] (2026-07-06 review) editor 返回 -32601 Unknown method → 自动回退 headless dispatchTool。
+  // 场景: TS (tool,action) 工具(script/screenshot/project/...)转发后 command_handler 不认 → -32601。
+  it('falls back to headless when editor returns -32601 Unknown method (P1-1)', async () => {
+    const guard = createMockGuard(false);
+    const unknownMethodResult: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ error: { code: -32601, message: 'Unknown method: script' } }) }],
+      isError: true,
+    };
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(unknownMethodResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+    dispatcher.setEditorExecutor(mockExecutor);
+    await dispatcher.handleCall({ params: { name: 'script', arguments: { action: 'write_script' } } });
+    expect(mockExecutor.execute).toHaveBeenCalledWith('script', expect.objectContaining({ action: 'write_script' }));
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+
+  // [P1-1] editor 返回非 -32601 错误(如 -32003) → 不回退, 保留编辑器原生错误语义
+  it('does not fall back when editor returns non-32601 error (P1-1)', async () => {
+    const guard = createMockGuard(false);
+    const otherErrorResult: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ error: { code: -32003, message: 'No scene loaded' } }) }],
+    };
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(otherErrorResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+    dispatcher.setEditorExecutor(mockExecutor);
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'add_node' } } });
+    expect(mockExecutor.execute).toHaveBeenCalled();
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  // [P1-2] (2026-07-06 review) editorExecutor 可用时, dispatchTool 注入 guard 回调到 perCallCtx。
+  // script.ts/scene 写前调 checkEditorTextResourceWrite/checkEditorSceneSave 防绕过编辑器守卫。
+  it('injects editor guard callbacks into perCallCtx when executor available (P1-2)', async () => {
+    const guard = createMockGuard(false);
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(mockToolResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const captured: { ctx?: { checkEditorTextResourceWrite?: unknown; checkEditorSceneSave?: unknown } } = {};
+    const mockModule = {
+      handleTool: vi.fn().mockImplementation((_n: string, _a: Record<string, unknown>, ctx: { checkEditorTextResourceWrite?: unknown; checkEditorSceneSave?: unknown }) => {
+        captured.ctx = ctx;
+        return Promise.resolve(mockToolResult);
+      }),
+    };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    dispatcher.setEditorExecutor(mockExecutor);
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: { action: 'read_scene' } } });
+    expect(typeof captured.ctx?.checkEditorTextResourceWrite).toBe('function');
+    expect(typeof captured.ctx?.checkEditorSceneSave).toBe('function');
+  });
+
   // [T14] headless 正常返回 + duration
   it('returns result with duration in headless mode', async () => {
     const guard = createMockGuard(false);

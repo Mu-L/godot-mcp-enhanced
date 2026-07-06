@@ -42,6 +42,19 @@ function joinWithLineEnding(content: string, hasCRLF: boolean): string {
   return content.split('\n').join('\r\n');
 }
 
+/** P1-2 (2026-07-06 review): editor 文本资源写守卫。ctx.checkEditorTextResourceWrite 由
+ *  dispatcher 在 editorExecutor 可用时注入(headless 模式不注入 → 直接放行)。
+ *  返回非 null = 被守卫阻塞(脚本在 ScriptEditor 打开 / ResourceLoader 缓存冲突),
+ *  调用方直接 return 该 ToolResult。防 TS writeFileSync 绕过编辑器内存状态守卫致版本撕裂。 */
+async function checkTextResourceGuard(ctx: ToolContext, path: string): Promise<ToolResult | null> {
+  if (!ctx.checkEditorTextResourceWrite) return null;
+  const guard = await ctx.checkEditorTextResourceWrite(path);
+  if (guard.blocked) {
+    return opsErrorResult('EDITOR_RESOURCE_OPEN', guard.message ?? `Resource open in editor: ${path}`);
+  }
+  return null;
+}
+
 async function validateAndRevert(
   fullPath: string,
   rawFile: string,
@@ -388,6 +401,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return opsErrorResult('FILE_EXISTS', `File already exists: ${sp}. Set overwrite=true to replace it.`);
       }
 
+      const textGuard = await checkTextResourceGuard(ctx, sp);
+      if (textGuard) return textGuard;
+
       ensureDir(sp);
       writeFileSync(sp, content, 'utf-8');
 
@@ -428,6 +444,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           suggestion: 'Check the script_path for typos. Use validate_scripts to scan all scripts in the project.',
         });
       }
+
+      const textGuard = await checkTextResourceGuard(ctx, fullPath);
+      if (textGuard) return textGuard;
 
       const rawFile = readFileSync(fullPath, 'utf-8');
       const hasCRLF = rawFile.includes('\r\n');

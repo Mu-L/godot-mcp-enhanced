@@ -377,6 +377,37 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const guards = (f.match(/if \(_socket === sock\) _invalidateSocket\(\)/g) || []).length;
       return Math.max(0, 5 - guards);
     } },
+  // ── 2026-07-06 综合审查（4 确认 + 2 可疑）→ 修 3 真, 2 误判 push back, 1 待运行时(deferred) ──
+  { key: 'editor-blind-routing-no-fallback', status: 'fixed', severity: 'IMPORTANT', dimension: 'Routing',
+    // P1-1(2026-07-06 综合审查): editor 模式 ToolDispatcher 把所有工具转发 editorExecutor, 但
+    // command_handler.gd 只认扁平 method(add_node/open_scene/...), TS 工具是 (tool,action) 命名
+    // (script/screenshot/project/...), 转发后落 -32601 Unknown method 静默失效, 无 headless 回退。
+    // fix: editor 返回 -32601 时自动回退 dispatchTool(headless)。复发: editor 分支无 _isUnknownMethod 检测。
+    detect: () => {
+      return fileContains('src/core/ToolDispatcher.ts', /_isUnknownMethod\(editorResult\)/) ? 0 : 1;
+    } },
+  { key: 'editor-guards-text-write-not-wired', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P1-2(2026-07-06 综合审查): guard_text_resource_write/guard_offline_scene_save 只在 GDScript
+    // command_handler 实现, TS script.ts/scene writeFileSync 绕过(grep 全 src 零调用) → 编辑器打开
+    // 脚本/场景时磁盘/内存版本撕裂。fix: ToolContext 加回调, dispatcher 注入(经 WS 调 guard),
+    // script writeScript/editScript + scene add_node 写前调。复发: script.ts guard 调用 < 3 或 scene 缺失。
+    detect: () => {
+      const scriptGuards = countMatchesInFile('src/tools/script.ts', /checkTextResourceGuard/g);
+      const sceneWired = fileContains('src/tools/scene/index.ts', /ctx\.checkEditorSceneSave/);
+      const tsCtx = fileContains('src/types.ts', /checkEditorTextResourceWrite/);
+      return scriptGuards >= 3 && sceneWired && tsCtx ? 0 : 1;
+    } },
+  { key: 'heartbeat-pause-timeout-disconnect', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // P1-3(2026-07-06 综合审查): heartbeat.gd paused 分支 op_timer > op_timeout 时 emit timeout_detected
+    // → peer.close()。暂停语义为容忍长操作, 超时断连与意图相反(operation_start 接线即爆)。
+    // fix: 超时改 state.paused=false + activity=0 + ping=0(恢复 normal 检测), 不 emit。
+    // detect: paused 超时分支(op_timeout 到 return)含 activity=0.0 且无 emit_signal = 已修。
+    detect: () => {
+      const hb = readSrc('addons/godot_mcp_server/heartbeat.gd');
+      const m = hb.match(/op_timer > state\.op_timeout:[\s\S]*?\n\t\treturn/);
+      if (!m) return 1;
+      return /state\.activity = 0\.0/.test(m[0]) && !/emit_signal/.test(m[0]) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

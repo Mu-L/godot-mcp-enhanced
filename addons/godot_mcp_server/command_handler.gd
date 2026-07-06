@@ -200,6 +200,16 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			if guard_result.is_empty():
 				return {"result": {"status": "ok", "path": guard_path}}
 			return guard_result
+		# P1-2 (2026-07-06 review): 场景离线保存守卫 — TS 侧 scene save 写前调,
+		# 防覆盖编辑器中打开的场景致磁盘/内存版本撕裂(与 guard_text_resource_write 对称)
+		"guard_offline_scene_save":
+			if _editor_guards == null:
+				return {"error": {"code": -32003, "message": "Editor guards not available"}}
+			var scene_guard_path: String = params.get("path", "")
+			var scene_guard_result = _editor_guards.guard_offline_scene_save(scene_guard_path)
+			if scene_guard_result.is_empty():
+				return {"result": {"status": "ok", "path": scene_guard_path}}
+			return scene_guard_result
 		_:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
 

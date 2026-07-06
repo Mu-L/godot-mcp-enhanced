@@ -39,9 +39,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     //   csv-import-no-byte-limit(F-7 + csv_path statSync 预检 P1-2)),合计 37。
 //   +1(2026-07-06 ipc 审查 P1-8: game-bridge-invalidate-race,_socket === sock 守卫防废弃 socket
 //   异步 close/error invalidate 新 socket),合计 38。
-    expect(FIXED_DEFECTS.length).toBe(38);
+//   +3(2026-07-06 综合审查 P1-1/P1-2/P1-3: editor-blind-routing-no-fallback(-32601 回退 headless)/
+//   editor-guards-text-write-not-wired(TS 写脚本/场景接线 guard 回调)/
+//   heartbeat-pause-timeout-disconnect(暂停超时改恢复 normal 检测)),合计 41。
+    expect(FIXED_DEFECTS.length).toBe(41);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(38);
+    expect(new Set(keys).size, '存在重名 key').toBe(41);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

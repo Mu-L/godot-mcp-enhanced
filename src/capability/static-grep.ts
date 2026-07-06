@@ -119,6 +119,8 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   theme_set_property: 'commands/ui_commands.gd',
   // editor_guards（I-01 文本资源写入守卫；文件在 addons 根非 commands/）
   guard_text_resource_write: 'editor_guards.gd',
+  // P1-2 (2026-07-06 review): 场景离线保存守卫(与 guard_text_resource_write 对称, 同在 editor_guards.gd)
+  guard_offline_scene_save: 'editor_guards.gd',
 };
 
 /**

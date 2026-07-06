@@ -150,6 +150,13 @@ export async function handleTool(
         return opsErrorResult('FILE_NOT_FOUND', `Scene file not found: ${sceneRelPath}`);
       }
 
+      // P1-2 (2026-07-06 review): editor 场景写守卫 — add_node 写回前检查场景是否在编辑器打开,
+      // 防覆盖编辑器内存状态致版本撕裂。headless 模式 checkEditorSceneSave 未注入, 直接放行。
+      if (ctx.checkEditorSceneSave) {
+        const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+        if (sceneGuard.blocked) return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`);
+      }
+
       // Convert parent_node_path to .tscn parent format
       const rawParent = String(args.parent_node_path || 'root');
       let tscnParent: string;

@@ -347,6 +347,14 @@ export class ToolDispatcher {
         const logger = getLogger();
         const callId = logger.toolStart(name, args);
         const editorResult = await currentExecutor.execute(name, args);
+        // P1-1 (2026-07-06 review): editor 模式盲目路由 — command_handler 只认扁平 method
+        // (add_node/open_scene/...), TS 工具是 (tool,action) 命名(script/screenshot/project/...),
+        // 转发后落到 -32601 Unknown method 静默失效。检测到 -32601 自动回退 headless dispatchTool,
+        // 让非编辑器原生工具在 editor 模式仍可用; 编辑器认的工具照常走 editor(保留 undo/sync)。
+        if (this._isUnknownMethod(editorResult)) {
+          logger.toolEnd(callId, name, Date.now() - startTime, 'editor_unknown_method_fallback');
+          return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride));
+        }
         const duration = Date.now() - startTime;
         logger.toolEnd(callId, name, duration);
         // I-08: Only append _duration_ms if the editor plugin didn't already include it
@@ -583,6 +591,13 @@ export class ToolDispatcher {
       // C-CONC-1: per-call findGodot 经参数传入(局部变量),避免实例字段被并发请求覆盖
       // 用 buildPerCallCtx(Object.create)而非 spread,保留 ctx getter(见该函数注释)
       const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride);
+      // P1-2 (2026-07-06 review): editor 文本资源/场景写守卫注入。editorExecutor 可用(非 null)时
+      // 注入回调; script.ts/scene 写前调, 经 WS 调编辑器 guard_text_resource_write/guard_offline_scene_save,
+      // 防 TS writeFileSync 绕过编辑器内存状态守卫致磁盘/内存版本撕裂。headless 模式 editorExecutor=null 不注入。
+      if (this.editorExecutor) {
+        perCallCtx.checkEditorTextResourceWrite = (p: string) => this._checkEditorGuard('guard_text_resource_write', p);
+        perCallCtx.checkEditorSceneSave = (p: string) => this._checkEditorGuard('guard_offline_scene_save', p);
+      }
       result = await targetMod.handleTool(effectiveToolName, effectiveArgs, perCallCtx);
     } catch (err) {
       const duration = Date.now() - startTime;
@@ -600,6 +615,44 @@ export class ToolDispatcher {
     }
     logger.toolEnd(callId, effectiveToolName, duration, 'handler_null');
     return opsErrorResult('HANDLER_NULL', `Tool "${effectiveToolName}" registered but handler returned null`);
+  }
+
+  /** P1-1 (2026-07-06 review): 检测 editor 返回是否 -32601 Unknown method
+   * (command_handler 不认此 method — TS (tool,action) 工具转发后常见)。 */
+  private _isUnknownMethod(result: ToolResult): boolean {
+    for (const block of result.content ?? []) {
+      if (block.type !== 'text' || typeof block.text !== 'string') continue;
+      try {
+        const parsed = JSON.parse(block.text) as { error?: { code?: number } };
+        if (parsed.error?.code === -32601) return true;
+      } catch { /* not JSON */ }
+    }
+    return false;
+  }
+
+  /**
+   * P1-2 (2026-07-06 review): 经 WS 调编辑器 guard, 返回是否阻塞写。
+   * - editorExecutor 不可用(null) → 放行(headless 无编辑器状态可守)
+   * - 编辑器返回 -32009(状态冲突: 打开的脚本/缓存 Resource/打开的场景) → 阻塞
+   * - 其他(guard 放行 ok / -32003 guards 不可用 / 连接错误) → 放行(不静默吞, 调用方据 blocked 决定)
+   */
+  private async _checkEditorGuard(
+    method: 'guard_text_resource_write' | 'guard_offline_scene_save',
+    path: string,
+  ): Promise<{ blocked: boolean; code?: number; message?: string }> {
+    if (!this.editorExecutor) return { blocked: false };
+    try {
+      const result = await this.editorExecutor.execute(method, { path });
+      const first = result.content?.[0];
+      const text = first?.type === 'text' ? first.text : '{}';
+      const parsed = JSON.parse(text) as { error?: { code?: number; message?: string } };
+      if (parsed.error?.code === -32009) {
+        return { blocked: true, code: -32009, message: parsed.error.message };
+      }
+      return { blocked: false };
+    } catch {
+      return { blocked: false };
+    }
   }
 
   private attachFallbackWarning(result: ToolResult): ToolResult {

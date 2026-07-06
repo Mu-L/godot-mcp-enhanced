@@ -17,6 +17,13 @@ export interface ToolContext {
   projectDir: string;
   setProjectDir: (d: string) => void;
   parseGodotConfig: (content: string) => Record<string, unknown>;
+  /** P1-2 (2026-07-06 review): editor 文本资源写守卫 — script/scene 写脚本前调,
+   *  editorExecutor 可用时由 dispatcher 注入(经 WS 调 guard_text_resource_write)。
+   *  返回 {blocked:true} 表示编辑器内存状态冲突(打开的脚本/缓存 Resource), 应中止写。
+   *  headless 无编辑器状态可守, 回调未注入(undefined), 调用方跳过。 */
+  checkEditorTextResourceWrite?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
+  /** P1-2: 场景离线保存守卫(防覆盖编辑器中打开的场景, 与 guard_offline_scene_save 对称)。 */
+  checkEditorSceneSave?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
 }
 
 // Helper to create a text result

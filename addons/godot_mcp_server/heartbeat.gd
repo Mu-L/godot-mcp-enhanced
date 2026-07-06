@@ -37,8 +37,12 @@ func tick(delta: float, peer: WebSocketPeer) -> void:
 	if state.paused:
 		state.op_timer += delta
 		if state.op_timer > state.op_timeout:
+			# P1#3 fix (2026-07-06 review): 暂停语义为容忍长操作跑完, 超时后应恢复 normal
+			# 心跳检测, 而非 emit timeout_detected 断连(与暂停意图相反)。原实现 op_timer 到顶
+			# 反 close peer — operation_start 一旦接线即爆(任何已认证 peer 可触发自损断连)。
 			state.paused = false
-			emit_signal("timeout_detected", pid)
+			state.activity = 0.0
+			state.ping = 0.0
 		return
 	state.activity += delta
 	state.ping += delta
