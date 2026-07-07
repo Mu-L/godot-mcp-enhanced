@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { join } from 'path';
 import { waitForEditorSecret } from './core/editor-auth.js';
@@ -46,6 +47,7 @@ import * as ps from './core/process-state.js';
 import { killProcess } from './core/process-state.js';
 import { getLogger } from './core/logger.js';
 import { resolveProjectPath } from './core/path-utils.js';
+import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
 import { FileStateStore } from './core/state-store.js';
 
@@ -172,6 +174,56 @@ export class GodotServer {
     });
 
     // Phase 2b: Multi-instance initialization moved to initMultiInstance() (async fs)
+
+    // 批 P0: MCP Roots 动态授权集成（oninitialized + list_changed）
+    this.initRootsIntegration();
+  }
+
+  /**
+   * MCP Roots 动态授权集成（批 P0）。
+   * oninitialized 检测 client 能力 → listRoots 拉取 → parseFileRootUris 解析 → setAllowedRootsFromClient 注入。
+   * list_changed 热更新。initial 失败 fail-to-env-baseline；re-fetch 失败 + 已有 roots 保留旧（不静默切作用域）。
+   * SDK oninitialized: () => void（非 Promise），async 赋值后 SDK 不 await——首次 fetch 完成前工具调用走 env baseline（fail-safe 朝收紧方向）。
+   */
+  private async initRootsIntegration(): Promise<void> {
+    const applyRoots = async (isRefetch: boolean): Promise<void> => {
+      try {
+        const resp = await this.server.listRoots();
+        const valid = parseFileRootUris(resp.roots ?? []);
+        if (valid.length > 0) {
+          setAllowedRootsFromClient(valid);
+          getLogger().info('security', `Authorized ${valid.length} root(s) from MCP client`);
+        } else {
+          if (isRefetch && hasDynamicRoots()) {
+            getLogger().warn('security', 'Roots re-fetch returned empty/invalid — keeping previous roots');
+          } else {
+            setAllowedRootsFromClient(null);
+            getLogger().info('security', 'No valid client roots — using ALLOWED_PROJECT_PATHS baseline');
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isRefetch && hasDynamicRoots()) {
+          getLogger().warn('security', `Roots re-fetch failed — keeping previous roots: ${msg}`);
+        } else {
+          setAllowedRootsFromClient(null);
+          getLogger().warn('security', `Initial roots fetch failed — using env baseline: ${msg}`);
+        }
+      }
+    };
+
+    this.server.oninitialized = async () => {
+      const caps = this.server.getClientCapabilities();
+      if (caps?.roots) {
+        await applyRoots(false);
+      } else {
+        getLogger().info('security', 'Client does not support MCP Roots — using ALLOWED_PROJECT_PATHS baseline');
+      }
+    };
+
+    this.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+      await applyRoots(true);
+    });
   }
 
   /** Phase 2b: Multi-instance initialization (async fs — C-02). */
@@ -449,6 +501,7 @@ export class GodotServer {
     setEditorSceneProvider(null);
     setReconnectEditor(null);
     clearMcpServer();
+    setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
     log('Server shut down');
   }
 }

@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ─── Mock MCP SDK (must be before GodotServer import) ────────────────────────
 const mockSetRequestHandler = vi.fn();
+const mockSetNotificationHandler = vi.fn();
 const mockServerClose = vi.fn().mockResolvedValue(undefined);
 const mockServerConnect = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: vi.fn().mockImplementation(function () {
     this.setRequestHandler = mockSetRequestHandler;
+    this.setNotificationHandler = mockSetNotificationHandler;
     this.connect = mockServerConnect;
     this.close = mockServerClose;
   }),
@@ -25,6 +27,7 @@ vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
   ReadResourceRequestSchema: 'ReadResourceRequestSchema',
   ListPromptsRequestSchema: 'ListPromptsRequestSchema',
   GetPromptRequestSchema: 'GetPromptRequestSchema',
+  RootsListChangedNotificationSchema: 'RootsListChangedNotificationSchema',
 }));
 
 // ─── Mock fs to control detectProjectPath behavior ───────────────────────────
