@@ -5,6 +5,7 @@
 
 import { getLogger } from './logger.js';
 import { isFeatureEnabled } from './feature-flags.js';
+import { RingBuffer } from './ring-buffer.js';
 import type { ConnectionState } from '../types.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -52,40 +53,6 @@ const DEFAULTS: Required<HealthMonitorOptions> = {
 
 const RECENT_WINDOW = 10;
 const BASELINE_SAMPLE_COUNT = 10;
-
-// ─── Ring Buffer (H-02: O(1) push, avoids Array.shift() O(n)) ─────────────────
-
-class RingBuffer<T> {
-  private buf: (T | undefined)[];
-  private head = 0;
-  private count = 0;
-
-  constructor(private capacity: number) {
-    this.buf = new Array(capacity);
-  }
-
-  push(item: T): void {
-    this.buf[this.head] = item;
-    this.head = (this.head + 1) % this.capacity;
-    if (this.count < this.capacity) this.count++;
-  }
-
-  *[Symbol.iterator](): Iterator<T> {
-    const start = this.count < this.capacity ? 0 : this.head;
-    for (let i = 0; i < this.count; i++) {
-      yield this.buf[(start + i) % this.capacity] as T;
-    }
-  }
-
-  get length(): number { return this.count; }
-
-  toArray(): T[] { return [...this]; }
-
-  sliceLast(n: number): T[] {
-    const arr = this.toArray();
-    return arr.slice(-n);
-  }
-}
 
 // ─── HealthMonitor ────────────────────────────────────────────────────────────
 
