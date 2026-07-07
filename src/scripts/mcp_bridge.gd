@@ -520,6 +520,8 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_ping()
 		"get_tree":
 			result = _cmd_get_tree(params)
+		"get_scene_stats":
+			result = _cmd_get_scene_stats(params)
 		"find_nodes":
 			result = _cmd_find_nodes(params)
 		"get_node_properties":
@@ -603,6 +605,49 @@ func _cmd_get_tree(params: Dictionary) -> Variant:
 		scene_path = get_tree().current_scene.scene_file_path
 	var counter := [0]
 	return {"tree": [_serialize_node(root_node, max_depth, 0, counter)], "scene": scene_path}
+
+
+# 批 2 readScene：基于 current_scene 的场景统计（迭代单遍 stack DFS，无爆栈）。只聚合不传树。
+# TYPE_WINDOW: typeTopN 字典维护窗口（>2000 停维护字典省内存，nodeCount 仍准确）
+# HARD_STOP: OOM 硬停止（nodeCount 绝对上限）。独立于 _serialize_node max_nodes（序列化上限）。
+const TYPE_WINDOW: int = 2000
+const HARD_STOP: int = 50000
+
+func _cmd_get_scene_stats(_params: Dictionary) -> Variant:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return {"stats": null}  # no current_scene → TS 透传 null 降级
+	var node_count: int = 0
+	var type_count: Dictionary = {}
+	var truncated: bool = false
+	var stack: Array = [scene]
+	while stack.size() > 0:
+		if node_count >= HARD_STOP:
+			truncated = true
+			break
+		var node: Node = stack.pop_back()
+		node_count += 1
+		if node_count <= TYPE_WINDOW:
+			var cls: String = node.get_class()
+			type_count[cls] = int(type_count.get(cls, 0)) + 1
+		for c in node.get_children():
+			stack.push_back(c)
+	var type_top_n: Variant = null
+	if node_count <= TYPE_WINDOW:
+		var entries: Array = []
+		for key in type_count.keys():
+			entries.append({"type": key, "n": int(type_count[key])})
+		entries.sort_custom(func(a, b): return int(a["n"]) > int(b["n"]))
+		type_top_n = entries.slice(0, 5)
+	return {
+		"stats": {
+			"path": scene.scene_file_path,
+			"root": scene.name,
+			"nodeCount": node_count,
+			"typeTopN": type_top_n,
+			"truncated": truncated,
+		}
+	}
 
 
 func _serialize_node(node: Node, max_depth: int, depth: int, counter: Array, max_nodes: int = 2000) -> Dictionary:
