@@ -151,6 +151,8 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _sync_commands.stop_sync()
 		"editor_get_scene_tree":
 			return _sync_commands.get_scene_tree()
+		"editor_get_scene_stats":
+			return _sync_commands.get_scene_stats()
 		# --- animation ------------------------------------------------
 		"animation_track":
 			return _animation_commands.handle_animation_track(params, request_id)
