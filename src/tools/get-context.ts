@@ -80,7 +80,7 @@ async function handleGetContext(args: Record<string, unknown>, ctx: ToolContext)
   );
   const rules = safe(() => readRules(projectPath), 'rules', failedFields);
   const performance = (includePerf && mode === 'bridge')
-    ? await safeAsync(async () => readPerformance(ctx), 'performance', failedFields)
+    ? await safeAsync(() => readPerformance(ctx), 'performance', failedFields)
     : null;
 
   return textResult(JSON.stringify(opsSuccess({
@@ -213,12 +213,17 @@ function readRules(projectPath: string | undefined): string[] {
   }
 }
 
-/**
- * performance = { fps, memory_mb }。仅 bridge（外层已守卫）。game_query(get_performance)。
- * MVP 占位：始终返回 null。真实采集（game-bridge get_performance）待 follow-up。
- */
-function readPerformance(_ctx: ToolContext): { fps: number; memory_mb: number } | null {
-  return null;
+/** performance = { fps, memory_mb }。仅 bridge（外层已守卫）。get_performance result 字段可选链降级。 */
+async function readPerformance(_ctx: ToolContext): Promise<{ fps: number; memory_mb: number } | null> {
+  const r = await sendToBridge('get_performance', {}, 2000);
+  if (!r || r.error) return null;
+  const result = (r.result ?? {}) as { fps?: number; static_mem?: number; memory?: number };
+  const fps = typeof result.fps === 'number' ? result.fps : null;
+  const memBytes = typeof result.static_mem === 'number'
+    ? result.static_mem
+    : (typeof result.memory === 'number' ? result.memory : null);
+  if (fps === null || memBytes === null) return null;
+  return { fps, memory_mb: Math.round(memBytes / (1024 * 1024)) };
 }
 
 export const TOOL_META = {

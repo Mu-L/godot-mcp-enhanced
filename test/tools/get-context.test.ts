@@ -186,3 +186,36 @@ describe('readProject + readRules real (Task 2)', () => {
     expect(JSON.parse((r!.content[0] as { text: string }).text).data.rules).toEqual([]);
   });
 });
+
+describe('readPerformance bridge real (Task 3)', () => {
+  beforeEach(() => {
+    getCallRecorder().reset();
+    vi.clearAllMocks();
+    setGetContextConnectionProvider(null);
+  });
+
+  it('performance filled when bridge mode + get_performance returns fps/mem', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })           // ping
+      .mockResolvedValueOnce({ id: 2, result: { fps: 60, static_mem: 268435456 } }); // get_performance
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    const perf = JSON.parse((r!.content[0] as { text: string }).text).data.performance;
+    expect(perf).toEqual({ fps: 60, memory_mb: 256 });
+  });
+
+  it('performance null when get_performance returns sparse (降级)', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })
+      .mockResolvedValueOnce({ id: 2, result: {} });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.performance).toBeNull();
+  });
+
+  it('performance null when not bridge mode', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: true })); // editor mode
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.performance).toBeNull();
+  });
+});
