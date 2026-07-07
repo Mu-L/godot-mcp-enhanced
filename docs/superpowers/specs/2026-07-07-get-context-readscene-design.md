@@ -51,9 +51,11 @@ readScene 走 `editorConn.request('editor_get_scene_stats')` 直连，**绕过 E
 
 ## 4. GDScript 新增
 
-### 4.1 单遍递归聚合算法（editor 与 bridge 共用逻辑，各自实现）
+### 4.1 单遍迭代聚合算法（editor 与 bridge 共用逻辑，各自实现）
 
-```
+**迭代非递归（规避爆栈，见 §9.5）**：项目内 `_cache_paths_recursive`(sync_commands.gd:67 `depth<50`) / `_serialize_node`(mcp_bridge.gd:608 `max_depth=10`) 用递归深度保护；本方法用 stack 数组 DFS 彻底规避——HARD_STOP 是节点数上限非深度上限，深链场景（程序生成链）递归会先于节点数触发 GDScript 栈溢出，迭代无需 MAX_DEPTH 且 nodeCount 仍全程准确。
+
+```gdscript
 # 常量（独立于 _serialize_node 的 max_nodes=2000）
 const TYPE_WINDOW: int = 2000   # typeTopN 字典维护窗口（仅前 2000 节点维护 typeCount，省内存）
 const HARD_STOP: int = 50000    # OOM 硬停止（nodeCount 绝对上限）
@@ -62,22 +64,28 @@ var nodeCount: int = 0
 var typeCount: Dictionary = {}  # {class_name: count}
 var truncated: bool = false
 
-func _walk_stats(node: Node) -> void:
-    if nodeCount >= HARD_STOP:
-        truncated = true
-        return
-    nodeCount += 1
-    if nodeCount <= TYPE_WINDOW:
-        var cls: String = node.get_class()
-        typeCount[cls] = int(typeCount.get(cls, 0)) + 1
-    for c in node.get_children():
-        _walk_stats(c)
+# 迭代单遍（DFS，stack 数组）—— 无递归爆栈
+func _collect_stats(root: Node) -> void:
+    var stack: Array = [root]
+    while stack.size() > 0:
+        if nodeCount >= HARD_STOP:
+            truncated = true
+            break
+        var node: Node = stack.pop_back()
+        nodeCount += 1
+        if nodeCount <= TYPE_WINDOW:
+            var cls: String = node.get_class()
+            typeCount[cls] = int(typeCount.get(cls, 0)) + 1
+        for c in node.get_children():
+            stack.push_back(c)
 
 # 输出：
-#   nodeCount  全程准确（仅 HARD_STOP 截断；不受 TYPE_WINDOW 限制）
+#   nodeCount  全程准确（仅 HARD_STOP 截断；不受 TYPE_WINDOW 限制，深链也不爆栈）
 #   typeTopN   (nodeCount <= TYPE_WINDOW) ? top5(typeCount) : null（>2000 不维护字典，缺省）
 #   truncated  HARD_STOP 触发时 true
 ```
+
+**typeTopN 在 2001~49999 区间丢弃有效数据的设计取舍**（ADVISORY 3）：大场景 typeTopN 价值递减（节点多则类型分布扁平），且维护全树字典内存开销大；readScene 是概览，>2000 返 nodeCount+truncated 足够 AI 判断规模。不返 partial typeTopN（前 2000 分布）避免误导（前 2000 不代表全树）。
 
 **关键语义区分**（调整3，必写清防实现者复用错常量）：
 - `TYPE_WINDOW=2000`：**typeTopN 字典维护窗口**。>2000 仍继续递归数 nodeCount，只停维护 typeCount 字典（省内存）。**不是 nodeCount 上限**。
@@ -159,6 +167,7 @@ func _walk_stats(node: Node) -> void:
 2. **bridge current_scene 可能 null**：游戏未加载场景（菜单/启动期）→ stats null 降级（readScene 返 null，正常）。
 3. **HARD_STOP=50000 OOM**：超大场景（>5万节点）truncated。可接受（readScene 是概览，非精确统计）。
 4. **editor 4.7 EditorInterface API**：用 `_get_ei()`（:23，已 4.7 适配 `EditorPlugin.get_editor_interface()`）+ `get_edited_scene_root()`（标准 API，4.x 稳定）。
+5. **递归爆栈（已规避，IMPORTANT-1）**：`_collect_stats` 用迭代（stack DFS）非递归，深链场景（程序生成链）不爆栈。无需 MAX_DEPTH——与 `_cache_paths_recursive`/`_serialize_node` 的递归深度保护走不同路径，迭代更彻底，且 nodeCount 全程准确（不受深度截断影响，保"全树准确"契约）。
 
 ## 10. 不做（YAGNI）
 
