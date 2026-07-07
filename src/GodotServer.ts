@@ -36,7 +36,7 @@ import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
 import { setOnGroupsChanged, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from './tools/manage-tools.js';
-import { setGetContextConnectionProvider } from './tools/get-context.js';
+import { setGetContextConnectionProvider, setEditorSceneProvider } from './tools/get-context.js';
 import { InstanceManager } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
@@ -147,6 +147,15 @@ export class GodotServer {
     setOnGroupsChanged(() => this.sendToolListChanged());
     setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
     setGetContextConnectionProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
+    setEditorSceneProvider(async (_projectPath: string) => {
+      if (!this.editorConn?.isConnected()) return null;
+      try {
+        const result = await this.editorConn.request('editor_get_scene_stats', {});
+        return (result as { stats?: { path: string; root: string; nodeCount: number; typeTopN?: Array<{ type: string; n: number }>; truncated?: boolean } | null })?.stats ?? null;
+      } catch {
+        return null;  // editor error（如 NO_SCENE -32005）→ null 降级
+      }
+    });
     setReconnectEditor(buildReconnectEditor(
       () => this.editorConn,
       () => this.rebuildEditorConnection(), // 方案B: editor 降级后重建连接(重读 secret + new EditorConnection)
@@ -437,6 +446,7 @@ export class GodotServer {
     setOnGroupsChanged(null);
     setConnectionStatusProvider(null);
     setGetContextConnectionProvider(null);
+    setEditorSceneProvider(null);
     setReconnectEditor(null);
     clearMcpServer();
     log('Server shut down');
