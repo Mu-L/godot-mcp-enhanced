@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listPrompts, getPrompt } from '../src/prompts.js';
+import { listPrompts, getPrompt, listPromptDefs } from '../src/prompts.js';
 
 describe('prompts', () => {
   it('listPrompts returns 4 templates', () => {
@@ -33,5 +33,24 @@ describe('prompts', () => {
     const result = await getPrompt('debug_performance', {});
     const text = (result.messages[0].content as any).text;
     expect(text).toContain('Performance');
+  });
+});
+
+describe('listPromptDefs', () => {
+  it('returns all registered prompt defs', () => {
+    const defs = listPromptDefs();
+    expect(defs.length).toBeGreaterThanOrEqual(4);
+    const names = defs.map(d => d.name);
+    expect(names).toContain('create_platformer');
+    expect(names).toContain('setup_player_controller');
+    expect(names).toContain('optimize_scene');
+    expect(names).toContain('debug_performance');
+  });
+
+  it('each def has name and description', () => {
+    for (const d of listPromptDefs()) {
+      expect(typeof d.name).toBe('string');
+      expect(typeof d.description).toBe('string');
+    }
   });
 });

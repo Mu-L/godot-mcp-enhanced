@@ -76,6 +76,11 @@ export function listPrompts(): PromptDef[] {
   return Object.values(PROMPTS).map(p => p.def);
 }
 
+/** 列出所有已注册 prompt 的定义（name + description + arguments）。供 godot_get_context 的 workflows 字段使用。 */
+export function listPromptDefs(): PromptDef[] {
+  return Object.values(PROMPTS).map(p => p.def);
+}
+
 export async function getPrompt(name: string, args: Record<string, string>): Promise<{ messages: PromptMessage[] }> {
   const prompt = PROMPTS[name];
   if (!prompt) throw new Error(`Unknown prompt: ${name}`);
