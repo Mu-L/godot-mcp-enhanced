@@ -164,7 +164,7 @@ export interface ToolGroupDef {
 
 /** 16 tool groups for fine-grained profile configuration. */
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
-  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute'], requires: [], protected: true },
+  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
   bridge:     { description: 'Game Bridge', tools: ['game'], requires: ['bridge'] },
   animation:  { description: '动画系统', tools: ['animation', 'animtree', 'animation_track'], requires: [] },
@@ -240,7 +240,7 @@ for (const [group, def] of Object.entries(TOOL_GROUPS)) {
 }
 
 /** Tools that are always allowed regardless of group state. */
-const ALWAYS_ALLOWED = new Set(['manage_tools', 'confirm_and_execute', 'godot_advanced_tool']);
+export const ALWAYS_ALLOWED = new Set(['manage_tools', 'confirm_and_execute', 'godot_advanced_tool', 'godot_get_context']);
 
 /** Set active groups (copy-on-write). Returns previous set for comparison. */
 export function setActiveGroups(groups: Set<string>): Set<string> {
@@ -300,7 +300,7 @@ export function isOfflineCapable(toolName: string): boolean {
  * 其余 4 个（docs, godot_list_instances, godot_list_dynamic_routes, godot_select_instance）
  * 不在 ALWAYS_ALLOWED 中（可能被 profile 过滤掉），但同样不操作文件系统。
  */
-const NO_PROJECT_PATH_TOOLS = new Set([
+export const NO_PROJECT_PATH_TOOLS = new Set([
   'docs',                // Godot class documentation lookup — 纯内存操作
   'manage_tools',        // Tool group management — 操作 tool-registry 内存状态
   'confirm_and_execute', // Confirmation token executor — 只需 token，内部用 pending.args
@@ -309,6 +309,7 @@ const NO_PROJECT_PATH_TOOLS = new Set([
   'godot_list_dynamic_routes', // Dynamic route discovery — 读内存注册表
   'godot_select_instance', // Multi-instance selection — 可用 instance_id 代替 project_path
   'load_skill',          // 读用户本地知识库路径(libraries 参数),不操作 Godot 项目
+  'godot_get_context',   // 会话全景元工具 — project_path 可选，字段降级（r3 修正 r2-N1）
 ]);
 
 /** Check if a tool should skip project_path validation. */

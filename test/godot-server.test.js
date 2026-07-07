@@ -307,7 +307,7 @@ describe('GodotServer', () => {
       const handlers = createServerAndGetHandlers({ mode: 'lite' });
       const names = await getToolNamesFromHandler(handlers);
       const liteTools = [
-        'project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute',
+        'project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context',
         'game',
         'animation', 'animtree', 'animation_track',
         'audio',
