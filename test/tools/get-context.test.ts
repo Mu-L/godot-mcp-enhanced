@@ -6,11 +6,23 @@ vi.mock('../../src/tools/game-bridge.js', () => ({
   isBridgeReady: vi.fn(),
 }));
 
+// Task 2: mock fs so readProject/readRules 可被 spyOn 精确控制（不真读盘）
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: vi.fn((p: string) => (actual as any).existsSync(p)),
+    readFileSync: vi.fn((p: string, ...rest: any[]) => (actual as any).readFileSync(p, ...rest)),
+    readdirSync: vi.fn((p: string) => (actual as any).readdirSync(p)),
+  };
+});
+
 import { handleTool, getToolDefinitions, setGetContextConnectionProvider } from '../../src/tools/get-context.js';
 import { getCallRecorder } from '../../src/core/call-recorder.js';
 import { sendToBridge, setBridgeProjectDir } from '../../src/tools/game-bridge.js';
 import type { ConnectionStatus } from '../../src/tools/manage-tools.js';
 import type { ToolContext } from '../../src/types.js';
+import * as fs from 'fs';
 
 const fakeCs = (editor: Partial<ConnectionStatus['editor']> = {}): ConnectionStatus => ({
   editor: { installed: false, connected: false, state: null, ...editor } as ConnectionStatus['editor'],
@@ -126,5 +138,51 @@ describe('computeMode + readConnections real (Task 1)', () => {
     const r = await handleTool('godot_get_context', {}, mockCtx());
     expect(sendToBridge).not.toHaveBeenCalled();
     expect(JSON.parse((r!.content[0] as { text: string }).text).data.mode).toBe('headless');
+  });
+});
+
+describe('readProject + readRules real (Task 2)', () => {
+  beforeEach(() => {
+    getCallRecorder().reset();
+    vi.clearAllMocks();
+    setGetContextConnectionProvider(null);
+  });
+
+  it('readProject returns name from project.godot + path, godot=null (no spawn)', async () => {
+    const dir = 'D:/GitHub/godot-mcp-enhanced/test/fixtures/real-project'; // 已有 fixture
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('[application]\n\nconfig/name="TestGame"\n');
+    setGetContextConnectionProvider(null);
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('x'));
+    const r = await handleTool('godot_get_context', { project_path: dir }, mockCtx());
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.project).toEqual({ name: 'TestGame', godot: null, path: dir });
+  });
+
+  it('readProject null when project.godot missing/unreadable', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('x'));
+    const r = await handleTool('godot_get_context', { project_path: '/nope' }, mockCtx());
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.project).toBeNull();
+  });
+
+  it('readRules returns .claude/rules/*.md basenames', async () => {
+    const dir = '/some/project';
+    // Windows path.join 用反斜杠，跨平台匹配两种分隔符
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: any) => {
+      const s = String(p).replace(/\\/g, '/');
+      return s.includes('.claude/rules');
+    });
+    vi.spyOn(fs, 'readdirSync').mockReturnValue(['godot-mcp-core.md', 'godot-mcp-bridge.md'] as any);
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('x'));
+    const r = await handleTool('godot_get_context', { project_path: dir }, mockCtx());
+    const rules = JSON.parse((r!.content[0] as { text: string }).text).data.rules;
+    expect(rules).toEqual(['godot-mcp-core.md', 'godot-mcp-bridge.md']);
+  });
+
+  it('readRules [] when no project_path', async () => {
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('x'));
+    const r = await handleTool('godot_get_context', {}, mockCtx());
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.rules).toEqual([]);
   });
 });

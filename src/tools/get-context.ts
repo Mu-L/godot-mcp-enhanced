@@ -13,6 +13,8 @@ import { listPromptDefs } from '../prompts.js';
 import { TOOL_GROUPS, getActiveGroups } from '../core/tool-registry.js';
 import { sendToBridge, setBridgeProjectDir } from './game-bridge.js';
 import type { ConnectionStatus } from './manage-tools.js';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { join, basename } from 'path';
 
 // ─── 注入的 provider（GodotServer 接线，参照 manage-tools _connectionStatusProvider）───
 let _connectionStatusProvider: (() => ConnectionStatus | null) | null = null;
@@ -155,12 +157,27 @@ async function readConnections(
 }
 
 /**
- * project = { name, godot, path }。读 project.godot + godot --version。
- * MVP 占位：始终返回 null。真实采集（复用 src/tools/project.ts 解析 +
- * findGodot 版本探测）待 follow-up（批 1 Task 2）。
+ * project = { name, godot: null, path }。name 从 project.godot config/name 提；
+ * godot=null 避免 spawn（detectGodotVersion 无缓存，每次 spawn 成本过高）。
+ * 无 projectPath / project.godot 缺失 / 读失败 → null（字段级降级）。
  */
-function readProject(_projectPath: string | undefined): { name: string; godot: string; path: string } | null {
-  return null;
+function readProject(projectPath: string | undefined): { name: string; godot: null; path: string } | null {
+  if (!projectPath) return null;
+  const cfg = join(projectPath, 'project.godot');
+  if (!existsSync(cfg)) return null;
+  try {
+    const content = readFileSync(cfg, 'utf-8');
+    const name = parseProjectName(content) ?? basename(projectPath);
+    return { name, godot: null, path: projectPath };
+  } catch {
+    return null;
+  }
+}
+
+/** 从 project.godot 文本提 [application] config/name="X" 的 X。无匹配 → null。 */
+function parseProjectName(content: string): string | null {
+  const m = content.match(/config\/name\s*=\s*"([^"]*)"/);
+  return m ? m[1] ?? null : null;
 }
 
 /**
@@ -184,12 +201,16 @@ function readToolGroups(): Array<{ name: string; active: boolean; requires: stri
   }));
 }
 
-/** rules = {project_path}/.claude/rules/*.md 文件名。无 project_path → []。 */
+/** rules = {projectPath}/.claude/rules/*.md 文件名列表。无 projectPath 或目录不存在/不可读 → []。 */
 function readRules(projectPath: string | undefined): string[] {
   if (!projectPath) return [];
-  // MVP 占位：不采集文件系统。真实读取（src/core/path-utils.ts 安全 join +
-  // glob .claude/rules/*.md，返回 basename 列表）待 follow-up。
-  return [];
+  const rulesDir = join(projectPath, '.claude', 'rules');
+  if (!existsSync(rulesDir)) return [];
+  try {
+    return readdirSync(rulesDir).filter(f => f.endsWith('.md'));
+  } catch {
+    return [];
+  }
 }
 
 /**
