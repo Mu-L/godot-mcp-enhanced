@@ -17,7 +17,7 @@ vi.mock('fs', async () => {
   };
 });
 
-import { handleTool, getToolDefinitions, setGetContextConnectionProvider } from '../../src/tools/get-context.js';
+import { handleTool, getToolDefinitions, setGetContextConnectionProvider, setEditorSceneProvider } from '../../src/tools/get-context.js';
 import { getCallRecorder } from '../../src/core/call-recorder.js';
 import { sendToBridge, setBridgeProjectDir } from '../../src/tools/game-bridge.js';
 import type { ConnectionStatus } from '../../src/tools/manage-tools.js';
@@ -198,7 +198,8 @@ describe('readPerformance bridge real (Task 3)', () => {
     setGetContextConnectionProvider(() => fakeCs({ connected: false }));
     (sendToBridge as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })           // ping
-      .mockResolvedValueOnce({ id: 2, result: { fps: 60, static_mem: 268435456 } }); // get_performance
+      .mockResolvedValueOnce({ id: 2, result: { stats: null } })             // get_scene_stats (批 2 readScene)
+      .mockResolvedValueOnce({ id: 3, result: { fps: 60, static_mem: 268435456 } }); // get_performance
     const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
     const perf = JSON.parse((r!.content[0] as { text: string }).text).data.performance;
     expect(perf).toEqual({ fps: 60, memory_mb: 256 });
@@ -208,7 +209,8 @@ describe('readPerformance bridge real (Task 3)', () => {
     setGetContextConnectionProvider(() => fakeCs({ connected: false }));
     (sendToBridge as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })
-      .mockResolvedValueOnce({ id: 2, result: {} });
+      .mockResolvedValueOnce({ id: 2, result: { stats: null } })             // get_scene_stats (批 2 readScene)
+      .mockResolvedValueOnce({ id: 3, result: {} });
     const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
     expect(JSON.parse((r!.content[0] as { text: string }).text).data.performance).toBeNull();
   });
@@ -217,5 +219,80 @@ describe('readPerformance bridge real (Task 3)', () => {
     setGetContextConnectionProvider(() => fakeCs({ connected: true })); // editor mode
     const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
     expect(JSON.parse((r!.content[0] as { text: string }).text).data.performance).toBeNull();
+  });
+});
+
+const fakeStats = (over: Partial<{ path: string; root: string; nodeCount: number; typeTopN: Array<{ type: string; n: number }> | null; truncated: boolean }> = {}) => ({
+  path: 'res://scenes/main.tscn', root: 'Main', nodeCount: 5,
+  typeTopN: [{ type: 'Node3D', n: 3 }], truncated: false, ...over,
+});
+
+describe('readScene real (Task 3)', () => {
+  beforeEach(() => { getCallRecorder().reset(); vi.clearAllMocks(); setGetContextConnectionProvider(null); setEditorSceneProvider(null); });
+
+  it('editor mode → editorSceneProvider stats 透传', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: true }));
+    setEditorSceneProvider(async () => fakeStats());
+    (sendToBridge as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 1, result: { status: 'ok' } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
+    const scene = JSON.parse((r!.content[0] as { text: string }).text).data.scene;
+    expect(scene).toEqual(fakeStats());
+  });
+
+  it('bridge mode → sendToBridge(get_scene_stats) stats 透传', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })
+      .mockResolvedValueOnce({ id: 2, result: { stats: fakeStats({ nodeCount: 10 }) } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    const scene = JSON.parse((r!.content[0] as { text: string }).text).data.scene;
+    expect(scene.nodeCount).toBe(10);
+  });
+
+  it('bridge no current_scene → stats null → scene null', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })
+      .mockResolvedValueOnce({ id: 2, result: { stats: null } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.scene).toBeNull();
+  });
+
+  it('include_scene=false → scene null（不调 provider）', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: true }));
+    const provider = vi.fn(async () => fakeStats());
+    setEditorSceneProvider(provider);
+    const r = await handleTool('godot_get_context', { project_path: '/p', include_scene: false }, mockCtx());
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.scene).toBeNull();
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('editorSceneProvider 抛错 → scene null + status partial', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: true }));
+    setEditorSceneProvider(async () => { throw new Error('boom'); });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.scene).toBeNull();
+    expect(payload.failedFields).toContain('scene');
+    expect(payload.status).toBe('partial');
+  });
+
+  it('headless mode → scene null', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no bridge'));
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.scene).toBeNull();
+  });
+
+  it('>2000 nodeCount → typeTopN undefined + truncated（GDScript typeTopN:null）', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 1, result: { status: 'ok' } })
+      .mockResolvedValueOnce({ id: 2, result: { stats: { path: 'x', root: 'r', nodeCount: 3000, typeTopN: null, truncated: true } } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    const scene = JSON.parse((r!.content[0] as { text: string }).text).data.scene;
+    expect(scene.nodeCount).toBe(3000);
+    expect(scene.typeTopN).toBeUndefined();
+    expect(scene.truncated).toBe(true);
   });
 });

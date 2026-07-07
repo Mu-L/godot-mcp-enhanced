@@ -16,6 +16,15 @@ import type { ConnectionStatus } from './manage-tools.js';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 
+// ─── SceneSnapshot type（export 供 Task 4 GodotServer import）─────────────────
+export type SceneSnapshot = {
+  path: string;
+  root: string;
+  nodeCount: number;
+  typeTopN?: Array<{ type: string; n: number }>;
+  truncated?: boolean;
+};
+
 // ─── 注入的 provider（GodotServer 接线，参照 manage-tools _connectionStatusProvider）───
 let _connectionStatusProvider: (() => ConnectionStatus | null) | null = null;
 
@@ -23,6 +32,13 @@ let _connectionStatusProvider: (() => ConnectionStatus | null) | null = null;
  *  独立命名避免与 manage-tools 的 setConnectionStatusProvider 撞名（r2 IMP-2）。 */
 export function setGetContextConnectionProvider(provider: (() => ConnectionStatus | null) | null): void {
   _connectionStatusProvider = provider;
+}
+
+let _editorSceneProvider: ((projectPath: string) => Promise<SceneSnapshot | null>) | null = null;
+
+/** 注入 editor 场景快照 provider（内部 editorConn.request('editor_get_scene_stats')）。 */
+export function setEditorSceneProvider(provider: ((projectPath: string) => Promise<SceneSnapshot | null>) | null): void {
+  _editorSceneProvider = provider;
 }
 
 export function getToolDefinitions(): Tool[] {
@@ -68,8 +84,9 @@ async function handleGetContext(args: Record<string, unknown>, ctx: ToolContext)
   const mode = await safeAsync(() => computeMode(projectPath, ctx, bridgeReachable), 'mode', failedFields);
   const project = safe(() => readProject(projectPath), 'project', failedFields);
   const connections = await safeAsync(() => readConnections(projectPath, ctx, bridgeReachable), 'connections', failedFields);
-  const scene = null; // 批 2：editor 插件协议 + bridge 树深度
-  void includeScene; // 批 2 接 readScene 时用
+  const scene = (!includeScene || mode === 'headless' || mode === null)
+    ? null
+    : await safeAsync(() => readScene(mode as 'editor' | 'bridge', projectPath, ctx), 'scene', failedFields);
   const callStats = safe(() => getCallRecorder().getStats(), 'callStats', failedFields);
   const recentCalls = safe(() => getCallRecorder().getRecent(50), 'recentCalls', failedFields);
   const toolGroups = safe(() => readToolGroups(), 'toolGroups', failedFields);
@@ -181,14 +198,26 @@ function parseProjectName(content: string): string | null {
 }
 
 /**
- * 场景快照：editor 用 editor_get_scene_tree，bridge 用 game_query(get_tree)。
- * headless 不调（外层已 null）。
- * MVP 占位：始终返回 null。真实采集（editor-sync 场景树 / game-bridge get_tree
- * + 递归统计 typeTopN，>2000 节点只返回 nodeCount）待 follow-up（批 2）。
+ * 场景快照：editor 走 editorSceneProvider（editorConn → editor_get_scene_stats），
+ * bridge 走 sendToBridge('get_scene_stats')。headless null。TS 零聚合透传。
+ * SceneSnapshot typeTopN/truncated optional（>2000 节点 typeTopN 缺省）。
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function readScene(_mode: string, _ctx: ToolContext): { path: string; root: string; nodeCount: number; typeTopN: Array<{ type: string; n: number }> } | null {
-  return null;
+async function readScene(mode: 'headless' | 'editor' | 'bridge', projectPath: string | undefined, ctx: ToolContext): Promise<SceneSnapshot | null> {
+  if (mode === 'headless') return null;
+  if (mode === 'editor') {
+    if (!_editorSceneProvider) return null;
+    return await _editorSceneProvider(projectPath ?? '');
+  }
+  // bridge
+  const dir = ctx.projectDir || projectPath;
+  if (!dir) return null;
+  const r = await sendToBridge('get_scene_stats', {}, 2000);
+  if (!r || r.error) return null;
+  const stats = (r.result as { stats?: SceneSnapshot | null })?.stats ?? null;
+  if (!stats) return null;
+  // 规范化：GDScript typeTopN:null → undefined（optional 字段）
+  const { typeTopN, ...rest } = stats;
+  return { ...rest, ...(typeTopN && typeTopN.length > 0 ? { typeTopN } : {}) };
 }
 
 /** toolGroups 清单。复用 manage-tools.ts handleListGroups 模式。 */
