@@ -99,6 +99,7 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   editor_sync_start: 'commands/sync_commands.gd',
   editor_sync_stop: 'commands/sync_commands.gd',
   editor_get_scene_tree: 'commands/sync_commands.gd',
+  editor_get_scene_stats: 'commands/sync_commands.gd',
   // animation_commands（animation 组：track/keyframe/curve/blend）
   animation_track: 'commands/animation_commands.gd',
   animation_keyframe: 'commands/animation_commands.gd',
