@@ -476,11 +476,11 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     baseline: 2 }, // master 实测 0 生产调用 → 缺失 2（instance-router 接收侧 + GodotServer 顶层均未接线）
   // ── 计数类 ──
   { key: 'module-level-mutable-state', status: 'open', severity: 'ADVISORY', dimension: 'Architecture',
-    // 收窄降 ADVISORY（detect/baseline 不变）：42 全是合理单例/缓存（_permWarned 去重 / _cachedSecret TTL /
-    // _runningProcess / _socket / _outputBuffer），Node 单线程 + _connectionLock/_sendLock 已加锁，无并发竞态。
-    // detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
+    // 收窄降 ADVISORY（detect/baseline 不变）：43 全是合理单例/缓存（_permWarned 去重 / _cachedSecret TTL /
+    // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
+    // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 42 }, // fix src/ 目录重构后实测 42（master 40 + 重构增 2；_permWarned/_cachedSecret/_runningProcess/_outputBuffer/_socket 等全域）
+    baseline: 43 }, // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；ToolDispatcher 接线(Task 3)复用该单例无新增 let _
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)
   // launcher-no-error-listener 移 FIXED(2026-06-27 detect=0)

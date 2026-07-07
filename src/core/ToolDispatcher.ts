@@ -5,6 +5,7 @@ import type { ReadOnlyGuard } from './ReadOnlyGuard.js';
 import type { EditorToolExecutor } from './EditorToolExecutor.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware, createElicitationMiddleware } from './middleware.js';
+import { getCallRecorder, extractErrorMessage } from './call-recorder.js';
 import { HealthMonitor } from './health-monitor.js';
 import { isFeatureEnabled } from './feature-flags.js';
 import {
@@ -387,10 +388,13 @@ export class ToolDispatcher {
       after: async (ctx, result) => {
         const duration = Date.now() - ctx.startTime;
         const isError = result.isError === true || this.checkJsonSuccessFalse(result);
+        const recorder = getCallRecorder();
         if (isError) {
           this.healthMonitor.recordFailure('TOOL_ERROR', `Tool ${ctx.toolName} failed`);
+          recorder.record(ctx.toolName, false, duration, 'TOOL_ERROR', extractErrorMessage(result));
         } else {
           this.healthMonitor.recordSuccess(duration);
+          recorder.record(ctx.toolName, true, duration);
         }
         return result;
       },

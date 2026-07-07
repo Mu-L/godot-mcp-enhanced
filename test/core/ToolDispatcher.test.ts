@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatcherOptions } from '../../src/core/ToolDispatcher.js';
 import { ToolDispatcher, buildPerCallCtx } from '../../src/core/ToolDispatcher.js';
+import { getCallRecorder } from '../../src/core/call-recorder.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
 import type { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
 import type { ToolResult } from '../../src/types.js';
@@ -1406,5 +1407,57 @@ describe('executeToolCall schema validation (Task 3)', () => {
 
     // confirm_and_execute 路径应正常执行(内联工具无 inputSchema → 跳过)
     expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+});
+
+// ── Task 3: CallRecorder 接线(healthSample.after hook record) ───────────────
+//
+// 接线点:buildMiddleware 的 healthSample.after(:387-396)。每次工具调用后,
+// record 被调(成功记 ctx.toolName+ok,失败记 +errorType/extractErrorMessage)。
+// 验证 getCallRecorder().getStats() 的 total/success/fail 在成功/失败 dispatch 后变化。
+
+describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
+  const successResult: ToolResult = {
+    content: [{ type: 'text', text: JSON.stringify({ status: 'ok' }) }],
+  };
+  const errorResult: ToolResult = {
+    content: [{ type: 'text', text: JSON.stringify({ error: 'boom failure' }) }],
+    isError: true,
+  };
+
+  beforeEach(() => {
+    getCallRecorder().reset();
+    vi.clearAllMocks();
+    mockGetAllToolDefinitions.mockReturnValue([...FIXTURE_TOOLS]);
+    mockRequiresConfirmation.mockReturnValue(false);
+    (_mockResolveProjectPath as ReturnType<typeof vi.fn>).mockReturnValue('/default/project');
+  });
+
+  it('records success on successful tool call', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(successResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
+
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+
+    const stats = getCallRecorder().getStats();
+    expect(stats.total).toBeGreaterThanOrEqual(1);
+    expect(stats.success).toBeGreaterThanOrEqual(1);
+    expect(stats.fail).toBe(0);
+  });
+
+  it('records failure on error tool call (isError=true)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(errorResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
+
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+
+    const stats = getCallRecorder().getStats();
+    expect(stats.total).toBeGreaterThanOrEqual(1);
+    expect(stats.fail).toBeGreaterThanOrEqual(1);
+    expect(stats.success).toBe(0);
   });
 });
