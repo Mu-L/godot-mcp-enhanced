@@ -58,7 +58,8 @@ interface SceneSnapshot {
   path: string;        // 当前场景 res:// 路径
   root: string;        // 根节点名
   nodeCount: number;   // 总节点数
-  typeTopN: Array<{ type: string; n: number }>;  // get_class() 计数 top-5
+  typeTopN?: Array<{ type: string; n: number }>;  // get_class() 计数 top-5（批 2 改 optional：nodeCount>2000 缺省，见批 2 spec §6）
+  truncated?: boolean;                             // 批 2 新增（HARD_STOP=50000 触发）
 }
 ```
 editor 场景树查询的具体实现（editorConn 调哪个方法/命令）由 GodotServer 接线时定（参照 editor-sync handleTool 的场景树读取路径），plan 阶段读 EditorConnection 确认精确 API。
