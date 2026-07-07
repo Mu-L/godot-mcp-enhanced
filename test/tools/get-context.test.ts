@@ -1,7 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { handleTool, getToolDefinitions } from '../../src/tools/get-context.js';
+
+vi.mock('../../src/tools/game-bridge.js', () => ({
+  sendToBridge: vi.fn(),
+  setBridgeProjectDir: vi.fn(),
+  isBridgeReady: vi.fn(),
+}));
+
+import { handleTool, getToolDefinitions, setGetContextConnectionProvider } from '../../src/tools/get-context.js';
 import { getCallRecorder } from '../../src/core/call-recorder.js';
+import { sendToBridge, setBridgeProjectDir } from '../../src/tools/game-bridge.js';
+import type { ConnectionStatus } from '../../src/tools/manage-tools.js';
 import type { ToolContext } from '../../src/types.js';
+
+const fakeCs = (editor: Partial<ConnectionStatus['editor']> = {}): ConnectionStatus => ({
+  editor: { installed: false, connected: false, state: null, ...editor } as ConnectionStatus['editor'],
+  bridge: { note: '每请求建连' },
+});
 
 // 最小 ctx mock（执行者按 ToolContext 真实形状补全，参照 manage-tools.test.ts 的 ctx 装配）
 function mockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -65,5 +79,52 @@ describe('godot_get_context', () => {
     // 即使所有探测失败，工具仍返回 ok/partial，不抛
     const result = await handleTool('godot_get_context', {}, mockCtx());
     expect(result).not.toBeNull();
+  });
+});
+
+describe('computeMode + readConnections real (Task 1)', () => {
+  beforeEach(() => {
+    getCallRecorder().reset();
+    vi.clearAllMocks();
+    setGetContextConnectionProvider(null);
+  });
+
+  it('mode=editor when connectionStatus editor connected', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: true }));
+    (sendToBridge as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 1, result: { status: 'ok' } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.mode).toBe('editor');
+  });
+
+  it('mode=bridge when editor not connected but ping succeeds', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 1, result: { status: 'ok' } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.mode).toBe('bridge');
+    expect(setBridgeProjectDir).toHaveBeenCalledWith('/p');
+  });
+
+  it('mode=headless when editor off + ping fails', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no bridge'));
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.mode).toBe('headless');
+  });
+
+  it('connections.bridge.status=connected when ping ok', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    (sendToBridge as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 1, result: { status: 'ok' } });
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx({ projectDir: '/p' } as any));
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.connections.bridge.status).toBe('connected');
+  });
+
+  it('no project_path + no ctx.projectDir → bridge ping skipped, mode degrades', async () => {
+    setGetContextConnectionProvider(() => fakeCs({ connected: false }));
+    const r = await handleTool('godot_get_context', {}, mockCtx());
+    expect(sendToBridge).not.toHaveBeenCalled();
+    expect(JSON.parse((r!.content[0] as { text: string }).text).data.mode).toBe('headless');
   });
 });

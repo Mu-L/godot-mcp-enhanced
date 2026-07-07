@@ -11,6 +11,17 @@ import { opsSuccess } from './shared.js';
 import { getCallRecorder } from '../core/call-recorder.js';
 import { listPromptDefs } from '../prompts.js';
 import { TOOL_GROUPS, getActiveGroups } from '../core/tool-registry.js';
+import { sendToBridge, setBridgeProjectDir } from './game-bridge.js';
+import type { ConnectionStatus } from './manage-tools.js';
+
+// ─── 注入的 provider（GodotServer 接线，参照 manage-tools _connectionStatusProvider）───
+let _connectionStatusProvider: (() => ConnectionStatus | null) | null = null;
+
+/** 注入 connectionStatus provider（editor 连接态 + bridge note）。setGetContextConnectionProvider
+ *  独立命名避免与 manage-tools 的 setConnectionStatusProvider 撞名（r2 IMP-2）。 */
+export function setGetContextConnectionProvider(provider: (() => ConnectionStatus | null) | null): void {
+  _connectionStatusProvider = provider;
+}
 
 export function getToolDefinitions(): Tool[] {
   return [{
@@ -35,7 +46,7 @@ export async function handleTool(
   if (toolName !== 'godot_get_context') return null;
   // 外层 try/catch：任何未预期错误都降级为 partial，永不抛给调用方
   try {
-    return handleGetContext(args, ctx);
+    return await handleGetContext(args, ctx);
   } catch {
     return textResult(JSON.stringify(opsSuccess({
       status: 'partial',
@@ -45,18 +56,18 @@ export async function handleTool(
   }
 }
 
-function handleGetContext(args: Record<string, unknown>, ctx: ToolContext): ToolResult {
+async function handleGetContext(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
   const failedFields: string[] = [];
   const includeScene = args.include_scene !== false;
   const includePerf = args.include_performance !== false;
   const projectPath = args.project_path as string | undefined;
 
-  const mode = safe(() => computeMode(ctx), 'mode', failedFields);
+  const bridgeReachable = await probeBridge(projectPath, ctx);
+  const mode = await safeAsync(() => computeMode(projectPath, ctx, bridgeReachable), 'mode', failedFields);
   const project = safe(() => readProject(projectPath), 'project', failedFields);
-  const connections = safe(() => readConnections(ctx), 'connections', failedFields);
-  const scene = (!includeScene || mode === 'headless' || mode === null)
-    ? null
-    : safe(() => readScene(mode as 'editor' | 'bridge', ctx), 'scene', failedFields);
+  const connections = await safeAsync(() => readConnections(projectPath, ctx, bridgeReachable), 'connections', failedFields);
+  const scene = null; // 批 2：editor 插件协议 + bridge 树深度
+  void includeScene; // 批 2 接 readScene 时用
   const callStats = safe(() => getCallRecorder().getStats(), 'callStats', failedFields);
   const recentCalls = safe(() => getCallRecorder().getRecent(50), 'recentCalls', failedFields);
   const toolGroups = safe(() => readToolGroups(), 'toolGroups', failedFields);
@@ -67,7 +78,7 @@ function handleGetContext(args: Record<string, unknown>, ctx: ToolContext): Tool
   );
   const rules = safe(() => readRules(projectPath), 'rules', failedFields);
   const performance = (includePerf && mode === 'bridge')
-    ? safe(() => readPerformance(ctx), 'performance', failedFields)
+    ? await safeAsync(async () => readPerformance(ctx), 'performance', failedFields)
     : null;
 
   return textResult(JSON.stringify(opsSuccess({
@@ -92,45 +103,73 @@ function safe<T>(fn: () => T, field: string, failed: string[]): T | null {
   try { return fn(); } catch { failed.push(field); return null; }
 }
 
+/** 异步字段降级 wrapper：rejected → 字段名入 failed，返回 null。 */
+async function safeAsync<T>(fn: () => Promise<T>, field: string, failed: string[]): Promise<T | null> {
+  try { return await fn(); } catch { failed.push(field); return null; }
+}
+
 // ─── 字段采集 helper ──────────────────────────────────────────────────────────
 
-/** 摘要：bridge 连了→bridge，否则 editor 连了→editor，否则 headless。 */
-function computeMode(ctx: ToolContext): 'headless' | 'editor' | 'bridge' {
-  // MVP 占位：从 ctx 读 connectionMode（mock 或后续 ToolContext 扩展注入）；
-  // 读不到或非 bridge/editor → headless。真实 editor/bridge 探测待 follow-up 接入
-  // manage-tools.ts handleSync 的 editorConn/bridge ping 探测逻辑。
-  const m = (ctx as unknown as { connectionMode?: string }).connectionMode;
-  if (m === 'bridge' || m === 'editor') return m;
+/** 探测 bridge 是否可达（单次 ping，2s 超时，不阻塞，永不抛）。无 projectDir 则跳过返 false。 */
+async function probeBridge(projectPath: string | undefined, ctx: ToolContext): Promise<boolean> {
+  const dir = ctx.projectDir || projectPath;
+  if (!dir) return false;
+  try {
+    setBridgeProjectDir(dir);
+    const r = await sendToBridge('ping', {}, 2000);
+    return !!r && !r.error;
+  } catch {
+    return false;
+  }
+}
+
+/** 摘要：editor 连了→editor，bridge 可达→bridge，否则 headless。 */
+async function computeMode(
+  _projectPath: string | undefined,
+  _ctx: ToolContext,
+  bridgeReachable: boolean,
+): Promise<'headless' | 'editor' | 'bridge'> {
+  const cs = _connectionStatusProvider?.() ?? null;
+  if (cs?.editor.connected) return 'editor';
+  if (bridgeReachable) return 'bridge';
   return 'headless';
+}
+
+/** editor 字段从 connectionStatus；bridge.status 用 ping 探测结果。 */
+async function readConnections(
+  projectPath: string | undefined,
+  ctx: ToolContext,
+  bridgeReachable: boolean,
+): Promise<{
+  editor: { installed: boolean; connected: boolean; state: string | null };
+  bridge: { status: string; note?: string };
+}> {
+  const cs = _connectionStatusProvider?.() ?? null;
+  return {
+    editor: cs?.editor ?? { installed: false, connected: false, state: null },
+    bridge: {
+      status: bridgeReachable ? 'connected' : (projectPath || ctx.projectDir ? 'unreachable' : 'probe-required'),
+      note: cs?.bridge.note,
+    },
+  };
 }
 
 /**
  * project = { name, godot, path }。读 project.godot + godot --version。
  * MVP 占位：始终返回 null。真实采集（复用 src/tools/project.ts 解析 +
- * findGodot 版本探测）待 follow-up。
+ * findGodot 版本探测）待 follow-up（批 1 Task 2）。
  */
 function readProject(_projectPath: string | undefined): { name: string; godot: string; path: string } | null {
   return null;
 }
 
 /**
- * editor 安装/连接态 + bridge 探测。
- * MVP 占位：返回默认未连接态。真实探测（参照 manage-tools.ts handleSync：
- * editorConn 注入/连接 + game-bridge ping）待 follow-up。
- */
-function readConnections(_ctx: ToolContext): {
-  editor: { installed: boolean; connected: boolean; state: string | null };
-  bridge: { status: string };
-} {
-  return { editor: { installed: false, connected: false, state: null }, bridge: { status: 'probe-required' } };
-}
-
-/**
  * 场景快照：editor 用 editor_get_scene_tree，bridge 用 game_query(get_tree)。
  * headless 不调（外层已 null）。
  * MVP 占位：始终返回 null。真实采集（editor-sync 场景树 / game-bridge get_tree
- * + 递归统计 typeTopN，>2000 节点只返回 nodeCount）待 follow-up。
+ * + 递归统计 typeTopN，>2000 节点只返回 nodeCount）待 follow-up（批 2）。
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function readScene(_mode: string, _ctx: ToolContext): { path: string; root: string; nodeCount: number; typeTopN: Array<{ type: string; n: number }> } | null {
   return null;
 }
