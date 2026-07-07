@@ -147,7 +147,7 @@ export class GodotServer {
     setOnGroupsChanged(() => this.sendToolListChanged());
     setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
     setGetContextConnectionProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
-    setEditorSceneProvider(async (_projectPath: string) => {
+    setEditorSceneProvider(async () => {
       if (!this.editorConn?.isConnected()) return null;
       try {
         const result = await this.editorConn.request('editor_get_scene_stats', {});

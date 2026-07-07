@@ -185,6 +185,18 @@ describe('readProject + readRules real (Task 2)', () => {
     const r = await handleTool('godot_get_context', {}, mockCtx());
     expect(JSON.parse((r!.content[0] as { text: string }).text).data.rules).toEqual([]);
   });
+
+  // 批 1 M4：fs 抛错（非"不存在"）冒泡到 safe → failedFields + status partial（不再被内部 try/catch 吞成 ok）
+  it('readProject fs throw → failedFields + status partial', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('EACCES'); });
+    (sendToBridge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('x'));
+    const r = await handleTool('godot_get_context', { project_path: '/p' }, mockCtx());
+    const payload = JSON.parse((r!.content[0] as { text: string }).text).data;
+    expect(payload.project).toBeNull();
+    expect(payload.failedFields).toContain('project');
+    expect(payload.status).toBe('partial');
+  });
 });
 
 describe('readPerformance bridge real (Task 3)', () => {
@@ -222,7 +234,7 @@ describe('readPerformance bridge real (Task 3)', () => {
   });
 });
 
-const fakeStats = (over: Partial<{ path: string; root: string; nodeCount: number; typeTopN: Array<{ type: string; n: number }> | null; truncated: boolean }> = {}) => ({
+const fakeStats = (over: Partial<{ path: string; root: string; nodeCount: number; typeTopN: Array<{ type: string; n: number }>; truncated: boolean }> = {}) => ({
   path: 'res://scenes/main.tscn', root: 'Main', nodeCount: 5,
   typeTopN: [{ type: 'Node3D', n: 3 }], truncated: false, ...over,
 });

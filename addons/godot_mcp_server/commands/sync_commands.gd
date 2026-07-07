@@ -79,6 +79,7 @@ func get_scene_stats() -> Dictionary:
 	var node_count: int = 0
 	var type_count: Dictionary = {}
 	var truncated: bool = false
+	# 批 2 M2：Godot 场景树不变量保证无环（节点不能是自己的祖先），stack DFS 不会无限循环；HARD_STOP 兜底防 OOM
 	var stack: Array = [root]
 	while stack.size() > 0:
 		if node_count >= HARD_STOP:

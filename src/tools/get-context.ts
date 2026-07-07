@@ -34,10 +34,11 @@ export function setGetContextConnectionProvider(provider: (() => ConnectionStatu
   _connectionStatusProvider = provider;
 }
 
-let _editorSceneProvider: ((projectPath: string) => Promise<SceneSnapshot | null>) | null = null;
+let _editorSceneProvider: (() => Promise<SceneSnapshot | null>) | null = null;
 
-/** 注入 editor 场景快照 provider（内部 editorConn.request('editor_get_scene_stats')）。 */
-export function setEditorSceneProvider(provider: ((projectPath: string) => Promise<SceneSnapshot | null>) | null): void {
+/** 注入 editor 场景快照 provider（内部 editorConn.request('editor_get_scene_stats')）。
+ *  批 2 M1：editor 不需要 project_path（editorConn 全局），签名简化为 ()。 */
+export function setEditorSceneProvider(provider: (() => Promise<SceneSnapshot | null>) | null): void {
   _editorSceneProvider = provider;
 }
 
@@ -134,7 +135,7 @@ async function probeBridge(projectPath: string | undefined, ctx: ToolContext): P
   const dir = ctx.projectDir || projectPath;
   if (!dir) return false;
   try {
-    setBridgeProjectDir(dir);
+    setBridgeProjectDir(dir);  // 批 1 M1：全局副作用——设置 game-bridge 模块 project dir（后续 sendToBridge 隐式依赖）
     const r = await sendToBridge('ping', {}, 2000);
     return !!r && !r.error;
   } catch {
@@ -182,18 +183,17 @@ function readProject(projectPath: string | undefined): { name: string; godot: nu
   if (!projectPath) return null;
   const cfg = join(projectPath, 'project.godot');
   if (!existsSync(cfg)) return null;
-  try {
-    const content = readFileSync(cfg, 'utf-8');
-    const name = parseProjectName(content) ?? basename(projectPath);
-    return { name, godot: null, path: projectPath };
-  } catch {
-    return null;
-  }
+  // 批 1 M4：移除内部 try/catch，fs 抛错（权限等）冒泡到 safe wrapper → failedFields（partial），
+  // 与 existsSync=false 的正常降级 null 区分（后者 status 仍 ok）
+  const content = readFileSync(cfg, 'utf-8');
+  const name = parseProjectName(content) ?? basename(projectPath);
+  return { name, godot: null, path: projectPath };
 }
 
-/** 从 project.godot 文本提 [application] config/name="X" 的 X。无匹配 → null。 */
+/** 从 project.godot 文本提 [application] 段 config/name="X" 的 X。无匹配 → null。
+ *  批 1 M2：正则锚 [application] 段（[^\[]*? 不跨段），避免其他段同名 key 误匹配。 */
 function parseProjectName(content: string): string | null {
-  const m = content.match(/config\/name\s*=\s*"([^"]*)"/);
+  const m = content.match(/\[application\][^\[]*?config\/name\s*=\s*"([^"]*)"/);
   return m ? m[1] ?? null : null;
 }
 
@@ -203,10 +203,10 @@ function parseProjectName(content: string): string | null {
  * SceneSnapshot typeTopN/truncated optional（>2000 节点 typeTopN 缺省）。
  */
 async function readScene(mode: 'headless' | 'editor' | 'bridge', projectPath: string | undefined, ctx: ToolContext): Promise<SceneSnapshot | null> {
-  if (mode === 'headless') return null;
+  if (mode === 'headless') return null;  // 批 2 M3：分支守卫（调用方已过滤 headless，此处防御 + 确保 mode 收窄为 editor/bridge，否则 fall through 到 bridge 分支）
   if (mode === 'editor') {
     if (!_editorSceneProvider) return null;
-    return await _editorSceneProvider(projectPath ?? '');
+    return await _editorSceneProvider();
   }
   // bridge
   const dir = ctx.projectDir || projectPath;
@@ -230,16 +230,14 @@ function readToolGroups(): Array<{ name: string; active: boolean; requires: stri
   }));
 }
 
-/** rules = {projectPath}/.claude/rules/*.md 文件名列表。无 projectPath 或目录不存在/不可读 → []。 */
+/** rules = {projectPath}/.claude/rules/*.md 文件名列表。无 projectPath 或目录不存在 → []（正常降级）。
+ *  批 1 M4：移除内部 try/catch，readdirSync 抛错冒泡到 safe wrapper → failedFields（partial）。
+ *  批 1 M3（withFileTypes）defer：YAGNI——.claude/rules 下 .md 目录不现实，当前 endsWith('.md') 足够。 */
 function readRules(projectPath: string | undefined): string[] {
   if (!projectPath) return [];
   const rulesDir = join(projectPath, '.claude', 'rules');
   if (!existsSync(rulesDir)) return [];
-  try {
-    return readdirSync(rulesDir).filter(f => f.endsWith('.md'));
-  } catch {
-    return [];
-  }
+  return readdirSync(rulesDir).filter(f => f.endsWith('.md'));
 }
 
 /** performance = { fps, memory_mb }。仅 bridge（外层已守卫）。get_performance result 字段可选链降级。 */
