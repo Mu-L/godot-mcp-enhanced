@@ -36,6 +36,7 @@ import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
 import { setOnGroupsChanged, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from './tools/manage-tools.js';
+import { setGetContextConnectionProvider } from './tools/get-context.js';
 import { InstanceManager } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
@@ -145,6 +146,7 @@ export class GodotServer {
     // Connect manage-tools notification callback
     setOnGroupsChanged(() => this.sendToolListChanged());
     setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
+    setGetContextConnectionProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
     setReconnectEditor(buildReconnectEditor(
       () => this.editorConn,
       () => this.rebuildEditorConnection(), // 方案B: editor 降级后重建连接(重读 secret + new EditorConnection)
@@ -434,6 +436,7 @@ export class GodotServer {
     await this.server.close();
     setOnGroupsChanged(null);
     setConnectionStatusProvider(null);
+    setGetContextConnectionProvider(null);
     setReconnectEditor(null);
     clearMcpServer();
     log('Server shut down');
