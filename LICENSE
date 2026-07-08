@@ -2,6 +2,10 @@ MIT License
 
 Copyright (c) 2026 wgt19861219
 Copyright (c) 2025 Solomon Elias (https://github.com/Coding-Solo/godot-mcp)
+Copyright (c) 2026 AssetForge Contributors (https://github.com/wgt19861219/godot-asset-forge)
+
+Acknowledgements:
+- asset 工具集（asset action）的 GDScript 资产生成逻辑源自 AssetForge，后者 fork 自 Tripo3D Godot Bridge，在此致谢。
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
