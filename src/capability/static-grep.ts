@@ -118,6 +118,12 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   ui_container_add: 'commands/ui_commands.gd',
   theme_create: 'commands/ui_commands.gd',
   theme_set_property: 'commands/ui_commands.gd',
+  // asset_commands（asset-forge 整合：5 action merged asset 工具）
+  asset_create: 'commands/asset/asset_commands.gd',
+  asset_path: 'commands/asset/asset_commands.gd',
+  asset_batch: 'commands/asset/asset_commands.gd',
+  asset_undo: 'commands/asset/asset_commands.gd',
+  asset_save: 'commands/asset/asset_commands.gd',
   // editor_guards（I-01 文本资源写入守卫；文件在 addons 根非 commands/）
   guard_text_resource_write: 'editor_guards.gd',
   // P1-2 (2026-07-06 review): 场景离线保存守卫(与 guard_text_resource_write 对称, 同在 editor_guards.gd)

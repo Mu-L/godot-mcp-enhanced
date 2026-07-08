@@ -4,7 +4,7 @@
 > 少见提供「系统化安全防护 + 三层架构」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:28 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构
+工具层:33 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **28** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **33** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | Godot 4.5–4.7 兼容矩阵 | **✅** | — | — | — |
@@ -581,6 +581,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.22.0** | 2026-07-08 | asset 工具集新工具(11 shape + 路径阵列 discrete/continuous + batch 原子 undo + save 预制件 + 10 材质预设;方案 A 阻塞 continuous ramp 待上游)+ capability-matrix 33 + LICENSE 致谢 AssetForge/Tripo3D |
 | **v0.21.0** | 2026-07-06 | csv_to_resources 新工具(CSV→Godot 资源批量导入,双轨 TS+GDScript)+ ToolAnnotations hints(actionRisks 派生 readOnly/destructive)+ 多轮独立审查核实修复(RCE/ipc/data-import/综合审查 editor 路由 -32601 回退+guard 接线+heartbeat 暂停语义)+ editor 4.7 兼容(EditorInterface/super() 回归/Safe save)+ capability reviewer 设施 + e2e L2 opt-in |
 | **v0.20.0** | 2026-06-30 | cpp GDExtension 脚手架(scaffold_gdextension 生成 8 文件 C++ 工程骨架)+ 全工具验证靶子(real-project 三层 L1/L2/L3 自动化,28 工具正路径)+ 工具行为修复(default-null 统一/run_project isError/timeout race)+ R3/安全审查修复 |
 | **v0.19.1** | 2026-06-27 | 版本元数据同步(manifest/plugin.cfg/README/使用指南)— 功能无变化,补 v0.19.0 npm 元数据漂移 |

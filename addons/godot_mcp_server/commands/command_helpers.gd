@@ -113,6 +113,23 @@ static func _try_safe_string_convert(val: String, target_type: int) -> bool:
 	return false
 
 
+## Parse a Vector3 from JSON/array sources. T5: shared vec3 parser for asset_placer
+## (replaces per-file _vec3 copies from asset-forge). Accepts Array or PackedFloat64Array
+## of length >= 3; any other type or short array returns Vector3.ZERO (defensive).
+static func parse_vec3(v: Variant) -> Vector3:
+	if v is Array:
+		var a: Array = v as Array
+		if a.size() >= 3:
+			return Vector3(float(a[0]), float(a[1]), float(a[2]))
+		return Vector3.ZERO
+	if v is PackedFloat64Array:
+		var p: PackedFloat64Array = v as PackedFloat64Array
+		if p.size() >= 3:
+			return Vector3(p[0], p[1], p[2])
+		return Vector3.ZERO
+	return Vector3.ZERO
+
+
 ## Count comma-separated numeric components, ignoring surrounding brackets/parens/whitespace.
 ## Returns -1 if any component is not a number. Safe replacement for str_to_var (C-02).
 static func _count_number_components(val: String) -> int:

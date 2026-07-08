@@ -54,6 +54,7 @@ import * as androidOps from '../tools/android.js';
 import * as cpp from '../tools/cpp.js';
 import * as dataImport from '../tools/data-import.js';
 import * as getContext from '../tools/get-context.js';
+import * as asset from '../tools/asset/asset-ops.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ const ALL_MODULES = [
   cpp,
   dataImport,
   getContext,
+  asset,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

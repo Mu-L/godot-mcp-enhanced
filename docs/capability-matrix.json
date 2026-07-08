@@ -693,6 +693,198 @@
       }
     },
     {
+      "name": "asset",
+      "group": "unknown",
+      "description": "参数化 3D shape 生成（11 shape）+ 路径阵列 + batch + undo + save 预制件。create/path/batch/undo/save 经 editor 持久化（视口可见、可 undo）；list_shapes/list_materials 静态返回。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Godot 项目目录"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "path",
+              "batch",
+              "undo",
+              "save",
+              "list_shapes",
+              "list_materials"
+            ],
+            "description": "操作类型"
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "box",
+              "cylinder",
+              "sphere",
+              "prism",
+              "wall",
+              "ramp",
+              "cone",
+              "tube",
+              "torus",
+              "stairs",
+              "fence"
+            ],
+            "description": "create/path: shape 名（见 list_shapes）"
+          },
+          "params": {
+            "type": "object",
+            "description": "shape 参数（见 list_shapes 默认值）"
+          },
+          "material": {
+            "type": [
+              "string",
+              "object",
+              "null"
+            ],
+            "description": "预设名 / PBR dict（color(hex),alpha,emissive,metallic,roughness）/ res://.tres / null"
+          },
+          "name": {
+            "type": "string",
+            "description": "节点名（碰撞自增 _001）"
+          },
+          "parent": {
+            "type": "string",
+            "description": "父节点路径（绝对 /Root/X 或相对 X/Y）"
+          },
+          "position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "[x,y,z]"
+          },
+          "rotation": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "[x,y,z] 弧度"
+          },
+          "scale": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "[x,y,z]"
+          },
+          "items": {
+            "type": "array",
+            "description": "batch: [{shape,params,material,name,...}] ≤64"
+          },
+          "path": {
+            "type": "array",
+            "description": "path: [[x,y,z],...] ≥2 点（与 path_node 互斥）"
+          },
+          "path_node": {
+            "type": "string",
+            "description": "path: 场景 Path3D 节点路径（与 path 互斥）"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "discrete",
+              "continuous"
+            ],
+            "description": "path 采样模式"
+          },
+          "spacing": {
+            "type": "number",
+            "description": "path discrete: 等间距（与 count 互斥）"
+          },
+          "count": {
+            "type": "number",
+            "description": "path discrete: 等数量（与 spacing 互斥）"
+          },
+          "align": {
+            "type": "string",
+            "enum": [
+              "none",
+              "path",
+              "normal"
+            ],
+            "description": "path 朝向（默认 path）"
+          },
+          "align_vertices": {
+            "type": "boolean",
+            "description": "path continuous+spacing: 折线顶点段边界对齐"
+          },
+          "node_path": {
+            "type": "string",
+            "description": "save: 要存的子树节点路径"
+          },
+          "resource_path": {
+            "type": "string",
+            "description": "save: res://xxx.tscn 输出路径"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "project_path",
+        "shape",
+        "params",
+        "material",
+        "name",
+        "parent",
+        "position",
+        "rotation",
+        "scale",
+        "items",
+        "path",
+        "path_node",
+        "mode",
+        "spacing",
+        "count",
+        "align",
+        "align_vertices",
+        "node_path",
+        "resource_path"
+      ],
+      "readonly": false,
+      "longRunning": false,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 2,
+        "write": 5,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      }
+    },
+    {
       "name": "audio",
       "group": "audio",
       "description": "音频操作。play: 播放（支持 AudioStreamPlayer/2D/3D）。stop: 停止。set_param: 设置参数（volume_db/pitch_scale/bus）。query: 查询播放状态。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。",
@@ -1304,7 +1496,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, android, csv_to_resources",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, android, csv_to_resources, asset",
       "inputSchema": {
         "type": "object",
         "properties": {
