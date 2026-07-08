@@ -1,11 +1,13 @@
 # asset_factory.gd
-# 调度层：create_mesh 分发（6 内置 PrimitiveMesh；5 手写 shape 在 Task 3 接回）+ create_material（4 来源）
-# 移植自 asset-forge asset_factory.gd（删 class_name，改 preload 引用；删 5 custom_meshes 分支）
+# 调度层：create_mesh 分发（6 内置 PrimitiveMesh + 5 手写 ArrayMesh）+ create_material（4 来源）
+# 移植自 asset-forge asset_factory.gd（删 class_name，改 preload 引用；make_ramp 阻塞未移植，方案 A）
 @tool
 extends RefCounted
 
 # 材质预设库（同目录 preload；原 asset-forge 的 MaterialLibrary）
 const MaterialPresets = preload("material_presets.gd")
+# 手写 ArrayMesh（同目录 preload；原 asset-forge 的 CustomMeshes，删 class_name）
+const CustomMeshes = preload("custom_meshes.gd")
 
 
 # v7 mesh 缓存（static var 持 Mesh 引用，常驻 plugin session；@tool 热重载偶发清空无害）
@@ -34,8 +36,8 @@ static func clear_cache() -> void:
 
 
 # 既有创建逻辑（create_mesh 缓存未命中时调）
-# T2 中间状态：仅 6 内置 PrimitiveMesh。cone/tube/torus/stairs/fence 在 Task 3 接回（custom_meshes），
-# 此 5 shape 暂 fallthrough 到 _ 分支返 null（调用方收 UNSUPPORTED_SHAPE）
+# 6 内置 PrimitiveMesh（box/cylinder/sphere/prism/wall/ramp）+ 5 手写 ArrayMesh（cone/tube/torus/stairs/fence）
+# 注：ramp 仅 PrismMesh 路径（make_ramp 阻塞未移植，方案 A）
 static func create_mesh_uncached(shape: String, params: Dictionary) -> Mesh:
 	match shape.to_lower():
 		"box":
@@ -68,9 +70,7 @@ static func create_mesh_uncached(shape: String, params: Dictionary) -> Mesh:
 				float(params.get("thickness", 0.1))
 			)
 			return m
-		"ramp":  # 语义化 prism：坡道（v6：params 含 start_height/end_height → 手写 wedge 衔接，否则 PrismMesh）
-			# T2 中间状态：start_height/end_height 路径在 Task 3 接回 custom_meshes.make_ramp 后恢复；
-			# 当前无 custom_meshes，这两个参数路径 fallthrough 到 PrismMesh（零回归，与 ramp 默认行为一致）
+		"ramp":  # 语义化 prism：坡道（单件 PrismMesh；make_ramp 阻塞未移植，方案 A）
 			var m := PrismMesh.new()
 			m.size = Vector3(
 				float(params.get("length", 2.0)),
@@ -79,10 +79,18 @@ static func create_mesh_uncached(shape: String, params: Dictionary) -> Mesh:
 			)
 			m.left_to_right = 0.0
 			return m
-		# T2 中间状态：cone/tube/torus/stairs/fence 5 分支已删（转 custom_meshes，Task 3 接回）
-		# ramp 的 start_height/end_height 路径同理（需 custom_meshes.make_ramp）
+		"cone":
+			return CustomMeshes.make_cone(params)
+		"tube":
+			return CustomMeshes.make_tube(params)
+		"torus":
+			return CustomMeshes.make_torus(params)
+		"stairs":
+			return CustomMeshes.make_stairs(params)
+		"fence":
+			return CustomMeshes.make_fence(params)
 		_:
-			push_error("AssetFactory: 未知或暂未接入的 shape '%s'" % shape)
+			push_error("AssetFactory: 未知 shape '%s'" % shape)
 			return null
 
 
