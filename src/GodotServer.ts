@@ -46,7 +46,7 @@ import { buildAuthHeaders } from './core/instance-api-auth.js';
 import { isFeatureEnabled } from './core/feature-flags.js';
 import * as ps from './core/process-state.js';
 import { killProcess } from './core/process-state.js';
-import { getLogger } from './core/logger.js';
+import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.js';
 import { resolveProjectPath } from './core/path-utils.js';
 import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
@@ -105,6 +105,7 @@ export class GodotServer {
       }
     );
     setMcpServer(this.server);
+    setLoggerServer(this.server);
     this.setupHandlers();
   }
 
@@ -217,6 +218,7 @@ export class GodotServer {
     };
 
     this.server.oninitialized = async () => {
+      setLoggerClientReady(true);
       const caps = this.server.getClientCapabilities();
       if (caps?.roots) {
         await applyRoots(false);
@@ -505,6 +507,8 @@ export class GodotServer {
     setEditorSceneProvider(null);
     setReconnectEditor(null);
     clearMcpServer();
+    setLoggerServer(null);          // 批 P1: MCP Logging 干净关闭 + 测试隔离
+    setLoggerClientReady(false);
     setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
     log('Server shut down');
   }
