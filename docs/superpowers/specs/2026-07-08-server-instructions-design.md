@@ -56,7 +56,7 @@ src/instructions.md  ──(npm build 复制)──▶  build/instructions.md
 
 精简中文速查卡，结构固定为 5 节：
 
-1. **定位**（1-2 句）：Godot MCP，三层架构（headless + editor + bridge），28 工具覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出。
+1. **定位**（1-2 句）：Godot MCP，三层架构（headless + editor + bridge），覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出等领域（工具清单见 `manage_tools` / `docs/capability-matrix.md`，随版本演进，不在此写死数字）。
 2. **三层模式决策树**（何时用哪个）：
    - 静态读写 `.tscn`/`.gd` → headless（`edit_script` / `write_script` / `batch_*`）
    - 编辑器实时场景 → editor（`launch_editor` + `editor_*`，需插件连接）
@@ -65,9 +65,9 @@ src/instructions.md  ──(npm build 复制)──▶  build/instructions.md
 3. **5 条致命陷阱**（每条一行，含规避动作）：
    - **T1 运行时工具不持久化**：`signal_*` / `particles_*` / `ui_*` / `audio_*` 等 headless 运行时变更在进程退出后丢失。需持久化用 `add_node` + `save_scene` 或 `write_script`。
    - **T2 `edit_script` 优先 `search_and_replace`**：基于内容匹配，对行号偏移鲁棒、CRLF 安全。**勿用 Claude 内置 Edit 编辑 `.gd`**（tab 缩进匹配率极低）。
-   - **T3 2D 截图 headless 空白**：headless 不渲染 2D CanvasItem，`screenshot` 返回 `BLANK_DETECTED` 时改用 Bridge `take_screenshot`（游戏运行）或手动截图。3D 不受影响。
-   - **T4 节点路径须 `/root/` 前缀**：`game_write` / `game_wait` / `game_input` 的 `path` 参数必须以 `/root/` 开头（如 `/root/Main/Player`），不接受 `root/Main/Player`。
-   - **T5 Bridge 密钥 5min TTL**：长时间未操作后首次调用可能稍慢；本地测试遇权限循环设 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`。
+   - **T3 2D 截图 headless 空白**：headless 不渲染 2D CanvasItem，`screenshot` 返回 `BLANK_DETECTED` 时改用：① Bridge `take_screenshot`（游戏运行中）/ ② `screenshot(action=analyze)` 传外部截图路径 / ③ 手动截图。3D 不受影响。
+   - **T4 节点路径须 `/root/` 前缀**：凡带 `path`/`node_path` 参数的 `game_*` 工具（`game_query` / `game_write` / `game_wait` / `game_input` / `click_button` / `monitor` / `watch`）必须以 `/root/` 开头（如 `/root/Main/Player`），不接受 `root/Main/Player`（统一经 `validateBridgePath` 校验）。
+   - **T5 Bridge 密钥 5min TTL**：长时间未操作后首次调用可能稍慢；本地测试遇权限循环设 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`（**该 env 由 bridge 游戏进程 `mcp_bridge.gd` 读取、TS server 端不识别——须在启动游戏前设置，经 spawn 透传到游戏子进程，重启游戏才生效**）。
 4. **安全模型**（1-2 句）：deny-by-default 路径白名单（`ALLOWED_PROJECT_PATHS`）+ GDScript 沙箱是**防误操作层**，非不可绕过的安全边界；不可信环境用容器/VM。
 5. **运行时详情入口**：`manage_tools`（工具组启用/状态）、`godot_get_context`（会话全景：mode/connections/scene/performance）。
 
@@ -176,9 +176,9 @@ console.log('Copied instructions.md');
 2. **内容契约**：含 5 条陷阱的关键词标记（T1 运行时/T2 search_and_replace/T3 2D 截图/T4 root 前缀/T5 TTL），防内容漂移丢失陷阱。
 3. **长度上限**：`content.length < 2000`，防膨胀（精简速查卡承诺）。
 4. **失败兜底**：mock `readFileSync` 抛异常时，函数返回 `undefined` 且不抛（用 `vi.spyOn` 或临时重命名验证；选不依赖真实文件系统 Mock 的方式，避免污染）。
-5. **接入断言**：在现有 `test/godot-server.test.js` 的构造测试里追加一条断言——构造后 `(this.server as any)._instructions` 为非空字符串（SDK 内部字段，白盒断言）。**不**做 inspector / Client 端 initialize 端到端测试（太重，性价比低）；集成层由测试 1 + 本断言间接覆盖（readInstructions 返回值即传入 Server 的 instructions）。
+5. **接入断言**：在现有 `test/godot-server.test.js` 的构造测试里追加一条断言——构造后 `(this.server as any)._instructions` 为非空字符串（SDK 内部 private 字段，白盒断言）。**SDK（`@modelcontextprotocol/sdk`）minor/major 升级时需复查此断言**（字段改名/改可见性会假阳性失败；SDK 无公开读 instructions 的 API，故取白盒方案）。**不**做 inspector / Client 端 initialize 端到端测试（太重，性价比低）；集成层由测试 1 + 本断言间接覆盖（readInstructions 返回值即传入 Server 的 instructions）。
 
-**回归**：现有 `test/godot-server.test.js` 不受影响（构造签名仅增字段，未改既有行为）。defects baseline 不变（无 defect 触及）。
+**回归**：现有 `test/godot-server.test.js` 不受影响（构造签名仅增字段，未改既有行为）。**本次改动不触及 `test/regression/defects.ts` 的任何 detect 路径**（新代码仅读 `.md` 文件 + 构造参数增字段，不碰 spawn / path 校验 / secret / ClassDB / 脚本校验等 defect 检测面），baseline 计数不变。
 
 ## 9. 影响面
 
@@ -187,7 +187,7 @@ console.log('Copied instructions.md');
 - **依赖**：零新增（`readFileSync` / `fs` / `path` / `url` 均已有）。
 - **构建**：build 多复制一个文件，files 多一项。
 - **测试**：新增 1 测试文件（~5 用例）。
-- **defects**：无（baseline 46 不变）。
+- **defects**：不触及任何 detect 路径（baseline 计数不变，见 §8 可核实表述）。
 
 ## 10. 验收标准
 
