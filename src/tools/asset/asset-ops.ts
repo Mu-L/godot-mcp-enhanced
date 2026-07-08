@@ -23,6 +23,12 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import type { RiskLevel } from '../../core/tool-registry.js';
 import { opsErrorResult } from '../shared.js';
+import { requireProjectPath, requireString } from '../../helpers.js';
+import {
+  isPathInAllowedRoots,
+  normalizeUserProjectPath,
+  resolveWithinRoot,
+} from '../../core/path-utils.js';
 import { SHAPES, SHAPE_NAMES, MATERIAL_PRESETS } from './schema.js';
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
@@ -127,6 +133,37 @@ export async function handleTool(
   // ── create/path/batch/undo/save: editor 模式由 ToolDispatcher 盲转 ──
   // editor 模式不会到此（已被 currentExecutor.execute 转发到 command_handler）。
   // 仅 headless 模式 dispatchTool 落到此处 → 返 EDITOR_ONLY。
+
+  // ── save 的 TS 侧 resource_path 前置校验（T8）──
+  // 路由现实：editor 模式 save 由 ToolDispatcher 盲转 → command_handler.handle_save
+  // （GD T6 已做 begins_with("res://") + has_path_traversal）；TS handleTool 在 editor
+  // 模式不被调。headless 模式 save 落到本 handleTool → 原本直接返 EDITOR_ONLY。
+  // 此处校验主要给 headless save 早期 resource_path 格式反馈（EDITOR_ONLY 返回前校验），
+  // 同时作为防御层：即使未来路由调整使 TS handleTool 在 editor 模式被调，也先于持久化拒掉
+  // 非法路径。editor 模式符号链接/TOCTOU 防护靠 GD T6 + 本地可信环境（已知架构局限）。
+  if (action === 'save') {
+    const resourcePath = requireString(args, 'resource_path');
+    if (!resourcePath.startsWith('res://')) {
+      return opsErrorResult(
+        'INVALID_PATH',
+        `save resource_path must start with res://, got: ${resourcePath}`,
+      );
+    }
+    // 惯例（同 batch-tools.ts:114-115 / data-import.ts:320-321）：res:// 先剥离，
+    // resolveWithinRoot 不识别 res://。normalizeUserProjectPath 单参，仅剥前缀。
+    const projectPath = requireProjectPath(args);
+    const relPath = normalizeUserProjectPath(resourcePath);
+    // resolveWithinRoot: realpathSync 归一，防符号链接/`..`/UNC/Windows 设备名。
+    // 越界 → 抛异常（不能静默吞，save 是写操作）。
+    const resolved = resolveWithinRoot(projectPath, relPath);
+    if (!isPathInAllowedRoots(resolved)) {
+      return opsErrorResult(
+        'PATH_NOT_ALLOWED',
+        `save resource_path outside ALLOWED_PROJECT_PATHS: ${resourcePath}`,
+      );
+    }
+  }
+
   return opsErrorResult(
     'EDITOR_ONLY',
     `asset action "${action}" requires Editor mode. Set GODOT_MCP_MODE=editor and install the Godot plugin.`,
