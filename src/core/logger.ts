@@ -9,6 +9,7 @@ import { writeSync, closeSync, openSync, mkdirSync, readdirSync, unlinkSync } fr
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 // ---------------------------------------------------------------------------
 // 类型定义
@@ -130,6 +131,36 @@ function sanitizeMsg(msg: string): string {
   return truncate(redacted);
 }
 
+/** MCP LoggingLevel 子集映射：本项目 4 级 → MCP 8 级。debug/info 返 null（不发 client）。 */
+function toMcpLevel(level: LogLevel): 'warning' | 'error' | null {
+  if (level === 'warn') return 'warning';
+  if (level === 'error') return 'error';
+  return null;
+}
+
+/**
+ * 增量第三写：按条件向 MCP client 推送 warn/error。
+ * guard: _mcpServer 注入 + _clientReady + level∈{warn,error}。
+ * 失败静默（try/catch 同步 throw + .catch async reject）——日志是观测层，绝不影响主流程。
+ * 安全：entry 经 log() 的 sanitizeMsg/sanitizeMeta 脱敏后才进 writeEntry，data 已脱敏。
+ */
+function emitToClient(entry: LogEntry): void {
+  if (!_mcpServer || !_clientReady) return;
+  const mcpLevel = toMcpLevel(entry.level);
+  if (!mcpLevel) return;
+  const data: Record<string, unknown> = { msg: entry.msg, module: entry.module };
+  if (entry.tool) data.tool = entry.tool;
+  if (entry.meta) data.meta = entry.meta;
+  try {
+    const p = _mcpServer.sendLoggingMessage({ level: mcpLevel, logger: entry.module, data });
+    if (p && typeof (p as Promise<unknown>).catch === 'function') {
+      (p as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    // 同步 throw 静默
+  }
+}
+
 /** stderr 格式化：[module] LEVEL msg — LEVEL 仅 warn/error 显示 */
 function formatStderr(entry: LogEntry): string {
   const levelTag = (entry.level === 'warn' || entry.level === 'error')
@@ -245,6 +276,7 @@ function createLogger(opts: LoggerOptions = {}): Logger {
       }, bufferMs);
       flushTimer.unref?.();
     }
+    emitToClient(entry);
   }
 
   /** 内部刷盘：写文件 + 检查超时工具 */
@@ -424,6 +456,20 @@ function createLogger(opts: LoggerOptions = {}): Logger {
 // 单例管理
 // ---------------------------------------------------------------------------
 
+// MCP Logging 注入：Server 实例 + client 就绪 flag。null/false 时不发，零开销退化。
+let _mcpServer: Server | null = null;
+let _clientReady = false;
+
+/** 注入 MCP Server 实例（GodotServer 构造时调）；null 清除（close/测试隔离） */
+export function setLoggerServer(server: Server | null): void {
+  _mcpServer = server;
+}
+
+/** 标记 client 是否已完成 initialize（oninitialized 时设 true）；未就绪不发，避免 SDK 报错 */
+export function setLoggerClientReady(ready: boolean): void {
+  _clientReady = ready;
+}
+
 let instance: Logger | null = null;
 
 export function getLogger(opts?: LoggerOptions): Logger {
@@ -445,4 +491,6 @@ export function resetLogger(): void {
     instance.close();
     instance = null;
   }
+  _mcpServer = null;
+  _clientReady = false;
 }
