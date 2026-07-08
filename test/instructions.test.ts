@@ -28,3 +28,25 @@ describe('instructions.md 内容契约', () => {
     expect(content.length).toBeLessThan(2000);
   });
 });
+
+import { readInstructions } from '../src/core/instructions.js';
+
+describe('readInstructions', () => {
+  it('默认路径返回非空字符串且含 headless 标记', () => {
+    const result = readInstructions();
+    expect(typeof result).toBe('string');
+    expect(result).toMatch(/headless/);
+  });
+
+  it('默认路径返回值与 src/instructions.md 一致', () => {
+    const { readFileSync } = require('fs');
+    const { join } = require('path');
+    const direct = readFileSync(join(process.cwd(), 'src', 'instructions.md'), 'utf-8');
+    expect(readInstructions()).toBe(direct);
+  });
+
+  it('filePath 指向不存在路径时返回 undefined 且不抛', () => {
+    const result = readInstructions('/nonexistent/path/does-not-exist.md');
+    expect(result).toBeUndefined();
+  });
+});
