@@ -1,5 +1,7 @@
 # asset_placer.gd
-# 放置层：单件/路径/批量放置 MeshInstance3D + batch 原子 undo 聚合 + v5 fence 端柱注入。
+# 放置层：单件/路径/批量放置 MeshInstance3D + batch 原子 undo 聚合。
+# v5 fence 端柱由 place_path 构造 item 时注入 seg_params（start_post/end_post），
+# create_mesh 直接消费，无需放置层二次重建（原 _inject_fence_posts 已删，命中缓存返同一 mesh 冗余）。
 # 移植自 asset-forge scene_placer.gd（删 class_name、_vec3 副本、_save_as_tscn/undo_last；
 # undo 改走 _undo_manager.create_action_mixed；_vec3 复用 CommandHelpers.parse_vec3）。
 @tool
@@ -70,7 +72,9 @@ static func place_batch(root: Node, undo_mgr: Node, items: Array, request_id: in
 		node.name = unique_name(parent, String(item.get("name", String(item["shape"]))))
 		node.material_override = AssetFactory.create_material(item.get("material", null))
 		_apply_transform(node, item)
-		_inject_fence_posts(node, item)  # v5 端柱注入（若 shape=fence；单件默认两端 true 零回归）
+		# v5 端柱：place_path 构造 item 时已把 seg_params.start_post/end_post 设进 params，
+		# 上方 create_mesh 已用这些参数生成正确 fence mesh（_post_xs 控制）。
+		# 单件 fence（place_one）不走 place_batch，params 无此二键 → make_fence 默认两端 true 零回归。
 		do_ops.append_array([
 			{"type": "method", "target": parent, "method": "add_child", "args": [node]},
 			{"type": "method", "target": node, "method": "set_owner", "args": [root]},
@@ -176,23 +180,6 @@ static func _apply_transform(node: Node3D, d: Variant) -> void:
 		node.rotation_degrees = CommandHelpers.parse_vec3(dict["rotation"])
 	if dict.has("scale"):
 		node.scale = CommandHelpers.parse_vec3(dict["scale"])
-
-
-# _inject_fence_posts：v5 端柱注入。item.params 含 start_post/end_post 时回写 node.mesh（重建 fence）。
-# 单件 fence（非 path）item 无此二键 → 不注入，make_fence 默认两端 true（零回归）。
-# place_path 构造 item 时已把 seg_params.start_post/end_post 设好，此处只需确保 mesh 用这些参数重建。
-static func _inject_fence_posts(node: MeshInstance3D, item: Dictionary) -> void:
-	var shape := String(item.get("shape", ""))
-	if shape.to_lower() != "fence":
-		return  # 仅 fence 有端柱语义
-	var params: Dictionary = item.get("params", {})
-	# 仅当 item 显式带了 start_post/end_post（即 place_path continuous 注入）才需重建 mesh；
-	# 单件 fence（place_one）params 无此二键，create_mesh 已用默认 true 生成，零回归。
-	if not params.has("start_post") and not params.has("end_post"):
-		return
-	var mesh := AssetFactory.create_mesh(shape, params)
-	if mesh != null:
-		node.mesh = mesh
 
 
 # _validate_item：预校验单 item（shape/params/material/parent），返结构化错误（空 Dictionary=合法）

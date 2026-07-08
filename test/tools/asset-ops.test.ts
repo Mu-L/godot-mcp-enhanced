@@ -22,6 +22,12 @@ import { SHAPES, SHAPE_NAMES, MATERIAL_PRESETS } from '../../src/tools/asset/sch
 // list_* 不经 editor，ctx 可为空对象；写动作在本模块都返 EDITOR_ONLY，也不读 ctx。
 const NO_CTX = {} as never;
 
+// content[0].text TS union（TextContent|ImageContent|...）未窄化 → 2339。helper 消除重复 + 窄化。
+function textOf(r: { content?: Array<{ type?: string; text?: string }> } | null): string {
+  const c = r?.content?.[0];
+  return c?.text ?? '';
+}
+
 describe('asset tool definitions', () => {
   it('注册 1 个 merged asset 工具，7 action', () => {
     const defs = getToolDefinitions();
@@ -45,7 +51,7 @@ describe('asset handleTool list_*', () => {
   it('list_shapes 返 11 shape', async () => {
     const r = await handleTool('asset', { action: 'list_shapes' }, NO_CTX);
     expect(r).toBeDefined();
-    const parsed = JSON.parse(r!.content[0]!.text as string);
+    const parsed = JSON.parse(textOf(r));
     expect(parsed.shapes).toHaveLength(11);
     // 首项是 box（与 SHAPES[0] 一致），验证结构而非空数组
     expect(parsed.shapes[0].name).toBe('box');
@@ -54,7 +60,7 @@ describe('asset handleTool list_*', () => {
   it('list_materials 返 10 预设 + custom_rule/external 字段', async () => {
     const r = await handleTool('asset', { action: 'list_materials' }, NO_CTX);
     expect(r).toBeDefined();
-    const parsed = JSON.parse(r!.content[0]!.text as string);
+    const parsed = JSON.parse(textOf(r));
     expect(parsed.presets).toEqual([...MATERIAL_PRESETS]);
     expect(parsed.presets).toHaveLength(10);
     expect(parsed.custom_rule).toBeDefined();
@@ -72,7 +78,7 @@ describe('asset handleTool editor-only actions', () => {
       NO_CTX,
     );
     expect(r?.isError).toBe(true);
-    expect(r!.content[0]!.text as string).toContain('EDITOR_ONLY');
+    expect(textOf(r)).toContain('EDITOR_ONLY');
   });
 
   it('save 非 res:// resource_path → INVALID_PATH（TS 前置校验，先于 requireProjectPath）', async () => {
@@ -84,7 +90,7 @@ describe('asset handleTool editor-only actions', () => {
       NO_CTX,
     );
     expect(r?.isError).toBe(true);
-    const text = r!.content[0]!.text as string;
+    const text = textOf(r);
     expect(text).toContain('INVALID_PATH');
     expect(text).toContain('res://');
   });
@@ -122,7 +128,7 @@ describe('asset handleTool editor-only actions', () => {
       NO_CTX,
     );
     expect(r?.isError).toBe(true);
-    expect(r!.content[0]!.text as string).toContain('PATH_NOT_ALLOWED');
+    expect(textOf(r)).toContain('PATH_NOT_ALLOWED');
   });
 });
 

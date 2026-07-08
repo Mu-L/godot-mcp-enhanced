@@ -44,7 +44,6 @@ import { readEditorSecret } from '../src/core/editor-auth.js';
 import { EditorConnection } from '../src/core/EditorConnection.js';
 import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';
 import * as ps from '../src/core/process-state.js';
-import { parseGodotConfig } from '../src/helpers.js';
 import type { ToolResult } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -86,10 +85,6 @@ if (!canRunE2E) {
 let editorConn: EditorConnection | null = null;
 let editorExec: EditorToolExecutor | null = null;
 let _registered = false;
-
-function findGodot(): Promise<string> {
-  return Promise.resolve(GODOT_PATH);
-}
 
 beforeAll(async () => {
   if (!canRunE2E) return; // skip 时 beforeAll 不装配

@@ -72,7 +72,8 @@ func handle_batch(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": "NO_ACTIVE_SCENE", "message": "no active scene"}}
 	return AssetPlacer.place_batch(root, _undo_manager, params.get("items", []), request_id)
 
-# undo：弹 Godot 全局 UndoRedo 栈顶 action（通常为最近一次 asset 批次）
+# undo：弹 Godot 全局 UndoRedo 栈顶 action（不区分来源——若 asset 生成后有手动编辑，
+# asset_undo 会先撤手动编辑；不承诺只撤 asset 操作。AI 应在生成后立即 undo 或按 node_path 精确管理）
 func handle_undo(params: Dictionary, request_id: int) -> Dictionary:
 	var ur := _plugin.get_undo_redo()
 	# get_action_name() == "" 表示栈空（无 action 可 undo）

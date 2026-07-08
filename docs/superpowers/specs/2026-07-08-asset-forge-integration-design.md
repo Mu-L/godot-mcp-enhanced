@@ -178,13 +178,16 @@ actionRisks:
 | 无活动场景 | `NO_ACTIVE_SCENE` | node_commands `-32003` No scene loaded |
 | 栈空 undo | `NOTHING_TO_UNDO` | — |
 | batch > 64 | `BATCH_LIMIT_EXCEEDED` | — |
-| save 路径越界 | `INVALID_PATH` | ALLOWED_PROJECT_PATHS |
+| save 路径越界（TS 侧 realpathSync 白名单外） | `PATH_NOT_ALLOWED` | ToolDispatcher 惯例（`isPathInAllowedRoots` 恒返 true 的测试环境该分支不可达，留 E2E） |
+| save resource_path 非 res:// / 含 `..`（GD 侧复核） | `INVALID_PATH` | ALLOWED_PROJECT_PATHS |
 | ResourceSaver 失败 | `RESOURCE_SAVE_FAILED` | material-ops 同名码 |
+
+> **save 路径越界错误码双侧差异**：TS 侧 `asset-ops` 前置校验（`requireProjectPath` → `isPathInAllowedRoots`）返 `PATH_NOT_ALLOWED`（对齐 ToolDispatcher 全工具惯例）；GD editor 侧 `handle_save` 复核（`begins_with("res://")` + `has_path_traversal`）返 `INVALID_PATH`。两码语义不同层：TS 拦符号链接/allowlist 外写（`PATH_NOT_ALLOWED`），GD 拦非 `res://` 前缀与 `..` 遍历（`INVALID_PATH`）。AI 收 `PATH_NOT_ALLOWED` 须改 `resource_path` 到允许根内；收 `INVALID_PATH` 须确保 `res://` 前缀且无遍历段。
 
 TS 侧 `opsErrorResult(code, msg)` + `isError:true`；GD 侧返 `{"error":{"code","message"}}`，结构化错误经 `EditorToolExecutor` 透传（`EditorToolExecutor.ts:76-84`）。
 
 ### 安全防护（复用本仓库既有防御层）
-- **node name 白名单** `^[A-Za-z0-9_]+$`：复用 `node_commands.gd:41` 正则（asset-forge 的 name 自增 `_001` 兼容），防特殊字符污染 `.tscn`。注：asset-forge `_sanitize_name` 允许连字符 `-`，本仓库白名单更严（不含 `-`），`asset_placer.unique_name` 须把 `-` 等非 `[A-Za-z0-9_]` 字符 sanitize 为 `_` 再自增
+- **node name 白名单**：`asset_placer._sanitize_name` 保留 `[A-Za-z0-9_-]`（含 `-`，忠实 asset-forge 上游 `_sanitize_name` 惯例），非白名单字符替 `_`，空回 `"asset"`，再经 `unique_name` 碰撞自增 `_001`。与 `node_commands.gd` 的 `^[A-Za-z0-9_]+$`（不含 `-`）存在差异：asset 忠实上游且 Godot Node.name 合法接受 `-`，**非安全面差异**——name 经 Godot `Node.name` setter 赋值（非字符串拼进 GDScript 源码），特殊字符无注入路径。
 - **parent 路径遍历**：复用 `CommandHelpers.has_path_traversal`（`node_commands.gd:52`），拒 `..` 段
 - **node_type 固定 MeshInstance3D**：asset 生成的节点类型固定（不接用户传入的任意 type），天然规避 `node_commands` 的 `ALLOWED_NODE_TYPES` 注入面（asset 不实例化任意 ClassDB 类型，只 `MeshInstance3D.new()`）
 - **save resource_path 白名单**：TS pre 经 ALLOWED_PROJECT_PATHS（`isPathInAllowedRoots`）+ `resolveWithinRoot`（**realpathSync 归一**，防符号链接/TOCTOU）+ res://（`normalizeUserProjectPath`）校验，GD 侧 `CommandHelpers.has_path_traversal` + res:// 前缀复核（对齐 `scene_commands.gd:30-33` 既有模式）；防 `../` 与符号链接写出项目根。注：GD 侧无 `sanitizeResPath` 函数（仅 `value-serializer.ts:68` TS 辅助函数，用于 texture_path）
