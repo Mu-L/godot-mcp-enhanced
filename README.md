@@ -48,7 +48,7 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 <summary><b>⚠️ 诚实的边界(展开必读)</b></summary>
 
 以上是**防误操作层**,不是不可绕过的安全边界。GDScript 拥有完整系统访问权限,
-沙箱可被间接方式绕过(`call()` 动态分派、多步变量构造 API 名等)。
+沙箱可被间接方式绕过(`call()` 动态分派、多步变量构造 API 名、字符串拼接构造 API 名(如 `"cu"+"rl"`、`str("OS")+".execute()"`)等)。
 
 - 需真正隔离:容器 / VM + `GODOT_MCP_ALLOW_UNSAFE=false`
 - 关闭扫描:`GODOT_MCP_SANDBOX=disabled`(仅开发)

@@ -97,7 +97,11 @@ const toolGroupMap = buildToolGroupMap();
  * Rules (conservative — never over-claim safety):
  * - readOnlyHint:    true only if every action is 'read'
  * - destructiveHint: true if any action is 'destructive'
- * - idempotentHint:  true only if readOnlyHint (side-effect-free ⇒ re-runnable)
+ * - idempotentHint:  true only if readOnlyHint（idempotent 的定义是「多次执行结果一致/重试安全」,
+ *                    写操作本身也可幂等——如设同值、覆盖写、替换;但本项目工具是 merged action
+ *                    模式,每个写工具混合了幂等写 save_scene/edit_script 与非幂等创建删除
+ *                    add_node/remove_node/project_replace,整体无法判定幂等,故保守只在纯读时
+ *                    标 true。readOnly 是 idempotent 的充分条件而非定义）
  * - openWorldHint:   omitted (tools operate on Godot's closed world; default false)
  *
  * Tools without actionRisks default to write semantics (readOnlyHint=false),
