@@ -39,8 +39,7 @@ describe('readInstructions', () => {
   });
 
   it('默认路径返回值与 src/instructions.md 一致', () => {
-    const { readFileSync } = require('fs');
-    const { join } = require('path');
+    // 顶部已 import readFileSync/join（line 2-3），函数内 require 冗余且与 ESM 不一致（M3-T2）
     const direct = readFileSync(join(process.cwd(), 'src', 'instructions.md'), 'utf-8');
     expect(readInstructions()).toBe(direct);
   });
