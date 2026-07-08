@@ -7,7 +7,8 @@ const mockServerClose = vi.fn().mockResolvedValue(undefined);
 const mockServerConnect = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: vi.fn().mockImplementation(function () {
+  Server: vi.fn().mockImplementation(function (_, options) {
+    this._instructions = options?.instructions;
     this.setRequestHandler = mockSetRequestHandler;
     this.setNotificationHandler = mockSetNotificationHandler;
     this.connect = mockServerConnect;
@@ -157,6 +158,15 @@ describe('GodotServer', () => {
     it('registers request handlers during construction', () => {
       new GodotServer('/fake/ops.gd');
       expect(mockSetRequestHandler.mock.calls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('injects instructions into the MCP Server on construction', () => {
+      const server = new GodotServer('/fake/ops.gd');
+      // SDK private 字段 _instructions：GodotServer 构造时经 readInstructions() 注入
+      // 升级 @modelcontextprotocol/sdk 时需复查此断言（字段改名/改可见性会假阳性失败）
+      expect(server.server._instructions).toBeTruthy();
+      expect(typeof server.server._instructions).toBe('string');
+      expect(server.server._instructions).toMatch(/headless/);
     });
   });
 

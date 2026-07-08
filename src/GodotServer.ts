@@ -11,6 +11,7 @@ import {
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { join } from 'path';
+import { readInstructions } from './core/instructions.js';
 import { waitForEditorSecret } from './core/editor-auth.js';
 import {
   listResources as listMcpResources,
@@ -98,7 +99,10 @@ export class GodotServer {
     this.agentCtx = new AgentContextManager();
     this.server = new Server(
       { name: 'godot-mcp-enhanced', version: pkgVersion },
-      { capabilities: { tools: {}, resources: {}, prompts: {} } }
+      {
+        capabilities: { tools: {}, resources: {}, prompts: {} },
+        instructions: readInstructions(),
+      }
     );
     setMcpServer(this.server);
     this.setupHandlers();
