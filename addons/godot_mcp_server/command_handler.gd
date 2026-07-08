@@ -13,6 +13,7 @@ var _editor_guards: Node
 var _animation_commands: Node
 var _recording_commands: Node
 var _ui_commands: Node
+var _asset_commands: Node
 
 func setup(plugin: EditorPlugin) -> void:
 	_undo_manager = preload("undo_manager.gd").new()
@@ -67,10 +68,14 @@ func setup(plugin: EditorPlugin) -> void:
 	_ui_commands.setup(plugin, _undo_manager)
 	add_child(_ui_commands)
 
+	_asset_commands = preload("commands/asset/asset_commands.gd").new()
+	_asset_commands.setup(plugin, _undo_manager)
+	add_child(_asset_commands)
+
 func cleanup() -> void:
 	var modules = [
 		_sync_commands, _recording_commands, _animation_commands,
-		_ui_commands, _scene_commands, _node_commands,
+		_ui_commands, _asset_commands, _scene_commands, _node_commands,
 		_test_commands, _export_commands, _particle_commands,
 		_nav_commands, _animtree_commands, _undo_manager,
 	]
@@ -83,6 +88,7 @@ func cleanup() -> void:
 	_recording_commands = null
 	_animation_commands = null
 	_ui_commands = null
+	_asset_commands = null
 	_scene_commands = null
 	_node_commands = null
 	_test_commands = null
@@ -186,6 +192,17 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _ui_commands.handle_theme_create(params)
 		"theme_set_property":
 			return _ui_commands.handle_theme_set_property(params)
+		# --- asset -----------------------------------------------------
+		"asset_create":
+			return _asset_commands.handle_create(params, request_id)
+		"asset_path":
+			return _asset_commands.handle_path(params, request_id)
+		"asset_batch":
+			return _asset_commands.handle_batch(params, request_id)
+		"asset_undo":
+			return _asset_commands.handle_undo(params, request_id)
+		"asset_save":
+			return _asset_commands.handle_save(params, request_id)
 		# Tools NOT routed here (headless-only via TS/GDScript executor):
 		#   animation (play/stop/seek/list_players) - runtime AnimationPlayer control
 		#   recording_save / recording_load - file I/O handled by TS side
