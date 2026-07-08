@@ -52,10 +52,11 @@ static func place_batch(root: Node, undo_mgr: Node, items: Array, request_id: in
 	if items.size() > BATCH_LIMIT:
 		return {"error": {"code": "BATCH_LIMIT_EXCEEDED", "message": "batch > %d: %d" % [BATCH_LIMIT, items.size()]}}
 	# 预校验原子：任一 item 失败立即返错（零节点落地，不入 undo 栈）
+	# 透传 _validate_item 返回的 code（未知 shape → UNSUPPORTED_SHAPE，其余 → INVALID_PARAMS）
 	for item in items:
 		var verr := _validate_item(root, item)
-		if verr != "":
-			return {"error": {"code": "INVALID_PARAMS", "message": verr}}
+		if not verr.is_empty():
+			return {"error": {"code": verr["code"], "message": verr["message"]}}
 	# 全过才执行：累积所有 ops 进一次 create_action_mixed（batch 原子 undo = 一次 Ctrl+Z 全撤）
 	var do_ops: Array = []
 	var undo_ops: Array = []
@@ -194,29 +195,30 @@ static func _inject_fence_posts(node: MeshInstance3D, item: Dictionary) -> void:
 		node.mesh = mesh
 
 
-# _validate_item：预校验单 item（shape/params/material/parent），返错误描述（空串=合法）
+# _validate_item：预校验单 item（shape/params/material/parent），返结构化错误（空 Dictionary=合法）
+# 区分错误码：未知 shape → UNSUPPORTED_SHAPE（与单件 place_one 对齐 spec §5）；其余校验失败 → INVALID_PARAMS
 # batch 原子保证：任一失败零节点落地
-static func _validate_item(root: Node, item: Variant) -> String:
+static func _validate_item(root: Node, item: Variant) -> Dictionary:
 	if not (item is Dictionary):
-		return "item 非 Dictionary"
+		return {"code": "INVALID_PARAMS", "message": "item 非 Dictionary"}
 	var d: Dictionary = item
 	if not d.has("shape"):
-		return "item 缺 shape 字段"
+		return {"code": "INVALID_PARAMS", "message": "item 缺 shape 字段"}
 	var shape := String(d["shape"])
 	var params: Dictionary = d.get("params", {})
-	# shape 校验：create_mesh 返 null = 未知 shape（10 种以外）
+	# shape 校验：create_mesh 返 null = 未知 shape（10 种以外）→ UNSUPPORTED_SHAPE
 	var mesh := AssetFactory.create_mesh(shape, params)
 	if mesh == null:
-		return "未知 shape: %s" % shape
+		return {"code": "UNSUPPORTED_SHAPE", "message": "未知 shape: %s" % shape}
 	# parent 校验（若提供）
 	var parent_path := String(d.get("parent", ""))
 	if parent_path != "":
 		if CommandHelpers.has_path_traversal(parent_path):
-			return "parent 路径含遍历（..）: %s" % parent_path
+			return {"code": "INVALID_PARAMS", "message": "parent 路径含遍历（..）: %s" % parent_path}
 		if resolve_parent(root, parent_path) == null:
-			return "parent 未找到: %s" % parent_path
+			return {"code": "INVALID_PARAMS", "message": "parent 未找到: %s" % parent_path}
 	# material 不强校验（create_material 三态 + null 都吃，非法回退 default）
-	return ""
+	return {}
 
 
 # _sanitize_name：节点名 sanitize（留 [A-Za-z0-9_-]，其余替 _；空回 "asset"）
