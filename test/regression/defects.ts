@@ -480,7 +480,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
     // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 46 }, // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46
+    baseline: 48 }, // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46；MCP Logging(Task 1 _mcpServer + _clientReady 注入 setter, 同 setMcpServer/_singletonWarned 既有模式) 46→48
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)
   // launcher-no-error-listener 移 FIXED(2026-06-27 detect=0)
