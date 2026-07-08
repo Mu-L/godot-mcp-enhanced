@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-08
+
+### Added — asset-forge 整合（主打：参数化 3D shape 生成）
+
+- **merged `asset` 工具**（7 action：`create`/`path`/`batch`/`undo`/`save`/`list_shapes`/`list_materials`）：单工具聚合参数化 shape 生成 + 路径阵列 + batch 原子 undo + save 预制件。create/path/batch/undo/save 经 editor 持久化（视口可见、可 undo）；list_* 静态返回
+- **11 shape**：内置 6（box/cylinder/sphere/prism/wall/ramp）+ 手写 5（cone/tube/torus/stairs/fence）
+- **路径阵列**：discrete（离散放置）+ continuous（连续采样）+ align_vertices（贴合表面）
+- **batch 原子 undo**：多 shape 混合批量放置，单次 undo 回滚整批
+- **10 材质预设**：wood/metal/stone/glass/gold/coral/sand/seaweed/water/default
+- **save resource_path 安全校验**：TS 侧 realpathSync + resolveWithinRoot 白名单（防路径遍历）
+- **已知限制**：ramp 在 continuous path 模式被拒（方案 A，continuous ramp 顶点对齐复杂度阻塞；discrete 可用）
+
+### Added — MCP 协议增强
+
+- **`godot_get_context` 元工具**（core）：一次调用返回会话全景 11 字段（mode/project/connections/scene/recentCalls/callStats/toolGroups/workflows/rules/performance/hint），替代 AI 探路循环。readScene 三态真实采集（editor EditorInterface / bridge current_scene / headless null）+ CallRecorder 单例记录调用历史
+- **MCP Roots 动态授权**（core）：client 运行时动态声明授权根（替换 `ALLOWED_PROJECT_PATHS` env 启动期固定，免改 env 须重启）。Roots 优先 env 兜底（替换式非合并）+ re-fetch 失败保留旧 roots
+- **MCP Server Instructions 注入**（core）：initialize 响应携带静态中文速查卡（1417 码元，5 节 + 5 陷阱）注入 client LLM 上下文。失败兜底 undefined 优于泄露错误
+- **MCP Logging 协议**（core）：`sendLoggingMessage` 按 warn/error 级 fire-and-forget 推 client（文件 + stderr 双写不变）。四重 guard 保证日志观测层绝不影响主流程
+
+### Changed — 安全标注诚实化
+
+- **idempotentHint 注释修正**：idempotent = 重试安全 ≠ 无副作用，readOnly 是充分条件非定义。merged action 工具保守只在纯读标 true（写动作含创建/删除/任意方法调用，auto derive 写→false 已是协议合规安全姿态）
+- **README 沙箱拼装绕过例子**：诚实标注 `execute_gdscript` 检测边界（`"cu"+"rl"` / `str("OS")+".execute()"` 字符串拼装构造 API 名绕过静态正则，深度绕过由容器隔离兜底）
+
 ## [0.21.0] - 2026-07-06
 
 ### Added — csv_to_resources 新工具（CSV → Godot 资源批量导入）
