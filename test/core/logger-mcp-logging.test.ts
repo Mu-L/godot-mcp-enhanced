@@ -78,4 +78,16 @@ describe('MCP Logging emitToClient', () => {
     getLogger().warn('mod', 'after reset');
     expect(mockServer.sendLoggingMessage).not.toHaveBeenCalled();
   });
+
+  it('错误 toolEnd（error 级）触发 sendLoggingMessage（level=error）', () => {
+    setLoggerServer(mockServer as any);
+    setLoggerClientReady(true);
+    const logger = getLogger();
+    const callId = logger.toolStart('mytool', { x: 1 });
+    logger.toolEnd(callId, 'mytool', 100, 'something failed');
+    // toolStart 是 info（不发），toolEnd 带错是 error 级（发）
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
+    const params = mockServer.sendLoggingMessage.mock.calls[0][0];
+    expect(params.level).toBe('error');
+  });
 });

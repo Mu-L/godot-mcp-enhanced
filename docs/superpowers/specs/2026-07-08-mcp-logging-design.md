@@ -32,7 +32,7 @@ source: 2026-07-07 三轮调研 P1 候选（官方 MCP servers 借鉴）
 ## 3. 非目标（YAGNI，明确不做）
 
 - ❌ `setLevel` handler（MCP `notifications/setLevel`）——让 client 动态调最低 level。**留 follow-up**，本版本 server 端固定 warn+error。
-- ❌ 发 debug / info / toolStart / toolEnd（量太大，client 有工具结果流）。
+- ❌ 发 debug / info（量太大）；toolStart（info 级）与无错 toolEnd（info 级）不发。错误 toolEnd（`toolEnd(callId, tool, dur, err)` 在 logger.ts:405 构造 error 级 entry）像其他 error 一样发——可观测工具失败，是合理行为非非目标。
 - ❌ 节流 / 去重 / 速率限制——warn+error 是异常量小；循环 warn 是 bug，该修不是节流。
 - ❌ 替代现有文件 + stderr 双写——`sendLoggingMessage` 是**增量第三写**。
 
@@ -214,7 +214,7 @@ setLoggerClientReady(false);
 ## 10. 验收标准
 
 - [ ] `getLogger().warn/.error` 在 server 注入 + clientReady 时触发 `sendLoggingMessage`（level=warning/error）
-- [ ] `getLogger().info/.debug` 及 `toolStart/toolEnd` 不触发
+- [ ] `getLogger().info/.debug` 不触发；`toolStart` 与无错 `toolEnd` 不触发；**错误 `toolEnd(callId, tool, dur, err)` 触发 level=error**
 - [ ] clientReady=false / server 未注入时不触发
 - [ ] `sendLoggingMessage` throw / reject 静默，不影响 `writeEntry` 文件+stderr 双写或主流程
 - [ ] `tsc` exit 0；`npm test` 全绿（新增 ~9 用例，3604 基线零回归）；`npm run lint` 0
@@ -223,5 +223,5 @@ setLoggerClientReady(false);
 ## 11. 后续 follow-up（不在本 spec 范围）
 
 - **`setLevel` handler**：注册 `SetLevelRequestSchema` handler，维护 client 当前 level（默认 warning），`emitToClient` 按 client level 动态过滤。让 client 可调级（如临时开 info 看工具流）。
-- **`tools/call` 业务错误也走 sendLoggingMessage**：当前 `toolEnd` 错误是 info+error 级混合，本版本 toolEnd 不发（量太大）；follow-up 可对失败 toolEnd（err 非空）单独发 error 级。
+- **toolEnd error 通知 data 增强**：错误 `toolEnd` 已自然发 level=error（`logger.ts:405` 构造 error 级 entry，含 `tool`/`duration_ms`/`call_id`/`error` 字段）；当前 `emitToClient` 的 `data` 只取 `msg`/`module`/`tool`/`meta`，未带 `duration_ms`/`call_id`/`error`——follow-up 可补全让 client 收到更丰富的失败上下文。
 - **MCP client 展示验证**：在 Claude Code / inspector 实测 client 是否展示 logging notification（协议支持 ≠ client UI 展示）。
