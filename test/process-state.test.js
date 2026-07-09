@@ -263,6 +263,30 @@ describe('forceKillTree', () => {
     expect(spawn).toHaveBeenCalledWith('pkill', ['-P', '4242'], { stdio: 'ignore' });
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
   });
+
+  it('pkill spawn error handler prevents uncaughtException (P1: alpine w/o procps)', async () => {
+    // P1 修复: pkill 在无 procps 的容器(alpine)异步 emit 'error'(ENOENT), try/catch
+    // 只捕同步 throw 不捕 async 'error' 事件; 无 handler 时 EventEmitter rethrows →
+    // uncaughtException → MCP server 崩。isWin 模块常量加载时固化, POSIX 分支 win32
+    // 不执行 → 本测试 win32 skip, CI Linux 走 RED→GREEN(同上例 P1.2 先例)。
+    if (process.platform === 'win32') return;
+    const { EventEmitter } = await import('node:events');
+    spawn.mockClear();
+    spawn.mockImplementationOnce(() => {
+      const child = new EventEmitter();
+      child.kill = vi.fn();
+      return child;
+    });
+    const proc = makeMockProc({ killed: false, pid: 4242 });
+    forceKillTree(proc);
+    // 取 pkill spawn 返回的 child, 模拟 ENOENT
+    const pkillChild = spawn.mock.results[0].value;
+    // 无 handler: EventEmitter emit('error') 无 listener 同步 throw → 崩
+    // 有 handler: 不抛
+    expect(() => pkillChild.emit('error', new Error('spawn pkill ENOENT'))).not.toThrow();
+    // pkill 失败不阻断 SIGTERM fallback
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+  });
 });
 
 // ─── killProcess ─────────────────────────────────────────────────────────────

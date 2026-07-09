@@ -42,9 +42,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +3(2026-07-06 综合审查 P1-1/P1-2/P1-3: editor-blind-routing-no-fallback(-32601 回退 headless)/
 //   editor-guards-text-write-not-wired(TS 写脚本/场景接线 guard 回调)/
 //   heartbeat-pause-timeout-disconnect(暂停超时改恢复 normal 检测)),合计 41。
-    expect(FIXED_DEFECTS.length).toBe(41);
+//   +4(2026-07-10 三层架构审查 P1×3+P2×1: pkill-spawn-error-handler / nav-bake-in-undo-action /
+//   asset-undo-stack-top-guard / install-plugin-realpath-guard),合计 45。
+    expect(FIXED_DEFECTS.length).toBe(45);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(41);
+    expect(new Set(keys).size, '存在重名 key').toBe(45);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

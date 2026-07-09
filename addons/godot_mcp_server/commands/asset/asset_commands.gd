@@ -2,7 +2,7 @@
 extends Node
 
 # T6: asset 命令编排层。5 个 handle_* 调 AssetPlacer + PathGenerator + 编辑器 UndoRedo + PackedScene。
-# 错误码：NO_ACTIVE_SCENE / PARENT_NOT_FOUND / NOTHING_TO_UNDO / INVALID_PATH / RESOURCE_SAVE_FAILED
+# 错误码：NO_ACTIVE_SCENE / PARENT_NOT_FOUND / NOTHING_TO_UNDO / NOT_ASSET_TOP / INVALID_PATH / RESOURCE_SAVE_FAILED
 # 以及工厂/放置层透传的 UNSUPPORTED_SHAPE / INVALID_PARAMS / BATCH_LIMIT_EXCEEDED。
 
 const AssetFactory = preload("asset_factory.gd")
@@ -72,15 +72,23 @@ func handle_batch(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": "NO_ACTIVE_SCENE", "message": "no active scene"}}
 	return AssetPlacer.place_batch(root, _undo_manager, params.get("items", []), request_id)
 
-# undo：弹 Godot 全局 UndoRedo 栈顶 action（不区分来源——若 asset 生成后有手动编辑，
-# asset_undo 会先撤手动编辑；不承诺只撤 asset 操作。AI 应在生成后立即 undo 或按 node_path 精确管理）
+# undo：弹 Godot 全局 UndoRedo 栈顶 asset 类 action。P1 修复: 校验栈顶 name 是
+# asset_create_/asset_batch_(create_action_mixed 已用 request_id 标记, label 形如
+# "MCP: asset_create_<id>"), 才 undo —— 避免多 peer/手动编辑场景下误撤栈顶非 asset
+# 操作(MAX_PEERS=5 时 peer A 建 asset 后 peer B 改属性, 旧逻辑 A 的 undo 会撤 B 的)。
+# 非 asset 栈顶 → NOT_ASSET_TOP, AI 须先处理栈顶或用编辑器 undo。Godot UndoRedo 是
+# 全局单例, 无法 per-peer 隔离; 此校验把误撤范围从"任意栈顶"收窄到"asset 类栈顶"。
 func handle_undo(params: Dictionary, request_id: int) -> Dictionary:
 	var ur := _plugin.get_undo_redo()
+	var top: String = ur.get_action_name()
 	# get_action_name() == "" 表示栈空（无 action 可 undo）
-	if ur.get_action_name() == "":
+	if top == "":
 		return {"error": {"code": "NOTHING_TO_UNDO", "message": "undo stack empty"}}
+	# P1: 仅撤 asset 类栈顶, 防误撤其他 peer / 手动编辑的非 asset 操作
+	if not (top.begins_with("MCP: asset_create_") or top.begins_with("MCP: asset_batch_")):
+		return {"error": {"code": "NOT_ASSET_TOP", "message": "栈顶非 asset 操作: %s — asset_undo 仅撤 asset 类, 请先处理栈顶或用编辑器 undo" % top}}
 	ur.undo()
-	return {"result": {"undone": true}}
+	return {"result": {"undone": true, "action": top}}
 
 # save：节点树 → .tscn。GD 侧 res:// + has_path_traversal 复核；TS 侧 realpathSync 在 Task 8
 func handle_save(params: Dictionary, request_id: int) -> Dictionary:

@@ -190,4 +190,50 @@ describe('EditorConnection', () => {
 
     conn.disconnect();
   });
+
+  // 审查可疑项闭环: EditorConnection 重连机制(connectGeneration 防复活 / scheduleReconnect
+  // 指数退避 / fireReconnect) 此前零"成功重连"覆盖(全 reconnect:false, 仅测 auth 失败不重连)。
+  // 本测试验证: 已认证连接被 server 端关闭 → scheduleReconnect → 重连成功 → fireReconnect
+  // → 新连接可正常 request(generation 防复活, 新 ws 不被旧 connect 丢弃)。
+  it('reconnects after server-side close and fires onReconnect (ipc P1)', { timeout: 10_000 }, async () => {
+    let connectionCount = 0;
+    let latestWs = null;
+    wss.on('connection', (ws) => {
+      connectionCount++;
+      latestWs = ws;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: true,
+      reconnectInterval: 50,
+      maxReconnectInterval: 100,
+      secret: 'test-secret',
+    });
+    let reconnected = false;
+    conn.onReconnect = () => { reconnected = true; };
+
+    await conn.connect();
+    expect(connectionCount).toBe(1);
+    expect(conn.connected).toBe(true);
+
+    // 模拟编辑器崩溃: server 端关闭当前连接 → client ws 'close' → scheduleReconnect
+    latestWs.close();
+
+    // 等重连(attempt1 backoff=min(50*2,100)=100 + jitter[0,50] + connect/auth 开销)
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(reconnected).toBe(true);
+    expect(connectionCount).toBe(2);
+    expect(conn.connected).toBe(true);
+
+    // generation 防复活: 重连后的新连接可正常 request(新 ws 不被旧 connect 的 gen 检查丢弃)
+    const result = await conn.request('test_method', {});
+    expect(result).toEqual({ status: 'ok' });
+
+    conn.disconnect();
+  });
 });

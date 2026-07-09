@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 33 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发）。
+// FIXED_DEFECTS 45 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -407,6 +407,43 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const m = hb.match(/op_timer > state\.op_timeout:[\s\S]*?\n\t\treturn/);
       if (!m) return 1;
       return /state\.activity = 0\.0/.test(m[0]) && !/emit_signal/.test(m[0]) ? 0 : 1;
+    } },
+  // ── 2026-07-10 三层架构审查 P1+P2 闭环（4 条）──
+  { key: 'pkill-spawn-error-handler', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // P1(2026-07-10): spawn('pkill'/'taskkill') 缺 .on('error') → alpine 无 procps 时 async ENOENT
+    // 不被 try/catch 捕获 → EventEmitter rethrows → uncaughtException 崩 MCP server。fix: 赋值后 .on('error')。
+    // detect: pkill/taskkill spawn 数 > 对应 on('error') handler 数 = 复发(删任一 handler)。
+    detect: () => {
+      const ps = readSrc('src/core/process-state.ts');
+      const spawnCount = (ps.match(/\bspawn\(\s*['"](?:pkill|taskkill)['"]/g) || []).length;
+      const onErrorCount = (ps.match(/\b(?:pk|tk|child)\.on\(\s*['"]error['"]/g) || []).length;
+      return Math.max(0, spawnCount - onErrorCount);
+    } },
+  { key: 'nav-bake-in-undo-action', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P1(2026-07-10): nav bake 游离 create_action_mixed 之外 → Ctrl+Z 撤 add_node 后 bake 残留、redo 不重 bake。
+    // fix: bake 作 do_method 入 do_ops(do_ops.append), commit 时执行 + redo 重 bake。detect: 无 do_ops.append bake = 复发。
+    detect: () => {
+      const nav = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
+      const region = nav.slice(nav.indexOf('handle_nav_create_region'));
+      return /do_ops\.append\([\s\S]{0,80}bake_navigation_mesh/.test(region) ? 0 : 1;
+    } },
+  { key: 'asset-undo-stack-top-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P1(2026-07-10): handle_undo 裸 ur.undo() 撤全局栈顶 → MAX_PEERS=5 时误撤他 peer 非 asset 操作。
+    // fix: 校验栈顶 begins_with MCP: asset_create_/asset_batch_ 才 undo, 否则 NOT_ASSET_TOP(UndoRedo 全局单例无法 per-peer)。
+    // detect: handle_undo 含 ur.undo() 无 begins_with guard = 复发。
+    detect: () => {
+      const asset = readSrc('addons/godot_mcp_server/commands/asset/asset_commands.gd');
+      const undoFn = asset.slice(asset.indexOf('func handle_undo'));
+      const hasGuard = /begins_with\(\s*['"]MCP: asset_(?:create|batch)_['"]/.test(undoFn);
+      const hasBareUndo = /ur\.undo\(\)/.test(undoFn);
+      return hasBareUndo && !hasGuard ? 1 : 0;
+    } },
+  { key: 'install-plugin-realpath-guard', status: 'fixed', severity: 'ADVISORY', dimension: 'Security',
+    // P2(2026-07-10): install-plugin.js resolve 后只查 project.godot, 不校验符号链接穿越。fix: realpathSync 归一
+    // (防 cpSync 写到符号链接指向的包外目标)。危害收窄(用户主动, 源是包内固定 addons/)故 ADVISORY;
+    // 审查建议复用 validateProjectRoot 但后者仅查 project.godot(等价), 真实符号链接防护由 realpathSync 承担。
+    detect: () => {
+      return /realpathSync/.test(readSrc('scripts/install-plugin.js')) ? 0 : 1;
     } },
 ];
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cpSync, existsSync, readFileSync } from 'fs';
+import { cpSync, existsSync, readFileSync, realpathSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -14,7 +14,22 @@ if (projectIndex === -1 || !args[projectIndex + 1]) {
   process.exit(1);
 }
 
-const projectPath = resolve(args[projectIndex + 1]);
+// P2: resolve → existsSync → realpath 归一(防符号链接穿越, 避免 cpSync 写到符号链接
+// 指向的包外目标)。审查建议复用 validateProjectRoot, 但 validateProjectRoot 仅查
+// project.godot 存在(与下方 :project.godot 检查等价, 不校验穿越/符号链接); 真实
+// 符号链接防护由 realpathSync 承担。危害收窄(用户主动对自己项目运行, 源是包内固定 addons/)。
+const requestedPath = resolve(args[projectIndex + 1]);
+if (!existsSync(requestedPath)) {
+  console.error('ERROR: Project directory does not exist:', requestedPath);
+  process.exit(1);
+}
+let projectPath;
+try {
+  projectPath = realpathSync(requestedPath);
+} catch (err) {
+  console.error('ERROR: Cannot resolve project path (realpath failed):', err.message);
+  process.exit(1);
+}
 const addonSource = join(__dirname, '..', 'addons', 'godot_mcp_server');
 const addonDest = join(projectPath, 'addons', 'godot_mcp_server');
 
@@ -32,11 +47,6 @@ if (isVerify) {
   }
   console.log('OK: Plugin installed and valid at', addonDest);
   process.exit(0);
-}
-
-if (!existsSync(projectPath)) {
-  console.error('ERROR: Project directory does not exist:', projectPath);
-  process.exit(1);
 }
 
 if (!existsSync(join(projectPath, 'project.godot'))) {

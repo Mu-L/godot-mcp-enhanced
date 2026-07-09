@@ -34,7 +34,12 @@ export function forceKillTree(proc: ChildProcess): void {
     // spawn 导入/资源工具子进程),再 kill 主进程。pkill 失败不阻断主进程 kill。
     if (proc.pid) {
       try {
-        spawn('pkill', ['-P', String(proc.pid)], { stdio: 'ignore' });
+        // P1: pkill may be absent (alpine w/o procps) → spawn emits an async
+        // 'error' (ENOENT) that try/catch cannot intercept. Without a listener,
+        // EventEmitter rethrows → uncaughtException → MCP server crash. SIGTERM
+        // below is the unconditional fallback, so swallow pkill errors.
+        const pk = spawn('pkill', ['-P', String(proc.pid)], { stdio: 'ignore' });
+        pk.on('error', () => {});
       } catch (err) {
         getLogger().debug('process-state', `pkill failed, falling back to proc.kill: ${err}`);
       }
@@ -360,7 +365,10 @@ export async function killOrphanGodotProcesses(projectDir: string): Promise<numb
         const pids = out.trim().split('\n').map(Number).filter(n => n > 0);
         for (const pid of pids) {
           try {
-            spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+            // P1: same async-error guard as forceKillTree — a spawn 'error' without
+            // a listener crashes via uncaughtException. best-effort orphan kill.
+            const tk = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+            tk.on('error', () => {});
           } catch { /* best effort */ }
         }
         if (stderr) getLogger().debug('process-state', `orphan scan stderr: ${stderr.slice(0, 200)}`);
