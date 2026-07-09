@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  CompleteRequestSchema,
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { join } from 'path';
@@ -18,7 +19,7 @@ import {
   listResourceTemplates as listMcpResourceTemplates,
   readResource as readMcpResource,
 } from './resources.js';
-import { listPrompts, getPrompt } from './prompts.js';
+import { listPrompts, getPrompt, handleCompletion } from './prompts.js';
 
 // ─── Import and register tool modules ────────────────────────────────────────
 // C-ARCH-01: All tool modules centralized in module-loader.ts
@@ -180,6 +181,16 @@ export class GodotServer {
     this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       const { name, arguments: promptArgs } = request.params;
       return getPrompt(name, (promptArgs ?? {}) as Record<string, string>);
+    });
+
+    // ── MCP Prompt Completion handler（Phase P2-6）──────────────────────────
+    this.server.setRequestHandler(CompleteRequestSchema, async (request) => {
+      const { ref, argument } = request.params;
+      return handleCompletion(
+        ref as { type: string; name: string },
+        argument as { name: string; value: string },
+        resolveProjectPath(),
+      );
     });
 
     // Phase 2b: Multi-instance initialization moved to initMultiInstance() (async fs)
