@@ -32,9 +32,18 @@
 - **★ headless RID leak errors 无害**：headless 场景构建/退出总产生 `leaked RID`/`Leaked instance`/`ObjectDB instances` 错误，**无害，忽略**。run_and_verify 分析错误时不应把这些当真错误误报。关联：run_and_verify、execute_gdscript。
 - **`_Ready()` 在 `--script` 的 `_Initialize()` 不触发**：`godot --script` 运行 SceneTree 脚本时，实例化场景节点的 `_Ready()` 在 `_Initialize()` 期间不触发，须 `Root.AddChild(node)` 后手动调 init 方法。关联：execute_gdscript 完整类模式。
 - **`Free()` vs `QueueFree()`**：`QueueFree()` 把节点留到帧末才移除，阻塞 name 重用；测试脚本里立即替换场景用 `Free()`。关联：execute_gdscript 测试脚本。
+- **★ `execute_gdscript --script` 不认 GutTest → 用 `run_tests`**：headless CLI `godot --script` 要求脚本 `extends SceneTree`/`MainLoop`，直接跑 `extends GutTest`（Node 子类）的 GUT 测试脚本必失败，弹窗 "Can't load the script ... as it doesn't inherit from SceneTree or MainLoop"。跑 GUT 单元测试用 `runtime` 工具的 `run_tests` action——它封装 `godot --headless --script addons/gut/gut_cmdln.gd -gdir=<test_script> -gquit`（`test_script` 默认 `res://test/`、须 `res://` 前缀，I-SEC-08 防目录穿越，自动解析 Tests/Failed 计数，120s 超时）。前提：项目装了 GUT addon（`addons/gut/gut_cmdln.gd`）。关联：execute_gdscript、runtime(run_tests)。
 
 ## 输入与相机（game_input / screenshot）
 
 - **Camera2D 无 Current 属性**：设当前用 `MakeCurrent()`，且节点须已在场景树中。关联：scene 加 Camera2D、game_input。
 - **Chase camera 每帧重设 Current 覆盖测试 camera**：游戏 camera 在 `_PhysicsProcess` 设 `Current=true` 会每帧覆盖测试/捕获 harness 的 camera。测试 harness 须**每帧禁用游戏 camera**。关联：screenshot 测试、execute_gdscript。
 - **相机 Lerp 首帧从原点 swoop**：`_PhysicsProcess` 中 `Lerp` 的相机首帧从 (0,0,0) 飞过来。用 `_initialized` flag 首帧 snap 位置，后续帧再 lerp。关联：screenshot、execute_gdscript。
+
+## 材质与着色器（material / shader_write / shader_apply_template）
+
+- **★ `compile_success` 是假绿（C-BUG-1）**：`shader_write` / `shader_apply_template` 返回的 `compile_success: true` **仅确认 shader 资源已分配（`get_rid().is_valid()`），与代码能否编译无关**——Godot 4.x headless 无可靠 shader 编译验证 API（RenderingServer 不实际编译）。AI 看到 `compile_success: true` 易误判 shader 正确（与 `run_tests` 认知缺口同类假绿）。**必须**经截图或 Godot 错误输出人工确认；返回结构里的 `verification_note` 文本已提示，但勿只看布尔值。关联：material(shader_write/shader_apply_template)。
+
+## 导航（navigation / nav_create_region / nav_query_path）
+
+- **★ `query_path` 静默返回空路径**：无导航数据（未创建 region 或未烘焙）时，`query_path` 返回 `path: []` + `path_length: 0` + `warning: "No navigation data available"`，**不报错**。`create_region` 默认 `bake=false`——忘记单独调 `bake_mesh` 则后续 `query_path` 静默返回空。正确工作流：`create_region` → `bake_mesh`（单独 120s 超时，其他 action 30s）→ `query_path`。看到空 path 先回头确认已 bake。关联：navigation(query_path/create_region/bake_mesh)。
