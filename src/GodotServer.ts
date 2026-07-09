@@ -48,6 +48,7 @@ import * as ps from './core/process-state.js';
 import { killProcess } from './core/process-state.js';
 import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.js';
 import { setProgressSender, setProgressClientReady } from './core/progress.js';
+import { setElicitServer } from './core/elicit.js';
 import { resolveProjectPath } from './core/path-utils.js';
 import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
@@ -108,6 +109,7 @@ export class GodotServer {
     setMcpServer(this.server);
     setLoggerServer(this.server);
     setProgressSender(this.server);
+    setElicitServer(this.server);
     this.setupHandlers();
   }
 
@@ -514,6 +516,7 @@ export class GodotServer {
     setLoggerClientReady(false);
     setProgressSender(null);
     setProgressClientReady(false);
+    setElicitServer(null);
     setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
     log('Server shut down');
   }
