@@ -138,6 +138,7 @@ total = 1(execute 恒有, :307) + (verify?1:0, :341) + (bridge?1:0, :350) + (acc
 - 有 `_meta.progressToken` → `perCallCtx.progress` 非 undefined
 - 无 `_meta` → `perCallCtx.progress` undefined
 - **并发两 handleCall 不同 token → emitter 闭包独立不串**（验 C-CONC-1）
+- **editor 模式 + dev_loop + `_meta.progressToken`** → `_isUnknownMethod` 触发 `:355-357` fallback → `perCallCtx.progress` 经 fallback 路径注入非 undefined（验 `:357` emitter 透传未被 editor 直执行 `:350` 吞掉；editor 是用户主要模式，progress 在此模式能否生效全靠此路径——声明的架构边界须有测试覆盖）
 
 **dev_loop（workflow.ts）**（mock `ctx.progress`）：
 - DSL 模式（3 条命令）→ `[(1,3,m1),(2,3,m2),(3,3,m3)]`
