@@ -34,6 +34,7 @@ import * as ps from './process-state.js';
 import { getLogger } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
 import type { AgentContextManager } from './agent-context.js';
+import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
 
 /** Known profile names for IDE autocomplete. Unknown strings fall through to resolveProfile(). */
 type KnownProfile = 'full' | 'lite' | 'minimal' | 'bridge_dev' | '3d_dev';
@@ -202,15 +203,19 @@ export class ToolDispatcher {
     if (this.options.agentContext) {
       this.options.agentContext.getOrCreate(agentId);
     }
+    // Task 3: 提取 progressToken → 创建 per-request emitter（C-CONC-1：局部变量，照抄 findGodotOverride 透传）
+    const progressToken = meta?.progressToken as ProgressToken | undefined;
+    const progressEmitter: ProgressEmitter | undefined =
+      progressToken !== undefined ? createProgressEmitter(progressToken) : undefined;
 
     const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before' };
 
     return executeMiddleware(this.middleware, ctx, async () => {
-      return this.executeToolCall(name, args, startTime);
+      return this.executeToolCall(name, args, startTime, progressEmitter);
     });
   }
 
-  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number): Promise<ToolResult> {
+  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter): Promise<ToolResult> {
     // Snapshot current mode + executor for consistent routing throughout this call
     const currentMode = this.connectionMode;
     const currentExecutor = this.editorExecutor;
@@ -320,7 +325,7 @@ export class ToolDispatcher {
             : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
           return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
         }
-        return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride));
+        return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
       }
 
       // ── 3. 确认令牌检查（IMP-6: 前置 legacy 映射，防 legacy name 如 remove_node 绕过 guard）──
@@ -354,7 +359,7 @@ export class ToolDispatcher {
         // 让非编辑器原生工具在 editor 模式仍可用; 编辑器认的工具照常走 editor(保留 undo/sync)。
         if (this._isUnknownMethod(editorResult)) {
           logger.toolEnd(callId, name, Date.now() - startTime, 'editor_unknown_method_fallback');
-          return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride));
+          return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
         }
         const duration = Date.now() - startTime;
         logger.toolEnd(callId, name, duration);
@@ -370,7 +375,7 @@ export class ToolDispatcher {
       // ── 5. headless dispatch ──
       // CR-1: 必须传入 findGodotOverride,否则 perCallCtx 回退到 this.ctx.findGodot,
       // 导致 godot_path 参数和项目感知 findGodot 在最常用路径失效。
-      return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride));
+      return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log('Tool error:', name, msg);
@@ -568,7 +573,7 @@ export class ToolDispatcher {
     return { override: () => this.options.findGodot(projectPathForGodot), error: null };
   }
 
-  private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>)): Promise<ToolResult> {
+  private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter): Promise<ToolResult> {
     let targetMod = getModuleForTool(toolName);
     let effectiveToolName = toolName;
     let effectiveArgs = args;
@@ -594,7 +599,7 @@ export class ToolDispatcher {
     try {
       // C-CONC-1: per-call findGodot 经参数传入(局部变量),避免实例字段被并发请求覆盖
       // 用 buildPerCallCtx(Object.create)而非 spread,保留 ctx getter(见该函数注释)
-      const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride);
+      const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride, progressEmitter);
       // P1-2 (2026-07-06 review): editor 文本资源/场景写守卫注入。editorExecutor 可用(非 null)时
       // 注入回调; script.ts/scene 写前调, 经 WS 调编辑器 guard_text_resource_write/guard_offline_scene_save,
       // 防 TS writeFileSync 绕过编辑器内存状态守卫致磁盘/内存版本撕裂。headless 模式 editorExecutor=null 不注入。
@@ -706,8 +711,13 @@ export class ToolDispatcher {
 export function buildPerCallCtx(
   baseCtx: ToolContext,
   findGodotOverride?: (projectPath?: string) => Promise<string>,
+  progressEmitter?: ProgressEmitter,
 ): ToolContext {
   const perCallCtx = Object.create(baseCtx) as ToolContext;
   perCallCtx.findGodot = findGodotOverride ?? baseCtx.findGodot;
+  // Task 3: 注入 per-request progress emitter（progress 是新增字段非 getter，不破坏 Object.create 继承机制）
+  if (progressEmitter) {
+    perCallCtx.progress = progressEmitter;
+  }
   return perCallCtx;
 }

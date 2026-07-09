@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatcherOptions } from '../../src/core/ToolDispatcher.js';
 import { ToolDispatcher, buildPerCallCtx } from '../../src/core/ToolDispatcher.js';
 import { getCallRecorder } from '../../src/core/call-recorder.js';
+import { createProgressEmitter, setProgressSender, setProgressClientReady, resetProgressSender } from '../../src/core/progress.js';
+import type { ProgressEmitter } from '../../src/core/progress.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
 import type { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
 import type { ToolResult } from '../../src/types.js';
@@ -1459,5 +1461,91 @@ describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
     expect(stats.total).toBeGreaterThanOrEqual(1);
     expect(stats.fail).toBeGreaterThanOrEqual(1);
     expect(stats.success).toBe(0);
+  });
+});
+
+// ── Task 3: progress 透传链 ──────────────────────────────────────────────────
+describe('ToolDispatcher progress 透传链', () => {
+  let capturedCtx: any = null;
+  const mockModule = {
+    handleTool: vi.fn(async (_name: string, _args: Record<string, unknown>, ctx: any) => {
+      capturedCtx = ctx;
+      return mockToolResult;
+    }),
+  };
+
+  beforeEach(() => {
+    resetProgressSender();
+    capturedCtx = null;
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockGetToolDefinition.mockReturnValue(undefined);
+  });
+
+  it('request 含 _meta.progressToken → perCallCtx.progress 非 undefined 且可调用触发 notification', async () => {
+    const server = { notification: vi.fn().mockReturnValue(undefined) };
+    setProgressSender(server as any);
+    setProgressClientReady(true);
+    const dispatcher = new ToolDispatcher(createOptions());
+    await dispatcher.handleCall({
+      params: { name: 'workflow', arguments: { action: 'dev_loop' }, _meta: { progressToken: 'tok-A' } },
+    } as any);
+    expect(capturedCtx).not.toBeNull();
+    expect(typeof capturedCtx.progress).toBe('function');
+    capturedCtx.progress(1, 3, 'executing');
+    expect(server.notification).toHaveBeenCalledWith({
+      method: 'notifications/progress',
+      params: { progressToken: 'tok-A', progress: 1, total: 3, message: 'executing' },
+    });
+  });
+
+  it('request 无 _meta → perCallCtx.progress 为 undefined', async () => {
+    const dispatcher = new ToolDispatcher(createOptions());
+    await dispatcher.handleCall({
+      params: { name: 'workflow', arguments: { action: 'dev_loop' } },
+    } as any);
+    expect(capturedCtx).not.toBeNull();
+    expect(capturedCtx.progress).toBeUndefined();
+  });
+
+  it('并发两 handleCall 不同 token → emitter 闭包独立不串（C-CONC-1）', async () => {
+    const server = { notification: vi.fn().mockReturnValue(undefined) };
+    setProgressSender(server as any);
+    setProgressClientReady(true);
+    const dispatcher = new ToolDispatcher(createOptions());
+    const ctxA: any[] = [];
+    const ctxB: any[] = [];
+    mockModule.handleTool
+      .mockImplementationOnce(async (_n: string, _a: Record<string, unknown>, ctx: any) => { ctxA.push(ctx); return mockToolResult; })
+      .mockImplementationOnce(async (_n: string, _a: Record<string, unknown>, ctx: any) => { ctxB.push(ctx); return mockToolResult; });
+    // 并发派发（不 await 第一个）
+    const pA = dispatcher.handleCall({ params: { name: 'workflow', arguments: {}, _meta: { progressToken: 'A' } } } as any);
+    const pB = dispatcher.handleCall({ params: { name: 'workflow', arguments: {}, _meta: { progressToken: 'B' } } } as any);
+    await Promise.all([pA, pB]);
+    // 各自 emitter 带各自 token（验证不串）
+    ctxA[0].progress(1, 2);
+    ctxB[0].progress(1, 2);
+    const tokens = server.notification.mock.calls.map((c: any[]) => c[0].params.progressToken);
+    expect(tokens).toContain('A');
+    expect(tokens).toContain('B');
+  });
+
+  it('editor 模式 + dev_loop + progressToken → fallback 路径 perCallCtx.progress 注入非 undefined', async () => {
+    // editor 模式：currentExecutor.execute 返回 -32601 → 触发 _isUnknownMethod → fallback dispatchTool
+    const editorExecutor = {
+      execute: vi.fn().mockResolvedValue({
+        content: [{ type: 'text' as const, text: JSON.stringify({ jsonrpc: '2.0', error: { code: -32601, message: 'Unknown method' } }) }],
+      }),
+    };
+    const server = { notification: vi.fn().mockReturnValue(undefined) };
+    setProgressSender(server as any);
+    setProgressClientReady(true);
+    const dispatcher = new ToolDispatcher(createOptions({ connectionMode: 'editor' } as any));
+    dispatcher.setEditorExecutor(editorExecutor as any);
+    await dispatcher.handleCall({
+      params: { name: 'workflow', arguments: { action: 'dev_loop' }, _meta: { progressToken: 'tok-ed' } },
+    } as any);
+    // fallback 后走 dispatchTool → buildPerCallCtx → mockModule 收到 ctx.progress
+    expect(capturedCtx).not.toBeNull();
+    expect(typeof capturedCtx.progress).toBe('function');
   });
 });
