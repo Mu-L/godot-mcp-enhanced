@@ -24,6 +24,8 @@ export interface ToolContext {
   checkEditorTextResourceWrite?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
   /** P1-2: 场景离线保存守卫(防覆盖编辑器中打开的场景, 与 guard_offline_scene_save 对称)。 */
   checkEditorSceneSave?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
+  /** MCP Progress 通知 emitter（per-request，dispatcher 注入）。无 progressToken 时 undefined，调用方用 ctx.progress?.()。 */
+  progress?: (progress: number, total: number, message?: string) => void;
 }
 
 // Helper to create a text result

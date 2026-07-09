@@ -47,6 +47,7 @@ import { isFeatureEnabled } from './core/feature-flags.js';
 import * as ps from './core/process-state.js';
 import { killProcess } from './core/process-state.js';
 import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.js';
+import { setProgressSender, setProgressClientReady } from './core/progress.js';
 import { resolveProjectPath } from './core/path-utils.js';
 import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
@@ -106,6 +107,7 @@ export class GodotServer {
     );
     setMcpServer(this.server);
     setLoggerServer(this.server);
+    setProgressSender(this.server);
     this.setupHandlers();
   }
 
@@ -219,6 +221,7 @@ export class GodotServer {
 
     this.server.oninitialized = async () => {
       setLoggerClientReady(true);
+      setProgressClientReady(true);
       const caps = this.server.getClientCapabilities();
       if (caps?.roots) {
         await applyRoots(false);
@@ -509,6 +512,8 @@ export class GodotServer {
     clearMcpServer();
     setLoggerServer(null);          // 批 P1: MCP Logging 干净关闭 + 测试隔离
     setLoggerClientReady(false);
+    setProgressSender(null);
+    setProgressClientReady(false);
     setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
     log('Server shut down');
   }
