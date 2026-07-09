@@ -98,7 +98,8 @@ this.server.setRequestHandler(CompleteRequestSchema, async (request) => {
   const all = await resolveCompletion(argDef.completion, argument.value, resolveProjectPath());
   const MAX = 100;
   const truncated = all.slice(0, MAX);
-  return { completion: { values: truncated, total: truncated.length, hasMore: all.length > MAX } };
+  // total = 全部候选数（all.length，可 >100，符 SDK :5511 "可超过实际发送数"语义）；values 截断到 MAX=100
+  return { completion: { values: truncated, total: all.length, hasMore: all.length > MAX } };
 });
 ```
 
@@ -136,7 +137,7 @@ client completion/complete（ref={type:'ref/prompt', name}, argument={name, valu
 - 已知 prompt + scenes 参数 → 项目 .tscn（mock glob）
 - 未知 prompt / 未知参数 / 无 completion → 空 values
 - ref 非 ref/prompt → 空 values
-- scenes 超 MAX → 截断 + hasMore:true
+- scenes 超 MAX（mock 150 个 .tscn）→ values=100 + total=150 + hasMore:true（total=all.length 符 SDK :5511 语义，非 truncated.length）
 
 ## 8. 决策记录
 
@@ -146,11 +147,10 @@ client completion/complete（ref={type:'ref/prompt', name}, argument={name, valu
 - **scenes 上限 MAX=100 + hasMore**：防大项目 completion 响应过大。
 - **completion only MVP**：动态 prompt / 内嵌资源 / 依赖补全 = follow-up YAGNI。
 
-## 9. 行号卫生 + plan 核对
+## 9. 行号卫生 + 字段名已实测
 
 本文行号基于当前 master（`12aab2e`，含 Elicitation feature）。**实现时以实际为准**。
 
-**plan 阶段必须核对**（字段名推断，`ref` 结构已 100% 验证）：
-- `CompleteRequestSchema`（types.d.ts:5456-5470）：`params.ref`（union `ref/prompt` | `ref/resource`）、`params.argument`（`{name, value}`）字段名
-- `CompleteResultSchema`（types.d.ts:5492）：`completion`（`{values, total, hasMore}`）字段名
-- plan 阶段对照 SDK 逐字确认，免得 `values`/`total`/`hasMore` 实际叫别的。
+**字段名已实测核对正确**（review 阶段对照 SDK `types.d.ts` 逐字确认）：
+- `CompleteRequestSchema`（:5456-5486）：`params.ref`（union `ref/prompt` | `ref/resource`）、`params.argument`（`{name, value}`，:5478-5481）
+- `CompleteResultSchema`（:5492-5517）：`completion.values`（:5509，**"Must not exceed 100 items"** :5507 → MAX=100 卡规范上限）、`completion.total`（:5513，**"可超过实际发送数"语义** :5511 → total=all.length）、`completion.hasMore`（:5517）
