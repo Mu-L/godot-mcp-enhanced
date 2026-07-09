@@ -270,6 +270,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return opsErrorResult('INVALID_PARAMS', '"code" must be a non-empty string.');
       }
 
+      // Task 4: 算正常模式 total（execute 恒有 + verify/bridge/acceptance 条件性）。
+      // 各阶段 index 按标志内联计算（避免可变计数器的 no-useless-assignment）：
+      // execute=1, verify=2, bridge=willVerify?3:2, acceptance=total(末位)
+      const willVerify = verify;
+      const willBridge = !!(args.bridge && typeof args.bridge === 'object' && !Array.isArray(args.bridge));
+      const willAccept = !!(args.acceptance && typeof args.acceptance === 'object' && !Array.isArray(args.acceptance));
+      const total = 1 + (willVerify ? 1 : 0) + (willBridge ? 1 : 0) + (willAccept ? 1 : 0);
+
       // ── DSL detection: if all non-empty lines are valid DSL, run as Bridge sequence ──
       const codeLines = code.split('\n');
       const nonEmptyLines = codeLines.filter(l => l.trim().length > 0);
@@ -278,9 +286,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       if (allDsl) {
         if (projectPath) setBridgeProjectDir(projectPath);
+        const dslTotal = dslCommands.length; // Task 4: DSL total = 命令数
         const dslResults: Array<{ command: string; success: boolean; error?: string }> = [];
-        for (const cmd of dslCommands) {
+        for (let i = 0; i < dslCommands.length; i++) {
+          const cmd = dslCommands[i];
           if (!cmd) continue;
+          ctx.progress?.(i + 1, dslTotal, cmd.method); // Task 4: 每命令前推
           if (cmd.method === '_sleep') {
             await new Promise<void>(r => setTimeout(r, (cmd.params.ms as number) || 100));
             dslResults.push({ command: `waitMs(${cmd.params.ms})`, success: true });
@@ -304,6 +315,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(JSON.stringify({ mode: 'dsl', results: dslResults }, null, 2));
       }
 
+      ctx.progress?.(1, total, 'executing GDScript'); // Task 4: execute=步1
       const godot = await ctx.findGodot();
       const execResult = await executeGdscript({
         godotPath: godot,
@@ -339,6 +351,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       result.outputs = outputs;
 
       if (verify) {
+        ctx.progress?.(2, total, 'verifying'); // Task 4: verify=步2
         result.step2_verify = await runVerification(godot, projectPath);
       }
 
@@ -348,6 +361,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         ? rawBridge as Record<string, unknown>
         : undefined;
       if (bridge) {
+        ctx.progress?.(willVerify ? 3 : 2, total, 'bridge queries/screenshot'); // Task 4: bridge=步2或3
         if (projectPath) {
           setBridgeProjectDir(projectPath);
         }
@@ -414,6 +428,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         ? rawAcceptance as Record<string, unknown>
         : undefined;
       if (acceptance) {
+        ctx.progress?.(total, total, 'acceptance assertions'); // Task 4: acceptance=末步(=total)
         // ── frame_sequence: 自动捕获 N 帧到 proof 目录，供 frame_degradation 断言引用 ──
         let capturedFramesDir: string | undefined;
         let capturedRun: ProofRun | undefined; // B1:验证完成后清理 proof 临时目录
