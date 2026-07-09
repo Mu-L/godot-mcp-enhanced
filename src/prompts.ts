@@ -1,10 +1,21 @@
 // src/prompts.ts — MCP Prompt templates for guided workflows
 import type { PromptMessage } from '@modelcontextprotocol/sdk/types.js';
+import { scanFiles } from './core/file-scanner.js';
+import { relative } from 'node:path';
+
+export type CompletionSource =
+  | { type: 'enum'; values: string[] }
+  | { type: 'scenes' };
 
 export interface PromptDef {
   name: string;
   description: string;
-  arguments?: Array<{ name: string; description: string; required?: boolean }>;
+  arguments?: Array<{
+    name: string;
+    description: string;
+    required?: boolean;
+    completion?: CompletionSource;
+  }>;
 }
 
 /**
@@ -24,7 +35,7 @@ const PROMPTS: Record<string, { def: PromptDef; build: (args: Record<string, str
       description: '2D platformer game scaffold guidance',
       arguments: [
         { name: 'project_name', description: 'Project name', required: false },
-        { name: 'resolution', description: 'Target resolution (e.g. 1920x1080)', required: false },
+        { name: 'resolution', description: 'Target resolution (e.g. 1920x1080)', required: false, completion: { type: 'enum', values: ['1280x720', '1920x1080', '2560x1440'] } },
       ],
     },
     build: (args) => [{
@@ -37,8 +48,8 @@ const PROMPTS: Record<string, { def: PromptDef; build: (args: Record<string, str
       name: 'setup_player_controller',
       description: 'Player controller setup guidance',
       arguments: [
-        { name: 'dimension', description: '2d or 3d', required: false },
-        { name: 'movement_type', description: 'topdown, platformer, or fps', required: false },
+        { name: 'dimension', description: '2d or 3d', required: false, completion: { type: 'enum', values: ['2d', '3d'] } },
+        { name: 'movement_type', description: 'topdown, platformer, or fps', required: false, completion: { type: 'enum', values: ['topdown', 'platformer', 'fps'] } },
       ],
     },
     build: (args) => [{
@@ -51,7 +62,7 @@ const PROMPTS: Record<string, { def: PromptDef; build: (args: Record<string, str
       name: 'optimize_scene',
       description: 'Scene optimization analysis guidance',
       arguments: [
-        { name: 'scene_path', description: 'Scene file path', required: false },
+        { name: 'scene_path', description: 'Scene file path', required: false, completion: { type: 'scenes' } },
       ],
     },
     build: (args) => [{
@@ -85,4 +96,46 @@ export async function getPrompt(name: string, args: Record<string, string>): Pro
   const prompt = PROMPTS[name];
   if (!prompt) throw new Error(`Unknown prompt: ${name}`);
   return { messages: prompt.build(args) };
+}
+
+/** 按 name 查单个 PromptDef（CompleteRequest handler 用，访问 completion 配置的唯一干净路径） */
+export function getPromptDef(name: string): PromptDef | undefined {
+  return PROMPTS[name]?.def;
+}
+
+/**
+ * 解析补全源 → values（按 prefix 过滤）。
+ * enum: 固定枚举；scenes: scanFiles 列 .tscn 归一化 res://。失败/无 projectPath → 空。
+ */
+export async function resolveCompletion(
+  source: CompletionSource, prefix: string, projectPath?: string,
+): Promise<string[]> {
+  if (source.type === 'enum') {
+    return source.values.filter(v => v.startsWith(prefix));
+  }
+  if (!projectPath) return [];
+  try {
+    const files = scanFiles(projectPath, ['.tscn']);
+    return files
+      .map(f => 'res://' + relative(projectPath, f).replace(/\\/g, '/'))
+      .filter(r => r.startsWith(prefix));
+  } catch {
+    return [];
+  }
+}
+
+/** CompleteRequest 逻辑（提取自 GodotServer handler，可单测）。SDK :5511 total=all.length；:5507 MAX=100。 */
+export async function handleCompletion(
+  ref: { type: string; name: string },
+  argument: { name: string; value: string },
+  projectPath?: string,
+): Promise<{ completion: { values: string[]; total: number; hasMore: boolean } }> {
+  const EMPTY = { completion: { values: [] as string[], total: 0, hasMore: false } };
+  if (ref.type !== 'ref/prompt') return EMPTY;
+  const argDef = getPromptDef(ref.name)?.arguments?.find(a => a.name === argument.name);
+  if (!argDef?.completion) return EMPTY;
+  const all = await resolveCompletion(argDef.completion, argument.value, projectPath);
+  const MAX = 100;
+  const truncated = all.slice(0, MAX);
+  return { completion: { values: truncated, total: all.length, hasMore: all.length > MAX } };
 }

@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { listPrompts, getPrompt, listPromptDefs } from '../src/prompts.js';
+import { describe, it, expect, vi } from 'vitest';
+import { listPrompts, getPrompt, listPromptDefs, getPromptDef, resolveCompletion, handleCompletion } from '../src/prompts.js';
+
+// mock scanFiles 避免 IO，测 resolveCompletion/handleCompletion 的 scenes 归一化逻辑
+vi.mock('../src/core/file-scanner.js', () => ({
+  scanFiles: vi.fn(() => [
+    '/proj/scenes/main.tscn',
+    '/proj/scenes/level1.tscn',
+    '/proj/scenes/sub/deep.tscn',
+    '/proj/other.tscn',
+  ]),
+  DEFAULT_SKIP_DIRS: [],
+}));
 
 describe('prompts', () => {
   it('listPrompts returns 4 templates', () => {
@@ -52,5 +63,68 @@ describe('listPromptDefs', () => {
       expect(typeof d.name).toBe('string');
       expect(typeof d.description).toBe('string');
     }
+  });
+});
+
+describe('prompt completion', () => {
+  it('getPromptDef 返回指定 prompt 定义', () => {
+    const def = getPromptDef('optimize_scene');
+    expect(def?.name).toBe('optimize_scene');
+    expect(def?.arguments?.find(a => a.name === 'scene_path')?.completion).toEqual({ type: 'scenes' });
+  });
+
+  it('getPromptDef 未知 name → undefined', () => {
+    expect(getPromptDef('nonexistent')).toBeUndefined();
+  });
+
+  it('resolveCompletion enum 过滤 prefix', async () => {
+    const r = await resolveCompletion({ type: 'enum', values: ['2d', '3d'] }, '2');
+    expect(r).toEqual(['2d']);
+  });
+
+  it('resolveCompletion enum 空 prefix → 全部', async () => {
+    const r = await resolveCompletion({ type: 'enum', values: ['2d', '3d'] }, '');
+    expect(r).toEqual(['2d', '3d']);
+  });
+
+  it('resolveCompletion scenes 归一化 res:// + 过滤 prefix', async () => {
+    const r = await resolveCompletion({ type: 'scenes' }, 'res://scenes/', '/proj');
+    expect(r).toEqual(['res://scenes/main.tscn', 'res://scenes/level1.tscn', 'res://scenes/sub/deep.tscn']);
+  });
+
+  it('resolveCompletion scenes 无 projectPath → 空', async () => {
+    const r = await resolveCompletion({ type: 'scenes' }, '', undefined);
+    expect(r).toEqual([]);
+  });
+
+  it('handleCompletion ref/prompt + enum 参数 → values', async () => {
+    const r = await handleCompletion({ type: 'ref/prompt', name: 'setup_player_controller' }, { name: 'dimension', value: '' }, undefined);
+    expect(r.completion.values).toEqual(['2d', '3d']);
+    expect(r.completion.total).toBe(2);
+    expect(r.completion.hasMore).toBe(false);
+  });
+
+  it('handleCompletion ref 非 ref/prompt → 空', async () => {
+    const r = await handleCompletion({ type: 'ref/resource', name: 'x' }, { name: 'y', value: '' }, undefined);
+    expect(r.completion.values).toEqual([]);
+  });
+
+  it('handleCompletion 未知 prompt / 参数无 completion → 空', async () => {
+    const r1 = await handleCompletion({ type: 'ref/prompt', name: 'nonexistent' }, { name: 'x', value: '' }, undefined);
+    expect(r1.completion.values).toEqual([]);
+    // create_platformer.project_name 无 completion 配置
+    const r2 = await handleCompletion({ type: 'ref/prompt', name: 'create_platformer' }, { name: 'project_name', value: '' }, undefined);
+    expect(r2.completion.values).toEqual([]);
+  });
+
+  it('handleCompletion scenes 超 MAX → values 截断 100 + total=all.length + hasMore', async () => {
+    const { scanFiles } = await import('../src/core/file-scanner.js');
+    (scanFiles as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      Array.from({ length: 150 }, (_, i) => `/proj/s${i}.tscn`),
+    );
+    const r = await handleCompletion({ type: 'ref/prompt', name: 'optimize_scene' }, { name: 'scene_path', value: '' }, '/proj');
+    expect(r.completion.values).toHaveLength(100);
+    expect(r.completion.total).toBe(150);  // total=all.length 非 truncated.length（SDK :5511）
+    expect(r.completion.hasMore).toBe(true);
   });
 });
