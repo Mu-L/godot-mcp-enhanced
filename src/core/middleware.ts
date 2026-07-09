@@ -7,6 +7,7 @@ import { errorResult } from '../types.js';
 import type { DispatchContext, Middleware, MiddlewareResult, ToolResult } from '../types.js';
 import { isFeatureEnabled } from './feature-flags.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestedSchema } from './elicit.js';
 
 // ─── Pipeline Executor ────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ export function createConnectionCheckMiddleware(
  */
 export function createElicitationMiddleware(
   getToolDef: (name: string) => Tool | null,
-  elicitFn: ((params: string[]) => Promise<Record<string, string> | null>) | null,
+  elicitFn: ((requestedSchema: RequestedSchema, message: string) => Promise<Record<string, unknown> | null>) | null,
 ): Middleware {
   return {
     name: 'elicitation',
@@ -167,7 +168,17 @@ export function createElicitationMiddleware(
       }
 
       if (elicitFn) {
-        const elicited = await elicitFn(primitiveMissing);
+        const requestedSchema: RequestedSchema = {
+          type: 'object',
+          properties: Object.fromEntries(
+            primitiveMissing.map(p => [p, props[p] ?? { type: 'string' }]),
+          ),
+          required: primitiveMissing,
+        };
+        const elicited = await elicitFn(
+          requestedSchema,
+          `Tool "${ctx.toolName}" missing required parameter(s)`,
+        );
         if (elicited) {
           for (const [key, val] of Object.entries(elicited)) {
             if (primitiveMissing.includes(key) && !(key in safeArgs)) safeArgs[key] = val;

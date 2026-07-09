@@ -3,6 +3,7 @@ import type { ToolResult, MiddlewareResult, DispatchContext, Middleware } from '
 import { executeMiddleware, createConnectionCheckMiddleware, createElicitationMiddleware } from '../../src/core/middleware.js';
 import { textResult, errorResult } from '../../src/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestedSchema } from '../../src/core/elicit.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -235,11 +236,11 @@ describe('elicitation middleware', () => {
   });
 
   it('fills missing params from elicitation', async () => {
-    let capturedMissing: string[] = [];
+    let capturedSchema: RequestedSchema | null = null;
     const mw = createElicitationMiddleware(
       () => makeToolDef(['project_path']),
-      async (params) => {
-        capturedMissing = params;
+      async (requestedSchema, _message) => {
+        capturedSchema = requestedSchema;
         return { project_path: '/filled' };
       },
     );
@@ -250,7 +251,11 @@ describe('elicitation middleware', () => {
     const result = await mw.before(ctx);
     expect('passed' in result && result.passed).toBe(true);
     expect(ctx.args.project_path).toBe('/filled');
-    expect(capturedMissing).toEqual(['project_path']);
+    expect(capturedSchema).toEqual({
+      type: 'object',
+      properties: { project_path: { type: 'string' } },
+      required: ['project_path'],
+    });
   });
 
   it('elicitation does not mutate original args object', async () => {
@@ -277,5 +282,28 @@ describe('elicitation middleware', () => {
 
     expect(originalArgs).not.toHaveProperty('project_path');
     expect(ctx.args).toHaveProperty('project_path', '/test');
+  });
+
+  it('constructs requestedSchema with type/enum from inputSchema', async () => {
+    let capturedSchema: RequestedSchema | null = null;
+    const mw = createElicitationMiddleware(
+      () => ({
+        name: 'test_tool',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['a', 'b'] },
+            count: { type: 'number' },
+          },
+          required: ['mode', 'count'],
+        },
+      }) as any,
+      async (schema) => { capturedSchema = schema; return { mode: 'a', count: 1 }; },
+    );
+    await mw.before({ toolName: 'test_tool', args: {}, startTime: Date.now(), phase: 'before' });
+    expect(capturedSchema).not.toBeNull();
+    expect(capturedSchema!.properties.mode).toEqual({ type: 'string', enum: ['a', 'b'] });
+    expect(capturedSchema!.properties.count).toEqual({ type: 'number' });
+    expect(capturedSchema!.required).toEqual(['mode', 'count']);
   });
 });
