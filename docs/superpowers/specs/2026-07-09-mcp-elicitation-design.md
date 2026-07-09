@@ -139,6 +139,7 @@ client tools/call（缺 required primitive param）
 
 - **方案 A（middleware 构造 requestedSchema）> B/C**：A 就地利用 middleware 已有的 `props = schema.properties`（`:142`），职责分离（middleware 知 schema，elicitFn 只调 elicitInput）。B 重复 getToolDef 且耦合 tool registry。C 破坏 SDK content 处理（`server/index.js:367` 用 requestedSchema 校验/重塑）。
 - **elicit 不带 clientReady gate**：elicitInput 是 request/response（client 必已 initialize），非 fire-and-forget notification。logger/progress 的 clientReady 是防 notification 握手前崩，elicit 无此问题——加 clientReady 是过度设计。
+- **elicit 不需四层参数链（并发安全天然成立）**：与 progress 的 C-CONC-1 命门不同——`requestedSchema`/`message` 是 elicitFn 的 **per-call 参数**（middleware 每次 call 局部构造），`_elicitServer` 只读共享，`elicitInput` 按 request id 路由 response。故 elicitFn 单例 + per-call 参数 = 天然并发安全，**不需** progress 那样的四层参数链透传。照 progress 模式给 elicitation 套四层链是过度设计。
 - **返回 `Record<string, unknown>`**：兼容 number/boolean param（SDK 按 schema.type 返回），与 safeArgs 类型一致，避免窄化。
 - **form mode only MVP**：URL mode（敏感输入）是另场景，YAGNI。
 
