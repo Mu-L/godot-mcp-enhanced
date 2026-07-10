@@ -103,7 +103,7 @@ export class GodotServer {
     this.server = new Server(
       { name: 'godot-mcp-enhanced', version: pkgVersion },
       {
-        capabilities: { tools: {}, resources: {}, prompts: {} },
+        capabilities: { tools: {}, resources: {}, prompts: {}, completions: {} },
         instructions: readInstructions(),
       }
     );
