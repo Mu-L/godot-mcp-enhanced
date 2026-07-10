@@ -23,7 +23,12 @@ function restrictFileWindows(filePath: string): boolean {
       }
       return false;
     }
-    execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:R`], { stdio: 'ignore' });
+    // ACL 权限用 :F(full control),非 :R(read)。/inheritance:r 已移除继承与其他用户 ACE,
+    // 其他用户仍无权限;:F 让 editor plugin(同 USERNAME 身份)下次 _ready 能直接 WriteAllText
+    // 覆盖写新 secret。若用 :R,plugin 后续覆盖写被只读 ACL 拒绝 → secret 文件停在旧值、
+    // plugin 内存换新值 → MCP server 用旧文件 secret auth 失败 → 降级 headless(死循环 bug)。
+    // 与 plugin 端 src/scripts/mcp_bridge.gd / addons websocket_server.gd:_restrict_secret_permissions 的 USERNAME:F 对齐。
+    execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:F`], { stdio: 'ignore' });
     // Verify the ACL was applied by reading it back
     const output = execFileSync('icacls', [filePath], { encoding: 'utf-8' });
     // Case-insensitive match — Windows usernames are case-insensitive
