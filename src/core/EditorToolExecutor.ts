@@ -1,6 +1,7 @@
 // src/core/EditorToolExecutor.ts
 import type { EditorConnection } from './EditorConnection.js';
 import type { ToolResult } from '../types.js';
+import { resolveEditorMethod } from './editor-method-map.js';
 
 export class EditorToolExecutor {
   private syncActive = false;
@@ -67,8 +68,12 @@ export class EditorToolExecutor {
       // mutating operations (add_node, particles_create, etc.).
       // TODO: Future — add _use_undo flag for unified undo control across all handlers.
 
-      // Default: forward to plugin
-      const result = await this.conn.request(toolName, args);
+      // Default: forward to plugin. resolveEditorMethod 把 (tool,action) 映射到
+      // command_handler 的扁平 method（asset→asset_create 等）；未命中 fallback 工具名。
+      const entry = resolveEditorMethod(toolName, args);
+      const method = entry?.method ?? toolName;
+      const finalArgs = entry?.transformArgs ? entry.transformArgs(args) : args;
+      const result = await this.conn.request(method, finalArgs);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };

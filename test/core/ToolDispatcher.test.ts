@@ -584,6 +584,23 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
+  // [I-12/P1-1 一致性] editor 返回 -32601 的「平铺」形态（{error:msg, code:-32601}，
+  // EditorToolExecutor I-12 catch 把 WS error 拍平后的结构）→ 同样应触发 headless 回退。
+  it('falls back to headless when editor returns flat -32601 error (I-12/P1-1)', async () => {
+    const guard = createMockGuard(false);
+    const flatUnknownResult: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'Unknown method: script', code: -32601 }) }],
+      isError: true,
+    };
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(flatUnknownResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+    dispatcher.setEditorExecutor(mockExecutor);
+    await dispatcher.handleCall({ params: { name: 'script', arguments: { action: 'write_script' } } });
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+
   // [P1-2] (2026-07-06 review) editorExecutor 可用时, dispatchTool 注入 guard 回调到 perCallCtx。
   // script.ts/scene 写前调 checkEditorTextResourceWrite/checkEditorSceneSave 防绕过编辑器守卫。
   it('injects editor guard callbacks into perCallCtx when executor available (P1-2)', async () => {

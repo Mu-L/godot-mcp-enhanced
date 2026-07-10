@@ -157,6 +157,32 @@ describe('EditorToolExecutor sync lifecycle (mocked conn)', () => {
     clearRegistry();
   });
 
+  // editor-method-map：(asset, create/path/batch/undo/save) → asset_* 扁平 method；
+  // list_shapes 无映射 → fallback 工具名 'asset'；create 顶层 transform 并入 params。
+  it('maps (asset, create) to asset_create and merges transform into params', async () => {
+    await executor.execute('asset', { action: 'create', shape: 'box', position: [1, 2, 3], params: { size: [1, 1, 1] } });
+    expect(mockConn.request).toHaveBeenCalledWith('asset_create', expect.objectContaining({
+      params: expect.objectContaining({ size: [1, 1, 1], position: [1, 2, 3] }),
+    }));
+  });
+
+  it('maps (asset, save) to asset_save method', async () => {
+    await executor.execute('asset', { action: 'save', resource_path: 'res://x.tscn', node_path: '/root/M' });
+    expect(mockConn.request).toHaveBeenCalledWith('asset_save', expect.objectContaining({ resource_path: 'res://x.tscn' }));
+  });
+
+  it('falls back to tool name when action has no mapping (list_shapes)', async () => {
+    await executor.execute('asset', { action: 'list_shapes' });
+    expect(mockConn.request).toHaveBeenCalledWith('asset', expect.objectContaining({ action: 'list_shapes' }));
+  });
+
+  it('does not override shape params when merging transform (params.position wins)', async () => {
+    await executor.execute('asset', { action: 'create', shape: 'box', position: [9, 9, 9], params: { position: [1, 2, 3] } });
+    expect(mockConn.request).toHaveBeenCalledWith('asset_create', expect.objectContaining({
+      params: expect.objectContaining({ position: [1, 2, 3] }),
+    }));
+  });
+
   it('sync_start registers notification handler and sets active', async () => {
     const result = await executor.execute('editor', { action: 'sync_start' });
     expect(mockConn.onNotification).toHaveBeenCalledWith('scene_tree_changed', expect.any(Function));

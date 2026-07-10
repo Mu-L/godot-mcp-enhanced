@@ -634,8 +634,10 @@ export class ToolDispatcher {
     for (const block of result.content ?? []) {
       if (block.type !== 'text' || typeof block.text !== 'string') continue;
       try {
-        const parsed = JSON.parse(block.text) as { error?: { code?: number } };
-        if (parsed.error?.code === -32601) return true;
+        const parsed = JSON.parse(block.text) as { error?: { code?: number }; code?: number };
+        // 认嵌套 {error:{code}} 与平铺 {error,code}（后者是 EditorToolExecutor I-12
+        // 对 WS error 的结构化拍平形态，见 EditorToolExecutor.ts catch 分支）。
+        if (parsed.error?.code === -32601 || parsed.code === -32601) return true;
       } catch { /* not JSON */ }
     }
     return false;

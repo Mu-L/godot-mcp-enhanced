@@ -5,19 +5,22 @@
 // 工厂/阵列/放置/undo/save）。本模块为 TS 入口，负责：(1) 暴露工具 schema 给 MCP
 // 客户端；(2) list_* 静态返回；(3) 写动作经 editor 盲转持久化。
 //
-// 路由大图（已核实 ToolDispatcher.ts:347-357 + editorExecutor 注入 GodotServer.ts:420-421）：
-//   editor 模式：ToolDispatcher.executeToolCall 对所有工具盲转 currentExecutor.execute。
-//     - asset_create / asset_path / asset_batch / asset_undo / asset_save 在
-//       command_handler.gd match 命中 → 持久化（视口可见、可 undo）。
-//     - asset_list_shapes / asset_list_materials 在 command_handler.gd 无 match → -32601
-//       → ToolDispatcher._isUnknownMethod 检测 → 回退 dispatchTool → 本 handleTool
-//       → 静态返回（多 1 次 WS 往返，功能正确）。
+// 路由大图（editor-method-map.ts + ToolDispatcher.ts:353-374 + editorExecutor 注入
+// GodotServer.ts:420-421）：
+//   editor 模式：ToolDispatcher.executeToolCall 盲转 currentExecutor.execute；
+//   EditorToolExecutor._executeInner 经 editor-method-map 把 (asset, create/path/
+//   batch/undo/save) 映射到扁平 method → command_handler.gd match 命中 → 持久化
+//   （视口可见、可 undo）。create 的顶层 position/rotation/scale 由映射层 transformArgs
+//   并入 params（GD handle_create 只读内层 params）。
+//     - asset_list_shapes / asset_list_materials 无映射 → 转发工具名 'asset' →
+//       command_handler 无 'asset' 分支 → -32601 → ToolDispatcher._isUnknownMethod
+//       检测（嵌套+平铺）→ 回退 dispatchTool → 本 handleTool → 静态返回。
 //   headless 模式：ToolDispatcher currentExecutor=null，dispatchTool → 本 handleTool：
 //     - list_* 静态返回。
 //     - create/path/batch/undo/save → 返 EDITOR_ONLY（无编辑器可持久化）。
 //
-// 因此本 handleTool **不**实现 ctx.editorExecutor 探索块（brief Step 2 原始设计已被
-// IMPORTANT-1 修订为依赖 ToolDispatcher 盲转——见 ToolDispatcher.ts:347-357）。
+// 因此本 handleTool **不**实现 ctx.editorExecutor 探索块（写动作靠 editor-method-map
+// 盲转命中；list_* 靠 -32601 回退）。
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
