@@ -181,7 +181,11 @@ export function createElicitationMiddleware(
         );
         if (elicited) {
           for (const [key, val] of Object.entries(elicited)) {
-            if (primitiveMissing.includes(key) && !(key in safeArgs)) safeArgs[key] = val;
+            // P1 修复（2026-07-10 审查）：原条件含 !(key in safeArgs)，当客户端对 required primitive
+            // 传 null/'' 占位（key 存在但空）时，missing 判定(:137) 触发 elicit，但 apply 时 key 已存在
+            // 导致用户填入的真实值被静默丢弃、工具仍用空值执行。primitiveMissing 已是「空值或真缺失」的
+            // 并集，elicitFn 返回值应直接覆盖，无需 key 存在性守卫（有效非空值不在 primitiveMissing 内）。
+            if (primitiveMissing.includes(key)) safeArgs[key] = val;
           }
           return { passed: true };
         }

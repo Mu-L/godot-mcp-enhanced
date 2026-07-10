@@ -306,4 +306,21 @@ describe('elicitation middleware', () => {
     expect(capturedSchema!.properties.count).toEqual({ type: 'number' });
     expect(capturedSchema!.required).toEqual(['mode', 'count']);
   });
+
+  it('fills empty-string required param from elicitation (regression: value must not be dropped)', async () => {
+    // P1 回归（middleware.ts:184）：required primitive 传 '' 占位（key 存在但空），
+    // elicitFn 返回的真实值必须覆盖空值。原 bug：apply 条件 !(key in safeArgs) 使填入值被吞，
+    // 工具仍用 '' 执行 —— elicitation 在最常见的「空值占位」场景完全失效。
+    const mw = createElicitationMiddleware(
+      () => makeToolDef(['project_path']),
+      async () => ({ project_path: '/filled' }),
+    );
+    const ctx = {
+      toolName: 'test_tool', args: { project_path: '' },
+      startTime: Date.now(), phase: 'before',
+    };
+    const result = await mw.before(ctx);
+    expect('passed' in result && result.passed).toBe(true);
+    expect(ctx.args.project_path).toBe('/filled');
+  });
 });
