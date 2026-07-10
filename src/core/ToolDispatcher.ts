@@ -358,7 +358,9 @@ export class ToolDispatcher {
         // (add_node/open_scene/...), TS 工具是 (tool,action) 命名(script/screenshot/project/...),
         // 转发后落到 -32601 Unknown method 静默失效。检测到 -32601 自动回退 headless dispatchTool,
         // 让非编辑器原生工具在 editor 模式仍可用; 编辑器认的工具照常走 editor(保留 undo/sync)。
-        if (this._isUnknownMethod(editorResult)) {
+        // isError 前置：只在 editor 报错时才检测 -32601，避免未来 plugin 成功响应顶层带数字 code
+        // 被误判为 unknown method 触发静默降级 headless（见 ToolDispatcher.test「isError guard」负面用例）。
+        if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
           logger.toolEnd(callId, name, Date.now() - startTime, 'editor_unknown_method_fallback');
           return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
         }

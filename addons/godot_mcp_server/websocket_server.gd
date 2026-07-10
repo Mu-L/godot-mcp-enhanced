@@ -68,7 +68,7 @@ func _generate_and_write_secret() -> void:
 	_secret_file = godot_dir.path_join("mcp_editor.key")
 	# Windows: FileAccess.close 走 atomic rename(drivers/windows/file_access_windows.cpp:276, Godot #40366),
 	# 杀软拦 rename → "Safe save failed" 红字(非致命但误导用户)。改用 PowerShell WriteAllText 直接写绕开。
-	# 配合 _restrict_secret_permissions 用 icacls USERNAME:F + /inheritance:r(USERNAME 全控、其他用户无权限,
+	# 配合 _restrict_secret_permissions 用 icacls USERNAME:M + /inheritance:r(USERNAME Modify、其他用户无权限,
 	# 比 USERNAME:R 更合理——R 是 anti-pattern: addon 以 USERNAME 身份却要覆盖自己只读的 key,
 	# 只能靠 atomic rename 绕 ACL,正是红字根源)。secret 经环境变量传递(不经命令行暴露,见 I-3)。
 	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
@@ -124,11 +124,11 @@ func _restrict_secret_permissions(path: String) -> void:
 		if username.is_empty() or not RegEx.create_from_string("^[A-Za-z0-9_-]+$").search(username):
 			push_warning("[MCP] Cannot restrict secret permissions: username '%s' has unexpected chars" % username)
 			return
-		# USERNAME:F(全控) + /inheritance:r(移除继承,其他用户无 ACE 无权限)。
+		# USERNAME:M(Modify) + /inheritance:r(移除继承,其他用户无 ACE 无权限)。
 		# 原 USERNAME:R 是 anti-pattern: addon 以 USERNAME 身份运行却要覆盖自己只读的 key,
 		# 只能靠 FileAccess atomic rename 绕 ACL → 触发 "Safe save failed" 红字(Godot #40366)。
-		# F 让 _generate_and_write_secret 的 PowerShell WriteAllText 能直接覆盖写,其他用户仍无权限(比 R 更严)。
-		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:F" % username]), [])
+		# M 让 _generate_and_write_secret 的 PowerShell WriteAllText 能直接覆盖写,其他用户仍无权限(比 R 更严)。
+		exit_code = OS.execute("icacls", PackedStringArray([path, "/inheritance:r", "/grant:r", "%s:M" % username]), [])
 		if exit_code != 0:
 			push_warning("[MCP] icacls failed (exit %d), secret may keep default permissions: %s" % [exit_code, path])
 	elif os_name in ["Linux", "FreeBSD", "macOS"]:

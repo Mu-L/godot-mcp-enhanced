@@ -44,9 +44,14 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   heartbeat-pause-timeout-disconnect(暂停超时改恢复 normal 检测)),合计 41。
 //   +4(2026-07-10 三层架构审查 P1×3+P2×1: pkill-spawn-error-handler / nav-bake-in-undo-action /
 //   asset-undo-stack-top-guard / install-plugin-realpath-guard),合计 45。
-    expect(FIXED_DEFECTS.length).toBe(45);
+//   +1(2026-07-10 RCE/进程通信审查 P1: elicitation-apply-drops-empty-required,空值占位 required primitive
+//   的 elicit 值被吞),合计 46。
+//   +3(2026-07-11 editor-asset/auth 审查 P1: editor-asset-method-map-routing(asset 写操作扁平 method 映射)/
+//   undo-manager-callv-editor-undo-redo(callv + EditorUndoRedoManager 形参)/
+//   editor-auth-acl-not-readonly(secret ACL :R→:M 修降级 headless 死循环)),合计 49。
+    expect(FIXED_DEFECTS.length).toBe(49);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(45);
+    expect(new Set(keys).size, '存在重名 key').toBe(49);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

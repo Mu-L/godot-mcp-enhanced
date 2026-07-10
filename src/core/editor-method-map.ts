@@ -37,7 +37,13 @@ export function mergeTransformIntoParams(args: Args): Args {
       params[key] = args[key];
     }
   }
-  return { ...args, params };
+  // 顶层 position/rotation/scale 已并入 params（GD handle_create 只读内层 params），
+  // 从顶层剥离避免双重传参在日志/调试时造成视觉混淆。
+  const rest = { ...args };
+  delete rest.position;
+  delete rest.rotation;
+  delete rest.scale;
+  return { ...rest, params };
 }
 
 const MAP: Record<string, Record<string, EditorMethodEntry>> = {

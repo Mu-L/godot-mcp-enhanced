@@ -601,6 +601,26 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
+  // [I-12/P1-1 负面用例] 成功响应（isError=false）即使顶层带 -32601 code 也不应误判回退。
+  // _isUnknownMethod 调用前置 editorResult.isError === true，防止未来 plugin 成功响应
+  // 顶层带数字 code 字段时被误判 unknown method 触发静默降级 headless。
+  it('does NOT fall back when editor success carries top-level code (isError guard)', async () => {
+    const guard = createMockGuard(false);
+    const successWithCode: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ result: 'ok', code: -32601 }) }],
+      isError: false,
+    };
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(successWithCode), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+    dispatcher.setEditorExecutor(mockExecutor);
+    const result = await dispatcher.handleCall({ params: { name: 'script', arguments: { action: 'write_script' } } });
+    // 未回退 headless：handler 不应被调用，且结果不是 error
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+    expect(result.isError).not.toBe(true);
+  });
+
   // [P1-2] (2026-07-06 review) editorExecutor 可用时, dispatchTool 注入 guard 回调到 perCallCtx。
   // script.ts/scene 写前调 checkEditorTextResourceWrite/checkEditorSceneSave 防绕过编辑器守卫。
   it('injects editor guard callbacks into perCallCtx when executor available (P1-2)', async () => {
@@ -1551,6 +1571,7 @@ describe('ToolDispatcher progress 透传链', () => {
     const editorExecutor = {
       execute: vi.fn().mockResolvedValue({
         content: [{ type: 'text' as const, text: JSON.stringify({ jsonrpc: '2.0', error: { code: -32601, message: 'Unknown method' } }) }],
+        isError: true, // -32601 是 error 响应;_isUnknownMethod 调用前置 editorResult.isError===true(I-12/P1-1 guard)
       }),
     };
     const server = { notification: vi.fn().mockReturnValue(undefined) };

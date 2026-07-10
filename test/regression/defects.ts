@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 45 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1）。
+// FIXED_DEFECTS 49 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -444,6 +444,45 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 审查建议复用 validateProjectRoot 但后者仅查 project.godot(等价), 真实符号链接防护由 realpathSync 承担。
     detect: () => {
       return /realpathSync/.test(readSrc('scripts/install-plugin.js')) ? 0 : 1;
+    } },
+  { key: 'elicitation-apply-drops-empty-required', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P1(2026-07-10 RCE/进程通信审查): elicitation middleware apply 条件含 !(key in safeArgs),
+    // 客户端对 required primitive 传 null/'' 占位(key 存在但空)时, missing 判定(middleware.ts:137)触发 elicit,
+    // 但 apply 时 key 已存在 → 用户填入的真实值被静默丢弃, 工具仍用空值执行(elicitation 在最常见场景失效)。
+    // fix: 去 !(key in safeArgs), primitiveMissing 已是「空值或真缺失」并集, elicitFn 返回值直接覆盖。
+    // detect 计数 apply 条件含 !(key in safeArgs) 的 buggy 模式(修复后应=0)。
+    detect: () => {
+      const f = readSrc('src/core/middleware.ts');
+      return (f.match(/primitiveMissing\.includes\(key\)\s*&&\s*!\(key in safeArgs\)/g) ?? []).length;
+    } },
+  { key: 'editor-asset-method-map-routing', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P1(2026-07-11 editor-asset 审查): editor 模式 asset 工具用工具名 'asset' 直接转发 command_handler,
+    // 但后者只有扁平分支(asset_create/path/batch/undo/save)无 'asset' 聚合入口 → -32601 → 写操作静默失效。
+    // fix: editor-method-map.ts 把 (asset, create/path/batch/undo/save) 映射到扁平 method。
+    // detect: editor-method-map.ts 存在 asset_create 映射条目(修复后应=0 即无缺陷)。
+    detect: () => {
+      return /create:\s*\{\s*method:\s*'asset_create'/.test(readSrc('src/core/editor-method-map.ts')) ? 0 : 1;
+    } },
+  { key: 'undo-manager-callv-editor-undo-redo', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P1(2026-07-11 editor-asset 审查): undo_manager _add_method 形参标 UndoRedo 但实参是 EditorUndoRedoManager
+    // (_plugin.get_undo_redo() 返回值,继承 Object 非 UndoRedo 子类)→ 运行时类型检查拒绝,函数体不执行;
+    // 且 add_do_method(Callable) 对 EditorUndoRedoManager 无此重载 → do_method 静默不注册 → commit_action
+    // 触发空 do_ops → add_child 从未调用 → editor 模式所有写入工具系统性不落地(asset/add_node/particles/...)。
+    // fix: 形参改 EditorUndoRedoManager + callv("add_do_method", [target, method] + args) spread vararg。
+    // detect: undo_manager.gd 同时含 callv 调用与 EditorUndoRedoManager 形参(修复后应=0)。
+    detect: () => {
+      const gd = readSrc('addons/godot_mcp_server/undo_manager.gd');
+      return (/undo_redo\.callv\(/.test(gd) && /EditorUndoRedoManager/.test(gd)) ? 0 : 1;
+    } },
+  { key: 'editor-auth-acl-not-readonly', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P1(2026-07-11 editor-auth 审查): restrictFileWindows 用 icacls USERNAME:R(自锁只读)收紧 secret,
+    // 致 editor plugin(同 USERNAME 身份)下次 _ready WriteAllText 覆盖写新 secret 被只读 ACL 拒 →
+    // secret 文件停旧值/plugin 内存换新值 → MCP server 用旧文件 secret auth 失败 → 降级 headless(死循环)。
+    // fix: :R → :M(Modify,含 Write 不含 Change permissions),与 plugin 端 websocket_server.gd/
+    // mcp_bridge.gd 的 _restrict_secret_permissions 三处同步;/inheritance:r 已排除其他用户 ACE。
+    // detect: 计数 editor-auth.ts 里 ${username}:R 反模式(修复后应=0;:M/:F 均算已修)。
+    detect: () => {
+      return (readSrc('src/core/editor-auth.ts').match(/\$\{username\}:R/g) ?? []).length;
     } },
 ];
 

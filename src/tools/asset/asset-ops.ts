@@ -6,7 +6,7 @@
 // 客户端；(2) list_* 静态返回；(3) 写动作经 editor 盲转持久化。
 //
 // 路由大图（editor-method-map.ts + ToolDispatcher.ts:353-374 + editorExecutor 注入
-// GodotServer.ts:420-421）：
+// GodotServer.ts:436-437）：
 //   editor 模式：ToolDispatcher.executeToolCall 盲转 currentExecutor.execute；
 //   EditorToolExecutor._executeInner 经 editor-method-map 把 (asset, create/path/
 //   batch/undo/save) 映射到扁平 method → command_handler.gd match 命中 → 持久化
