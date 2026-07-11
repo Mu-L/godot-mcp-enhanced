@@ -135,12 +135,12 @@ static func create_material(spec: Variant) -> Material:
 		var d: Dictionary = spec
 		var mat := StandardMaterial3D.new()
 		if d.has("color"):
-			mat.albedo_color = _safe_html(String(d["color"]), Color(1, 1, 1))  # A-4：非法 hex 回退白
+			mat.albedo_color = _parse_color(d["color"], Color(1, 1, 1))  # BUG1 修复：Array/hex 分派，非法回退白
 		mat.metallic = float(d.get("metallic", 0.0))
 		mat.roughness = float(d.get("roughness", 0.7))
 		if d.has("emissive"):
 			mat.emission_enabled = true
-			mat.emission = _safe_html(String(d["emissive"]), Color(0, 0, 0))  # A-4：非法 hex 回退黑（不发光）
+			mat.emission = _parse_color(d["emissive"], Color(0, 0, 0))  # BUG1 修复：同上，非法回退黑
 		if d.has("alpha"):
 			var a: float = float(d["alpha"])
 			if a < 1.0:
@@ -151,6 +151,31 @@ static func create_material(spec: Variant) -> Material:
 		return mat
 	return MaterialPresets.create("default")
 
+
+# 类型分派解析颜色：Array/PackedFloat64Array [r,g,b(,a)] / String hex / 其他 fallback。
+# BUG1 修复：原 String(d["color"]) 在 d["color"] 为 Array 时调不存在的 String(Array) 构造
+# → 抛 SCRIPT ERROR 中断 create_material 返 null → material_override=null 材质静默丢失。
+# 风格对齐 _vec3（Array/PackedFloat64Array 分派）；第 4 元素（若有）作 alpha。
+static func _parse_color(v: Variant, fallback: Color) -> Color:
+	if v is Array:
+		var a := v as Array
+		if a.size() >= 3:
+			var c := Color(float(a[0]), float(a[1]), float(a[2]))
+			if a.size() >= 4:
+				c.a = float(a[3])
+			return c
+		return fallback
+	if v is PackedFloat64Array:
+		var a2 := v as PackedFloat64Array
+		if a2.size() >= 3:
+			var c := Color(a2[0], a2[1], a2[2])
+			if a2.size() >= 4:
+				c.a = a2[3]
+			return c
+		return fallback
+	if v is String:
+		return _safe_html(v, fallback)
+	return fallback
 
 # A-4：Color.html 对非法 hex 返黑色 + stderr 噪声。校验合法 hex（3/4/6/8 位），非法时回退 fallback
 static func _safe_html(hex: String, fallback: Color) -> Color:

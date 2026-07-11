@@ -161,20 +161,20 @@ static func _sample_continuous(
 			# 段末去重（复用 spacing 模式补尾，防御浮点近似整除重复边界）
 			if (seg_end - float(boundaries[boundaries.size() - 1])) > _EPS:
 				boundaries.append(seg_end)
-	elif spacing > 0.0:
-		var d := 0.0
-		while d <= total + _EPS:
-			boundaries.append(d)
-			d += spacing
-		if include_endpoints and (total - float(boundaries[boundaries.size() - 1])) > _EPS:
-			boundaries.append(total)
-	elif count >= 1:
+	elif count >= 1:  # BUG2：count 优先于 spacing（显式"要 N 段"意图）
 		if count == 1:
 			boundaries = [0.0, total]
 		else:
 			var step := total / float(count)
 			for i in range(count + 1):
 				boundaries.append(step * float(i))
+	elif spacing > 0.0:  # BUG2：仅 count<1 时才走 spacing
+		var d := 0.0
+		while d <= total + _EPS:
+			boundaries.append(d)
+			d += spacing
+		if include_endpoints and (total - float(boundaries[boundaries.size() - 1])) > _EPS:
+			boundaries.append(total)
 	# 段 = 相邻边界对
 	var segments: Array = []
 	for i in range(boundaries.size() - 1):
@@ -222,19 +222,15 @@ static func _total_length(points: Array) -> float:
 	return total
 
 
-# discrete 采样距离序列（spacing 等间距 / count 等数量）
+# discrete 采样距离序列（count 等数量优先 / spacing 等间距）
+# BUG2 修复：count >= 1 优先于 spacing > 0.0。原 spacing 优先 + handle_path 默认 spacing=1.0
+# → 用户传 count=N 仍走 spacing 分支，count 被吞（count=5 实落 13 段）。count 是显式"要 N 件"
+# 意图，应优先于间距默认；仅 count<1（默认 0）时才走 spacing。discrete count 语义=采样点数。
 static func _distances(
 	total: float, spacing: float, count: int, include_endpoints: bool
 ) -> Array:
 	var distances: Array = []
-	if spacing > 0.0:
-		var d := 0.0
-		while d <= total + _EPS:
-			distances.append(d)
-			d += spacing
-		if include_endpoints and (total - float(distances[distances.size() - 1])) > _EPS:
-			distances.append(total)
-	elif count >= 1:
+	if count >= 1:
 		if count == 1:
 			distances.append(total / 2.0)  # validate 已保证 include_endpoints=false
 		elif include_endpoints:
@@ -245,10 +241,17 @@ static func _distances(
 			var step := total / float(count)
 			for i in count:
 				distances.append(step * (float(i) + 0.5))
+	elif spacing > 0.0:
+		var d := 0.0
+		while d <= total + _EPS:
+			distances.append(d)
+			d += spacing
+		if include_endpoints and (total - float(distances[distances.size() - 1])) > _EPS:
+			distances.append(total)
 	return distances
 
 
-# 弧长 d 处的位置（沿折线分段线性插值）
+	# 弧长 d 处的位置（沿折线分段线性插值）
 static func _position_at(
 	d: float, seg_len: Array, points: Array, total: float
 ) -> Vector3:

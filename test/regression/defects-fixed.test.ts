@@ -49,9 +49,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +3(2026-07-11 editor-asset/auth 审查 P1: editor-asset-method-map-routing(asset 写操作扁平 method 映射)/
 //   undo-manager-callv-editor-undo-redo(callv + EditorUndoRedoManager 形参)/
 //   editor-auth-acl-not-readonly(secret ACL :R→:M 修降级 headless 死循环)),合计 49。
-    expect(FIXED_DEFECTS.length).toBe(49);
+//   +2(2026-07-11 插件反馈·messenger-godot asset 子系统): asset-material-array-color-crash
+//   (create_material 传 [r,g,b] 数组调不存在的 String(Array) 抛 SCRIPT ERROR → 材质静默丢失)/
+//   asset-path-count-swallowed-by-spacing(path count 被 handle_path 默认 spacing=1.0 吞),合计 51。
+    expect(FIXED_DEFECTS.length).toBe(51);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(49);
+    expect(new Set(keys).size, '存在重名 key').toBe(51);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

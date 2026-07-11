@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 49 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3）。
+// FIXED_DEFECTS 51 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -483,6 +483,38 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // detect: 计数 editor-auth.ts 里 ${username}:R 反模式(修复后应=0;:M/:F 均算已修)。
     detect: () => {
       return (readSrc('src/core/editor-auth.ts').match(/\$\{username\}:R/g) ?? []).length;
+    } },
+  { key: 'asset-material-array-color-crash', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // BUG1(2026-07-11 插件反馈·messenger-godot): asset_factory.gd create_material Dict 分支
+    // String(d["color"])/String(d["emissive"]) 在用户传 [r,g,b] 浮点数组时调不存在的 String(Array) 构造
+    // → 抛 SCRIPT ERROR 中断 create_material 返 null → material_override=null 材质静默丢失
+    // （节点 node_path 非空假成功，难排查）。对照传 hex 字符串/字面量正常落地。
+    // fix: 抽 _parse_color 类型分派（Array/PackedFloat64Array [r,g,b(,a)]→Color；String→_safe_html；其他 fallback）。
+    // detect: _safe_html(String(d[ 反模式 = 0 + _parse_color 定义存在（回退 String() 或删 helper 即复发）。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/asset/asset_factory.gd');
+      const buggy = (f.match(/_safe_html\(String\(d\[/g) ?? []).length;
+      const hasFix = /func _parse_color/.test(f);
+      return buggy + (hasFix ? 0 : 1);
+    } },
+  { key: 'asset-path-count-swallowed-by-spacing', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // BUG2(2026-07-11 插件反馈·messenger-godot): path_generator.gd _distances/_sample_continuous 中
+    // if/elif spacing > 0.0 优先于 elif count >= 1，asset_commands.gd handle_path 默认 spacing=1.0
+    // → 用户传 count=N 仍走 spacing 分支，count 被吞（asset path count=5 实落 13 段，spacing=1.0 沿 12 米 L 形采 13 点）。
+    // validate 函数（spacing/count 互斥校验）是死代码，place_path/sample 从未调用。
+    // fix: count >= 1 分支优先（显式"要 N 件"意图），spacing 仅 count<1（默认 0）时用。discrete+continuous 两函数同改。
+    // detect: _distances + _sample_continuous 两函数体内 count>=1 首次位置均 < spacing>0.0（count 优先）。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/asset/path_generator.gd');
+      const dFn = f.slice(f.indexOf('func _distances('), f.indexOf('func _position_at('));
+      const dCount = dFn.indexOf('count >= 1');
+      const dSpacing = dFn.indexOf('spacing > 0.0');
+      const cFn = f.slice(f.indexOf('func _sample_continuous('), f.indexOf('func _to_vector3('));
+      const cCount = cFn.indexOf('count >= 1');
+      const cSpacing = cFn.indexOf('spacing > 0.0');
+      const distancesOk = dCount >= 0 && dSpacing >= 0 && dCount < dSpacing;
+      const continuousOk = cCount >= 0 && cSpacing >= 0 && cCount < cSpacing;
+      return (distancesOk && continuousOk) ? 0 : 1;
     } },
 ];
 
