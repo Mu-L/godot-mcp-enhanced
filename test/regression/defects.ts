@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 51 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2）。
+// FIXED_DEFECTS 52 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -515,6 +515,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const distancesOk = dCount >= 0 && dSpacing >= 0 && dCount < dSpacing;
       const continuousOk = cCount >= 0 && cSpacing >= 0 && cCount < cSpacing;
       return (distancesOk && continuousOk) ? 0 : 1;
+    } },
+  { key: 'mcp-bridge-ready-headless-skip', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // (2026-07-11 插件反馈·CardGame2): mcp_bridge.gd _ready 原 if DisplayServer.get_name()=="headless": return
+    // 致 run_project 跑 headless 游戏时 Bridge 不启动(game_query ping auth timeout)。注释假设"headless=--script 驱动"
+    // 不成立——run_project 游戏 headless 需 Bridge。execute_gdscript --script 场景 listen() 失败安全跳过(warning+return)。
+    // fix: 删 headless early return, _start_server() 无条件调用, headless 也起 Bridge。
+    // detect: _ready 不再含 headless early return（DisplayServer=="headless" 字样在 mcp_bridge.gd 消失）。
+    detect: () => {
+      return countMatchesInFile('src/scripts/mcp_bridge.gd', /DisplayServer\.get_name\(\)\s*==\s*"headless"/);
     } },
 ];
 

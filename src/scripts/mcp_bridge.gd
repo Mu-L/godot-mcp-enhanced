@@ -75,10 +75,8 @@ func _ready() -> void:
 	# Godot 4.6+: extends 原生类(Node)的虚函数不可调 super()(4.6.2 Parse error "hasn't been defined"),移除 IMP-4 super()。该 convention 仅适用于 extends 自定义基类。
 	if Engine.is_editor_hint():
 		return
-	# Skip Bridge startup in headless/script mode — Bridge is for runtime game control only.
-	# Headless mode means MCP is driving Godot via --headless --script, not a running game.
-	if DisplayServer.get_name() == "headless":
-		return
+	# Headless 也启动 Bridge: run_project 跑 headless 游戏需 Bridge 通信(DisplayServer=headless)。
+	# --headless --script 场景若端口被占, _start_server 的 listen() 失败会安全跳过(warning+return)。
 	_start_server()
 
 
@@ -148,7 +146,9 @@ func _process(_delta: float) -> void:
 		_peer_last_activity.erase(pid)
 		# C-07: cleanup per-peer monitor/watch state on disconnect
 		_cleanup_peer_state(pid)
-		# I-9: 清除断开 peer 的 per-peer 锁定/失败记录(per-peer 隔离,断开即清理)
+		# I-9: 清除断开 peer 的 per-peer 锁定/失败记录。per-peer 隔离是有意设计(非全局)——
+		# 全局计数会让单个失败源锁死所有合法客户端(DoS), 详见 _process_buffer_bytes 处 I-9 论证。
+		# 断开即清零是 per-peer 的预期行为(peer id 每连接不同), LOCKOUT 仅减速带, 非主防线。
 		_auth_fail_count.erase(pid)
 		_auth_locked_until.erase(pid)
 		_peers.remove_at(i)
@@ -464,7 +464,10 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 			_peer_buffers[key] = raw
 			return true
 		if not _authenticated_peers.has(pid):
-			
+			# I-9: per-peer lockout —— 用 pid(peer_id) 隔离失败计数与锁定, 而非全局。
+			# 全局键会导致单个失败源(错误客户端/攻击者) 5 次失败锁死所有合法客户端 300s(DoS);
+			# per-peer 下失败连接自己被锁, 不影响其他客户端。
+			# secret 为 256-bit 随机, 暴力不可行, LOCKOUT 仅减速带(非主防线), per-peer 可接受。
 			if _auth_locked_until.has(pid):
 				var locked_until: float = _auth_locked_until[pid]
 				if Time.get_ticks_msec() / 1000.0 < locked_until:

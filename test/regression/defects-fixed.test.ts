@@ -52,9 +52,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +2(2026-07-11 插件反馈·messenger-godot asset 子系统): asset-material-array-color-crash
 //   (create_material 传 [r,g,b] 数组调不存在的 String(Array) 抛 SCRIPT ERROR → 材质静默丢失)/
 //   asset-path-count-swallowed-by-spacing(path count 被 handle_path 默认 spacing=1.0 吞),合计 51。
-    expect(FIXED_DEFECTS.length).toBe(51);
+//   +1(2026-07-11 插件反馈·CardGame2): mcp-bridge-ready-headless-skip(_ready 删 headless early return,
+//   run_project headless 游戏需 Bridge; detect 计 mcp_bridge.gd 中 DisplayServer=="headless" 残留),合计 52。
+    expect(FIXED_DEFECTS.length).toBe(52);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(51);
+    expect(new Set(keys).size, '存在重名 key').toBe(52);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
