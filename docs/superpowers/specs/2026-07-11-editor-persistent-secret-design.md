@@ -63,11 +63,19 @@ func _delete_secret_file() -> void:
 
 bridge 在 `_exit_tree:441-443` 内联检查；editor 复用 `_delete_secret_file` 封装、在函数头加 guard 更干净（`_exit_tree:413` 调用处无需改）。
 
-### 改动点 3：rule 文档 `.claude/rules/godot-mcp-editor.md`
+### 改动点 3：rule template 源 `src/tools/rule-templates.ts`（review 纠正：改 template 源，非生成物 .md）
 
-"常见陷阱"段加一条（对称 bridge 的密钥权限循环条目）：
+> **review 发现的 spec gap**：`.claude/rules/godot-mcp-editor.md` 是 `project.ts:453` 从 `DETAILED_RULE_TEMPLATES`（`rule-templates.ts`）生成的产物，直接改会被下次 `setup_project_rules` 覆盖。改 template 源才持久。详见 plan Task 3（已实现 commit e3dc620）。
+
+editor template「常见陷阱」段加一条（对称 bridge 的密钥权限循环条目）：
 
 > - **editor 固定 secret（S4-editor）**：设环境变量 `GODOT_MCP_EDITOR_PERSISTENT_SECRET=true`，editor plugin 复用现有 `mcp_editor.key`（不重生、不收紧 ACL、`_exit_tree` 不删除），彻底消除 `_ready` 覆盖写需求及 MCP 端 TTL 缓存同步窗口。仅本地测试用（安全降级——secret 固定不再轮换，生产保持默认 false）。对称 bridge `GODOT_MCP_BRIDGE_PERSISTENT_SECRET`（见 godot-mcp-bridge.md「密钥权限循环」）。
+
+### 改动点 4：`src/helpers.ts` buildSafeEnv 透传 GODOT_MCP_EDITOR_*（review 发现的 spec gap）
+
+> **review 发现**：`launch_editor`（`runtime.ts:128`）用 `buildSafeEnv()` spawn Godot 编辑器子进程，而 `buildSafeEnv`（`helpers.ts:141`）只透传 `GODOT_MCP_BRIDGE_*` 前缀 → `GODOT_MCP_EDITOR_*` 被截断 → editor plugin `OS.get_environment()` 读空 → PERSISTENT 永不触发。bridge 能工作正因为 `BRIDGE_*` 在白名单（`helpers.test.js:317` 专门测）。
+
+白名单扩展 `GODOT_MCP_BRIDGE_` → `BRIDGE_`‖`EDITOR_`（对称 bridge）。安全边界不退化（服务端安全开关 UNRESTRICTED/ALLOW_UNSAFE/ALLOW_EXECUTE_GDSCRIPT/ALLOWED_PROJECT_PATHS 仍 strip）。详见 plan Task 1（已实现 commit 89ae910）。
 
 ## 关键决策
 
