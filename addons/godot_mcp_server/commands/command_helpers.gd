@@ -130,6 +130,45 @@ static func parse_vec3(v: Variant) -> Vector3:
 	return Vector3.ZERO
 
 
+## Coerce MCP JSON Array values to Godot math types matching the target property.
+## Godot's Object.set() does NOT auto-convert Array to Vector3 etc (Godot 4.7
+## verified: set("position", [0,0,-6]) is a silent no-op). Mirrors the parse_vec3
+## path that asset_placer uses for create/batch position. Returns val unchanged
+## when no coercion applies so non-math properties fall through to type_ok / Godot.
+## Fixes instance_scene properties.position / set_instance_property Vector3 set
+## (asset create/batch already worked via parse_vec3; scene tools did not).
+static func coerce_value_for_property(obj: Object, prop_name: String, val: Variant) -> Variant:
+	if val is Array:
+		var current = obj.get(prop_name)
+		if current != null:
+			match typeof(current):
+				TYPE_VECTOR2:
+					if val.size() >= 2:
+						return Vector2(float(val[0]), float(val[1]))
+				TYPE_VECTOR2I:
+					if val.size() >= 2:
+						return Vector2i(int(val[0]), int(val[1]))
+				TYPE_VECTOR3:
+					if val.size() >= 3:
+						return Vector3(float(val[0]), float(val[1]), float(val[2]))
+				TYPE_VECTOR3I:
+					if val.size() >= 3:
+						return Vector3i(int(val[0]), int(val[1]), int(val[2]))
+				TYPE_VECTOR4:
+					if val.size() >= 4:
+						return Vector4(float(val[0]), float(val[1]), float(val[2]), float(val[3]))
+				TYPE_COLOR:
+					if val.size() >= 3:
+						return Color(float(val[0]), float(val[1]), float(val[2]), float(val[3]) if val.size() > 3 else 1.0)
+				TYPE_PLANE:
+					if val.size() >= 4:
+						return Plane(float(val[0]), float(val[1]), float(val[2]), float(val[3]))
+				TYPE_QUATERNION:
+					if val.size() >= 4:
+						return Quaternion(float(val[0]), float(val[1]), float(val[2]), float(val[3]))
+	return val
+
+
 ## Count comma-separated numeric components, ignoring surrounding brackets/parens/whitespace.
 ## Returns -1 if any component is not a number. Safe replacement for str_to_var (C-02).
 static func _count_number_components(val: String) -> int:
