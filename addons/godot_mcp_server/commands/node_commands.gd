@@ -61,7 +61,7 @@ func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 	cls.name = node_name
 
 	if _undo_manager != null:
-		_undo_manager.create_action_mixed(request_id,
+		_undo_manager.create_action_mixed("Add Node %s (req:%d)" % [node_name, request_id],
 			[
 				{"type": "method", "target": parent_node, "method": "add_child", "args": [cls]},
 				{"type": "method", "target": cls, "method": "set_owner", "args": [root]},
