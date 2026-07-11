@@ -52,11 +52,6 @@ func _generate_and_write_secret() -> void:
 	# I-3 SECURITY: secret 明文写入 .godot/mcp_editor.key。Godot FileAccess 无权限参数(无法设 0600)。
 	# 本地单用户开发场景可接受;多用户/共享主机需手动 chmod 0600(Linux/macOS)或 icacls 限制(Windows),
 	# 否则同机其他用户可读 secret 导致本地提权。详见 CLAUDE.md bridge 规则“多用户环境不安全”。
-	_secret = _generate_secret()
-	if _secret.length() < 32:
-		push_error("[MCP] Secret generation failed — WebSocket server will not start")
-		_secret = ""
-		return
 	var project_dir: String = _get_project_dir()
 	if project_dir == "":
 		push_warning("[MCP] Cannot determine project dir; editor auth disabled")
@@ -66,6 +61,22 @@ func _generate_and_write_secret() -> void:
 	if dir and not dir.dir_exists(".godot"):
 		dir.make_dir(".godot")
 	_secret_file = godot_dir.path_join("mcp_editor.key")
+	# S4-editor: 固定 secret 模式(本地测试, env GODOT_MCP_EDITOR_PERSISTENT_SECRET=true)。
+	# mcp_editor.key 存在且有效则复用,跳过重生+写入+_restrict,打破"重生→覆盖写→
+	# MCP 端 TTL 缓存不同步"窗口(对称 bridge mcp_bridge.gd:216-226 S4)。默认 false。
+	# 不调 _start_server — 由 _ready:49 统一调(避免双重调用致 TCPServer 孤儿)。
+	var _persistent_secret := OS.get_environment("GODOT_MCP_EDITOR_PERSISTENT_SECRET").to_lower() == "true"
+	if _persistent_secret and FileAccess.file_exists(_secret_file):
+		var _existing := FileAccess.get_file_as_string(_secret_file)
+		if _existing.length() >= 32:
+			_secret = _existing
+			print("[MCP] Reusing persistent editor secret (GODOT_MCP_EDITOR_PERSISTENT_SECRET=true)")
+			return
+	_secret = _generate_secret()
+	if _secret.length() < 32:
+		push_error("[MCP] Secret generation failed — WebSocket server will not start")
+		_secret = ""
+		return
 	# Windows: FileAccess.close 走 atomic rename(drivers/windows/file_access_windows.cpp:276, Godot #40366),
 	# 杀软拦 rename → "Safe save failed" 红字(非致命但误导用户)。改用 PowerShell WriteAllText 直接写绕开。
 	# 配合 _restrict_secret_permissions 用 icacls USERNAME:M + /inheritance:r(USERNAME Modify、其他用户无权限,
@@ -172,6 +183,11 @@ func _get_project_dir() -> String:
 	return ""
 
 func _delete_secret_file() -> void:
+	# S4-editor: 固定 secret 模式不删(持久化供下次启动复用 + 与 MCP 端 TTL 缓存保持同步)。
+	# 对称 bridge mcp_bridge.gd:441-443。
+	var _persistent_secret := OS.get_environment("GODOT_MCP_EDITOR_PERSISTENT_SECRET").to_lower() == "true"
+	if _persistent_secret:
+		return
 	if _secret_file != "" and FileAccess.file_exists(_secret_file):
 		DirAccess.remove_absolute(_secret_file)
 		print("[MCP] Auth secret file deleted")
