@@ -76,6 +76,59 @@ func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 		cls.owner = root
 	return {"result": {"node_path": str(cls.get_path()), "status": "created"}}
 
+
+# editor 内存删除节点（UndoRedo，do=remove_child / undo=add_child+set_owner+reference）。
+# 不 queue_free —— reference 让 UndoRedo 管理生命周期，undo 可恢复。
+# 与 add_node 对称：scene 工具 remove_node 经 editor-method-map 走此处（不再 -32601 回退 headless 文件操作）。
+func handle_remove_node(params: Dictionary, request_id: int) -> Dictionary:
+	var ei := _get_ei()
+	if ei == null:
+		return {"error": {"code": -32000, "message": "EditorInterface not available"}}
+	var root = ei.get_edited_scene_root()
+	if not root:
+		return {"error": {"code": -32003, "message": "No scene loaded"}}
+
+	var node_path: String = params.get("node_path", "")
+	if node_path.is_empty():
+		return {"error": {"code": -32004, "message": "node_path is required"}}
+	if CommandHelpers.has_path_traversal(node_path):
+		return {"error": {"code": -32002, "message": "Invalid node path (traversal): %s" % node_path}}
+
+	# 健壮：get_node_or_null 从 root 起解析相对路径。兼容用户传完整场景路径
+	# ("GameplayIsland/Props/Tree") 或相对根路径 ("Props/Tree")，strip 根名前缀。
+	var root_name := str(root.name)
+	if node_path == root_name or node_path == "/root/" + root_name:
+		return {"error": {"code": -32002, "message": "Cannot remove scene root: %s" % node_path}}
+	if node_path.begins_with(root_name + "/"):
+		node_path = node_path.substr(root_name.length() + 1)
+
+	var target: Node = root.get_node_or_null(node_path)
+	if not target:
+		return {"error": {"code": -32002, "message": "Node not found: %s" % node_path}}
+	var parent_node: Node = target.get_parent()
+	if parent_node == null:
+		return {"error": {"code": -32002, "message": "Node has no parent (orphan): %s" % node_path}}
+
+	var owner_node: Node = target.owner
+	var node_name: String = target.name
+	var removed_path: String = str(target.get_path())
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Remove Node %s (req:%d)" % [node_name, request_id],
+			[
+				{"type": "method", "target": parent_node, "method": "remove_child", "args": [target]}
+			],
+			[
+				{"type": "method", "target": parent_node, "method": "add_child", "args": [target]},
+				{"type": "method", "target": target, "method": "set_owner", "args": [owner_node if owner_node else root]},
+				{"type": "reference", "value": target}
+			]
+		)
+	else:
+		parent_node.remove_child(target)
+	return {"result": {"node_path": removed_path, "name": node_name, "status": "removed"}}
+
+
 func _is_allowed_node_type(node_type: String) -> bool:
 	# I-4: 严格白名单——仅允许 ALLOWED_NODE_TYPES 精确匹配,不再用 is_parent_class 兜底。
 	# 原兜底放行任意 Node 子类(含第三方 addon 的 class_name 脚本),实例化时触发其 _ready()/_init()

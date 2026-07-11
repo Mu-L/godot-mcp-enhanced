@@ -78,6 +78,9 @@ describe('editor-method-map scene routing', () => {
   it('maps scene.save_scene → save_scene', () => {
     expect(resolveEditorMethod('scene', { action: 'save_scene' })?.method).toBe('save_scene');
   });
+  it('maps scene.remove_node → remove_node', () => {
+    expect(resolveEditorMethod('scene', { action: 'remove_node' })?.method).toBe('remove_node');
+  });
   it('returns null for unregistered scene action (read_scene → headless fallback)', () => {
     expect(resolveEditorMethod('scene', { action: 'read_scene' })).toBeNull();
   });

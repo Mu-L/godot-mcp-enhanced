@@ -113,6 +113,8 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _scene_commands.handle_set_instance_property(params, request_id)
 		"add_node":
 			return _node_commands.handle_add_node(params, request_id)
+		"remove_node":
+			return _node_commands.handle_remove_node(params, request_id)
 		"test_assert":
 			return _test_commands.handle_test_assert(params)
 		"export_list_presets":

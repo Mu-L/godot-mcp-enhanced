@@ -56,6 +56,7 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
   },
   scene: {
     add_node: { method: 'add_node' },
+    remove_node: { method: 'remove_node' },
     instance_scene: { method: 'instance_scene' },
     set_instance_property: { method: 'set_instance_property' },
     open_scene: { method: 'open_scene' },
