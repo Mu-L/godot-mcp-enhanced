@@ -388,7 +388,7 @@ git commit -m "docs(rule): editor template 加 S4-editor 固定 secret 陷阱条
 
 **5. 后续 TODO（建议单独 task，不在本 plan）**
 
-- **rule template 漂移回填**：把 `.claude/rules/godot-mcp-editor.md` 手动加的 3 条（4.7 Vector 兼容 / 原生类虚函数 super() 回归 / 端口 9090-9094）回填到 `rule-templates.ts:328-334`，消除生成器覆盖风险。优先级 IMPORTANT（下次 setup_project_rules 会丢数据）。
+- **rule template 漂移**（决策：不回填 / wontfix，2026-07-11）：`.claude/rules/godot-mcp-editor.md` 手动加的 3 条（4.7 Vector / super() 654b162 / 端口 9090-9094）含 godot-mcp-enhanced **内部引用**（`docs/review-followup-2026-06-18.md:93` 路径、`[[godot-editor-plugin-e2e-verification]]` wikilink、`test/fixtures/gdscript-check` 路径、654b162 hash），不适合进生成给**目标项目**（装 plugin 的用户项目）的 template。信息已在 defects.md/CHANGELOG/开发日志。下次 `setup_project_rules` 重新生成 .md 时丢 = 清理生成物错位（可接受）。原列 IMPORTANT 回填，经评估降级 wontfix。
 - **e2e 集成**（可选）：对称 `e2e-full-tool-verification.test.ts:822`，加 editor PERSISTENT 的 e2e（设 env + launch_editor + 验证 secret 复用）。
 
 ---
