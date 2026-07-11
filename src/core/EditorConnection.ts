@@ -520,6 +520,18 @@ export class EditorConnection {
     }
   }
 
+  /**
+   * 手动触发重连：重置耗尽状态(reconnectEnabled/attempt)并启动后台重连循环。
+   * 用于 manage_tools(reconnect) 在 connect 一次性失败后,让编辑器恢复时自动连上,
+   * 避免用户须反复手动调 reconnect 或重启 MCP 服务端(反馈 reconnecting 卡死)。
+   */
+  requestReconnect(): void {
+    this.resetReconnectState();
+    if (!this.connected && !this.reconnectTimer) {
+      this.scheduleReconnect();
+    }
+  }
+
   isConnected(): boolean {
     return this.connected;
   }

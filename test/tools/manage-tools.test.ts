@@ -221,4 +221,32 @@ describe('buildConnectionStatus / buildReconnectEditor 工厂', () => {
     expect(r.connected).toBe(false);
     expect(r.detail).toContain('重建失败');
   });
+
+  it('buildReconnectEditor: connect 抛错 → 调 requestReconnect 启动后台重连(防一次性失败卡死) [C-RECONNECT-1]', async () => {
+    // 反馈 reconnecting 卡死: 耗尽/编辑器暂未 ready 时 connect 一次性失败,旧逻辑直接返回失败无后续重试,
+    // 用户须反复手动调或重启 claude。修复: catch 时调 requestReconnect 启动后台重连循环,编辑器恢复自动连。
+    const ec = {
+      isConnected: () => false,
+      connect: vi.fn(async () => { throw new Error('ECONNREFUSED'); }),
+      requestReconnect: vi.fn(),
+    };
+    const fn = buildReconnectEditor(() => ec as any);
+    const r = await fn();
+    expect(ec.connect).toHaveBeenCalledOnce();
+    expect(ec.requestReconnect).toHaveBeenCalledOnce();
+    expect(r.connected).toBe(false);
+    expect(r.detail).toContain('后台');
+  });
+
+  it('buildReconnectEditor: connect 抛错 + ec 无 requestReconnect(向后兼容) → 不崩,仅返回失败', async () => {
+    // EditorConnLike.requestReconnect 可选(向后兼容:旧 ec 实现/无此方法的 mock 不调)
+    const ec = {
+      isConnected: () => false,
+      connect: vi.fn(async () => { throw new Error('fail'); }),
+    };
+    const fn = buildReconnectEditor(() => ec as any);
+    const r = await fn();
+    expect(r.connected).toBe(false);
+    expect(r.detail).toContain('重连失败');
+  });
 });

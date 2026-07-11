@@ -239,6 +239,8 @@ function handleMigrate(): ToolResult {
 export interface EditorConnLike {
   isConnected(): boolean;
   connect(): Promise<void>;
+  /** C-RECONNECT-1: 可选,EditorConnection 实现。buildReconnectEditor connect 失败时启动后台重连循环。 */
+  requestReconnect?(): void;
 }
 export interface HealthMonitorLike {
   getState(): ConnectionState;
@@ -288,7 +290,10 @@ export function buildReconnectEditor(
       await ec.connect();
       return { connected: ec.isConnected(), detail: '手动重连完成' };
     } catch (e) {
-      return { connected: false, detail: `重连失败: ${e instanceof Error ? e.message : String(e)}` };
+      // C-RECONNECT-1: connect 一次性失败(编辑器暂未 ready/耗尽后)时启动后台自动重连循环,
+      // 编辑器恢复后自动连上。避免用户须反复手动 reconnect 或重启 MCP 服务端。
+      ec.requestReconnect?.();
+      return { connected: false, detail: `重连失败(已启动后台重试,编辑器恢复后自动连): ${e instanceof Error ? e.message : String(e)}` };
     }
   };
 }
