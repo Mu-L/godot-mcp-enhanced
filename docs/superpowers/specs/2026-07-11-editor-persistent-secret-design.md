@@ -37,18 +37,17 @@ PERSISTENT 复用需在 `_secret_file` 赋值后、`_generate_secret` 前判断�
 # mcp_editor.key 存在且有效则复用,跳过重生+写入+_restrict,打破"重生→覆盖写→
 # MCP 端 TTL 缓存不同步"窗口(对称 bridge mcp_bridge.gd:216-226 S4)。默认 false。
 var _persistent_secret := OS.get_environment("GODOT_MCP_EDITOR_PERSISTENT_SECRET").to_lower() == "true"
-if _persistent_secret and _secret_file != "" and FileAccess.file_exists(_secret_file):
+if _persistent_secret and FileAccess.file_exists(_secret_file):
     var _existing := FileAccess.get_file_as_string(_secret_file)
     if _existing.length() >= 32:
         _secret = _existing
         print("[MCP] Reusing persistent editor secret (GODOT_MCP_EDITOR_PERSISTENT_SECRET=true)")
-        _start_server()
-        return
+        return  # 不调 _start_server — 由 _ready:49 统一调(避免双重调用致 TCPServer 孤儿,见下方注)
 _secret = _generate_secret()
 # ... 原写文件 + _restrict 逻辑
 ```
 
-> 注：原 `_ready:48-49` 是 `_generate_and_write_secret()` 后接 `_start_server()`。PERSISTENT 复用早 return 时须确保 `_start_server()` 仍被调用（在 return 前调，或保持 `_ready` 里 `_start_server` 不受影响——核对 `_generate_and_write_secret` 是否内含 `_start_server`）。
+> 注：原 `_ready:48-49` 是 `_generate_and_write_secret()` 后接 `_start_server()`（两个独立调用，`_generate_and_write_secret` **不**内含 `_start_server`）。PERSISTENT 复用早 return 前**不**调 `_start_server`——直接 return，由 `_ready:49` 统一启动。若在分支内调会双重调用：`_start_server` 每次执行 `_server = TCPServer.new()`，第一次建的 server 成孤儿（占 9090 未 stop），第二次 listen 9090 失败退到 9091，`_process` 只操作后者 → 连 9090 的客户端成死连接。bridge S4（`mcp_bridge.gd:221-226`）无此问题因 bridge 是 `listen→secret` 顺序，editor 是 `secret→server` 反序，须靠 `_ready:49` 兜底。
 
 ### 改动点 2：`_delete_secret_file`（:174）加 PERSISTENT guard
 
@@ -84,9 +83,9 @@ bridge 在 `_exit_tree:441-443` 内联检查；editor 复用 `_delete_secret_fil
 
 1. `godot --headless --import --path <test-project>`（4.7 编译干净，无 parse error）——本会话 `GODOT_PATH=D:\godot\Godot_v4.7-stable_win64.exe`
 2. 注释自洽（env 名 / 默认值 / 对称引用一致）
-3. 核对 `_secret_file` 赋值点与 PERSISTENT 分支可见性、`_start_server()` 调用路径不被早 return 吞掉
+3. 核对 `_secret_file` 赋值点与 PERSISTENT 分支可见性、`_start_server()` 仅由 `_ready:49` 单次调用（PERSISTENT 早 return 不自调，避免双重调用）
 
 ## 风险
 
 - **顺序重排**：`_generate_and_write_secret` 内 `_secret_file` 赋值提前，须保证 project_dir 为空时的早 return 路径（:61-63）仍正确（PERSISTENT 分支在 project_dir 校验之后）
-- **_start_server 吞掉**：PERSISTENT 早 return 前须显式调 `_start_server()`（若原逻辑依赖 `_ready` 的顺序执行）
+- **_start_server 单次性**：PERSISTENT 早 return 前**不**调 `_start_server()`，由 `_ready:49` 统一调（方案 1）。若误在分支内调会双重调用致 TCPServer 孤儿 + 端口错位（9090 孤儿 / 9091 实际监听），见改动点 1 注释
