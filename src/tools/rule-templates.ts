@@ -332,6 +332,7 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **forward 机制**：未明确处理的工具名会自动转发到编辑器插件，可能产生意外行为。
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
+- **editor 固定 secret（S4-editor）**：设环境变量 \`GODOT_MCP_EDITOR_PERSISTENT_SECRET=true\`，editor plugin 复用现有 \`mcp_editor.key\`（不重生、不收紧 ACL、\`_exit_tree\` 不删除），彻底消除 \`_ready\` 覆盖写需求及 MCP 端 TTL 缓存同步窗口。仅本地测试用（安全降级——secret 固定不再轮换，生产保持默认 false）。对称 bridge \`GODOT_MCP_BRIDGE_PERSISTENT_SECRET\`（见 godot-mcp-bridge.md「密钥权限循环」）。
 `,
 
   'godot-mcp-ui.md': `---
