@@ -54,6 +54,13 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     undo: { method: 'asset_undo' },
     save: { method: 'asset_save' },
   },
+  scene: {
+    add_node: { method: 'add_node' },
+    instance_scene: { method: 'instance_scene' },
+    set_instance_property: { method: 'set_instance_property' },
+    open_scene: { method: 'open_scene' },
+    save_scene: { method: 'save_scene' },
+  },
 };
 
 /** 解析 (toolName, args.action) → command_handler method。未命中返回 null。 */

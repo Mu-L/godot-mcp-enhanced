@@ -61,3 +61,24 @@ describe('editor-method-map', () => {
     }
   });
 });
+
+describe('editor-method-map scene routing', () => {
+  it('maps scene.add_node → add_node', () => {
+    expect(resolveEditorMethod('scene', { action: 'add_node' })?.method).toBe('add_node');
+  });
+  it('maps scene.instance_scene → instance_scene', () => {
+    expect(resolveEditorMethod('scene', { action: 'instance_scene' })?.method).toBe('instance_scene');
+  });
+  it('maps scene.set_instance_property → set_instance_property', () => {
+    expect(resolveEditorMethod('scene', { action: 'set_instance_property' })?.method).toBe('set_instance_property');
+  });
+  it('maps scene.open_scene → open_scene', () => {
+    expect(resolveEditorMethod('scene', { action: 'open_scene' })?.method).toBe('open_scene');
+  });
+  it('maps scene.save_scene → save_scene', () => {
+    expect(resolveEditorMethod('scene', { action: 'save_scene' })?.method).toBe('save_scene');
+  });
+  it('returns null for unregistered scene action (read_scene → headless fallback)', () => {
+    expect(resolveEditorMethod('scene', { action: 'read_scene' })).toBeNull();
+  });
+});
