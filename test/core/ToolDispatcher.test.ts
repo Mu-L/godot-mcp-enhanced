@@ -601,6 +601,27 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
+  // [P1-1b] confirm_and_execute 路径 editor -32601 同样回退（与普通 dispatch 对齐）。
+  // bug: confirm 分支此前直接返 editorResult，未登记 editor-method-map 的写工具（scene
+  // add_node/edit_node/remove_node 等）经 confirm 时 editor 转发 command_handler 命中兜底
+  // -32601 无回退 headless。修复后 confirm 路径检测 -32601 → dispatchTool 回退。
+  it('falls back to headless on -32601 via confirm_and_execute path (P1-1b)', async () => {
+    const guard = createMockGuard(false);
+    const flatUnknownResult: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'Unknown method: scene', code: -32601 }) }],
+      isError: true,
+    };
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(flatUnknownResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'add_node', node_type: 'Node3D', node_name: 'X' } });
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
+    dispatcher.setEditorExecutor(mockExecutor);
+    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(mockExecutor.execute).toHaveBeenCalledWith('scene', { action: 'add_node', node_type: 'Node3D', node_name: 'X' });
+    expect(mockModule.handleTool).toHaveBeenCalledWith('scene', expect.objectContaining({ action: 'add_node' }), expect.anything());
+  });
+
   // [I-12/P1-1 负面用例] 成功响应（isError=false）即使顶层带 -32601 code 也不应误判回退。
   // _isUnknownMethod 调用前置 editorResult.isError === true，防止未来 plugin 成功响应
   // 顶层带数字 code 字段时被误判 unknown method 触发静默降级 headless。

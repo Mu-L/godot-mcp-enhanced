@@ -316,6 +316,15 @@ export class ToolDispatcher {
           const logger = getLogger();
           const confirmCallId = logger.toolStart(pending.toolName, pending.args);
           const editorResult = await currentExecutor.execute(pending.toolName, pending.args);
+          // P1-1b (2026-07-11): confirm 路径同样检测 -32601 回退（与下方普通 dispatch 的
+          // _isUnknownMethod 分支对齐）。confirm_and_execute 经 confirm 的写工具（scene
+          // add_node/edit_node/remove_node 等未登记 editor-method-map 的）editor 转发
+          // command_handler 命中兜底 -32601，此前 confirm 分支直接返回 editorResult 致无回退
+          // headless（bug：scene editor -32601 失效）。检测到 -32601 则回退 dispatchTool 走文件/headless 路径。
+          if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
+            logger.toolEnd(confirmCallId, pending.toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
+            return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
+          }
           const duration = Date.now() - startTime;
           logger.toolEnd(confirmCallId, pending.toolName, duration);
           // I-08: Only append _duration_ms if the editor plugin didn't already include it
