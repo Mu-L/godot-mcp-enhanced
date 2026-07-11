@@ -30,50 +30,12 @@ static func resolve_points(root: Node, path: Array, path_node: String) -> Array:
 	return pts
 
 
-# 输入退化校验 → 错误描述字符串（空串 = 合法）
-# mode: "discrete"（v1 默认，零回归）/ "continuous"（v2 段阵列）
-# brief 锁定 6 必填参数；include_endpoints 可选默认 true（保留原 asset-forge 行为）
-static func validate(
-	points: Array, mode: String, spacing: float, count: int, align: String,
-	align_vertices: bool, include_endpoints := true
-) -> String:
-	if mode != "discrete" and mode != "continuous":
-		return "mode 必须 discrete|continuous"
-	if align != "none" and align != "path" and align != "normal":
-		return "align 必须是 none/path/normal"
-	if points.size() < 2:
-		return "path 至少需要 2 个点"
-	var total := _total_length(points)
-	if total < _EPS:
-		return "path 所有点重合（总长为 0）"
-	var has_spacing: bool = spacing > 0.0
-	var has_count: bool = count >= 1
-	# v4 健壮性：spacing 过小（>0 但 <_EPS）→ invalid（堵 _distances/_sample_continuous while 循环爆）
-	if has_spacing and spacing < _EPS:
-		return "spacing 过小（< %s，会切极多段导致循环爆），最小 %s" % [str(_EPS), str(_EPS)]
-	if has_spacing and has_count:
-		return "spacing 与 count 只能二选一"
-	if not has_spacing and not has_count:
-		return "必须提供 spacing（>0）或 count（>=1）之一"
-	# P0-3：count 上限（防恶意/错误 client 构造超大 count 切极多段，绕过 spacing 互斥）
-	if has_count and count > 10000:
-		return "count 过大（最大 10000，当前 %d）" % count
-	# F5：count=1 + endpoints 仅 discrete 模式拦截（continuous count=1 = 1 段，合法）
-	if mode == "discrete" and has_count and count == 1 and include_endpoints:
-		return "count==1 时 include_endpoints 必须为 false（含两端至少 2 个采样点）"
-	# continuous：align 强制 path（length 沿 chord）
-	if mode == "continuous" and align != "path":
-		return "continuous align 强制 path（length 沿 chord），当前 " + align
-	# v4：va 与不兼容模式冲突 → 报错
-	# va+count+spacing 被 spacing/count 互斥先拦，va+count 无 spacing 才落到此
-	if align_vertices and mode == "discrete":
-		return "align_vertices 仅 continuous 模式可用"
-	if align_vertices and mode == "continuous" and has_count:
-		return "align_vertices 仅 spacing 模式可用（count 等分边界不对齐顶点）"
-	return ""
+# validate 已删（2026-07-11 清理 bug 3）：fbdd684 后 sample/_distances/_sample_continuous
+# 已健壮处理 count 优先 / spacing / 非法值 early-return 防御，validate 闲置为死代码；且其
+# spacing/count 互斥规则与 sample 的 count 优先逻辑冲突。mode/align 严格校验如需，后续在 handle_path 加
 
 
-# 已 valid 的输入 → segment 列表，每项 {position: Vector3, rotation: Vector3, length: float, params: Dictionary}
+# 输入 → segment 列表，每项 {position: Vector3, rotation: Vector3, length: float, params: Dictionary}
 # - discrete：等间距 spacing 或等数量 count 采样点（含 miter 切线；length=0 占位）
 # - continuous：栏板首尾相连铺满，length 自适应段长（沿 chord）
 # - align：none/path/normal（默认 path 沿切线）
@@ -128,7 +90,7 @@ static func sample(
 static func _sample_continuous(
 	points: Array, spacing: float, count: int, include_endpoints: bool, align_vertices := false
 ) -> Array:
-	# P0-3：defense-in-depth early-return（validate 应已拦 spacing<=0 + count<1，
+	# P0-3：defense-in-depth early-return（spacing<=0 + count<1 时返空；sample 是 public，
 	# 但 sample 是 public，恶意/错误 client 直接调也不崩，不静默落入空 boundaries 分支）
 	if spacing <= 0.0 and count < 1:
 		return []
@@ -146,7 +108,7 @@ static func _sample_continuous(
 	var boundaries: Array = []
 	if align_vertices:
 		# v4：每折线段 [vertex_d[i], vertex_d[i+1]] 独立按 spacing 切 + 段末去重
-		# validate 已保证 mode==continuous 且 spacing>0
+		# sample 入口（mode==continuous 分支）+ align_vertices 需 spacing>0
 		for i in range(last):
 			var seg_start: float = float(vertex_d[i])
 			var seg_end: float = float(vertex_d[i + 1])
@@ -232,7 +194,7 @@ static func _distances(
 	var distances: Array = []
 	if count >= 1:
 		if count == 1:
-			distances.append(total / 2.0)  # validate 已保证 include_endpoints=false
+			distances.append(total / 2.0)  # count==1 时 include_endpoints 须 false（discrete count==1 + endpoints ≥2 点矛盾）
 		elif include_endpoints:
 			var step := total / float(count - 1)
 			for i in count:
