@@ -71,6 +71,7 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   set_instance_property: 'commands/scene_commands.gd',
   // node_commands（core 组：节点操作）
   add_node: 'commands/node_commands.gd',
+  remove_node: 'commands/node_commands.gd',
   // test_commands（core/validation 组）
   test_assert: 'commands/test_commands.gd',
   // export_commands
