@@ -130,7 +130,14 @@ export function requireProjectPath(args: Record<string, unknown>): string {
  * fixes — the env switch never flips, so the secret-reuse / method-whitelist logic
  * never runs.
  *
- * Scope is intentionally narrow (GODOT_MCP_BRIDGE_, not GODOT_MCP_): server-side
+ * S4-editor (2026-07-11): GODOT_MCP_EDITOR_* added symmetrically — editor plugin
+ * (addons/godot_mcp_server/websocket_server.gd) reads GODOT_MCP_EDITOR_PERSISTENT_SECRET
+ * at _ready via OS.get_environment(); launch_editor spawns the editor with buildSafeEnv,
+ * so without passthrough the env is stripped and PERSISTENT never triggers. Same
+ * sub-namespace rule (runtime config, NOT credentials).
+ *
+ * Scope is intentionally narrow (GODOT_MCP_BRIDGE_ / GODOT_MCP_EDITOR_, not bare
+ * GODOT_MCP_): server-side
  * security/sandbox switches (GODOT_MCP_UNRESTRICTED, GODOT_MCP_ALLOW_UNSAFE,
  * ALLOW_EXECUTE_GDSCRIPT, ALLOWED_PROJECT_PATHS) MUST stay stripped — a child
  * process must not unlock its own restrictions. See gdscript-executor-core.test.js.
@@ -138,7 +145,7 @@ export function requireProjectPath(args: Record<string, unknown>): string {
 export function buildSafeEnv(): NodeJS.ProcessEnv {
   const godotMcpEnv: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith('GODOT_MCP_BRIDGE_') && value !== undefined) {
+    if ((key.startsWith('GODOT_MCP_BRIDGE_') || key.startsWith('GODOT_MCP_EDITOR_')) && value !== undefined) {
       godotMcpEnv[key] = value;
     }
   }

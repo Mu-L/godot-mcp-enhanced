@@ -324,14 +324,25 @@ describe('buildSafeEnv', () => {
     expect(env.GODOT_MCP_BRIDGE_EXTRA_METHODS).toBe('emit_signal');
   });
 
-  it('透传 GODOT_MCP_BRIDGE_* 子命名空间,但不透传服务端安全开关', () => {
-    // 边界:只透传 mcp_bridge.gd 运行时配置(BRIDGE_ 子前缀);服务端安全开关
-    // (UNRESTRICTED/ALLOW_UNSAFE 等)必须隔离 —— 子进程不能自行解锁路径/沙箱限制。
+  it('透传 GODOT_MCP_EDITOR_* env 给 editor 子进程(S4-editor GDScript 修复依赖)', () => {
+    // websocket_server.gd 读这个 env 启用 PERSISTENT_SECRET 复用。launch_editor
+    // (runtime.ts:128)用 buildSafeEnv spawn 编辑器,若截断则 editor plugin
+    // OS.get_environment() 读不到,PERSISTENT 永不触发。对称 BRIDGE_(见上测)。
+    process.env.GODOT_MCP_EDITOR_PERSISTENT_SECRET = 'true';
+    const env = buildSafeEnv();
+    expect(env.GODOT_MCP_EDITOR_PERSISTENT_SECRET).toBe('true');
+  });
+
+  it('透传 GODOT_MCP_BRIDGE_*/EDITOR_* 子命名空间,但不透传服务端安全开关', () => {
+    // 边界:只透传 mcp_bridge.gd/websocket_server.gd 运行时配置(BRIDGE_/EDITOR_ 子前缀);
+    // 服务端安全开关(UNRESTRICTED/ALLOW_UNSAFE 等)必须隔离 —— 子进程不能自行解锁路径/沙箱限制。
     process.env.GODOT_MCP_BRIDGE_FUTURE_FLAG = '1';
+    process.env.GODOT_MCP_EDITOR_PERSISTENT_SECRET = 'true';
     process.env.GODOT_MCP_UNRESTRICTED = 'true';
     process.env.GODOT_MCP_ALLOW_UNSAFE = 'true';
     const env = buildSafeEnv();
     expect(env.GODOT_MCP_BRIDGE_FUTURE_FLAG).toBe('1');
+    expect(env.GODOT_MCP_EDITOR_PERSISTENT_SECRET).toBe('true');
     expect(env.GODOT_MCP_UNRESTRICTED).toBeUndefined();
     expect(env.GODOT_MCP_ALLOW_UNSAFE).toBeUndefined();
   });
