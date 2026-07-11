@@ -79,9 +79,18 @@ func handle_batch(params: Dictionary, request_id: int) -> Dictionary:
 # 非 asset 栈顶 → NOT_ASSET_TOP, AI 须先处理栈顶或用编辑器 undo。Godot UndoRedo 是
 # 全局单例, 无法 per-peer 隔离; 此校验把误撤范围从"任意栈顶"收窄到"asset 类栈顶"。
 func handle_undo(params: Dictionary, request_id: int) -> Dictionary:
-	var ur := _plugin.get_undo_redo()
-	var top: String = ur.get_action_name()
-	# get_action_name() == "" 表示栈空（无 action 可 undo）
+	# EditorUndoRedoManager 是 history 管理器(非 UndoRedo 子类), 无 get_action_name/undo。
+	# 取当前场景 history 的 UndoRedo 再查栈顶 + undo(实测 2026-07-11: 原 get_action_name
+	# 在 EditorUndoRedoManager 抛 SCRIPT ERROR 致 handle_undo 中断 → MCP 30s timeout;
+	# 根因非 _process 重入 H1, 是 API 误用 EditorUndoRedoManager ≠ UndoRedo)。
+	var root := _get_root()
+	if root == null:
+		return {"error": {"code": "NO_ACTIVE_SCENE", "message": "no active scene"}}
+	var eur := _plugin.get_undo_redo()
+	var hid: int = eur.get_object_history_id(root)
+	var ur: UndoRedo = eur.get_history_undo_redo(hid)
+	var top: String = ur.get_current_action_name()
+	# get_current_action_name() == "" 表示栈空（无 action 可 undo）
 	if top == "":
 		return {"error": {"code": "NOTHING_TO_UNDO", "message": "undo stack empty"}}
 	# P1: 仅撤 asset 类栈顶, 防误撤其他 peer / 手动编辑的非 asset 操作
