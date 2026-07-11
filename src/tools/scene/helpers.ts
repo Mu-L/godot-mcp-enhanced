@@ -10,6 +10,7 @@ export const ACTIONS = [
   'read_scene', 'create_scene', 'add_node', 'save_scene', 'load_sprite',
   'quick_scene', 'batch_add_nodes', 'query_scene_tree', 'inspect_node',
   'edit_node', 'remove_node', 'instance_scene', 'set_instance_property', 'detach_instance',
+  'open_scene',
   'health_check',
   'merge_scene',
   'create_3d_node', 'commit',

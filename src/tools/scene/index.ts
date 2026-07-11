@@ -378,6 +378,12 @@ export async function handleTool(
     case 'set_instance_property': return handleSetInstanceProperty(args, ctx);
     case 'detach_instance': return handleDetachInstance(args);
 
+    case 'open_scene': {
+      // editor-only：editor 模式由 editor-method-map 提前拦截走 command_handler.handle_open_scene，
+      // headless 无 EditorInterface（无"活动场景"概念）→ 返 EDITOR_ONLY（与 asset 写工具惯例一致）
+      return opsErrorResult('EDITOR_ONLY', 'open_scene requires editor mode. Set GODOT_MCP_MODE=editor and install the Godot plugin.');
+    }
+
     case 'health_check': {
       const p = requireProjectPath(args); const scenePath = args.scene_path as string;
       if (!scenePath || typeof scenePath !== 'string') return opsErrorResult('INVALID_PARAMS', 'scene_path is required for health_check', { suggestion: 'Provide the scene file path relative to project, e.g. "scenes/main.tscn"' });
@@ -420,6 +426,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       create_scene: 'write', quick_scene: 'write', add_node: 'write', batch_add_nodes: 'write',
       edit_node: 'write', save_scene: 'write', load_sprite: 'write', instance_scene: 'write',
       set_instance_property: 'write', detach_instance: 'write', create_3d_node: 'write', commit: 'write',
+      open_scene: 'write',
       remove_node: 'destructive', merge_scene: 'destructive',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
