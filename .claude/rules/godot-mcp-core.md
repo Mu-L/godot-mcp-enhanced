@@ -81,18 +81,17 @@ godot-mcp-enhanced 提供 33 个 MCP 工具（199 个 action，权威数据见 d
 
 > 运行时工具适合验证和测试。若需持久化场景修改，必须使用 add_node + save_scene。
 
-## 2D 项目截图限制
+## Headless 截图限制（2D 与 3D）
 
-Headless 模式下 2D 场景（CanvasItem 子类，如 ColorRect/TextureRect/\_draw() 内容）的截图可能完全空白。
-这是 Godot headless 渲染器的已知限制——headless 进程不初始化渲染服务器，2D CanvasItem 无法渲染到纹理。
+Headless 模式下场景截图可能完全空白——headless 进程默认用 **RendererDummy**（无 GPU 渲染后端），不初始化渲染服务器，2D CanvasItem 与 3D mesh 都不渲染像素。实测 Godot 4.7 headless 加载 3D 场景得 `DummyMesh/DummyCamera/DummyMaterial` 泄漏，截图全背景色空白（PIL 色散 spread=0）。**3D 同样受影响**，非仅 2D。
 
 **推荐工作流**：
 1. 用 `screenshot(action=capture)` 尝试截图
 2. 如果返回 `BLANK_DETECTED` 警告，使用以下替代方案：
    - 用户手动截图（F5 运行后截图）
    - `screenshot(action=analyze)` 返回图片的 base64 数据供 AI 视觉分析（需配合 `image_path` 指定本地文件）
-   - Bridge `take_screenshot`（如果游戏正在运行，渲染由 GPU 完成）
-3. 3D 场景（Node3D/MeshInstance3D 等）不受此限制影响
+   - Bridge `take_screenshot`（游戏运行时 GPU viewport 渲染，2D/3D 均可）
+3. 3D 视觉确认同理需 GPU 模式（Bridge 或 editor/GUI）；headless 下用数据铁证替代（场景加载成功 + ArrayMesh 顶点数据 + 几何拓扑 χ）
 
 ## 常见陷阱
 
@@ -101,7 +100,7 @@ Headless 模式下 2D 场景（CanvasItem 子类，如 ColorRect/TextureRect/\_d
 - **运行时操作误认为持久化**：运行时工具的修改在 headless 进程退出后丢失。
 - **load_autoloads 性能开销**：仅在需要 Autoload 单例时开启，否则启动时间增加 3-5 倍。
 - **Bridge 密钥过期**：Bridge 密钥有 5 分钟 TTL 缓存，长时间未操作后首次调用可能稍慢。
-- **2D 截图空白**：Headless 模式无法渲染 2D CanvasItem，使用 Bridge 或手动截图替代。
+- **Headless 截图空白（2D/3D）**：Headless 用 RendererDummy 无渲染后端，2D CanvasItem 与 3D mesh 均不渲染像素。使用 Bridge take_screenshot（GPU viewport）或手动/GUI 截图替代。
 - **run_and_verify 可能残留进程**：headless 模式下交互式场景（不自动退出）可能残留 Godot 进程。如果后续 `run_project` 报 "another Godot process is running"，先调用 `stop_project` 清理残留进程。
 - **load_autoloads=true 片段模式差异**：`load_autoloads=true` 时片段包装为 `extends Node`（非 `extends SceneTree`），`get_root()` 不可用。需要手写 `extends SceneTree` 完整类模式来访问 SceneTree API。
 - **load_autoloads autoload 层级**：`load_autoloads=true` 时 autoload 节点不直接挂在 `get_root()` 下，而是通过 autoload 系统加载。使用 `Engine.get_main_loop().get_root().get_node("autoload/Xxx")` 访问。
