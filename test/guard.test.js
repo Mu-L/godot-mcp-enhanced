@@ -35,8 +35,11 @@ describe('requiresConfirmation', () => {
   it('returns false for script read_script', () => {
     expect(requiresConfirmation('script', { action: 'read_script' })).toBe(false);
   });
-  it('exempts edit_script with search_and_replace mode', () => {
-    expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: { search: 'old', replace: 'new' } })).toBe(false);
+  it('CRITICAL RCE-chain fix: search_and_replace mode requires confirmation (was falsely exempt)', () => {
+    // 2026-07-12: dynamicRiskOverride 已删除。search_and_replace 能写盘任意内容
+    // （含 class_name 注入）+ 触发 ensureClassNameImport 注册全局类，不再是"非破坏性"。
+    // 降级为 read 的注释假设已被 RCE 复合链证伪。
+    expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: { search: 'old', replace: 'new' } })).toBe(true);
   });
   it('still requires confirmation for edit_script with line range mode', () => {
     expect(requiresConfirmation('script', { action: 'edit_script', start_line: 10, end_line: 15 })).toBe(true);
@@ -317,8 +320,8 @@ describe('requiresConfirmation 零行为改变', () => {
     expect(requiresConfirmation(tool, { action })).toBe(expected);
   });
 
-  it('script.edit_script + search_and_replace 动态豁免 → false', () => {
-    expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: { search: 'a', replace: 'b' } })).toBe(false);
+  it('script.edit_script + search_and_replace 需确认 → true（RCE 链修复）', () => {
+    expect(requiresConfirmation('script', { action: 'edit_script', search_and_replace: { search: 'a', replace: 'b' } })).toBe(true);
   });
   it('script.edit_script 无 search_and_replace → true', () => {
     expect(requiresConfirmation('script', { action: 'edit_script' })).toBe(true);

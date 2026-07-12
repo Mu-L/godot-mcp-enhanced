@@ -525,6 +525,45 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => {
       return countMatchesInFile('src/scripts/mcp_bridge.gd', /DisplayServer\.get_name\(\)\s*==\s*"headless"/);
     } },
+  // ─── 2026-07-12 CRITICAL RCE 复合链修复（3 条联动）──────────────────────────
+  // 零确认 RCE 复合链：search_and_replace 降级 read 绕确认令牌 → 写盘恶意 class_name +
+  // ensureClassNameImport 注册 → create_scene root_node_type 无校验 → godot_operations.gd
+  // 脚本分支 script.new() 无 is_parent_class → 执行恶意脚本 _init = RCE。
+  // IMPORTANT-13 注释自承未修，本轮三处联动修复闭环。
+  { key: 'rce-guard-search-replace-read-downgrade', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // guard.ts 原 dynamicRiskOverride 把 script.edit_script + search_and_replace 降级 'read'
+    // → requiresConfirmation 返 false 不生成确认令牌 → writeFileSync 零确认落盘任意内容。
+    // 注释自述"非破坏性"假设已被证伪（search_and_replace 能注入 class_name + ensureClassNameImport 注册）。
+    // fix: 删 dynamicRiskOverride 函数 + requiresConfirmation 简化为直接 getActionRisk。
+    // detect: dynamicRiskOverride 函数定义在 guard.ts 消失。
+    detect: () => {
+      return countMatchesInFile('src/guard.ts', /function\s+dynamicRiskOverride\s*\(/);
+    } },
+  { key: 'rce-create-scene-root-node-type-no-validation', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // scene/index.ts create_scene 的 root_node_type 无字符校验直接透传（quick_scene:257 /
+    // add_node:141 / batch_add_nodes:315 都有 ^[A-Za-z0-9_]+$ 校验，create_scene 漏了）。
+    // fix: create_scene 分支补 ^[A-Za-z0-9_]+$ 校验（与 add_node/quick_scene 对齐）。
+    // detect: create_scene 分支含 rootNodeType + /^[A-Za-z0-9_]+$/ 校验（缺则复发）。
+    detect: () => {
+      const f = readSrc('src/tools/scene/index.ts');
+      // 定位 create_scene 分支（action === 'create_scene' 到 save_scene 的 else if 之间，放宽窗口）
+      const m = f.match(/action === 'create_scene'[\s\S]{0,900}?else if/);
+      if (!m) return 1; // 分支结构改变 → 复发
+      // 修复后分支含 rootNodeType 变量 + 字符校验 + invalid characters 错误
+      return /rootNodeType[\s\S]{0,300}invalid characters/.test(m[0]) ? 0 : 1;
+    } },
+  { key: 'rce-script-branch-no-node-check', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // godot_operations.gd:177-179 脚本分支 script.new() 无 is_parent_class("Node") 校验
+    // （ClassDB 分支 :160-175 有 IMPORTANT-13 修，脚本分支漏了）。
+    // fix: script.new() 前补 script.get_instance_base_type() + is_parent_class("Node") 校验。
+    // detect: godot_operations.gd 脚本分支含 is_parent_class(base_type, "Node")（缺则复发）。
+    detect: () => {
+      const f = readSrc('src/scripts/godot_operations.gd');
+      // 定位脚本分支（script is GDScript 到 return script.new() 之间，窗口放宽容纳修复注释）
+      const m = f.match(/if script is GDScript:[\s\S]{0,800}?return script\.new\(\)/);
+      if (!m) return 1; // 分支结构改变 → 复发
+      return /is_parent_class\(\s*base_type\s*,\s*"Node"\s*\)/.test(m[0]) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -176,6 +176,15 @@ func instantiate_class(name_of_class: String):
 
 	var script = get_script_by_name(name_of_class)
 	if script is GDScript:
+		# 2026-07-12 CRITICAL RCE 复合链修复（IMPORTANT-13 闭环）：
+		# 脚本分支补对称 is_parent_class("Node") 检查，与 ClassDB 分支 :166 一致。
+		# get_instance_base_type() 返回脚本 extends 的基类名（如 "Node2D"/"Control"）。
+		# 防御：恶意脚本 class_name 经 search_and_replace 写盘 + ensureClassNameImport 注册后，
+		# create_scene/add_node 的 root_node_type 传恶意类名 → script.new() 执行任意 _init/_ready。
+		var base_type: String = script.get_instance_base_type()
+		if base_type.is_empty() or not ClassDB.is_parent_class(base_type, "Node"):
+			log_error(String("Refused: script class %s base type %s is not a Node subclass") % [name_of_class, base_type])
+			return null
 		return script.new()
 
 	log_error("Failed to get script for class: " + name_of_class)

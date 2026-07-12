@@ -290,3 +290,76 @@ describe('A-14: regression — findGodot failure releases slot (create_scene)', 
     expect(getShortRunningCount()).toBe(0);
   });
 });
+
+// 2026-07-12 CRITICAL RCE 复合链修复：create_scene root_node_type 补字符校验
+// 与 add_node/batch_add_nodes/quick_scene 的 ^[A-Za-z0-9_]+$ 对齐。
+// 堵特殊字符注入（如 "Foo; rm -rf /" 透传到 godot_operations.gd）。
+describe('RCE-chain fix: create_scene root_node_type validation', () => {
+  const dirRef = { path: null };
+  let ctx;
+
+  registerCleanup(dirRef);
+
+  beforeEach(() => {
+    resetState();
+    dirRef.path = createTempProject(MINIMAL_PROJECT);
+    ctx = createToolContext(dirRef.path);
+    ctx.findGodot = async () => 'godot';
+  });
+
+  afterEach(() => {
+    resetState();
+  });
+
+  it('rejects root_node_type with shell metacharacters (RCE injection)', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'create_scene',
+      scene_path: 'res://scenes/test.tscn',
+      root_node_type: 'Foo; rm -rf /',
+    }, ctx);
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0].text).toContain('invalid characters');
+    // slot 必须释放（校验失败不应泄漏）
+    expect(getShortRunningCount()).toBe(0);
+  });
+
+  it('rejects root_node_type with path traversal', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'create_scene',
+      scene_path: 'res://scenes/test.tscn',
+      root_node_type: '../etc/passwd',
+    }, ctx);
+    expect(result.content[0].text).toContain('invalid characters');
+    expect(getShortRunningCount()).toBe(0);
+  });
+
+  it('accepts valid Node2D (regression — 合法值不受影响)', async () => {
+    // 合法值会走 spawnGodot（mock 的 findGodot 返 'godot'，spawn 会失败但不影响校验测试）
+    // 我们只验证校验通过（不返回 "invalid characters"）
+    ctx.findGodot = async () => { throw new Error('spawn blocked in test'); };
+    await expect(async () => {
+      await scene.handleTool('scene', {
+        project_path: dirRef.path,
+        action: 'create_scene',
+        scene_path: 'res://scenes/test.tscn',
+        root_node_type: 'Node2D',
+      }, ctx);
+    }).rejects.toThrow('spawn blocked in test');
+    expect(getShortRunningCount()).toBe(0);
+  });
+
+  it('accepts valid script class_name (PascalCase, regression)', async () => {
+    ctx.findGodot = async () => { throw new Error('spawn blocked in test'); };
+    await expect(async () => {
+      await scene.handleTool('scene', {
+        project_path: dirRef.path,
+        action: 'create_scene',
+        scene_path: 'res://scenes/test.tscn',
+        root_node_type: 'MyCustomNode',
+      }, ctx);
+    }).rejects.toThrow('spawn blocked in test');
+    expect(getShortRunningCount()).toBe(0);
+  });
+});

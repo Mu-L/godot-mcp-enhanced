@@ -225,7 +225,15 @@ export async function handleTool(
       const params: Record<string, unknown> = {};
       if (action === 'create_scene') {
         params.scene_path = normalizeUserProjectPath(args.scene_path as string);
-        params.root_node_type = args.root_node_type || 'Node2D';
+        // 2026-07-12 CRITICAL RCE 复合链修复：root_node_type 补字符校验
+        // 与 add_node:141 / batch_add_nodes:315 / quick_scene:257 对齐。
+        // 堵特殊字符注入（shell 元字符 / 路径穿越透传到 godot_operations.gd）。
+        const rootNodeType = String(args.root_node_type || 'Node2D');
+        if (!/^[A-Za-z0-9_]+$/.test(rootNodeType)) {
+          releaseShortRunningSlot();
+          return textResult(`Error: root_node_type contains invalid characters: "${rootNodeType}"`);
+        }
+        params.root_node_type = rootNodeType;
         if (args.root_node_name) params.root_node_name = args.root_node_name;
       } else if (action === 'save_scene') {
         params.scene_path = normalizeUserProjectPath(args.scene_path as string);

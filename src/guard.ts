@@ -49,22 +49,20 @@ function ensureCleanupTimer(): void {
 // 守卫将捕获不到。GodotServer.handleToolCall() 是单一入口，始终解析为 merged 名。
 //
 // 判定依据：ToolMeta.actionRisks（每个工具模块的 TOOL_META 声明）。
-// risk !== 'read' 的 action 需确认；动态豁免（如 edit_script 的 search_and_replace）见 dynamicRiskOverride。
-
-/** 动态豁免：args 内容决定 risk 的特例（当前仅 script.edit_script 的 search_and_replace 模式）。
- *  search_and_replace 模式为内容匹配、非破坏性（CRLF 安全），故降级为 read。 */
-function dynamicRiskOverride(toolName: string, action: string, args: Record<string, unknown> | undefined): 'read' | null {
-  if (toolName === 'script' && action === 'edit_script') {
-    const sr = args?.search_and_replace;
-    if (sr && typeof sr === 'object' && 'search' in sr) return 'read';
-  }
-  return null;
-}
+// risk !== 'read' 的 action 需确认。
+//
+// 2026-07-12 CRITICAL RCE 复合链修复：删除 dynamicRiskOverride（曾把
+// script.edit_script + search_and_replace 降级为 'read'）。该豁免的"非破坏性"
+// 假设已被证伪——search_and_replace 能写盘任意内容（含 class_name 注入），
+// 经 ensureClassNameImport 自动注册全局类，配合 create_scene/add_node 的
+// root_node_type 无校验 + godot_operations.gd:177-179 脚本分支 script.new()
+// 无 is_parent_class 检查，构成零确认 RCE 复合链。豁免已删，edit_script 整体
+// 恢复 TOOL_META 声明的 'write' risk，search_and_replace 正常需确认令牌。
 
 export function requiresConfirmation(toolName: string, args?: Record<string, unknown>): boolean {
   const action = (args?.action ?? args?.method) as string | undefined;
   if (action == null) return false;
-  const risk = dynamicRiskOverride(toolName, action, args) ?? getActionRisk(toolName, action);
+  const risk = getActionRisk(toolName, action);
   return risk !== undefined && risk !== 'read';
 }
 

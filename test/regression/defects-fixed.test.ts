@@ -54,9 +54,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   asset-path-count-swallowed-by-spacing(path count 被 handle_path 默认 spacing=1.0 吞),合计 51。
 //   +1(2026-07-11 插件反馈·CardGame2): mcp-bridge-ready-headless-skip(_ready 删 headless early return,
 //   run_project headless 游戏需 Bridge; detect 计 mcp_bridge.gd 中 DisplayServer=="headless" 残留),合计 52。
-    expect(FIXED_DEFECTS.length).toBe(52);
+//   +3(2026-07-12 CRITICAL RCE 复合链修复): rce-guard-search-replace-read-downgrade(guard 删 dynamicRiskOverride)/
+//   rce-create-scene-root-node-type-no-validation(create_scene 补 ^[A-Za-z0-9_]+$)/
+//   rce-script-branch-no-node-check(godot_operations.gd 脚本分支补 is_parent_class Node),合计 55。
+    expect(FIXED_DEFECTS.length).toBe(55);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(52);
+    expect(new Set(keys).size, '存在重名 key').toBe(55);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
