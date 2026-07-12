@@ -564,6 +564,21 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       if (!m) return 1; // 分支结构改变 → 复发
       return /is_parent_class\(\s*base_type\s*,\s*"Node"\s*\)/.test(m[0]) ? 0 : 1;
     } },
+  // ─── 2026-07-12 进程通信 P0：HealthMonitor 控制回路 ──────────────────────────
+  // HealthMonitor 原为纯仪表盘：evaluateState 进 reconnecting 仅 setState 打日志改字段，
+  // 无外部通知。编辑器卡死（TCP OPEN 但主线程阻塞）时心跳 ping 永不回包 → 进 reconnecting
+  // 但无降级动作 → 系统瘫痪至 OS TCP keepalive(~2h)。修复：加 onStateChange 回调机制，
+  // GodotServer 注册回调，进 reconnecting 时调 handleEditorStall 降级 headless。
+  { key: 'health-monitor-no-control-loop', status: 'fixed', severity: 'CRITICAL', dimension: 'Reliability',
+    // health-monitor.ts setState 仅打日志改字段，evaluateState 进 reconnecting 无副作用。
+    // GodotServer.ts:448 startHeartbeat 仅传 pingFn 未接状态回调。
+    // fix: HealthMonitor 加 onStateChange 字段+setter，setState 状态变化时 fire-and-forget
+    // 触发监听器（try/catch 包裹）；GodotServer 注册回调，reconnecting 时调 handleEditorStall。
+    // detect: health-monitor.ts setState 含 stateChangeListener 触发（缺则复发）。
+    detect: () => {
+      const f = readSrc('src/core/health-monitor.ts');
+      return /stateChangeListener\?\.\(/.test(f) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

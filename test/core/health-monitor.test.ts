@@ -280,3 +280,70 @@ describe('HealthMonitor — sliding window', () => {
     expect(stats.avgResponseMs).toBeCloseTo(70);
   });
 });
+
+// ─── 控制回路（2026-07-12 进程通信 P0 修复）──────────────────────────────────
+// HealthMonitor 原为纯仪表盘：状态变化仅 setState 打日志改字段，无外部通知。
+// 编辑器卡死（TCP OPEN 但主线程阻塞）时心跳 ping 永不回包 → 进 reconnecting
+// 但无降级动作 → 系统瘫痪至 OS TCP keepalive(~2h)。修复：加 onStateChange 回调。
+
+describe('HealthMonitor — onStateChange control loop (P0 fix)', () => {
+  it('invokes listener when state changes via setState', () => {
+    const monitor = new HealthMonitor();
+    const transitions: Array<{ from: string; to: string }> = [];
+    monitor.onStateChange((from, to) => { transitions.push({ from, to }); });
+
+    monitor.setState('reconnecting');
+    expect(transitions).toEqual([{ from: 'connected', to: 'reconnecting' }]);
+  });
+
+  it('passes from/to so consumer can distinguish upgrade vs downgrade', () => {
+    const monitor = new HealthMonitor();
+    const calls: string[] = [];
+    monitor.onStateChange((from, to) => { calls.push(`${from}->${to}`); });
+
+    monitor.setState('degraded');
+    monitor.setState('reconnecting');
+    monitor.setState('connected');
+
+    expect(calls).toEqual(['connected->degraded', 'degraded->reconnecting', 'reconnecting->connected']);
+  });
+
+  it('does NOT invoke listener when state stays the same (no-op setState)', () => {
+    const monitor = new HealthMonitor();
+    let callCount = 0;
+    monitor.onStateChange(() => { callCount++; });
+
+    monitor.setState('connected'); // no change (already connected)
+    expect(callCount).toBe(0);
+  });
+
+  it('listener throw does not corrupt state machine (try/catch guard)', () => {
+    const monitor = new HealthMonitor();
+    const throwing = vi.fn(() => { throw new Error('listener boom'); });
+    monitor.onStateChange(throwing);
+
+    monitor.setState('reconnecting'); // listener throws but state still changes
+    expect(monitor.getState()).toBe('reconnecting');
+
+    // subsequent setState still works (state machine not corrupted)
+    monitor.setState('connected');
+    expect(monitor.getState()).toBe('connected');
+  });
+
+  it('triggers onStateChange when heartbeat pushes state to reconnecting', async () => {
+    vi.useFakeTimers();
+    const monitor = new HealthMonitor({ heartbeatIntervalMs: 100, maxConsecutiveFailures: 2 });
+    const transitions: string[] = [];
+    monitor.onStateChange((_f, to) => { transitions.push(to); });
+    monitor.startHeartbeat(async () => false); // always fail
+
+    await tick(100); // 1st fail
+    await tick(100); // 2nd fail → reconnecting (maxConsecutiveFailures=2)
+
+    expect(monitor.getState()).toBe('reconnecting');
+    expect(transitions).toContain('reconnecting');
+
+    monitor.stopHeartbeat();
+    vi.useRealTimers();
+  });
+});

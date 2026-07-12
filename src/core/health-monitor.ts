@@ -83,6 +83,9 @@ export class HealthMonitor {
   private pingFn: (() => Promise<boolean>) | null = null;
   private disposed = false;
 
+  // 2026-07-12 P0 控制回路：状态变化监听器（fire-and-forget，try/catch 包裹不影响状态机）
+  private stateChangeListener: ((from: ConnectionState, to: ConnectionState) => void | Promise<void>) | null = null;
+
   constructor(opts: HealthMonitorOptions = {}) {
     this.opts = { ...DEFAULTS, ...opts };
     // H-02: Initialize RingBuffers with actual opts (may override DEFAULTS)
@@ -145,9 +148,24 @@ export class HealthMonitor {
   /** Manually set connection state. */
   setState(newState: ConnectionState): void {
     if (this.state !== newState) {
-      getLogger().info('health', `State changed: ${this.state} → ${newState}`);
+      const from = this.state;
+      getLogger().info('health', `State changed: ${from} → ${newState}`);
       this.state = newState;
+      // 2026-07-12 P0 控制回路：状态变化通知外部消费者（GodotServer 接线降级动作）。
+      // fire-and-forget + try/catch——监听器异常不破坏 HealthMonitor 状态机。
+      try {
+        this.stateChangeListener?.(from, newState);
+      } catch (err) {
+        getLogger().warn('health', `State change listener threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
+  }
+
+  /** Register a state-change listener. 2026-07-12 P0: 控制回路接线点。
+   *  触发时机：setState 实际改变状态时（from !== to）。
+   *  签名 (from, to)：消费者可区分升级（connected→degraded）与降级（degraded→connected）。 */
+  onStateChange(listener: (from: ConnectionState, to: ConnectionState) => void | Promise<void>): void {
+    this.stateChangeListener = listener;
   }
 
   /** Get a snapshot of all health statistics. */

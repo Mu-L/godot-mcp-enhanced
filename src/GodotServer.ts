@@ -418,6 +418,19 @@ export class GodotServer {
     }
   }
 
+  /** 编辑器不可用时的统一降级动作（WS 重连耗尽 / 心跳检测卡死 共用）。
+   *  2026-07-12 P0：抽公共逻辑，reconnectExhausted handler 与 onStateChange 回调共用。 */
+  private handleEditorStall(): void {
+    this.dispatcher?.markEditorFallback();
+    this.connectionMode = 'headless';
+    // I-04: atomic degradeToHeadless() 避免 two separate _pendingModeSwitch writes racing
+    this.dispatcher?.degradeToHeadless();
+    // 降级后停心跳：editorConn 置 null 后 pingFn 必返 false，继续 recordFailure 是噪声。
+    // rebuild 成功后 establishEditorConnection 会重新 startHeartbeat。
+    this.dispatcher?.getHealthMonitor().stopHeartbeat();
+    this.editorConn = null;
+  }
+
   /**
    * 建立 editor 连接:new EditorConnection + connect + executor 接线 + 挂降级 handler。
    * 成功 → connectionMode='editor' + setConnectionMode('editor');失败 → 清理 editorConn,返回 {connected:false}。
@@ -437,17 +450,25 @@ export class GodotServer {
       this.dispatcher?.setEditorExecutor(this.editorExecutor);
       this.editorConn.addOnReconnectExhaustedHandler(() => {
         getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
-        this.dispatcher?.markEditorFallback();
-        this.connectionMode = 'headless';
-        // I-04: atomic degradeToHeadless() 避免 two separate _pendingModeSwitch writes racing
-        this.dispatcher?.degradeToHeadless();
-        this.editorConn = null;
+        this.handleEditorStall();
       });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
-      this.dispatcher?.getHealthMonitor().startHeartbeat(
-        () => (this.editorConn ? this.editorConn.request('ping').then(() => true).catch(() => false) : Promise.resolve(false)),
-      );
+      const hm = this.dispatcher?.getHealthMonitor();
+      if (hm) {
+        hm.startHeartbeat(
+          () => (this.editorConn ? this.editorConn.request('ping').then(() => true).catch(() => false) : Promise.resolve(false)),
+        );
+        // 2026-07-12 P0 控制回路接线：心跳检测编辑器卡死（连续 ping 失败进 reconnecting）时主动降级。
+        // 堵 HealthMonitor 纯仪表盘缺口：编辑器主线程卡死但 TCP OPEN 时 WS 不 close →
+        // reconnectExhausted handler 不触发 → 此回路兜底（复用 handleEditorStall 统一降级动作）。
+        hm.onStateChange((_from, to) => {
+          if (to === 'reconnecting' && this.connectionMode === 'editor') {
+            getLogger().warn('godot-mcp', 'Heartbeat detected editor stall (TCP open but main thread blocked) — degrading to headless.');
+            this.handleEditorStall();
+          }
+        });
+      }
       this.connectionMode = 'editor';
       this.dispatcher?.setConnectionMode('editor');
       return { connected: true, detail: `Connected to Godot plugin on port ${port}` };
