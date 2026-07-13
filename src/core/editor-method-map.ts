@@ -46,6 +46,14 @@ export function mergeTransformIntoParams(args: Args): Args {
   return { ...rest, params };
 }
 
+// animation_track 的 transform：TS action 是全名（add_track/add_keyframe/set_curve），
+// 编码「子域+短动作」;GD handler 按短动作 match（animation_track match add/remove;
+// animation_keyframe match add/remove/update）。此处把 action 改成 GD 期望的短名
+// （method 由 MAP 条目决定走哪个 handler）。set_curve 不带 transform（animation_curve 忽略 action）。
+export function shortenAction(shortAction: string): (args: Args) => Args {
+  return (args) => ({ ...args, action: shortAction });
+}
+
 const MAP: Record<string, Record<string, EditorMethodEntry>> = {
   asset: {
     create: { method: 'asset_create', transformArgs: mergeTransformIntoParams },
@@ -61,6 +69,65 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     set_instance_property: { method: 'set_instance_property' },
     open_scene: { method: 'open_scene' },
     save_scene: { method: 'save_scene' },
+  },
+  // CRITICAL(2026-07-13 协议断链): animation_track 工具 TS action 全名编码「子域+短动作」,
+  // GD 按 method 分 handler → 按 action 映射到不同 method + shortenAction 转短名。
+  // 未登记时 method=animation_track 命中 GD :165 但 match 只认 add/remove → -32004 (非 -32601,
+  // 不触发 headless 回退) → editor 模式 6 action 全失效。
+  animation_track: {
+    add_track: { method: 'animation_track', transformArgs: shortenAction('add') },
+    remove_track: { method: 'animation_track', transformArgs: shortenAction('remove') },
+    add_keyframe: { method: 'animation_keyframe', transformArgs: shortenAction('add') },
+    remove_keyframe: { method: 'animation_keyframe', transformArgs: shortenAction('remove') },
+    update_keyframe: { method: 'animation_keyframe', transformArgs: shortenAction('update') },
+    set_curve: { method: 'animation_curve' },
+  },
+  // CRITICAL(2026-07-13 协议断链): export_* editor 死锁 — method fallback 'validation'
+  // → GD 无此 method -32601 → headless → test-framework 硬返 EDITOR_ONLY。登记 export_*
+  // 直走 GD export 分支。assert/stress 不登记(headless 可处理,无死锁)。
+  validation: {
+    export_list_presets: { method: 'export_list_presets' },
+    export_get_preset: { method: 'export_get_preset' },
+    export_build: { method: 'export_build' },
+  },
+  // IMPORTANT(2026-07-13 协议断链): 下列族 editor 漏登记 → fallback toolName → -32601
+  // → headless → GD 带 undo 分支成死代码,丢 editor 实时+undo。登记后 editor 模式走 GD 带 undo。
+  // recording 不登记(GD editor 主动禁用 -32009,走 bridge)。headless-only action
+  // (nav.query_path / animtree.animtree_state_edit / ui.ui_draw_recipe / ui.ui_build_layout)不登记。
+  // method 名与 GD command_handler 分支一致(action↔method 映射经子代理核实)。
+  particles: {
+    particles_create: { method: 'particles_create' },
+    particles_set_emission: { method: 'particles_set_emission' },
+    particles_set_process: { method: 'particles_set_process' },
+    particles_load_preset: { method: 'particles_load_preset' },
+    particles_set_material: { method: 'particles_set_material' },
+  },
+  nav: {
+    create_region: { method: 'nav_create_region' },
+    bake_mesh: { method: 'nav_bake_mesh' },
+    create_agent: { method: 'nav_create_agent' },
+    set_params: { method: 'nav_set_params' },
+    create_link: { method: 'nav_create_link' },
+  },
+  animtree: {
+    animtree_create: { method: 'animtree_create' },
+    animtree_add_state: { method: 'animtree_add_state' },
+    animtree_add_transition: { method: 'animtree_add_transition' },
+    animtree_set_blend: { method: 'animtree_set_blend' },
+    animtree_play: { method: 'animtree_play' },
+  },
+  ui: {
+    ui_create_control: { method: 'ui_create_control' },
+    ui_set_layout: { method: 'ui_set_layout' },
+    ui_get_layout: { method: 'ui_get_layout' },
+    ui_anchor_preset: { method: 'ui_anchor_preset' },
+    ui_container_add: { method: 'ui_container_add' },
+    theme_set_property: { method: 'theme_set_property' },
+    // ui_set_theme/theme_create 暂不登记:GD handle_ui_set_theme(ui_commands.gd:244)/
+    // handle_theme_create(:353) 读 params.action 做聚合子分派(create/set_params/save/load |
+    // create/extract),与 TS 顶层 action(ui_set_theme/theme_create)契约不一致 → 登记会返 -32004
+    // (非 -32601,不回退 headless)回归。待 GD handler 改读专用子操作字段(如 theme_op)后再登记。
+    // 当前 editor fallback headless(现状,非回归)。
   },
 };
 
