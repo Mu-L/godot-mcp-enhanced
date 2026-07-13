@@ -106,7 +106,10 @@ export function getToolDefinitions(): Tool[] {
 
 export function checkSceneIntegrity(projectPath: string, scenePath: string): { passed: boolean; issues: Issue[] } {
   const issues: Issue[] = [];
-  const fullPath = join(projectPath, scenePath);
+  // A1 (2026-07-13 对比测试核实): scenePath 可能是 resolveWithinRoot 解析后的绝对路径
+  // (scope=scene 上游 resolvedScenePath)。裸 join 会二次拼接 → existsSync 假阴性 →
+  // "Scene file not found"。同 resolveScriptPath (:317) 自证的 NEW-2/3 模式, 绝对路径直接用。
+  const fullPath = isAbsolute(scenePath) ? scenePath : join(projectPath, scenePath);
 
   if (!existsSync(fullPath)) {
     return { passed: false, issues: [{ severity: 'error', location: scenePath, message: `Scene file not found: ${scenePath}` }] };

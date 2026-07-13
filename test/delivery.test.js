@@ -248,6 +248,21 @@ describe('delivery: scene_tree dimension', () => {
     expect(result.issues[0].message).toContain('not found');
   });
 
+  // A1 (2026-07-13 enhanced-vs-godogen 对比测试核实): 上游 verify_delivery scope=scene 传入的
+  // scenePath 是 resolveWithinRoot 解析后的绝对路径(resolvedScenePath)。join(projectPath, 绝对路径)
+  // 二次拼接 → existsSync 假阴性 → "Scene file not found"。delivery.ts:313-317 注释自证此 bug 模式
+  // (NEW-2/3), script scope 已用 resolveScriptPath(isAbsolute ? sp : join) 修, scene scope 漏改。
+  it('checkSceneIntegrity: accepts absolute scenePath without double-joining (A1)', () => {
+    writeFileSync(join(tmpDir, 'main.tscn'), `
+[gd_scene load_steps=1 format=3]
+[node name="Main" type="Node2D"]
+`);
+    const absoluteScenePath = join(tmpDir, 'main.tscn');
+    const result = checkSceneIntegrity(tmpDir, absoluteScenePath);
+    expect(result.passed).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
   it('checkSceneIntegrity: warns on malformed connections with empty target/method', () => {
     // Regex target="([^"]+)" requires at least 1 char, so use whitespace-only values
     // that will fail the trim() check

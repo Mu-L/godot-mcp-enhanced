@@ -9,6 +9,28 @@ import { executeGdscript } from '../../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, toSnakeCase, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { gdScriptSetLine, TRY_SET_HELPER, BLOCKED_PROPS } from './helpers.js';
 
+// A3 (2026-07-13 enhanced-vs-godogen 对比测试核实): instance_scene/set_instance_property 此前
+// 只做运行时 add_child/改属性就 _mcp_done(), 无 pack+save 回写 .tscn → 进程退出实例丢失,
+// set_instance_property 的 target.owner==root 检查恒 false → NODE_NOT_INSTANCE。此 block 对齐
+// add_node(godot_operations.gd:308-321) 与 scene-commit.ts:118: pack 场景根(_mcp_scene_instance)
+// 并 ResourceSaver.save 到 scenePath, 失败回 error 终止。无尾随换行(调用处前置 \n)。
+function persistSceneBlock(scenePath: string): string {
+  const sp = gdEscape(scenePath);
+  return [
+    '\tvar _packed = PackedScene.new()',
+    '\tvar _pack_err = _packed.pack(_mcp_scene_instance)',
+    '\tif _pack_err != OK:',
+    '\t\t_mcp_output("error", "Failed to pack scene: " + str(_pack_err))',
+    '\t\t_mcp_done()',
+    '\t\treturn',
+    '\tvar _save_err = ResourceSaver.save(_packed, "' + sp + '")',
+    '\tif _save_err != OK:',
+    '\t\t_mcp_output("error", "Failed to save scene: " + str(_save_err))',
+    '\t\t_mcp_done()',
+    '\t\treturn',
+  ].join('\n');
+}
+
 export async function handleInstanceScene(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
   if (!args.project_path) return opsErrorResult('MISSING_PARAM', 'project_path is required');
   if (!args.scene_path) return opsErrorResult('MISSING_PARAM', 'scene_path is required');
@@ -79,6 +101,8 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \t_parent.add_child(_inst, true)
+\t_inst.owner = _mcp_scene_instance
+${persistSceneBlock(scenePath)}
 \t_mcp_output("instanced", {
 \t\t"node_name": str(_inst.name),
 \t\t"node_type": _inst.get_class(),
@@ -151,6 +175,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \t${propLine}
+${persistSceneBlock(scenePath)}
 \t_mcp_output("set_property", {"node": "${gdEscape(nodePath)}", "property": "${gdEscape(propName)}"})
 \t_mcp_done()
 `;
