@@ -146,7 +146,7 @@ describe('asset 裸 as 断言计数', () => {
     // （action 经 inputSchema.enum 校验，TS 无法窄化）。
     const out = execSync(
       'grep -rnE "args\\.[a-z_]+ as " src/tools/asset/ || true',
-      { cwd: 'D:/GitHub/godot-mcp-enhanced' },
+      { cwd: process.cwd() },
     ).toString();
     const count = out.trim().split('\n').filter(Boolean).length;
     expect(count).toBeLessThanOrEqual(1);
