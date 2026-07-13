@@ -5,7 +5,7 @@ import type { ReadOnlyGuard } from './ReadOnlyGuard.js';
 import type { EditorToolExecutor } from './EditorToolExecutor.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware, createElicitationMiddleware } from './middleware.js';
-import { createElicitFn } from './elicit.js';
+import { createElicitFn, type ElicitFn } from './elicit.js';
 import { getCallRecorder, extractErrorMessage } from './call-recorder.js';
 import { HealthMonitor } from './health-monitor.js';
 import { isFeatureEnabled } from './feature-flags.js';
@@ -59,6 +59,8 @@ export interface DispatcherOptions {
   findGodot: (projectPath?: string) => Promise<string>;
   toolCallDelegate: (fn: ToolCallDelegate | null) => void;
   agentContext?: AgentContextManager;
+  /** CRITICAL(2026-07-13 安全): out-of-band 用户确认函数(堵 AI 自确认 token)。默认 createElicitFn()。 */
+  elicitFn?: ElicitFn;
 }
 
 export class ToolDispatcher {
@@ -72,6 +74,9 @@ export class ToolDispatcher {
   private healthMonitor: HealthMonitor;
   private readonly middleware: Middleware[];
 
+  /** CRITICAL(2026-07-13 安全): out-of-band elicitation — confirm_and_execute 强制用户确认(堵 AI 自确认)。 */
+  private readonly elicitFn: ElicitFn;
+
   /** Deferred mode switch — applied at the start of the next handleCall. Prevents
    *  editor disconnect callbacks from switching mode mid-request (C-01). */
   private _pendingModeSwitch: { mode: 'headless' | 'editor'; executor: EditorToolExecutor | null } | null = null;
@@ -81,6 +86,7 @@ export class ToolDispatcher {
     this.readOnlyGuard = options.readOnlyGuard;
     this.connectionMode = options.connectionMode;
     this.editorExecutor = options.editorExecutor ?? null;
+    this.elicitFn = options.elicitFn ?? createElicitFn();
 
     // 构建 ctx — 直接 import process-state（内部实现细节）
     this.ctx = {
@@ -290,6 +296,22 @@ export class ToolDispatcher {
           return opsErrorResult('ARGS_TRUNCATED',
             `Confirmation token args were truncated (exceeded 10KB limit). ` +
             `Please call the original tool again — the server will re-generate a fresh token with the full args.`);
+        }
+
+        // CRITICAL(2026-07-13 安全 P0): out-of-band 用户确认 — 堵 AI 自读自确认 token。
+        // confirm_and_execute 由 AI in-band 调用,token 在原工具返回值明文回传 AI,故 consumeToken
+        // 只验 token 值无法区分 AI 自确认 vs 用户授权(单客户端下 caller/session 绑定无效:AI 产生
+        // 与消费 token 同 session)。此处经 MCP elicitInput(server→client→user UI) 请求用户
+        // out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。elicitFn 返回 null(client 不支持
+        // elicitation / decline / cancel / throw)或 confirm!==true 一律拒绝 — 强制 out-of-band,
+        // 无降级(审查威胁模型拒绝本地可信,堵 AI 自确认优先于兼容不支持 elicitation 的 client)。
+        const consent = await this.elicitFn(
+          { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
+          `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?此操作经 confirm_and_execute,需用户 out-of-band 确认以防 AI 自确认。`,
+        );
+        if (!consent || consent.confirm !== true) {
+          return opsErrorResult('ELICITATION_DENIED',
+            `执行 "${pending.toolName}" 需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。`);
         }
 
         // 二次 guard 检查

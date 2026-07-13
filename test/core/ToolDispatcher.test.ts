@@ -134,6 +134,9 @@ function createOptions(overrides?: Partial<DispatcherOptions>): DispatcherOption
     opsScript: '/fake/ops.gd',
     findGodot: vi.fn().mockResolvedValue('/fake/godot'),
     toolCallDelegate: vi.fn(),
+    // CRITICAL(2026-07-13): 默认 elicitFn accept — 现有 confirm_and_execute 测试绿(gate 默认放行)。
+    // gate 拒绝测试通过 overrides 注入 null/false elicitFn。
+    elicitFn: async () => ({ confirm: true }),
     ...overrides,
   };
 }
@@ -460,6 +463,45 @@ describe('ToolDispatcher.handleCall', () => {
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'headless' });
     await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
     expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
+  });
+
+  // [T11] CRITICAL(2026-07-13 安全): confirm_and_execute elicitation out-of-band gate
+  // 堵 AI 自读自确认 token。单客户端下 caller/session 绑定无效(AI 产生与消费 token 同 session),
+  // 故 confirm_and_execute(AI in-band 调用,token 明文回传 AI) 须经 MCP elicitInput
+  // (server→client→user UI) 请求用户 out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。
+  it('requires user elicitInput consent before executing confirmed tool (T11)', async () => {
+    const elicitFn = vi.fn().mockResolvedValue({ confirm: true });
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(elicitFn).toHaveBeenCalledTimes(1);
+    expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
+  });
+
+  it('refuses confirmed execution when elicitation unsupported/declined/cancel (null) (T11)', async () => {
+    const elicitFn = vi.fn().mockResolvedValue(null);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('ELICITATION_DENIED');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  it('refuses confirmed execution when user declines (confirm:false) (T11)', async () => {
+    const elicitFn = vi.fn().mockResolvedValue({ confirm: false });
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(result.isError).toBe(true);
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
   // [T10] requiresConfirmation → 返回 token

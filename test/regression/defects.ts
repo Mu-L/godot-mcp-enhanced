@@ -92,8 +92,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'confirm-token-trust-broken', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      // fixed：GUARDED 扩展 + token TTL。命中「substring(0, 200) 截断 + 明文回传」即复发
-      return countMatchesInFile('src/guard.ts', /substring\(0,\s*200\)/g);
+      // fixed(早期): GUARDED 扩展 + token TTL。命中 substring(0,200) 截断 + 明文回传即复发。
+      // fixed(2026-07-13 P0 审查): AI 自确认根因 — token 明文回传 AI + consumeToken 不验 caller,
+      //   单客户端 caller 绑定无效(AI 同 session 产生+消费 token)。加 confirm_and_execute
+      //   elicitation out-of-band gate(consumeToken 成功后调 this.elicitFn + ELICITATION_DENIED)。
+      //   detect: 截断模式 + gate 缺失任一命中即复发。
+      const truncateBug = countMatchesInFile('src/guard.ts', /substring\(0,\s*200\)/g);
+      const td = readSrc('src/core/ToolDispatcher.ts');
+      const hasGate = /this\.elicitFn\(/.test(td) && /ELICITATION_DENIED/.test(td);
+      return truncateBug + (hasGate ? 0 : 1);
     } },
   { key: 'ts-gdscript-tool-drift', status: 'fixed', severity: 'CRITICAL', dimension: 'Architecture',
     detect: () => {

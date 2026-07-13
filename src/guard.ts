@@ -8,8 +8,9 @@ interface PendingToken {
   createdAt: number;
   /** I-07: True if any arg was truncated during creation — consumer must refuse execution. */
   wasTruncated?: boolean;
-  // FUTURE: Add clientId field for multi-client isolation.
-  // Currently MCP is single-client, so token-to-caller binding is unnecessary.
+  // NOTE(2026-07-13 安全): caller/clientId 绑定不堵 AI 自确认(单客户端:AI 同 session
+  // 产生+消费 token,任何 caller 校验都通过)。AI 自确认由 ToolDispatcher.confirm_and_execute
+  // 的 out-of-band elicitation gate 堵。clientId 仅在未来多客户端时需加(防跨连接重放,与 elicitation 正交)。
 }
 
 export const TOKEN_TTL_MS = 60_000; // 60s — CRITICAL-3 子项1: 收紧重放窗口(原 180s)
@@ -107,10 +108,11 @@ export function createPendingToken(toolName: string, args: Record<string, unknow
 /**
  * Consume a pending confirmation token.
  *
- * SECURITY NOTE: This function validates the token value but does NOT verify
- * the caller's identity. In the current single-client MCP architecture this
- * is safe. If multi-client support is added, PendingToken needs a `clientId`
- * field and this function must verify it matches the current caller.
+ * SECURITY NOTE: 校验 token 值但不验证 caller 身份。单客户端 MCP 下 caller/session 绑定
+ * 不堵 AI 自确认(AI 同 session 产生+消费 token,caller 校验必过)。AI 自确认改由
+ * ToolDispatcher.confirm_and_execute 的 out-of-band elicitation gate 堵(2026-07-13):
+ * consumeToken 成功后 elicitInput 经 server→client→user UI 问用户,AI 无法伪造响应
+ * (非其 tools/call 通道)。未来若加多客户端,此处仍需 clientId 防跨连接重放(与 elicitation 正交)。
  */
 export function consumeToken(token: string): { toolName: string; args: Record<string, unknown>; wasTruncated?: boolean } | null {
   const pending = pendingTokens.get(token);
