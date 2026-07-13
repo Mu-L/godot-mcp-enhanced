@@ -204,7 +204,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared/errors.js';
-import { resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
+import { resolveWithinRoot, normalizeUserProjectPath, requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted as executeGdscript } from '../gdscript-executor.js';
 
 /** CSV 字节上限(F-7 防 OOM/tmpdir 满,复发 tscn-parser-no-byte-limit 同构)。
@@ -265,7 +265,11 @@ export async function handleTool(
     return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
   }
 
-  const projectPath = ctx.projectDir;
+  // A2 (2026-07-13 enhanced-vs-godogen 对比测试核实): 用 args.project_path(对齐 verify_delivery
+  // delivery.ts:218 等), 非 ctx.projectDir —— 后者是全局 process-state(getProjectDir 初始 ''),
+  // 未先 run_project/launch_editor 时为 '' → resolveWithinRoot('', csv_path) base=process.cwd()
+  // → 文件在 args.project_path 却查找在 cwd → "csv_path not found"(实测复现, run4.mjs)。
+  const projectPath = requireProjectPath(args);
   const classPath = args.class_path as string;
   const outputDir = args.output_dir as string;
   const filenameCol = args.filename_column as string;
