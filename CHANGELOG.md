@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-07-13
+
+### Fixed — Security（CRITICAL，多轮独立审查核实）
+
+- **零确认 RCE 复合链**（`6406de4`）：`edit_script` `search_and_replace` 经 `dynamicRiskOverride` 降级 read 绕确认令牌 → 写盘注入恶意 `class_name` + `ensureClassNameImport` 自动注册 + `create_scene` `root_node_type` 无校验 + `godot_operations.gd` 脚本分支 `script.new()` 无 `is_parent_class("Node")` 检查 = 零确认 RCE。修：删 override + create_scene 加 `^[A-Za-z0-9_]+$` + script 加 `get_instance_base_type`/`is_parent_class` 对称 ClassDB 校验
+- **`confirm_and_execute` elicitation out-of-band gate**（`18ef867` + review `8819ad5`/`a21fecd`）：堵 AI 自读自确认 token。单客户端 caller/session 绑定无效（AI 同 session 产生+消费 token = 假保护）→ 改 MCP `elicitInput`（server→client→user UI，AI 无法伪造响应）。review 加固：I-1 消息含 `pending.args` 预览（>500 字截断，防盲批）+ I-2 `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` opt-in 降级（默认 fail-closed，显式 true 降级+审计，与仓库 `GODOT_MCP_UNRESTRICTED` 等惯例一致）
+
+### Fixed — editor 路由（协议断链，editor 模式工具此前系统性失效）
+
+- **editor-method-map 登记 6 族 21 action**（`356a061`）：`animation_track`（TS 全名 action→method + `shortenAction` 转短名 add_track→add）/ `export_*`（打通 editor→GD，原 fallback headless 撞 EDITOR_ONLY 死锁）/ `particles`/`nav`（action 加 nav_ 前缀）/`animtree`/`ui`（theme 归 ui）。`ui_set_theme`/`theme_create` 因 GD handler 读 action 做聚合子分派（与 TS 顶层 action 契约不一致）不登记避 -32004 回归；`recording` GD editor 主动禁用走 bridge 不登记
+- **scene/node editor 路由**（`214d44a` 等）+ `open_scene` 死映射（`7247682`，TS 入口未接 ACTIONS/switch/actionRisks）+ `manage_tools` reconnecting 卡死（`b008293`，reconnect 失败启动后台重连循环）
+
+### Fixed — bugs
+
+- **path_generator align_vertices 死循环**（`5b63a9c`）：`spacing<=0`+`count>=1`+`align_vertices` 组合 while d+=spacing 永真死循环卡 @tool 编辑器主线程；align_vertices 分支入口加 `spacing<=0.0` early-return 守卫（fbdd684 BUG2 count 优先修复漏此独立 if 分支）
+- **scene vector3 set coerce**（`8cbac21`）：`instance_scene`/`set_instance_property` 收 Array `[0,0,-6]` 静默 no-op（Godot 4.7 `Object.set` 不自动转 Array→Vector3）；`coerce_value_for_property` 按属性真实类型转
+- **asset Array color 崩 + path count 优先**（`fbdd684`）：create_material 传 `[r,g,b]` 调不存在的 String(Array) 抛 SCRIPT ERROR 材质丢失；count>=1 优先于 spacing 默认 1.0
+- **data-import A1/A2/A3**（`e0882c9`/`4d5059f`）：绝对路径双盘符 + csv_to_resources 用 ctx.projectDir 非 args.project_path + instance_scene 无 pack+save 回写
+
+### Fixed — Reliability
+
+- **HealthMonitor 控制回路**（`85f5328`）：editor stall 检测（setState 加 onStateChange 回调 → GodotServer heartbeat 监听 → handleEditorStall 统一降级，15s×5≈75s 远快 OS keepalive ~2h）
+
+### Changed
+
+- **删 ReconnectionManager 死代码**（`f2773fb`，410 行）：src/ 生产零引用，真重连逻辑在 `EditorConnection.ts:448` scheduleReconnect 自实现；审查批评为假保护（与 confirm token caller 绑定同类）
+
 ## [0.22.0] - 2026-07-08
 
 ### Added — asset-forge 整合（主打：参数化 3D shape 生成）

@@ -3113,6 +3113,7 @@
               "instance_scene",
               "set_instance_property",
               "detach_instance",
+              "open_scene",
               "health_check",
               "merge_scene",
               "create_3d_node",
@@ -3369,7 +3370,7 @@
       "securityLevel": "danger-api",
       "riskDistribution": {
         "read": 4,
-        "write": 12,
+        "write": 13,
         "destructive": 2,
         "process": 0
       },

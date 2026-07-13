@@ -581,6 +581,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.23.0** | 2026-07-13 | 安全 CRITICAL(零确认 RCE 复合链 `6406de4` + `confirm_and_execute` elicitation out-of-band gate 堵 AI 自确认 token `18ef867` + `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` opt-in 降级)+ editor 路由解锁(editor-method-map 登记 animation_track/export/particles/nav/animtree/ui 21 action `356a061` + scene/node/open_scene/reconnecting)+ bug 修复(path_generator 死循环/scene vector3 coerce/asset color+count/data-import A1-A3)+ HealthMonitor editor stall 检测 `85f5328` + 删 ReconnectionManager 死代码 410 行 `f2773fb` |
 | **v0.22.0** | 2026-07-08 | asset 工具集新工具(11 shape + 路径阵列 discrete/continuous + batch 原子 undo + save 预制件 + 10 材质预设;方案 A 阻塞 continuous ramp 待上游)+ capability-matrix 33 + LICENSE 致谢 AssetForge/Tripo3D |
 | **v0.21.0** | 2026-07-06 | csv_to_resources 新工具(CSV→Godot 资源批量导入,双轨 TS+GDScript)+ ToolAnnotations hints(actionRisks 派生 readOnly/destructive)+ 多轮独立审查核实修复(RCE/ipc/data-import/综合审查 editor 路由 -32601 回退+guard 接线+heartbeat 暂停语义)+ editor 4.7 兼容(EditorInterface/super() 回归/Safe save)+ capability reviewer 设施 + e2e L2 opt-in |
 | **v0.20.0** | 2026-06-30 | cpp GDExtension 脚手架(scaffold_gdextension 生成 8 文件 C++ 工程骨架)+ 全工具验证靶子(real-project 三层 L1/L2/L3 自动化,28 工具正路径)+ 工具行为修复(default-null 统一/run_project isError/timeout race)+ R3/安全审查修复 |

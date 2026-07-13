@@ -5,7 +5,7 @@
 ## 概览
 - 工具总数：33
 - securityLevel：danger-api 8 / guarded 14 / safe 11
-- risk：read 102 / write 78 / destructive 7 / process 12
+- risk：read 102 / write 79 / destructive 7 / process 12
 - L2 覆盖：covered 0 / partial 0 / none 33
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
