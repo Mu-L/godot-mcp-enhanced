@@ -501,6 +501,20 @@ describe('ToolDispatcher.handleCall', () => {
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
     const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
     expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('ELICITATION_DENIED');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  // M-3(security review): 严格 === 比较,truthy 强制转换({confirm:"true"}/{confirm:1})必须拒绝
+  it('rejects truthy coercion ({confirm:"true"} string) — strict === only (T11)', async () => {
+    const elicitFn = vi.fn().mockResolvedValue({ confirm: 'true' });
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(result.isError).toBe(true);
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 

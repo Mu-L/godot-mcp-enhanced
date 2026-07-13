@@ -305,9 +305,13 @@ export class ToolDispatcher {
         // out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。elicitFn 返回 null(client 不支持
         // elicitation / decline / cancel / throw)或 confirm!==true 一律拒绝 — 强制 out-of-band,
         // 无降级(审查威胁模型拒绝本地可信,堵 AI 自确认优先于兼容不支持 elicitation 的 client)。
+        // I-1(security review): 消息含 args 预览(>500 字截断),让用户知情确认而非盲批
+        // (防 AI 构造恶意 args 如删关键节点/写恶意 class_name — 07-12 RCE 复合链场景)。
+        const argsJson = JSON.stringify(pending.args);
+        const argsPreview = argsJson.length > 500 ? argsJson.slice(0, 500) + '...(截断)' : argsJson;
         const consent = await this.elicitFn(
           { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
-          `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?此操作经 confirm_and_execute,需用户 out-of-band 确认以防 AI 自确认。`,
+          `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
         );
         if (!consent || consent.confirm !== true) {
           return opsErrorResult('ELICITATION_DENIED',

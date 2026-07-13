@@ -541,7 +541,9 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const whileIdx = fnBody.indexOf('while d < seg_end', alignIdx);
       if (alignIdx < 0 || whileIdx < 0) return 1;  // 结构变移，强制人工复核
       const branchBeforeWhile = fnBody.slice(alignIdx, whileIdx);
-      return /spacing\s*<=\s*0\.0/.test(branchBeforeWhile) ? 0 : 1;
+      // Minor4(review): 收紧到实际代码 `if spacing <= 0.0:`(行首;GDScript 注释以 # 开头不匹配),
+      // 防修复者注释含 spacing<=0.0 字面量绕过检测。
+      return /^\s*if\s+spacing\s*<=\s*0\.0\s*:/m.test(branchBeforeWhile) ? 0 : 1;
     } },
   { key: 'mcp-bridge-ready-headless-skip', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // (2026-07-11 插件反馈·CardGame2): mcp_bridge.gd _ready 原 if DisplayServer.get_name()=="headless": return
