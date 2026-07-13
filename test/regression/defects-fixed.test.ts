@@ -59,9 +59,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   rce-script-branch-no-node-check(godot_operations.gd 脚本分支补 is_parent_class Node),合计 55。
 //   +1(2026-07-12 进程通信 P0): health-monitor-no-control-loop(HealthMonitor 加 onStateChange 回调,
 //   GodotServer 接线 handleEditorStall 降级),合计 56。
-    expect(FIXED_DEFECTS.length).toBe(56);
+//   +1(2026-07-13 审查·addons 第三轮 P0): asset-path-align-vertices-infinite-loop(path_generator
+//   _sample_continuous align_vertices 独立 if 分支缺 spacing<=0 守卫,spacing=0+count>=1 死循环),合计 57。
+    expect(FIXED_DEFECTS.length).toBe(57);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(56);
+    expect(new Set(keys).size, '存在重名 key').toBe(57);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

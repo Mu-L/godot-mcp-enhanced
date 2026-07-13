@@ -107,6 +107,11 @@ static func _sample_continuous(
 	# 段边界
 	var boundaries: Array = []
 	if align_vertices:
+		# P0(2026-07-13 审查·addons 第三轮): align_vertices 按 spacing 切折线段,需 spacing>0;
+		# spacing<=0 时 while d += spacing 不收敛(=0 时 d 不变/负数时后退)→死循环卡 @tool 主线程。
+		# 函数入口早退(spacing<=0.0 and count<1) 在 count>=1 时放行,故此分支需独立 spacing 守卫。
+		if spacing <= 0.0:
+			return []
 		# v4：每折线段 [vertex_d[i], vertex_d[i+1]] 独立按 spacing 切 + 段末去重
 		# sample 入口（mode==continuous 分支）+ align_vertices 需 spacing>0
 		for i in range(last):

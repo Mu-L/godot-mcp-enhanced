@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 56 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1）。
+// FIXED_DEFECTS 57 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -515,6 +515,26 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const distancesOk = dCount >= 0 && dSpacing >= 0 && dCount < dSpacing;
       const continuousOk = cCount >= 0 && cSpacing >= 0 && cCount < cSpacing;
       return (distancesOk && continuousOk) ? 0 : 1;
+    } },
+  { key: 'asset-path-align-vertices-infinite-loop', status: 'fixed', severity: 'CRITICAL', dimension: 'Correctness',
+    // BUG3(2026-07-13 审查·addons 第三轮 P0): path_generator.gd _sample_continuous 的 align_vertices
+    // 独立 if 分支（非 elif 链，排在 count/spacing 之前）用 spacing 做 while d+=spacing 推进量，
+    // 但函数入口早退守卫（spacing<=0.0 and count<1）在 count>=1 时放行，align_vertices 分支
+    // 无独立 spacing>0 守卫 → spacing=0（d 不变）/spacing<0（d 后退）时 while d<seg_end 永真死循环。
+    // @tool 脚本跑编辑器主线程 → Godot 主循环卡死 → MCP 30s 超时 → 只能杀进程丢未保存编辑。
+    // AI 误传 spacing:0（理解成"无间距约束"）+ count>=1 + align_vertices:true 即触发，非必恶意。
+    // fbdd684 的 BUG2 count 优先修复只动 elif 链（count>=1 / spacing>0.0），漏了排在前面的
+    // align_vertices 独立 if 分支（它有自己的 while 循环，不看 count）。
+    // fix: align_vertices 分支入口加 spacing<=0.0 early-return 守卫（与函数入口早退语义一致）。
+    // detect: _sample_continuous 的 align_vertices 分支内、while 循环之前存在 spacing<=0.0 守卫。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/asset/path_generator.gd');
+      const fnBody = f.slice(f.indexOf('func _sample_continuous('), f.indexOf('func _to_vector3('));
+      const alignIdx = fnBody.indexOf('if align_vertices:');
+      const whileIdx = fnBody.indexOf('while d < seg_end', alignIdx);
+      if (alignIdx < 0 || whileIdx < 0) return 1;  // 结构变移，强制人工复核
+      const branchBeforeWhile = fnBody.slice(alignIdx, whileIdx);
+      return /spacing\s*<=\s*0\.0/.test(branchBeforeWhile) ? 0 : 1;
     } },
   { key: 'mcp-bridge-ready-headless-skip', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // (2026-07-11 插件反馈·CardGame2): mcp_bridge.gd _ready 原 if DisplayServer.get_name()=="headless": return
