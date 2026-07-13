@@ -314,8 +314,16 @@ export class ToolDispatcher {
           `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
         );
         if (!consent || consent.confirm !== true) {
-          return opsErrorResult('ELICITATION_DENIED',
-            `执行 "${pending.toolName}" 需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。`);
+          // I-2(security review): opt-in 降级 — 不支持 elicitation 的 client(简单 CLI/CI/自动化)
+          // 显式设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时跳过 gate 走旧 token 路径(token 已
+          // consumeToken 验证)。默认 fail-closed(堵 AI 自确认)。降级记 console.warn 审计。
+          // 与仓库 GODOT_MCP_UNRESTRICTED/BRIDGE_PERSISTENT_SECRET/BRIDGE_EXTRA_METHODS 惯例一致。
+          if (process.env.GODOT_MCP_ALLOW_UNSAFE_CONFIRM === 'true') {
+            console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 降级跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
+          } else {
+            return opsErrorResult('ELICITATION_DENIED',
+              `执行 "${pending.toolName}" 需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。可信环境可设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 降级。`);
+          }
         }
 
         // 二次 guard 检查

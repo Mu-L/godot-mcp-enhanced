@@ -518,6 +518,20 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
+  // I-2(security review): opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时 elicitFn null
+  // (不支持 elicitation) 降级走旧 token 路径执行。默认未设=fail-closed(上面 T11 已测拒绝)。
+  it('downgrades to token path when GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true + elicitFn null (I-2)', async () => {
+    vi.stubEnv('GODOT_MCP_ALLOW_UNSAFE_CONFIRM', 'true');
+    const elicitFn = vi.fn().mockResolvedValue(null);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
+    vi.unstubAllEnvs();
+  });
+
   // [T10] requiresConfirmation → 返回 token
   it('returns confirmation token when tool requires confirmation', async () => {
     const guard = createMockGuard(false);
