@@ -6,7 +6,7 @@ import { registerAllModules } from '../core/module-loader.js';
 import { extractCapabilities } from './extract.js';
 import type { ToolCapability } from './schema.js';
 
-function buildMarkdown(caps: ToolCapability[]): string {
+export function buildMarkdown(caps: ToolCapability[]): string {
   const total = caps.length;
   const byLevel = { 'danger-api': 0, 'guarded': 0, 'safe': 0 };
   const byL2 = { covered: 0, partial: 0, none: 0 };
@@ -19,6 +19,15 @@ function buildMarkdown(caps: ToolCapability[]): string {
   // trusted-nonread：标 read 但实际启进程/有副作用（项目有意信任不确认）
   const trustedList = caps.flatMap(c => (c.trustedNonRead ?? []).map(a => `\`${c.name}.${a}\``));
   const dangerTools = caps.filter(c => c.securityLevel === 'danger-api').map(c => `- \`${c.name}\` (${c.group})`).join('\n');
+  // token 预算（E 组 size 聚合）
+  const totalBytes = caps.reduce((s, c) => s + c.size.totalBytes, 0);
+  const schemaBytesAll = caps.reduce((s, c) => s + c.size.schemaBytes, 0);
+  const descBytesAll = caps.reduce((s, c) => s + c.size.descBytes, 0);
+  const schemaPct = totalBytes > 0 ? Math.round((schemaBytesAll / totalBytes) * 100) : 0;
+  const top5 = [...caps].sort((a, b) => b.size.totalBytes - a.size.totalBytes).slice(0, 5);
+  const top5Lines = top5.map(c =>
+    `- \`${c.name}\` (${c.group}): desc ${c.size.descBytes}B / schema ${c.size.schemaBytes}B / total ${c.size.totalBytes}B`
+  ).join('\n');
   const lines = [
     `# Capability Matrix`,
     ``,
@@ -29,6 +38,7 @@ function buildMarkdown(caps: ToolCapability[]): string {
     `- securityLevel：danger-api ${byLevel['danger-api']} / guarded ${byLevel['guarded']} / safe ${byLevel['safe']}`,
     `- risk：read ${riskTotals.read} / write ${riskTotals.write} / destructive ${riskTotals.destructive} / process ${riskTotals.process}`,
     `- L2 覆盖：covered ${byL2.covered} / partial ${byL2.partial} / none ${byL2.none}`,
+    `- token 预算：tools/list ≈ ${totalBytes}B / ~${Math.round(totalBytes / 4)} tokens（description ${descBytesAll}B / schema ${schemaBytesAll}B，schema 占 ${schemaPct}%）`,
     ...(trustedList.length > 0 ? [`> 注：标 read 但实际启进程/有副作用(项目有意信任不确认): ${trustedList.join(', ')}`] : []),
     ``,
     `## danger-api 工具（L2 安全回归优先）`,
@@ -41,6 +51,9 @@ function buildMarkdown(caps: ToolCapability[]): string {
     `- editor 侧：addons/godot_mcp_server/commands/*_commands.gd 按 group 匹配`,
     `- headless 侧：恒为 exists=false（GDScript 由 gdscript-executor 运行时生成，无静态 1:1 文件）`,
     `- editor 侧：按工具命令精确路由（EDITOR_COMMAND_ROUTING，源 command_handler.gd handle() 路由表）`,
+    ``,
+    `## token 预算 TOP 5`,
+    ...top5Lines,
   ];
   return lines.join('\n');
 }
