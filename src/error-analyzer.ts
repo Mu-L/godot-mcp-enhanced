@@ -1,6 +1,9 @@
 // Godot Error Analyzer Module
 // Parses Godot runtime output and generates actionable fix suggestions
 
+import { existsSync, readFileSync } from 'node:fs';
+import { resolveWithinRoot, normalizeUserProjectPath } from './core/path-utils.js';
+
 export interface ParsedError {
   type: 'script_error' | 'runtime_error' | 'parse_error' | 'null_reference' | 'type_error' | 'headless_limitation' | 'unknown';
   message: string;
@@ -8,6 +11,8 @@ export interface ParsedError {
   line?: number;
   function?: string;
   suggestion: string;
+  /** 出错行附近源码片段（带行号，出错行标 ">"）。仅当 options.projectPath 提供且 file 为 res:// 时填充。 */
+  snippet?: string;
 }
 
 export interface ParsedWarning {
@@ -35,6 +40,10 @@ export interface AnalyzeOptions {
    *  resolve cross-file class_name, producing the same "Identifier X not found" false
    *  positive as autoload. */
   classNames?: string[];
+  /** 项目根路径。提供后对 res:// 错误文件读取源码片段附加到 ParsedError.snippet。 */
+  projectPath?: string;
+  /** snippet 上下文行数（出错行前后各 N 行），默认 3。 */
+  snippetLines?: number;
 }
 
 // ===== Error pattern matchers =====
@@ -223,6 +232,47 @@ function parseLocation(lines: string[], startIdx: number): ParsedLocation {
   return result;
 }
 
+// ===== Source snippet =====
+
+/** 读取 res:// 错误文件的出错行附近源码。非 res:// / 文件不存在 / 路径非法 → undefined（静默跳过）。 */
+function buildSnippet(file: string | undefined, targetLine: number | undefined, projectPath: string, contextLines: number): string | undefined {
+  if (!file || !file.startsWith('res://')) return undefined;
+  if (targetLine === undefined || targetLine <= 0) return undefined;
+
+  let absPath: string;
+  try {
+    absPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(file));
+  } catch {
+    return undefined; // 路径遍历/非法 → 跳过（resolveWithinRoot 5 层校验兜底）
+  }
+
+  let content: string;
+  try {
+    if (!existsSync(absPath)) return undefined;
+    content = readFileSync(absPath, 'utf8');
+  } catch {
+    return undefined; // 编码/权限异常 → 跳过
+  }
+
+  const lines = content.split(/\r?\n/);
+  const start = Math.max(0, targetLine - 1 - contextLines);
+  const end = Math.min(lines.length, targetLine + contextLines);
+  const parts: string[] = [];
+  for (let i = start; i < end; i++) {
+    const num = i + 1;
+    const marker = num === targetLine ? '>' : ' ';
+    parts.push(`${marker} ${num}: ${lines[i]}`);
+  }
+  return parts.length > 0 ? parts.join('\n') : undefined;
+}
+
+/** 若 options.projectPath 提供，给 error 附加 snippet。无 projectPath 或无法读取时 no-op。 */
+function enrichWithSnippet(error: ParsedError, options?: AnalyzeOptions): void {
+  if (!options?.projectPath || !error.file || !error.line || error.line <= 0) return;
+  const snippet = buildSnippet(error.file, error.line, options.projectPath, options.snippetLines ?? 3);
+  if (snippet) error.snippet = snippet;
+}
+
 // ===== Main analyzer =====
 
 export function analyzeOutput(output: string[], options?: AnalyzeOptions): AnalysisResult {
@@ -253,6 +303,7 @@ export function analyzeOutput(output: string[], options?: AnalyzeOptions): Analy
         function: loc.func,
         suggestion: `Syntax error: ${message}. Check for missing colons, incorrect indentation, or typos.`,
       };
+      enrichWithSnippet(error, options);
       errors.push(error);
       suggestions.push(`[${loc.file || 'unknown'}:${loc.line || '?'}] ${error.suggestion}`);
       i++;
@@ -285,6 +336,7 @@ export function analyzeOutput(output: string[], options?: AnalyzeOptions): Analy
         function: loc.func,
         suggestion,
       };
+      enrichWithSnippet(error, options);
       errors.push(error);
       suggestions.push(`[${loc.file || 'unknown'}:${loc.line || '?'}] ${suggestion}`);
       i++;
@@ -315,6 +367,7 @@ export function analyzeOutput(output: string[], options?: AnalyzeOptions): Analy
         function: loc.func,
         suggestion,
       };
+      enrichWithSnippet(error, options);
       errors.push(error);
       suggestions.push(`[${loc.file || 'unknown'}:${loc.line || '?'}] ${suggestion}`);
       i++;

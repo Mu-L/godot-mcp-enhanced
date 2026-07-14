@@ -1,5 +1,8 @@
 import { expect } from 'vitest';
 import { analyzeOutput } from '../src/error-analyzer.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('error-analyzer', () => {
   describe('parse errors', () => {
@@ -355,5 +358,56 @@ describe('class_name headless filtering (S3)', () => {
     ]);
     expect(result.errors[0].type).toBe('script_error');
     expect(result.hasErrors).toBeTruthy();
+  });
+});
+
+describe('source snippet', () => {
+  it('attaches snippet for res:// file when projectPath provided', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mcp-snippet-'));
+    try {
+      writeFileSync(join(dir, 'player.gd'), `line one
+line two
+line three
+var x = y.foo()
+line five`);
+      const result = analyzeOutput(
+        ['SCRIPT ERROR: Cannot call function "foo" on null instance.', 'at: res://player.gd:4'],
+        { projectPath: dir }
+      );
+      expect(result.errors.length).toBe(1);
+      expect(result.errors[0].snippet).toBeDefined();
+      expect(result.errors[0].snippet).toContain('> 4:');
+      expect(result.errors[0].snippet).toContain('var x = y.foo()');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('omits snippet when projectPath not provided', () => {
+    const result = analyzeOutput(['SCRIPT ERROR: x', 'at: res://player.gd:4']);
+    expect(result.errors[0].snippet).toBeUndefined();
+  });
+
+  it('omits snippet for non-res:// path (execute_gdscript temp wrapper)', () => {
+    const result = analyzeOutput(
+      ['SCRIPT ERROR: x', 'at: /tmp/session123/wrapper.gd:4'],
+      { projectPath: '/some/project' }
+    );
+    expect(result.errors[0].snippet).toBeUndefined();
+  });
+
+  it('omits snippet when file does not exist (silent skip)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mcp-snippet-'));
+    try {
+      const result = analyzeOutput(
+        ['SCRIPT ERROR: x', 'at: res://missing.gd:4'],
+        { projectPath: dir }
+      );
+      expect(result.errors[0].snippet).toBeUndefined();
+      expect(result.errors[0].type).toBeDefined();
+      expect(result.errors[0].suggestion).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
