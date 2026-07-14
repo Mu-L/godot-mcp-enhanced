@@ -29,6 +29,10 @@ jobs:
         # drift = 实时提取 vs committed docs/capability-matrix.json 不一致。
         # 改了工具契约（inputSchema/securityLevel/risk）须跑 npm run build-matrix 并 commit。
         run: node build/capability/diff-matrix.js
+      - name: Check token budget (spec §E 体积预算)
+        # warn-only 基线：error 阈值极高（当前 0 触发）。读 committed json 快照，
+        # 不重算（drift step 已保证 json 是最新契约）。size 不进 diff-matrix drift。
+        run: node scripts/check-token-budget.mjs
       - name: Check rules version bump（spec §4 不变式）
         run: node scripts/check-rules-version-bump.mjs
       - name: Check version metadata consistency
