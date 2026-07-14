@@ -561,7 +561,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const allOutput = [...result.stdout.split('\n'), ...result.stderr.split('\n')];
 
       // Read autoload singleton names from project.godot for better error classification
-      const analyzeOpts: AnalyzeOptions = {};
+      const analyzeOpts: AnalyzeOptions = { projectPath };
       try {
         const cfgPath = join(projectPath, 'project.godot');
         if (existsSync(cfgPath)) {

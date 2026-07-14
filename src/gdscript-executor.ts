@@ -1221,7 +1221,7 @@ export async function executeGdscript(
       const rawOutput = stdout + stderr;
       const duration = Date.now() - startTime;
       const { parsed, logLines } = parseMcpMarkers(rawOutput, rndResult, rndError);
-      const analysis = analyzeOutput(logLines);
+      const analysis = analyzeOutput(logLines, projectPath ? { projectPath } : undefined);
 
       if (parsed) {
         const isSuccess = parsed.success === true;
