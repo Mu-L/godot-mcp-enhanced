@@ -60,6 +60,9 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
     }
     const trustedNonRead = TRUSTED_NONREAD[tool.name];
 
+    const descBytes = Buffer.byteLength(tool.description ?? '', 'utf8');
+    const schemaBytes = Buffer.byteLength(JSON.stringify(tool.inputSchema), 'utf8');
+
     return {
       name: tool.name,
       group,
@@ -83,6 +86,7 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
       },
       relatedDefects: [], // M2 填充
       verification: { l1: 'extracted', l2: 'none', l3: 'unverified', lastRun: null },
+      size: { descBytes, schemaBytes, totalBytes: descBytes + schemaBytes },
     } satisfies ToolCapability;
   });
 }

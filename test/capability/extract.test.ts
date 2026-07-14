@@ -56,4 +56,17 @@ describe('extractCapabilities', () => {
     expect(v!.offlineCapable).toBe(true);
     expect(v!.needsGodot).toBe(false);
   });
+
+  it('populates E. size fields (descBytes/schemaBytes/totalBytes) for each tool', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    expect(caps.length).toBeGreaterThan(0);
+    for (const c of caps) {
+      expect(c.size).toBeDefined();
+      expect(c.size.descBytes).toBe(Buffer.byteLength(c.description, 'utf8'));
+      expect(c.size.schemaBytes).toBe(Buffer.byteLength(JSON.stringify(c.inputSchema), 'utf8'));
+      expect(c.size.totalBytes).toBe(c.size.descBytes + c.size.schemaBytes);
+      expect(c.size.descBytes).toBeGreaterThan(0); // 每个工具有非空描述
+    }
+  });
 });

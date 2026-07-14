@@ -45,6 +45,13 @@ export interface ToolCapability {
     l3: 'passed' | 'failed' | 'unverified';
     lastRun: string | null;
   };
+  // ── E. 体积预算（token budget）──
+  /** tools/list 推送体积度量（UTF-8 字节）。schemaBytes 用 JSON.stringify 紧凑序列化（下界估计）。 */
+  size: {
+    descBytes: number;
+    schemaBytes: number;
+    totalBytes: number;
+  };
 }
 
 /** 按优先级定级：danger-api > guarded > safe（spec §3.1）。 */
