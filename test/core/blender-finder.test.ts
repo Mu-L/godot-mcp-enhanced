@@ -22,17 +22,6 @@ vi.mock('fs', async (importOriginal) => {
 
 import { isBlenderVersionSignature, findBlender, validateBlenderBinary, clearBlenderPathCache } from '../../src/core/blender-finder.js';
 
-vi.mock('child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('child_process')>();
-  return { ...actual, execFile: mockExecFile };
-});
-
-// 仅覆盖 existsSync，保留 fs 其他方法（helpers.ts transitive import mkdirSync/readFileSync）。
-vi.mock('fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('fs')>();
-  return { ...actual, existsSync: mockExistsSync };
-});
-
 beforeEach(() => {
   clearBlenderPathCache();
   delete process.env.GODOT_BLENDER_PATH;
@@ -42,7 +31,7 @@ beforeEach(() => {
 });
 
 // execFile 回调签名（promisify 包装前的原始 callback 形式）。
-type ExecFileCallback = (err: Error | null, result: { stdout: string; stderr: string }) => void;
+type ExecFileCallback = (err: Error | null, result: { stdout: string; stderr: string } | null) => void;
 
 // Helper：让 execFile mock（callback 签名，被 promisify 包装）成功返回 stdout。
 function mockExecFileSuccess(stdout: string): void {
@@ -98,5 +87,9 @@ describe('findBlender', () => {
     mockExistsSync.mockReturnValue(false);
     mockExecFileError();
     await expect(findBlender()).rejects.toThrow('Blender not found');
+  });
+  it('falls back to blender on PATH when GODOT_BLENDER_PATH unset', async () => {
+    mockExecFileSuccess('Blender 4.2.0');
+    expect(await findBlender()).toBe('blender');
   });
 });
