@@ -6,7 +6,7 @@
  * Adding a new tool module requires editing ONLY this file.
  */
 
-import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel } from './tool-registry.js';
+import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel, type ToolModule } from './tool-registry.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 // ─── Tool module imports ─────────────────────────────────────────────────────
@@ -55,11 +55,12 @@ import * as cpp from '../tools/cpp.js';
 import * as dataImport from '../tools/data-import.js';
 import * as getContext from '../tools/get-context.js';
 import * as asset from '../tools/asset/asset-ops.js';
+import * as blender from '../tools/blender.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 /** All tool modules in registration order. */
-const ALL_MODULES = [
+const ALL_MODULES: ToolModule[] = [
   runtime, screenshot, project, scene, script, validation, docs,
   physicsOps, audioOps, tilemapOps, materialOps,
   gameBridge, workflow, animationOps, animationTrack, profilerOps,
@@ -72,6 +73,7 @@ const ALL_MODULES = [
   dataImport,
   getContext,
   asset,
+  blender,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

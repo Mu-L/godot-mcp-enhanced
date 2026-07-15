@@ -1028,6 +1028,90 @@
       }
     },
     {
+      "name": "blender",
+      "group": "blender",
+      "description": "Blender 程序化建模。action=execute_bpy：AI 写 bpy 片段，headless 跑，自动导 glb 到 res://。（⚠️ bpy 是全功能 Python，威胁面=宿主 RCE，高于 execute_gdscript 沙箱一个量级。仅约束 glb 导出落点，不约束 bpy 内部文件操作。本地单用户信任模型。）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Godot 项目目录路径"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "execute_bpy"
+            ],
+            "description": "操作类型"
+          },
+          "export_path": {
+            "type": "string",
+            "description": "相对项目根的 glb 导出路径，可带可选 res:// 前缀（如 assets/models/rock.glb）"
+          },
+          "code": {
+            "type": "string",
+            "description": "bpy 建模片段（无需 import/export，godot-mcp 自动包装）"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "超时秒数（默认 60）",
+            "default": 60
+          }
+        },
+        "required": [
+          "action",
+          "export_path",
+          "code"
+        ]
+      },
+      "requiredParams": [
+        "action",
+        "export_path",
+        "code"
+      ],
+      "optionalParams": [
+        "project_path",
+        "timeout"
+      ],
+      "readonly": false,
+      "longRunning": false,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 0,
+        "write": 0,
+        "destructive": 0,
+        "process": 1
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 310,
+        "schemaBytes": 567,
+        "totalBytes": 877
+      }
+    },
+    {
       "name": "cpp",
       "group": "code",
       "description": "GDExtension (C++) 脚手架生成。scaffold_gdextension: 在 project_path 下生成完整可编译的 godot-cpp GDExtension 工程骨架（src/类.cpp/.h + register_types + SConstruct + .gdextension + .gitignore + README），不联网/不编译，对齐 godot-cpp 官方 example。",

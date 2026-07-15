@@ -8,6 +8,7 @@ import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensure
 import { opsErrorResult, validateTimeout } from './shared.js';
 import { findBlender } from '../core/blender-finder.js';
 import { runBlenderHeadless } from '../core/blender-spawn.js';
+import type { RiskLevel } from '../core/tool-registry.js';
 
 const HEADER = `import bpy, bmesh, mathutils, math, sys
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -19,6 +20,15 @@ const FOOTER = `bpy.ops.export_scene.gltf(filepath=sys.argv[sys.argv.index("--")
 export function buildBlenderScript(code: string): string {
   return `${HEADER}\n# ===== AI 片段 =====\n${code}\n# ===== 自动导出 =====\n${FOOTER}`;
 }
+
+export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
+  blender: {
+    readonly: false,
+    long_running: false,
+    // execute_bpy 启动 blender headless 子进程跑全功能 Python（RCE 面），对齐 execute_gdscript:'process'。
+    actionRisks: { execute_bpy: 'process' } satisfies Record<'execute_bpy', RiskLevel>,
+  },
+};
 
 export function getToolDefinitions(): Tool[] {
   return [{

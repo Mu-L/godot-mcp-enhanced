@@ -187,6 +187,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   // batch → workflow (create_files/run_verify/diff_scenes)
   // game_design → validation (validate_gdd/chain_verify)
   // templates → project (list/apply)
+  blender:     { description: 'Blender 建模', tools: ['blender'], requires: [] },
   multi_instance: { description: '多实例', tools: ['godot_list_instances', 'godot_select_instance'], requires: [] },
   dynamic: { description: '动态工具（Godot 端注册但 MCP 侧未定义）', tools: ['godot_advanced_tool', 'godot_list_dynamic_routes'], requires: [] },
 };

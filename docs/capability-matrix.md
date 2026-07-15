@@ -3,11 +3,11 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：33
-- securityLevel：danger-api 8 / guarded 14 / safe 11
-- risk：read 102 / write 79 / destructive 7 / process 12
-- L2 覆盖：covered 0 / partial 0 / none 33
-- token 预算：tools/list ≈ 69834B / ~17459 tokens（description 8239B / schema 61595B，schema 占 88%）
+- 工具总数：34
+- securityLevel：danger-api 8 / guarded 15 / safe 11
+- risk：read 102 / write 79 / destructive 7 / process 13
+- L2 覆盖：covered 0 / partial 0 / none 34
+- token 预算：tools/list ≈ 70711B / ~17678 tokens（description 8549B / schema 62162B，schema 占 88%）
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
@@ -27,6 +27,7 @@
 - `animtree` (animation)
 - `asset` (unknown)
 - `audio` (audio)
+- `blender` (blender)
 - `cpp` (code)
 - `csv_to_resources` (unknown)
 - `docs` (code)
