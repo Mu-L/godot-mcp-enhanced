@@ -56,6 +56,21 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 
 </details>
 
+## Blender 建模（execute_bpy）安全模型
+
+`execute_bpy` 通过 headless `blender --background` 跑 AI 写的 bpy 片段。**bpy 是全功能 Python，
+无语言层沙箱，威胁面 = 宿主 RCE**（读/删任意文件、执行任意命令、网络）——**高于 `execute_gdscript`
+的 GDScript 沙箱一个量级**（GDScript 语言层有约束，逃逸才到宿主）。
+
+诚实边界：
+1. **glb 导出落点硬约束**：`export_path` 经 `resolveWithinRoot`，仅约束 godot-mcp 注入的 export 行
+   filepath，**不约束 bpy 代码内部的 `open()`/`os.remove()`/`os.system()`**。
+2. **本地单用户信任模型** + 响应附 `[SECURITY]` warning。
+3. 不做 bpy 语法沙箱（正则防不住动态构造 = 假绿），列 backlog。
+
+对比 BlenderMCP：不是"我们防住了它们没防住的"，而是"我们显式声明 fail-model + glb 落点硬约束 +
+本地信任模型，BlenderMCP 既无约束也无声明"。
+
 ## 核心能力
 
 ### 三层架构 — 静态编辑 / 实时调试 / 运行时验证
