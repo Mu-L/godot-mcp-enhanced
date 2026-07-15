@@ -64,7 +64,7 @@ export async function handleTool(
     return opsErrorResult('INVALID_PARAMS', 'export_path must be a non-empty string.');
   if (!code || typeof code !== 'string')
     return opsErrorResult('INVALID_PARAMS', 'code must be a non-empty string.');
-  const timeout = validateTimeout(args.timeout);
+  const timeout = validateTimeout(args.timeout, 5, 120, 60);
 
   // glb 导出落点校验：剥 res://（带/不带前缀都走通 normalizeUserProjectPath）→ 文件系统落点校验。
   // ⚠️ 仅约束 godot-mcp 注入的 export filepath，不约束 bpy 代码内部 open()/os.remove()/os.system()。

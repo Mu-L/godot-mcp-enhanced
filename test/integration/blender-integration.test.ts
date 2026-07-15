@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, statSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, existsSync, statSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 
 function hasBlender(): boolean {
