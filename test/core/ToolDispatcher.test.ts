@@ -518,9 +518,9 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
-  // I-2(security review): opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时 elicitFn null
-  // (不支持 elicitation) 降级走旧 token 路径执行。默认未设=fail-closed(上面 T11 已测拒绝)。
-  it('downgrades to token path when GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true + elicitFn null (I-2)', async () => {
+  // I-2(security review): opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时跳过 elicitation
+  // 走 token 路径执行(不调 elicitFn,机制见 I-2b;此处 elicitFn mock 值无关)。默认未设=fail-closed。
+  it('downgrades to token path when GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true (I-2)', async () => {
     vi.stubEnv('GODOT_MCP_ALLOW_UNSAFE_CONFIRM', 'true');
     const elicitFn = vi.fn().mockResolvedValue(null);
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
@@ -529,6 +529,23 @@ describe('ToolDispatcher.handleCall', () => {
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
     await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
     expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
+    vi.unstubAllEnvs();
+  });
+
+  // I-2b(2026-07-15): env=true 时根本不调 elicitFn(不弹窗),对齐 I-2 注释"跳过 elicitation"语义。
+  // 修复 I-2 原实现盲点:降级检查原在 elicitFn 调用之后,Claude Code 等支持 elicitation 的
+  // client 仍弹窗(elicitation 照弹,仅在 decline 后放行——甚至"用户拒绝却被执行"的悖论)。
+  // 前置检查后 env=true 直接跳过 elicitFn,真正免确认。
+  it('does NOT call elicitFn when GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — no popup (I-2b)', async () => {
+    vi.stubEnv('GODOT_MCP_ALLOW_UNSAFE_CONFIRM', 'true');
+    const elicitFn = vi.fn().mockResolvedValue({ confirm: true });
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'add_node' } });
+    const dispatcher = createDispatcherForHandleCall({ elicitFn });
+    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    expect(elicitFn).not.toHaveBeenCalled();
+    expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'add_node' }, expect.anything());
     vi.unstubAllEnvs();
   });
 

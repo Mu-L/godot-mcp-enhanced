@@ -303,24 +303,26 @@ export class ToolDispatcher {
         // 只验 token 值无法区分 AI 自确认 vs 用户授权(单客户端下 caller/session 绑定无效:AI 产生
         // 与消费 token 同 session)。此处经 MCP elicitInput(server→client→user UI) 请求用户
         // out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。elicitFn 返回 null(client 不支持
-        // elicitation / decline / cancel / throw)或 confirm!==true 一律拒绝 — 强制 out-of-band,
-        // 无降级(审查威胁模型拒绝本地可信,堵 AI 自确认优先于兼容不支持 elicitation 的 client)。
+        // elicitation / decline / cancel / throw)或 confirm!==true 一律拒绝 — 强制 out-of-band。
         // I-1(security review): 消息含 args 预览(>500 字截断),让用户知情确认而非盲批
         // (防 AI 构造恶意 args 如删关键节点/写恶意 class_name — 07-12 RCE 复合链场景)。
-        const argsJson = JSON.stringify(pending.args);
-        const argsPreview = argsJson.length > 500 ? argsJson.slice(0, 500) + '...(截断)' : argsJson;
-        const consent = await this.elicitFn(
-          { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
-          `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
-        );
-        if (!consent || consent.confirm !== true) {
-          // I-2(security review): opt-in 降级 — 不支持 elicitation 的 client(简单 CLI/CI/自动化)
-          // 显式设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时跳过 gate 走旧 token 路径(token 已
-          // consumeToken 验证)。默认 fail-closed(堵 AI 自确认)。降级记 console.warn 审计。
-          // 与仓库 GODOT_MCP_UNRESTRICTED/BRIDGE_PERSISTENT_SECRET/BRIDGE_EXTRA_METHODS 惯例一致。
-          if (process.env.GODOT_MCP_ALLOW_UNSAFE_CONFIRM === 'true') {
-            console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 降级跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
-          } else {
+        //
+        // I-2(security review): opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时根本不调
+        // elicitFn(不弹窗),直接走 token 路径(token 已 consumeToken 验证)。前置检查(2026-07-15):
+        // 原实现降级检查在 elicitFn 调用之后,Claude Code 等支持 elicitation 的 client 仍弹窗,且
+        // decline 后放行致"用户拒绝却被执行"悖论;现前置对齐"跳过 elicitation"语义,真正免确认。
+        // 默认 fail-closed(堵 AI 自确认)。降级记 console.warn 审计。仅可信本地/CI,生产保持默认未设。
+        // 与仓库 GODOT_MCP_UNRESTRICTED/BRIDGE_PERSISTENT_SECRET/BRIDGE_EXTRA_METHODS 惯例一致。
+        if (process.env.GODOT_MCP_ALLOW_UNSAFE_CONFIRM === 'true') {
+          console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
+        } else {
+          const argsJson = JSON.stringify(pending.args);
+          const argsPreview = argsJson.length > 500 ? argsJson.slice(0, 500) + '...(截断)' : argsJson;
+          const consent = await this.elicitFn(
+            { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
+            `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
+          );
+          if (!consent || consent.confirm !== true) {
             return opsErrorResult('ELICITATION_DENIED',
               `执行 "${pending.toolName}" 需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。可信环境可设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 降级。`);
           }
