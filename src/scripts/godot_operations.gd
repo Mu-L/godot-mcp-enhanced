@@ -42,6 +42,40 @@ func _is_safe_value(val: Variant, depth: int = 0) -> bool:
 		return true
 	return false
 
+# ── 资源属性类型识别 helper（Spec A §1）────────────────────────────────────
+# JSON 无法表达 Resource 实例，res:// String 路径 → sanitize + load 成 Resource 再 set；
+# 类型不匹配报错非静默（解决 batch silently fail）。
+# 仅覆盖 TYPE_OBJECT + res://（NodePath / Array 数学类型留 follow-up，不退化现状）。
+func _get_property_type(obj: Object, key: String) -> int:
+	for p in obj.get_property_list():
+		if String(p.get("name", "")) == key:
+			return int(p.get("type", TYPE_NIL))
+	return -1
+
+func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
+	# 双保险：instance 即使漏加 _BLOCKED_PROPERTIES 也拒
+	# I-2: instance 可注入 ExtResource 实例化恶意场景 _ready，与 script 同级危险
+	if key == "instance":
+		log_error("Blocked 'instance' property (I-2 security)")
+		return false
+	var prop_type := _get_property_type(node, key)
+	if prop_type == -1:
+		log_error("Property not found: %s on %s" % [key, node.get_class()])
+		return false
+	var coerced: Variant = value
+	if prop_type == TYPE_OBJECT:
+		if value is String and value.begins_with("res://"):
+			coerced = load(_sanitize_res_path(value))
+			if coerced == null:
+				log_error("Failed to load resource for %s: %s" % [key, value])
+				return false
+		elif value is String:
+			# Resource 属性传非 res:// String → 报错非静默（解决 batch silently fail）
+			log_error("Property %s expects Resource, got plain String '%s' (use res:// path)" % [key, value])
+			return false
+	node.set(key, coerced)
+	return true
+
 func _init():
 	var args = OS.get_cmdline_args()
 	debug_mode = "--debug-godot" in args
