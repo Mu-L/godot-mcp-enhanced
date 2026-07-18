@@ -15,6 +15,14 @@ vi.mock('../src/gdscript-executor.js', () => ({
   })),
 }));
 
+// Task 3: edit_node 迁移 spawnGodot，mock 避免真 spawn
+vi.mock('../src/tools/spawn-helper.js', () => ({
+  spawnGodot: vi.fn(() => Promise.resolve({
+    stdout: "Node 'root/Root/SomeNode' edited successfully",
+    stderr: '', output: '', exitCode: 0, timedOut: false,
+  })),
+}));
+
 import * as scene from '../src/tools/scene.js';
 import { createToolContext, createTempProject, registerCleanup } from './helpers/tool-context.js';
 import { MINIMAL_PROJECT } from './helpers/fixtures.js';

@@ -348,26 +348,29 @@ export async function handleTool(
       const spErr = requireScenePath(args.scene_path); if (spErr) return spErr;
       if (!acquireShortRunningSlot()) return opsErrorResult('CONCURRENCY_LIMIT', 'too many concurrent headless operations (max 3). Please wait and retry.');
       try {
-        const p = requireProjectPath(args); const scenePath = resolveWithinRoot(p, normalizeUserProjectPath(args.scene_path as string)); const nodePath = normalizeNodePath(args.node_path as string);
+        const p = requireProjectPath(args);
+        const scenePath = normalizeUserProjectPath(args.scene_path as string);
+        const nodePath = normalizeNodePath(args.node_path as string);
         const properties = args.properties as Record<string, unknown>;
         if (!properties || typeof properties !== 'object' || Object.keys(properties).length === 0) return opsErrorResult('INVALID_PARAMS', '"properties" must be a non-empty object.');
-        let propLines = '';
-        const blockedKeys: string[] = []; // S1: 收集被拦属性,前置明确警告(避免静默失败)
-        for (const [key, value] of Object.entries(properties)) {
-          if (BLOCKED_PROPS.has(key)) { blockedKeys.push(key); continue; } // C-SEC-06 + S1: 不再静默 continue
-          const gdKey = toSnakeCase(key); if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(gdKey)) return textResult(`Error: Invalid property name: "${key}"`); propLines += `\n\t${gdScriptSetLine(gdKey, value)}`; }
-        const script = `${SCENE_TREE_HEADER}\n${TRY_SET_HELPER}\nfunc _initialize():\n\tif not _mcp_load_scene("${gdEscape(scenePath)}"):\n\t\t_mcp_done()\n\t\treturn\n\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")\n\tif node == null:\n\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")\n\t\t_mcp_done()\n\t\treturn${propLines}\n\t_mcp_output("edited", {"node": "${gdEscape(nodePath)}"})\n\t_mcp_done()\n`;
-        const godot = await ctx.findGodot(); const loadAutoloads = args.load_autoloads !== false;
-        const editResult = parseGdscriptResult(await executeGdscript({ godotPath: godot, projectPath: p, code: script, timeout: 30, loadAutoloads }), [], (msg) => msg.includes('not found') ? 'NODE_NOT_FOUND' : 'SCRIPT_EXEC_FAILED', { suggestion: 'Use query_scene_tree to list available nodes, or inspect_node to check a specific path.' });
-        // S1 (2026-06-23): BLOCKED_PROPS 命中时前置明确警告(避免"设 script 看似成功但未生效"的静默失败)
+        // S1: BLOCKED_PROPS 前置警告（与 add_node/batch 一致，避免静默失败）
+        const blockedKeys: string[] = [];
+        for (const key of Object.keys(properties)) {
+          if (BLOCKED_PROPS.has(key) && !blockedKeys.includes(key)) blockedKeys.push(key);
+        }
+        let godot: string;
+        try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
+        const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', ctx.opsScript, 'edit_node', JSON.stringify({ scene_path: scenePath, node_path: nodePath, properties })]);
+        releaseShortRunningSlot();
+        if (result.timedOut) return errorResult('edit_node timed out after 60s.');
+        if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
+        if (result.exitCode !== 0) return errorResult(`edit_node failed (exit code ${result.exitCode}):\n${result.stdout}`);
+        const out = result.stdout.trim() || `edit_node completed.`;
         if (blockedKeys.length > 0) {
           const hint = blockedKeys.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn with [ext_resource].' : '';
-          const warn = `⚠️ Blocked properties NOT applied (security policy): ${blockedKeys.join(', ')}.${hint}\n`;
-          const firstContent = editResult.content?.[0];
-          const text = firstContent?.type === 'text' ? firstContent.text : '';
-          return { ...editResult, content: [{ type: 'text' as const, text: warn + text }] };
+          return { content: [{ type: 'text' as const, text: `⚠️ Blocked properties NOT applied (security policy): ${blockedKeys.join(', ')}.${hint}\n${out}` }] };
         }
-        return editResult;
+        return { content: [{ type: 'text', text: out }] };
       } finally { releaseShortRunningSlot(); }
     }
 

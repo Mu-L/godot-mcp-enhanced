@@ -15,7 +15,19 @@ vi.mock('../src/gdscript-executor.js', () => ({
   })),
 }));
 
+// Mock spawnGodot — Task 3: edit_node 迁移到 spawnGodot 路径，需 mock 避免真 spawn
+vi.mock('../src/tools/spawn-helper.js', () => ({
+  spawnGodot: vi.fn(() => Promise.resolve({
+    stdout: "Node 'root/Root/MovableNode' edited successfully",
+    stderr: '',
+    output: '',
+    exitCode: 0,
+    timedOut: false,
+  })),
+}));
+
 import { executeGdscript } from '../src/gdscript-executor.js';
+import { spawnGodot } from '../src/tools/spawn-helper.js';
 import * as scene from '../src/tools/scene.js';
 import { createToolContext, createTempProject, registerCleanup } from './helpers/tool-context.js';
 import { MINIMAL_PROJECT } from './helpers/fixtures.js';
@@ -48,6 +60,12 @@ describe('Level B: Scene Operations', () => {
 
   beforeEach(() => {
     vi.mocked(executeGdscript).mockReset();
+    vi.mocked(spawnGodot).mockReset();
+    // Task 3: edit_node 默认成功 mock（个别 case 可覆盖）
+    vi.mocked(spawnGodot).mockResolvedValue({
+      stdout: "Node 'root/Root/MovableNode' edited successfully",
+      stderr: '', output: '', exitCode: 0, timedOut: false,
+    });
     dirRef.path = createTempProject(MINIMAL_PROJECT);
     ctx = createToolContext(dirRef.path);
     ctx.findGodot = async () => 'godot';

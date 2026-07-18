@@ -121,6 +121,8 @@ func _init():
 			create_scene(params)
 		"add_node":
 			add_node(params)
+		"edit_node":
+			edit_node(params)
 		"batch_add_nodes":
 			batch_add_nodes(params)
 		"load_sprite":
@@ -354,6 +356,68 @@ func add_node(params):
 	else:
 		log_error("Failed to pack scene: " + str(result))
 	scene_root.free()
+
+
+func edit_node(params):
+	log_info("Editing node in scene: " + params.scene_path)
+	var full_scene_path = _sanitize_res_path(params.scene_path)
+	var absolute_scene_path = ProjectSettings.globalize_path(full_scene_path)
+	if not FileAccess.file_exists(absolute_scene_path):
+		log_error("Scene file does not exist: " + absolute_scene_path)
+		quit(1)
+		return
+	var scene = load(full_scene_path)
+	if not scene:
+		log_error("Failed to load scene: " + full_scene_path)
+		quit(1)
+		return
+	var scene_root = scene.instantiate()
+	# node_path 规范化：TS 侧 normalizeNodePath 传 "/root/Root/X" 格式，
+	# scene_root 是 instantiate 出来的 PackedScene 根，未挂 SceneTree，绝对路径找不到。
+	# 复用 add_node parent_path 规范化逻辑：剥 "/root/" / "root/" 前缀，转相对路径。
+	var node_path = params.node_path
+	if node_path.begins_with("/root/"):
+		node_path = node_path.substr(6)
+	elif node_path.begins_with("root/"):
+		node_path = node_path.substr(5)
+	elif node_path.begins_with("/"):
+		node_path = node_path.substr(1)
+	var node = scene_root.get_node_or_null(node_path)
+	if node == null:
+		log_error("Node not found: " + params.node_path)
+		cleanup_and_quit([scene_root], 1)
+		return
+	var failed = 0
+	if params.has("properties"):
+		for key in params.properties:
+			if not _is_safe_property(key):
+				log_error("Blocked property: " + key)
+				failed += 1
+				continue
+			if not _set_property_with_coerce(node, key, params.properties[key]):
+				failed += 1
+	# 持久化：复用 add_node pack+save 尾段，不复用 owner 赋值
+	# (add_node new_node.owner=scene_root 是给新节点设归属；edit_node 改已存在节点，
+	#  照搬会把 owner 非本场景的节点如 instance 子节点错误提升、被 pack 进主场景)
+	var packed_scene = PackedScene.new()
+	var result = packed_scene.pack(scene_root)
+	if result == OK:
+		var save_error = ResourceSaver.save(packed_scene, absolute_scene_path)
+		if save_error == OK:
+			print("Node '%s' edited successfully" % params.node_path)
+		else:
+			log_error("Failed to save scene: " + str(save_error))
+			scene_root.free()
+			quit(1)
+			return
+	else:
+		log_error("Failed to pack scene: " + str(result))
+		scene_root.free()
+		quit(1)
+		return
+	scene_root.free()
+	if failed > 0:
+		quit(1)
 
 
 func batch_add_nodes(params):
