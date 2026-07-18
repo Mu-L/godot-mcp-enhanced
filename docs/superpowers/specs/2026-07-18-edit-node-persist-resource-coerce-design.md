@@ -21,7 +21,8 @@
 **不含**：
 - `src/tools/scene/scene-instance.ts` 的 `_try_set` 迁移（:67/152 仍用 `gdScriptSetLine`，记 follow-up defect，避免 scope 蔓延）。
 - `gdScriptSetLine` 不删（scene-instance.ts 两处仍用）。
-- edit_node `save` 参数（YAGNI，本 spec 直接自动落盘；若后续需"仅内存"再加）。
+- edit_node `save` 参数（YAGNI，本 spec 直接自动落盘；若后续需“仅内存”再加）。
+- helper 仅覆盖资源识别（TYPE_OBJECT + res:// String → load）；NodePath 等其他类型转换留 follow-up，避免实现者以为全覆盖。
 
 **②超时分桶（审查 ADVISORY）**：edit_node 资源属性"30s 超时"根因未举证——Godot 把 String 赋给 Resource 通常静默/push_error，不必然 30s 超时；30s timeout（`index.ts:361`）更可能被 autoload 加载或 scene instantiate 慢操作触发。Task 0 先分桶定位（超时 vs 静默失败），若超时另因单独追，不混入资源识别。
 
@@ -58,7 +59,7 @@ func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
 
 ### 2. edit_node 迁移到 godot_operations.gd（持久化）
 
-新增 `edit_node(params)`：`_sanitize_res_path` → `load` scene → instantiate → `find_node`（get_node_or_null）→ 循环 `_set_property_with_coerce` → **复用 add_node :308-322 模式**（owner=scene_root + PackedScene.pack + ResourceSaver.save + free）。
+新增 `edit_node(params)`：`_sanitize_res_path` → `load` scene → instantiate → `find_node`（get_node_or_null）→ 循环 `_set_property_with_coerce` → **复用 add_node pack+save 尾段（:311-322 `PackedScene.pack` + `ResourceSaver.save` + free），不复用 owner 赋值**（add_node :309 `new_node.owner = scene_root` 是给**新节点**设归属；edit_node 改的是**已存在节点**，照搬会把 owner 非本场景的节点——如 instance 进来的子节点——错误提升、被 pack 进主场景）。
 
 `src/tools/scene/index.ts:347-372` edit_node case 从 `executeGdscript` 改 `spawnGodot` 调 `ctx.opsScript` 的 edit_node（对齐 batch_add_nodes :316-345 调用模式）。
 
@@ -119,6 +120,7 @@ edit_node 从"不落盘（只改内存）"变"自动落盘"。但"不落盘"是 
 5. editor 模式 edit_node 不再走 headless spawn（editor-method-map 拦截走 command_handler，不版本撕裂）。
 6. `load(value)` 前必有 `_sanitize_res_path`，`../` 被拒（单测）。
 7. add_node / batch_add_nodes 资源属性同样正确 load（非字面字符串）。
+8. edit_node 对 instance 子节点改属性不改变 owner（owner 保持原值，不错误提升进主场景）。
 
 ## 测试
 
