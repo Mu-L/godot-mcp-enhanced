@@ -338,8 +338,9 @@ func add_node(params):
 	if params.has("properties"):
 		var properties = params.properties
 		for property in properties:
-			if _is_safe_property(property) and _is_safe_value(properties[property]):
-				new_node.set(property, properties[property])
+			if _is_safe_property(property):
+				if not _set_property_with_coerce(new_node, property, properties[property]):
+					log_error("Failed to set property %s on new node" % property)
 
 	parent.add_child(new_node)
 	new_node.owner = scene_root
@@ -473,8 +474,9 @@ func batch_add_nodes(params):
 		if node_def.has("properties"):
 			var properties = node_def.properties
 			for property in properties:
-				if _is_safe_property(property) and _is_safe_value(properties[property]):
-					new_node.set(property, properties[property])
+				if _is_safe_property(property):
+					if not _set_property_with_coerce(new_node, property, properties[property]):
+						log_error("Failed to set property %s on %s" % [property, node_def.node_name])
 
 		parent.add_child(new_node)
 		new_node.owner = scene_root
