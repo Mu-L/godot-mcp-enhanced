@@ -61,9 +61,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   GodotServer 接线 handleEditorStall 降级),合计 56。
 //   +1(2026-07-13 审查·addons 第三轮 P0): asset-path-align-vertices-infinite-loop(path_generator
 //   _sample_continuous align_vertices 独立 if 分支缺 spacing<=0 守卫,spacing=0+count>=1 死循环),合计 57。
-    expect(FIXED_DEFECTS.length).toBe(57);
+//   +3(2026-07-19 SDD scene coerce 闭环): resource-prop-coerce-helper(_set_property_with_coerce helper
+//   + edit_node/add_node/batch 三处调用)/ instance-property-blocked-gd(BLOCKED_PROPERTIES 列 "instance"
+//   双保险)/ batch-failed-quit-nonzero(batch 部分失败 quit(1) 非静默),合计 60。
+    expect(FIXED_DEFECTS.length).toBe(60);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(57);
+    expect(new Set(keys).size, '存在重名 key').toBe(60);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

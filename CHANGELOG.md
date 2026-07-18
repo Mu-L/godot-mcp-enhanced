@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### BREAKING — scene 工具行为对齐（spec A 闭环）
+
+- `scene edit_node` 现在自动落盘到 .tscn（之前仅改内存，需配合持久化操作）。迁移：直接调 edit_node 即落盘，无需再调 save_scene
+- `scene edit_node` / `batch_add_nodes` 资源属性（texture/font/audio_stream 等 `res://` 路径）现正确 load 成 Resource（之前字面赋值字符串致属性错）
+- `scene edit_node` 传 `instance` 属性现被 block（I-2 安全：防注入 ExtResource 实例化恶意场景）
+- `scene batch_add_nodes` 部分节点失败现返错误（之前 exit 0 静默）
+
 ## [0.23.0] - 2026-07-13
 
 ### Fixed — Security（CRITICAL，多轮独立审查核实）

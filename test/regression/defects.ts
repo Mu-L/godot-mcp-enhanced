@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 57 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1）。
+// FIXED_DEFECTS 60 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 8 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -607,6 +607,36 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => {
       const f = readSrc('src/core/health-monitor.ts');
       return /stateChangeListener\?\.\(/.test(f) ? 0 : 1;
+    } },
+  // ─── 2026-07-19 SDD scene 资源属性 coerce + instance 安全 + batch 非静默（3 条联动）──────────────────
+  // spec A: edit_node/add_node/batch_add_nodes 资源属性(texture/font/audio_stream 等 res:// 路径)原字面赋值
+  // 字符串致属性错(Texture2D 属性收到 "res://foo.png" 字符串 silent no-op)。fix: 抽 _set_property_with_coerce
+  // helper(TYPE_OBJECT + String + begins_with res:// → load 为 Resource;非 res:// String 报错非静默)。
+  // 三处调用齐备(edit_node + add_node + batch_add_nodes)。detect: 定义存在 + 三处 "if not _set_property_with_coerce(" 调用齐备。
+  { key: 'resource-prop-coerce-helper', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('src/scripts/godot_operations.gd');
+      const hasDef = /func _set_property_with_coerce\(node: Node, key: String, value: Variant\) -> bool:/.test(f);
+      const calls = (f.match(/if not _set_property_with_coerce\(/g) ?? []).length;
+      return hasDef && calls >= 3 ? 0 : 1;
+    } },
+  // spec I-2: instance 属性可注入 ExtResource 实例化恶意场景 _ready,与 script 同级危险(双保险:
+  // _set_property_with_coerce 内 key=="instance" 早退 + BLOCKED_PROPERTIES 数组列 "instance" 让
+  // _is_safe_property 也拒)。detect: BLOCKED_PROPERTIES 数组定义段含 "instance" 字面量(移除即复发)。
+  { key: 'instance-property-blocked-gd', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/scripts/godot_operations.gd');
+      const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
+      return m && /"instance"/.test(m[0]) ? 0 : 1;
+    } },
+  // spec §5: batch_add_nodes 部分节点失败原 exit 0 静默(TS 捕不到错误谎报成功)。
+  // fix: failed_count > 0 分支 quit(1)(scene_root.free + quit 1 + return),TS scene/index.ts:329 exitCode!=0 才抓得到。
+  // detect: batch_add_nodes 函数体内 "if failed_count > 0" 后 300 字符内含 quit(1)(删 quit 或改回 0 即复发)。
+  { key: 'batch-failed-quit-nonzero', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('src/scripts/godot_operations.gd');
+      const fnBody = f.slice(f.indexOf('func batch_add_nodes'), f.indexOf('func load_sprite'));
+      return /if failed_count > 0:[\s\S]{0,300}?quit\(1\)/.test(fnBody) ? 0 : 1;
     } },
 ];
 
