@@ -493,6 +493,10 @@ func batch_add_nodes(params):
 				log_error("Failed to add %d nodes" % failed_count)
 				for node_def in nodes:
 					log_debug("  - node: %s (%s) parent: %s" % [node_def.get("node_name", "?"), node_def.get("node_type", "?"), node_def.get("parent_node_path", "root")])
+				# 修真静默：failed_count>0 时 quit(1)，TS scene/index.ts:329 exitCode!=0 才抓得到
+				scene_root.free()
+				quit(1)
+				return
 		else:
 			log_error("Failed to save scene: " + str(save_error))
 	else:
