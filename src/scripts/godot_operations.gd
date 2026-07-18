@@ -634,6 +634,7 @@ const BLOCKED_PROPERTIES := [
 	"process_unhandled_input", "process_unhandled_key_input", "process_internal",
 	"physics_process_mode", "physics_interpolation_mode", "name", "meta",
 	"input_event", "ready", "tree_entered", "tree_exited", "tree_exiting",
+	"instance",  # I-2: instance 可注入 ExtResource 实例化恶意场景 _ready，与 script 同级危险
 ]
 
 func _is_safe_property(prop_name: String) -> bool:
