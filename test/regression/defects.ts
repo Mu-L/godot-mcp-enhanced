@@ -629,6 +629,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
       return m && /"instance"/.test(m[0]) ? 0 : 1;
     } },
+  // spec editor-version-tear §1: editor 侧 coerce_property_value 统一 helper（只 coerce 不 set，
+  // 与 headless _set_property_with_coerce 刻意不对称——editor 要 per-property undo）。
+  // detect: command_helpers.gd 含 coerce_property_value 定义 + instance 双保险分支。
+  { key: 'editor-coerce-property-value', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/command_helpers.gd');
+      const hasDef = /static func coerce_property_value\(obj: Object, prop: String, val: Variant\) -> Dictionary:/.test(f);
+      const hasInstanceGuard = /prop in BLOCKED_PROPERTIES or prop == "instance"/.test(f);
+      return hasDef && hasInstanceGuard ? 0 : 1;
+    } },
   // spec §5: batch_add_nodes 部分节点失败原 exit 0 静默(TS 捕不到错误谎报成功)。
   // fix: failed_count > 0 分支 quit(1)(scene_root.free + quit 1 + return),TS scene/index.ts:329 exitCode!=0 才抓得到。
   // detect: batch_add_nodes 函数体内 "if failed_count > 0" 后 300 字符内含 quit(1)(删 quit 或改回 0 即复发)。

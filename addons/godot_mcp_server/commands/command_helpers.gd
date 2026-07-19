@@ -169,6 +169,52 @@ static func coerce_value_for_property(obj: Object, prop_name: String, val: Varia
 	return val
 
 
+## editor 侧 BLOCKED_PROPERTIES —— 对齐 headless godot_operations.gd BLOCKED_PROPERTIES + TS BLOCKED_PROPS。
+## instance 额外在 coerce_property_value 内双保险拒绝（I-2: 可注入 ExtResource 实例化恶意场景 _ready）。
+const BLOCKED_PROPERTIES := [
+	"script", "owner", "process_mode", "process_priority", "process_input",
+	"process_unhandled_input", "process_unhandled_key_input", "process_internal",
+	"physics_process_mode", "physics_interpolation_mode", "name", "meta",
+	"input_event", "ready", "tree_entered", "tree_exited", "tree_exiting",
+	"instance",  # I-2: instance 可注入 ExtResource 实例化恶意场景 _ready，与 script 同级危险
+]
+
+
+## 统一 property coerce（editor 侧）。关键不对称：只 coerce 不 set（返 {"ok","value","error"}），
+## set 由 handler 经 undo 系统 do_op 执行——editor 要 per-property undo（do=set new / undo=set old），
+## helper 内置 set 会与 do_op 重复执行。与 headless _set_property_with_coerce（godot_operations.gd，
+## 内置 set 因 headless 无 per-property undo、走整场景 pack+save）刻意不对称。靠 defects.ts 双向 detect 防漂移。
+static func coerce_property_value(obj: Object, prop: String, val: Variant) -> Dictionary:
+	# 1. BLOCKED 过滤 + instance 双保险（即使漏加 BLOCKED_PROPERTIES 也拒）
+	if prop in BLOCKED_PROPERTIES or prop == "instance":
+		return {"ok": false, "value": null, "error": "Blocked property: %s" % prop}
+	# 2. 属性存在性 + 取声明类型
+	var prop_type := -1
+	for p in obj.get_property_list():
+		if String(p.get("name", "")) == prop:
+			prop_type = int(p.get("type", TYPE_NIL))
+			break
+	if prop_type == -1:
+		return {"ok": false, "value": null, "error": "Property not found: %s on %s" % [prop, obj.get_class()]}
+	# 3. 类型分支（严格对齐 headless _set_property_with_coerce 语义，消除 editor/headless 撕裂）
+	var coerced: Variant = val
+	if prop_type == TYPE_OBJECT:
+		if val is String and val.begins_with("res://"):
+			if has_path_traversal(val):
+				return {"ok": false, "value": null, "error": "Path traversal blocked: %s" % val}
+			coerced = load(val)
+			if coerced == null:
+				return {"ok": false, "value": null, "error": "Failed to load resource: %s" % val}
+		elif val is String:
+			# Resource 属性传非 res:// String → 非静默拒绝（对齐 headless，修 batch silently fail 同根因）
+			return {"ok": false, "value": null, "error": "Property %s expects Resource, got plain String '%s' (use res:// path)" % [prop, val]}
+		# val 非 String → 透传（JSON 无法表达 Resource 实例，交 Godot set 处理，与 headless 一致）
+	else:
+		# 非 TYPE_OBJECT：Array 走数学类型 coerce（Vector2/3/Color...），非 Array 透传
+		coerced = coerce_value_for_property(obj, prop, val)
+	return {"ok": true, "value": coerced, "error": ""}
+
+
 ## Count comma-separated numeric components, ignoring surrounding brackets/parens/whitespace.
 ## Returns -1 if any component is not a number. Safe replacement for str_to_var (C-02).
 static func _count_number_components(val: String) -> int:

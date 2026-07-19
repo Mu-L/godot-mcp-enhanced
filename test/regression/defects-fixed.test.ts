@@ -64,9 +64,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +3(2026-07-19 SDD scene coerce 闭环): resource-prop-coerce-helper(_set_property_with_coerce helper
 //   + edit_node/add_node/batch 三处调用)/ instance-property-blocked-gd(BLOCKED_PROPERTIES 列 "instance"
 //   双保险)/ batch-failed-quit-nonzero(batch 部分失败 quit(1) 非静默),合计 60。
-    expect(FIXED_DEFECTS.length).toBe(60);
+//   +1(2026-07-19 SDD editor-version-tear §1): editor-coerce-property-value(command_helpers.gd 统一
+//   coerce_property_value helper,只 coerce 不 set,与 headless _set_property_with_coerce 不对称),合计 61。
+    expect(FIXED_DEFECTS.length).toBe(61);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(60);
+    expect(new Set(keys).size, '存在重名 key').toBe(61);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
