@@ -657,6 +657,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const fnBody = f.slice(f.indexOf('func batch_add_nodes'), f.indexOf('func load_sprite'));
       return /if failed_count > 0:[\s\S]{0,300}?quit\(1\)/.test(fnBody) ? 0 : 1;
     } },
+  // spec editor-version-tear §3: editor handle_batch_add_nodes（预校验零内存改 + 批量 UndoRedo）。
+  // detect: node_commands.gd 含 handle_batch_add_nodes 定义 + 白名单 ^[A-Za-z0-9_]+$（非 index.ts 黑名单）。
+  { key: 'editor-handle-batch-add-nodes', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/node_commands.gd');
+      const hasDef = /func handle_batch_add_nodes\(params: Dictionary, request_id: int\) -> Dictionary:/.test(f);
+      const hasWhitelist = /func handle_batch_add_nodes[\s\S]{0,800}\^\[A-Za-z0-9_\]\+\$/.test(f);
+      return hasDef && hasWhitelist ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -683,6 +692,17 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // detect 查 L023/L024 测试（不存在的编号），baseline=1 保留防恶化（detect=1=baseline 过，OPEN 搁置）。
     baseline: 1,
     detect: () => fileContains('test/gdscript-lint.test.js', /L023|L024/) ? 0 : 1 },
+  // spec editor-version-tear 验收 10 follow-up: editor batch handler 名字校验白名单 ^[A-Za-z0-9_]+$
+  // （对齐 handle_add_node:41）vs index.ts:323 headless 前置黑名单（"node_name contains invalid
+  // characters" 错误路径）严格度不一致。本 spec 不统一（editor handler 内部已统一白名单，不引入新不一致）。
+  // baseline=1 防恶化：黑名单错误路径仍在=detect=1=baseline 过；未来统一应人工转 fixed。
+  { key: 'editor-batch-name-whitelist-headless-blacklist-mismatch', status: 'open', severity: 'ADVISORY',
+    dimension: 'Maintainability', baseline: 1,
+    detect: () => {
+      const f = readSrc('src/tools/scene/index.ts');
+      const batchBody = f.slice(f.indexOf("case 'batch_add_nodes'"), f.indexOf("case 'edit_node'"));
+      return batchBody.includes("node_name contains invalid characters") ? 1 : 0;
+    } },
   // 2026-06-28 lint-missing-4-7-accessibility-breaking 修复（L025 规则补 GH-116839 accessibility 迁移）detect=0 移 FIXED。
 
   // ═══════════════════════════════════════════════════════════════════════════════

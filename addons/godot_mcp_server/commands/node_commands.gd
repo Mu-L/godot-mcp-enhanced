@@ -179,6 +179,74 @@ func handle_edit_node(params: Dictionary, request_id: int) -> Dictionary:
 	return {"result": {"node_path": str(node.get_path()), "updated": do_ops.size(), "failed": failed}}
 
 
+# editor 内存批量加节点（UndoRedo，do=add_child+set_owner+set properties / undo=remove_child 各节点）。
+# 预校验全部 node → 任一失败返结构化错误，editor 内存零改。
+# editor-method-map 登记后 editor 连接时 scene 工具 batch_add_nodes 路由到此处。
+# 名字校验统一白名单 ^[A-Za-z0-9_]+$（对齐 handle_add_node:41，非 index.ts:323 黑名单）。
+func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
+	var ei := _get_ei()
+	if ei == null:
+		return {"error": {"code": -32000, "message": "EditorInterface not available"}}
+	var root = ei.get_edited_scene_root()
+	if not root:
+		return {"error": {"code": -32003, "message": "No scene loaded"}}
+	var nodes: Array = params.get("nodes", [])
+	if nodes.is_empty():
+		return {"error": {"code": -32004, "message": "nodes must be a non-empty array"}}
+	if nodes.size() > 100:
+		return {"error": {"code": -32004, "message": "Too many nodes (%d). Maximum: 100" % nodes.size()}}
+
+	var _name_re := RegEx.create_from_string("^[A-Za-z0-9_]+$")
+	# 预校验全部 node（零内存改）
+	var validated: Array = []
+	for i in range(nodes.size()):
+		var n: Dictionary = nodes[i]
+		var node_type: String = String(n.get("node_type", "Node"))
+		var node_name: String = String(n.get("node_name", "NewNode"))
+		var parent_path: String = String(n.get("parent_node_path", ""))
+		if node_name.is_empty() or not _name_re.search(node_name):
+			return {"error": {"code": -32004, "message": "nodes[%d].node_name invalid: %s" % [i, node_name]}}
+		if not _is_allowed_node_type(node_type):
+			return {"error": {"code": -32004, "message": "nodes[%d].node_type blocked: %s" % [i, node_type]}}
+		if CommandHelpers.has_path_traversal(parent_path):
+			return {"error": {"code": -32002, "message": "nodes[%d].parent traversal: %s" % [i, parent_path]}}
+		var parent_node: Node = root if parent_path.is_empty() else CommandHelpers.find_node(root, parent_path)
+		if not parent_node:
+			return {"error": {"code": -32002, "message": "nodes[%d].parent not found: %s" % [i, parent_path]}}
+		var cls = ClassDB.instantiate(node_type)
+		if not cls:
+			return {"error": {"code": -32000, "message": "nodes[%d].cannot instantiate: %s" % [i, node_type]}}
+		cls.name = node_name
+		validated.append({"cls": cls, "parent": parent_node, "name": node_name, "properties": n.get("properties", {})})
+
+	# 全过 → 批量 create_action_mixed
+	var do_ops: Array = []
+	var undo_ops: Array = []
+	var failed: Array = []
+	for v in validated:
+		var cls: Node = v["cls"]
+		var parent_node: Node = v["parent"]
+		var props: Dictionary = v["properties"]
+		do_ops.append({"type": "method", "target": parent_node, "method": "add_child", "args": [cls]})
+		do_ops.append({"type": "method", "target": cls, "method": "set_owner", "args": [root]})
+		for key in props:
+			var r := CommandHelpers.coerce_property_value(cls, String(key), props[key])
+			if not r["ok"]:
+				failed.append({"node": String(v["name"]), "key": String(key), "error": String(r["error"])})
+				continue
+			do_ops.append({"type": "method", "target": cls, "method": "set", "args": [String(key), r["value"]]})
+		do_ops.append({"type": "reference", "value": cls})
+		undo_ops.append({"type": "method", "target": parent_node, "method": "remove_child", "args": [cls]})
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Batch Add %d Nodes (req:%d)" % [validated.size(), request_id], do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			if String(op.get("type", "method")) == "method":
+				op["target"].callv(op["method"], op["args"])
+	return {"result": {"added": validated.size(), "failed": failed}}
+
+
 func _is_allowed_node_type(node_type: String) -> bool:
 	# I-4: 严格白名单——仅允许 ALLOWED_NODE_TYPES 精确匹配,不再用 is_parent_class 兜底。
 	# 原兜底放行任意 Node 子类(含第三方 addon 的 class_name 脚本),实例化时触发其 _ready()/_init()

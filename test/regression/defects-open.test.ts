@@ -42,9 +42,11 @@ describe('DEFECT open 防恶化（基线阈值 detect() <= baseline）', () => {
     // 沿用：4 条（原 fixed 实测真未修 Task 2 闭环）+ 14 条（Task 3 追加）− 8（本次移 fixed）。
     // 注：2 条（module-level-mutable-state / regex-danger-api-bypassable）降 ADVISORY 但仍 OPEN
     //   （detect/baseline 不变,承认合理设计/已认知防御层,保留 baseline 防恶化）。
-    expect(OPEN_DEFECTS.length).toBe(8);
+    // +1(2026-07-19 SDD editor-version-tear §3 验收10 follow-up): editor-batch-name-whitelist-
+    //   headless-blacklist-mismatch(editor 白 vs headless 黑严格度不一致,baseline=1 防恶化),合计 9。
+    expect(OPEN_DEFECTS.length).toBe(9);
     const keys = OPEN_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(8);
+    expect(new Set(keys).size, '存在重名 key').toBe(9);
     // 全部 status=open 且 baseline 已锁定（防恶化门必须）
     for (const d of OPEN_DEFECTS) {
       expect(d.status, `${d.key} status 应为 open`).toBe('open');
