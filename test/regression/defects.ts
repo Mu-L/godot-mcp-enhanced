@@ -639,6 +639,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasInstanceGuard = /prop in BLOCKED_PROPERTIES or prop == "instance"/.test(f);
       return hasDef && hasInstanceGuard ? 0 : 1;
     } },
+  // spec editor-version-tear §2: editor handle_edit_node（per-property undo，do=set new / undo=set old）。
+  // detect: node_commands.gd 含 handle_edit_node 定义 + create_action_mixed 调用。
+  { key: 'editor-handle-edit-node', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/node_commands.gd');
+      const hasDef = /func handle_edit_node\(params: Dictionary, request_id: int\) -> Dictionary:/.test(f);
+      const hasUndo = /_undo_manager\.create_action_mixed\([\s\S]*?method": "set"/.test(f);
+      return hasDef && hasUndo ? 0 : 1;
+    } },
   // spec §5: batch_add_nodes 部分节点失败原 exit 0 静默(TS 捕不到错误谎报成功)。
   // fix: failed_count > 0 分支 quit(1)(scene_root.free + quit 1 + return),TS scene/index.ts:329 exitCode!=0 才抓得到。
   // detect: batch_add_nodes 函数体内 "if failed_count > 0" 后 300 字符内含 quit(1)(删 quit 或改回 0 即复发)。

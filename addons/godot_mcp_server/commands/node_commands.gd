@@ -129,6 +129,56 @@ func handle_remove_node(params: Dictionary, request_id: int) -> Dictionary:
 	return {"result": {"node_path": removed_path, "name": node_name, "status": "removed"}}
 
 
+# editor 内存改节点属性（UndoRedo per-property undo：do=set new / undo=set old）。
+# editor-method-map 登记 edit_node 后，editor 连接时 scene 工具 edit_node 路由到此处（不再 spawnGodot 改盘）。
+# properties coerce 失败累计进返回值（非阻塞，对齐 headless edit_node）。节点找不到返 -32002。
+# old_val 预读：node.get(key)；只读 property 预读 null 时 undo 会 set(key,null)——务实接受（name/class 等
+# 只读多在 BLOCKED_PROPERTIES 已拒），未来加 PROPERTY_USAGE_READ_ONLY 检查记 follow-up。
+func handle_edit_node(params: Dictionary, request_id: int) -> Dictionary:
+	var ei := _get_ei()
+	if ei == null:
+		return {"error": {"code": -32000, "message": "EditorInterface not available"}}
+	var root = ei.get_edited_scene_root()
+	if not root:
+		return {"error": {"code": -32003, "message": "No scene loaded"}}
+	var node_path: String = params.get("node_path", "")
+	if node_path.is_empty():
+		return {"error": {"code": -32004, "message": "node_path is required"}}
+	if CommandHelpers.has_path_traversal(node_path):
+		return {"error": {"code": -32002, "message": "Invalid node path (traversal): %s" % node_path}}
+	var node: Node = CommandHelpers.find_node(root, node_path)
+	if not node:
+		return {"error": {"code": -32002, "message": "Node not found: %s" % node_path}}
+	var properties: Dictionary = params.get("properties", {})
+	if properties.is_empty():
+		return {"error": {"code": -32004, "message": "properties is required (non-empty)"}}
+
+	var do_ops: Array = []
+	var undo_ops: Array = []
+	var failed: Array = []
+	for key in properties:
+		var r := CommandHelpers.coerce_property_value(node, String(key), properties[key])
+		if not r["ok"]:
+			failed.append({"key": String(key), "error": String(r["error"])})
+			continue
+		var coerced: Variant = r["value"]
+		var old_val: Variant = node.get(String(key))
+		# op 显式 type:"method"（对齐 handle_add_node:66），method:"set" 经 undo_manager.gd:55 callv spread
+		do_ops.append({"type": "method", "target": node, "method": "set", "args": [String(key), coerced]})
+		undo_ops.append({"type": "method", "target": node, "method": "set", "args": [String(key), old_val]})
+
+	if do_ops.is_empty():
+		# 全 property coerce 失败：不注册 undo，返失败列表
+		return {"result": {"node_path": str(node.get_path()), "updated": 0, "failed": failed}}
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Edit Node %s (req:%d)" % [str(node.get_path()), request_id], do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			op["target"].set(op["args"][0], op["args"][1])
+	return {"result": {"node_path": str(node.get_path()), "updated": do_ops.size(), "failed": failed}}
+
+
 func _is_allowed_node_type(node_type: String) -> bool:
 	# I-4: 严格白名单——仅允许 ALLOWED_NODE_TYPES 精确匹配,不再用 is_parent_class 兜底。
 	# 原兜底放行任意 Node 子类(含第三方 addon 的 class_name 脚本),实例化时触发其 _ready()/_init()
