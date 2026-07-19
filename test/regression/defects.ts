@@ -666,6 +666,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasWhitelist = /func handle_batch_add_nodes[\s\S]{0,800}\^\[A-Za-z0-9_\]\+\$/.test(f);
       return hasDef && hasWhitelist ? 0 : 1;
     } },
+  // spec editor-version-tear §4: editor handle_add_node 补 properties（原 :36-38 只取 3 字段，properties 被丢弃）。
+  // detect: handle_add_node 函数体含 coerce_property_value 调用 + prop_do_ops。
+  { key: 'editor-add-node-properties', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/node_commands.gd');
+      const fnBody = f.slice(f.indexOf('func handle_add_node'), f.indexOf('func handle_remove_node'));
+      return /CommandHelpers\.coerce_property_value/.test(fnBody) && /prop_do_ops/.test(fnBody) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

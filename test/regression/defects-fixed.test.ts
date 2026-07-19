@@ -70,9 +70,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   per-property undo do=set new / undo=set old,经 create_action_mixed callv spread),合计 62。
 //   +1(2026-07-19 SDD editor-version-tear §3): editor-handle-batch-add-nodes(node_commands.gd 加
 //   handle_batch_add_nodes,预校验零内存改+批量 UndoRedo do=add_child+set_owner+set/undo=remove_child),合计 63。
-    expect(FIXED_DEFECTS.length).toBe(63);
+//   +1(2026-07-19 SDD editor-version-tear §4): editor-add-node-properties(node_commands.gd 现有
+//   handle_add_node 补 properties,coerce_property_value 经 helper 生成 prop_do_ops,原只取 3 字段 properties 丢弃),合计 64。
+    expect(FIXED_DEFECTS.length).toBe(64);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(63);
+    expect(new Set(keys).size, '存在重名 key').toBe(64);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

@@ -60,21 +60,32 @@ func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": -32000, "message": "Cannot instantiate: %s" % node_type}}
 	cls.name = node_name
 
+	# properties coerce → prop_do_ops（undo 不需逐 property：remove_child 整节点 properties 随之消失）
+	var properties: Dictionary = params.get("properties", {})
+	var failed: Array = []
+	var prop_do_ops: Array = []
+	for key in properties:
+		var r := CommandHelpers.coerce_property_value(cls, String(key), properties[key])
+		if not r["ok"]:
+			failed.append({"key": String(key), "error": String(r["error"])})
+			continue
+		prop_do_ops.append({"type": "method", "target": cls, "method": "set", "args": [String(key), r["value"]]})
+
 	if _undo_manager != null:
-		_undo_manager.create_action_mixed("Add Node %s (req:%d)" % [node_name, request_id],
-			[
-				{"type": "method", "target": parent_node, "method": "add_child", "args": [cls]},
-				{"type": "method", "target": cls, "method": "set_owner", "args": [root]},
-				{"type": "reference", "value": cls}
-			],
-			[
-				{"type": "method", "target": parent_node, "method": "remove_child", "args": [cls]}
-			]
-		)
+		var do_ops: Array = [
+			{"type": "method", "target": parent_node, "method": "add_child", "args": [cls]},
+			{"type": "method", "target": cls, "method": "set_owner", "args": [root]},
+		]
+		do_ops.append_array(prop_do_ops)
+		do_ops.append({"type": "reference", "value": cls})
+		_undo_manager.create_action_mixed("Add Node %s (req:%d)" % [node_name, request_id], do_ops,
+			[{"type": "method", "target": parent_node, "method": "remove_child", "args": [cls]}])
 	else:
 		parent_node.add_child(cls)
 		cls.owner = root
-	return {"result": {"node_path": str(cls.get_path()), "status": "created"}}
+		for op in prop_do_ops:
+			op["target"].set(op["args"][0], op["args"][1])
+	return {"result": {"node_path": str(cls.get_path()), "status": "created", "failed": failed}}
 
 
 # editor 内存删除节点（UndoRedo，do=remove_child / undo=add_child+set_owner+reference）。
