@@ -72,6 +72,8 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   // node_commands（core 组：节点操作）
   add_node: 'commands/node_commands.gd',
   remove_node: 'commands/node_commands.gd',
+  edit_node: 'commands/node_commands.gd',
+  batch_add_nodes: 'commands/node_commands.gd',
   // test_commands（core/validation 组）
   test_assert: 'commands/test_commands.gd',
   // export_commands
