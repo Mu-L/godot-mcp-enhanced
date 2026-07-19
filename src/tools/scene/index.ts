@@ -321,6 +321,15 @@ export async function handleTool(
       if (!nodes || !Array.isArray(nodes) || nodes.length === 0) { releaseShortRunningSlot(); return opsErrorResult('INVALID_PARAMS', '"nodes" must be a non-empty array of node definitions.'); }
       if (nodes.length > 100) { releaseShortRunningSlot(); return textResult(`Error: Too many nodes (${nodes.length}). Maximum: 100`); }
       for (let i = 0; i < nodes.length; i++) { const n = nodes[i]!; if (!n.node_type || !/^[A-Za-z0-9_]+$/.test(String(n.node_type))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_type contains invalid characters: "${n.node_type}"`); } if (!n.node_name || /[\]["/:\\]/.test(String(n.node_name))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_name contains invalid characters: "${n.node_name}"`); } }
+      // P1-2 (2026-07-19 spec editor-version-tear §6): editor 场景写守卫——batch_add_nodes fallback headless
+      // 路径(若该场景在 editor 打开, headless 改盘会被 editor GUI save 覆盖回旧版)。此 case 无 try/finally,
+      // 守卫 return 前手动 releaseShortRunningSlot(否则 slot 泄漏)。acquire 已在 :317 完成。
+      const absPath = resolveWithinRoot(p, scenePath);
+      if (!existsSync(absPath)) { releaseShortRunningSlot(); return opsErrorResult('FILE_NOT_FOUND', `Scene file not found: ${scenePath}`); }
+      if (ctx.checkEditorSceneSave) {
+        const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+        if (sceneGuard.blocked) { releaseShortRunningSlot(); return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`); }
+      }
       let godot: string; try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
       const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', ctx.opsScript, 'batch_add_nodes', JSON.stringify({ scene_path: scenePath, nodes })]);
       releaseShortRunningSlot();
@@ -350,6 +359,15 @@ export async function handleTool(
       try {
         const p = requireProjectPath(args);
         const scenePath = normalizeUserProjectPath(args.scene_path as string);
+        // P1-2 (2026-07-19 spec editor-version-tear §6): editor 场景写守卫——edit_node fallback headless
+        // 路径(若该场景在 editor 打开, headless 改盘会被 editor GUI save 覆盖回旧版)。守卫在 try 块内,
+        // return 依赖 finally 的 releaseShortRunningSlot,此处不手动 release(否则 double-release)。
+        const absPath = resolveWithinRoot(p, scenePath);
+        if (!existsSync(absPath)) return opsErrorResult('FILE_NOT_FOUND', `Scene file not found: ${scenePath}`);
+        if (ctx.checkEditorSceneSave) {
+          const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+          if (sceneGuard.blocked) return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`);
+        }
         const nodePath = normalizeNodePath(args.node_path as string);
         const properties = args.properties as Record<string, unknown>;
         if (!properties || typeof properties !== 'object' || Object.keys(properties).length === 0) return opsErrorResult('INVALID_PARAMS', '"properties" must be a non-empty object.');

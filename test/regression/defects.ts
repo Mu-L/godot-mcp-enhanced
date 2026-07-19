@@ -687,6 +687,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       return /edit_node: \{ method: 'edit_node' \}/.test(sceneBlock)
         && /batch_add_nodes: \{ method: 'batch_add_nodes' \}/.test(sceneBlock) ? 0 : 1;
     } },
+  // spec editor-version-tear §6: index.ts edit_node/batch headless fallback 路径加 checkEditorSceneSave 守卫
+  // （editor 未连接时 fallback spawnGodot 改盘,守卫防覆盖 editor 内存——editor 连接时走 handler 不触发）。
+  // detect: index.ts edit_node case + batch case 各含 ctx.checkEditorSceneSave 调用。
+  // 切片右边界用下一个 case（remove_node）,避免 entry 内 } 过早截断。
+  { key: 'editor-scene-save-guard-edit-batch', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('src/tools/scene/index.ts');
+      const editBody = f.slice(f.indexOf("case 'edit_node'"), f.indexOf("case 'remove_node'"));
+      const batchBody = f.slice(f.indexOf("case 'batch_add_nodes'"), f.indexOf("case 'edit_node'"));
+      return /ctx\.checkEditorSceneSave/.test(editBody) && /ctx\.checkEditorSceneSave/.test(batchBody) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

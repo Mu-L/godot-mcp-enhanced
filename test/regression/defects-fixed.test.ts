@@ -75,9 +75,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-19 SDD editor-version-tear §5): editor-method-map-edit-batch(editor-method-map.ts scene
 //   表登记 edit_node/batch_add_nodes,打通 editor 连接时 scene 工具 → command_handler 路由,不再
 //   fallback headless spawnGodot 改盘致磁盘/内存版本撕裂),合计 65。
-    expect(FIXED_DEFECTS.length).toBe(65);
+//   +1(2026-07-19 SDD editor-version-tear §6): editor-scene-save-guard-edit-batch(index.ts edit_node/batch
+//   headless fallback 路径加 checkEditorSceneSave 守卫,editor 未连接时 fallback 改盘前防覆盖 editor 内存),
+//   合计 66。
+    expect(FIXED_DEFECTS.length).toBe(66);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(65);
+    expect(new Set(keys).size, '存在重名 key').toBe(66);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
