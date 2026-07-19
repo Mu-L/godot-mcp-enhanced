@@ -115,6 +115,13 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _node_commands.handle_add_node(params, request_id)
 		"remove_node":
 			return _node_commands.handle_remove_node(params, request_id)
+		# editor-version-tear §5: edit_node / batch_add_nodes 经 editor-method-map 登记,
+		# editor 连接时直走 node_commands handler（per-property undo / 批量 UndoRedo，改内存），
+		# 不再 fallback headless spawnGodot 改盘（致磁盘/内存版本撕裂）
+		"edit_node":
+			return _node_commands.handle_edit_node(params, request_id)
+		"batch_add_nodes":
+			return _node_commands.handle_batch_add_nodes(params, request_id)
 		"test_assert":
 			return _test_commands.handle_test_assert(params)
 		"export_list_presets":

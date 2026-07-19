@@ -64,6 +64,11 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
   },
   scene: {
     add_node: { method: 'add_node' },
+    // editor-version-tear §5: edit_node / batch_add_nodes 登记打通 editor 路由,
+    // editor 连接时直走 GD handle_edit_node/handle_batch_add_nodes（改内存属性 + undo）,
+    // 不再 fallback headless spawnGodot 改盘（致磁盘/内存版本撕裂）
+    edit_node: { method: 'edit_node' },
+    batch_add_nodes: { method: 'batch_add_nodes' },
     remove_node: { method: 'remove_node' },
     instance_scene: { method: 'instance_scene' },
     set_instance_property: { method: 'set_instance_property' },

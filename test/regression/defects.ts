@@ -674,6 +674,19 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const fnBody = f.slice(f.indexOf('func handle_add_node'), f.indexOf('func handle_remove_node'));
       return /CommandHelpers\.coerce_property_value/.test(fnBody) && /prop_do_ops/.test(fnBody) ? 0 : 1;
     } },
+  // spec editor-version-tear §5: editor-method-map 登记 edit_node/batch_add_nodes 打通 editor 路由
+  // （此前 edit_node/batch 在 index.ts 无条件 spawnGodot 改盘，editor 内存版本撕裂）。
+  // detect: editor-method-map.ts scene 表含 edit_node + batch_add_nodes 登记。
+  // 切片右边界用下一个块（animation_track:）而非首个 }（entry 内 method 对象的 } 会过早截断）。
+  { key: 'editor-method-map-edit-batch', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    detect: () => {
+      const f = readSrc('src/core/editor-method-map.ts');
+      const sceneStart = f.indexOf('scene:');
+      const sceneEnd = f.indexOf('animation_track:', sceneStart);
+      const sceneBlock = sceneEnd > 0 ? f.slice(sceneStart, sceneEnd) : f.slice(sceneStart);
+      return /edit_node: \{ method: 'edit_node' \}/.test(sceneBlock)
+        && /batch_add_nodes: \{ method: 'batch_add_nodes' \}/.test(sceneBlock) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

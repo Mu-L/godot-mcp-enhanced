@@ -72,9 +72,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   handle_batch_add_nodes,预校验零内存改+批量 UndoRedo do=add_child+set_owner+set/undo=remove_child),合计 63。
 //   +1(2026-07-19 SDD editor-version-tear §4): editor-add-node-properties(node_commands.gd 现有
 //   handle_add_node 补 properties,coerce_property_value 经 helper 生成 prop_do_ops,原只取 3 字段 properties 丢弃),合计 64。
-    expect(FIXED_DEFECTS.length).toBe(64);
+//   +1(2026-07-19 SDD editor-version-tear §5): editor-method-map-edit-batch(editor-method-map.ts scene
+//   表登记 edit_node/batch_add_nodes,打通 editor 连接时 scene 工具 → command_handler 路由,不再
+//   fallback headless spawnGodot 改盘致磁盘/内存版本撕裂),合计 65。
+    expect(FIXED_DEFECTS.length).toBe(65);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(64);
+    expect(new Set(keys).size, '存在重名 key').toBe(65);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

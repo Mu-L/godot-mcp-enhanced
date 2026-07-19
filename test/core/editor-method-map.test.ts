@@ -81,6 +81,14 @@ describe('editor-method-map scene routing', () => {
   it('maps scene.remove_node → remove_node', () => {
     expect(resolveEditorMethod('scene', { action: 'remove_node' })?.method).toBe('remove_node');
   });
+  // editor-version-tear §5: edit_node / batch_add_nodes 登记后 editor 连接直走 GD handler,
+  // 不再 fallback headless spawnGodot 改盘（避免磁盘/内存版本撕裂）
+  it('maps scene.edit_node → edit_node', () => {
+    expect(resolveEditorMethod('scene', { action: 'edit_node' })?.method).toBe('edit_node');
+  });
+  it('maps scene.batch_add_nodes → batch_add_nodes', () => {
+    expect(resolveEditorMethod('scene', { action: 'batch_add_nodes' })?.method).toBe('batch_add_nodes');
+  });
   it('returns null for unregistered scene action (read_scene → headless fallback)', () => {
     expect(resolveEditorMethod('scene', { action: 'read_scene' })).toBeNull();
   });
