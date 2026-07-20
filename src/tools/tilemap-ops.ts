@@ -4,7 +4,7 @@ import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape } from './shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -452,7 +452,7 @@ export async function handleTool(
     const errorMapper = (msg: string) =>
       msg.includes('Node not found') ? 'TILEMAP_NOT_FOUND' : 'SCRIPT_EXEC_FAILED';
 
-    return parseGdscriptResult(result, [], errorMapper);
+    return appendRuntimePersistWarning(parseGdscriptResult(result, [], errorMapper), action);
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('Coords') || msg.includes('integer')) return opsErrorResult('INVALID_TILE_COORDS', msg);

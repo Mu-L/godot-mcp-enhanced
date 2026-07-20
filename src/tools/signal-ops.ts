@@ -5,7 +5,7 @@ import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, validateIdentifier } from './shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -216,7 +216,7 @@ export async function handleTool(
     const errorMapper = (msg: string) =>
       msg.includes('not found') ? ERROR_CODES.NODE_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED;
 
-    return parseGdscriptResult(result, [], errorMapper);
+    return appendRuntimePersistWarning(parseGdscriptResult(result, [], errorMapper), action);
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);

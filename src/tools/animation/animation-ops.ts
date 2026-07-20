@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../../types.js';
 import { requireProjectPath } from '../../helpers.js';
 import { executeGdscript } from '../../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, validateIdentifier } from '../shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from '../shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from '../shared.js';
 import { LOOP_MODES, TRACK_TYPES, ensureNumber, valueToGd, argsToGd, animErrorMapper } from './animation-shared.js';
 import { handleIkAction } from '../ik-tools.js';
 import type { RiskLevel } from '../../core/tool-registry.js';
@@ -672,7 +672,7 @@ export async function handleTool(
       loadAutoloads,
     });
 
-    return parseGdscriptResult(result, [], animErrorMapper);
+    return appendRuntimePersistWarning(parseGdscriptResult(result, [], animErrorMapper), `animation_${args.action ?? ''}`);
   } catch (err) {
     return opsErrorResult('INVALID_PARAMS', err instanceof Error ? err.message : String(err));
   }

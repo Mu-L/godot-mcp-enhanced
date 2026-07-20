@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, validateVector3, clampParam, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { normalizeNodePath, gdEscape, validateVector3, clampParam, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import { ff } from './shared/value-serializer.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -503,7 +503,7 @@ export async function handleTool(
       return ERROR_CODES.SCRIPT_EXEC_FAILED;
     };
 
-    return parseGdscriptResult(result, paramWarnings, errorMapper);
+    return appendRuntimePersistWarning(parseGdscriptResult(result, paramWarnings, errorMapper), action);
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);

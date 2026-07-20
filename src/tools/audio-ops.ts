@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, clampParam, sanitizeResPath } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, clampParam, sanitizeResPath, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -239,7 +239,7 @@ export async function handleTool(
     const errorMapper = (msg: string) =>
       (msg.includes('not found') || msg.includes('not an Audio')) ? ERROR_CODES.AUDIO_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED;
 
-    return parseGdscriptResult(result, paramWarnings, errorMapper);
+    return appendRuntimePersistWarning(parseGdscriptResult(result, paramWarnings, errorMapper), action);
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
