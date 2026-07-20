@@ -56,6 +56,8 @@ Error: Unknown bridge method "${method}". Supported: ${[...allowed].join(', ')}.
 
 **reviewer C5 finding（验证预警）**：包装 warning 可能 break 现有返回断言测试（工具返回结构/text 变）。包装策略：warning 追加到返回 text 末尾（不破坏结构化 result 字段），尽量不 break。plan 验证步骤须跑相关工具测试，断言可能需同步。
 
+**实际实现偏差（`92537b7` fix，2026-07-20）**：原"warning 追加 text 末尾"假设**错**——5 工具 `parseGdscriptResult` 返回 `textResult(JSON.stringify(opsSuccess(...)))`，**text 是 JSON 字符串**，末尾追加 warning 破坏 `JSON.parse(content[0].text)` 消费契约（项目 146 处消费者）。fix 改用 `appendRuntimePersistWarning(result, action)` helper **追加独立 content 元素**（`content[1]` = warning text，不动 `content[0]` JSON）+ mutation testing 铁证（回退 mutate → 7 测试失败）。task reviewer CRITICAL 抓到（详见 `.superpowers/sdd/task-3-c5-report.md`）。**未来读此 spec 勿走"text 末尾"老路**。
+
 **改动**：新文件 `persistence-warning.ts` + barrel + 5 工具返回包装。
 
 **不含**：`node-3d-ops`/`physics-ops`/`material-ops`/`navigation`/`recording` 等其他运行时工具（留 follow-up，YAGNI 先核心 5）。
