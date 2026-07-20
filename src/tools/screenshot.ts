@@ -96,12 +96,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         let blankWarning = '';
 
         if (result.godotOutput?.includes('BLANK_DETECTED')) {
-          blankWarning = '\n⚠ Screenshot may be blank (2D rendering limitation in headless mode).\n' +
-            'For 2D projects, consider using screenshot(action=analyze) with a user-provided screenshot instead.';
+          blankWarning = '\n⚠ Screenshot may be blank (headless RendererDummy 无 GPU 渲染，2D/3D 均空白).\n' +
+            '替代：① Bridge take_screenshot（游戏运行时 GPU viewport，2D/3D 均可）② editor/GUI 模式截图 ③ 手动 F5 运行后截图 ④ screenshot(action=analyze) 分析本地文件';
         } else if ((result.fileSize ?? 0) < 2048) {
           // 小文件（< 2KB）疑似空白，补充警告
-          blankWarning = `\n⚠ Screenshot file is unusually small (${result.fileSize} bytes), possibly blank.\n` +
-            'For 2D projects, consider using screenshot(action=analyze) with a user-provided screenshot instead.';
+          blankWarning = `\n⚠ Screenshot file is unusually small (${result.fileSize} bytes), possibly blank (headless RendererDummy 无 GPU 渲染，2D/3D 均空白).\n` +
+            '替代：① Bridge take_screenshot（游戏运行时 GPU viewport，2D/3D 均可）② editor/GUI 模式截图 ③ 手动 F5 运行后截图 ④ screenshot(action=analyze) 分析本地文件';
         }
 
         return textResult(
