@@ -78,9 +78,13 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-19 SDD editor-version-tear §6): editor-scene-save-guard-edit-batch(index.ts edit_node/batch
 //   headless fallback 路径加 checkEditorSceneSave 守卫,editor 未连接时 fallback 改盘前防覆盖 editor 内存),
 //   合计 66。
-    expect(FIXED_DEFECTS.length).toBe(66);
+//   +1(2026-07-20 F1): add-node-editor-root-routing(handle_add_node parent 解析改用 CommandHelpers.find_node
+//   识别 "root"/root_name/"root/" 前缀,对齐 handle_edit_node/handle_batch_add_nodes/headless
+//   godot_operations.gd:316,原 root.get_node_or_null 不识别 "root" 致 editor 路由 add_node parent=root 失效),
+//   合计 67。
+    expect(FIXED_DEFECTS.length).toBe(67);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(66);
+    expect(new Set(keys).size, '存在重名 key').toBe(67);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
