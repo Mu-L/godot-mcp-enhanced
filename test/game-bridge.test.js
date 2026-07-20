@@ -72,7 +72,7 @@ describe('game-bridge handleTool routing', () => {
     const result = await handleTool('game', { action: 'game_query', method: 'send_key' }, mockCtx);
     expect(result).toBeTruthy();
     const text = result.content?.[0]?.text ?? '';
-    expect(text).toContain('Unknown method');
+    expect(text).toContain('Unknown bridge method');
     expect(text).toContain('send_key');
   });
 
@@ -80,14 +80,14 @@ describe('game-bridge handleTool routing', () => {
     const result = await handleTool('game', { action: 'game_write', method: 'ping' }, mockCtx);
     expect(result).toBeTruthy();
     const text = result.content?.[0]?.text ?? '';
-    expect(text).toContain('Unknown method');
+    expect(text).toContain('Unknown bridge method');
   });
 
   it('rejects unknown method for game_input', async () => {
     const result = await handleTool('game', { action: 'game_input', method: 'ping', params: {} }, mockCtx);
     expect(result).toBeTruthy();
     const text = result.content?.[0]?.text ?? '';
-    expect(text).toContain('Unknown method');
+    expect(text).toContain('Unknown bridge method');
   });
 
   it('rejects unknown method for game_wait', async () => {
@@ -120,7 +120,7 @@ describe('game-bridge handleTool routing', () => {
     for (const method of writeMethods) {
       const result = await handleTool('game', { action: 'game_query', method }, mockCtx);
       const text = result?.content?.[0]?.text ?? '';
-      expect(text).toContain('Unknown method');
+      expect(text).toContain('Unknown bridge method');
     }
   });
 
