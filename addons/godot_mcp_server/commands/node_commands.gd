@@ -43,7 +43,7 @@ func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": -32004, "message": "Invalid node name: %s" % node_name}}
 
 	if not _is_allowed_node_type(node_type):
-		return {"error": {"code": -32004, "message": "Blocked node type: %s" % node_type}}
+		return {"error": {"code": -32004, "message": "Blocked node type: %s. Control 类（TextureRect/Button 等）请用 ui_create_control 工具" % node_type}}
 
 	var parent_node: Node = root
 	if not parent_path.is_empty():
@@ -221,7 +221,7 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 		if node_name.is_empty() or not _name_re.search(node_name):
 			return {"error": {"code": -32004, "message": "nodes[%d].node_name invalid: %s" % [i, node_name]}}
 		if not _is_allowed_node_type(node_type):
-			return {"error": {"code": -32004, "message": "nodes[%d].node_type blocked: %s" % [i, node_type]}}
+			return {"error": {"code": -32004, "message": "nodes[%d].node_type blocked: %s. Control 类（TextureRect/Button 等）请用 ui_create_control 工具" % [i, node_type]}}
 		if CommandHelpers.has_path_traversal(parent_path):
 			return {"error": {"code": -32002, "message": "nodes[%d].parent traversal: %s" % [i, parent_path]}}
 		var parent_node: Node = root if parent_path.is_empty() else CommandHelpers.find_node(root, parent_path)
