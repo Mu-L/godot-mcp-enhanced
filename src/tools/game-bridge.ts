@@ -631,7 +631,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const allowed = methodSets[action]!;
         const method = args.method as string;
         if (!allowed.has(method)) {
-          return textResult(`Error: Unknown method "${method}". Supported: ${[...allowed].join(', ')}`);
+          return textResult(`Error: Unknown bridge method "${method}". Supported: ${[...allowed].join(', ')}. 业务方法（如 take_damage/emit_signal）请用 game_write method=call_method params={method:"业务方法名", args:[...]}（bridge 运行时白名单校验，可通过 GODOT_MCP_BRIDGE_EXTRA_METHODS env 扩展）`);
         }
         const rawParams = args.params;
         const params = (rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams))
