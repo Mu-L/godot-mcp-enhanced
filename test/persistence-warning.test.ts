@@ -117,6 +117,41 @@ describe('appendRuntimePersistWarning 不可变契约', () => {
   });
 });
 
+// ─── textOf / isTextContent helper 单元测试 ──────────────────────────────────
+
+describe('textOf / isTextContent helper', () => {
+  it('textOf(null, 0) 抛错（null 结果）', () => {
+    expect(() => textOf(null, 0)).toThrow(/content\[0\] is not a text element/);
+  });
+
+  it('textOf({content: []}, 0) 抛错（越界）', () => {
+    const empty: ToolResult = { content: [] } as ToolResult;
+    expect(() => textOf(empty, 0)).toThrow(/content\[0\] is not a text element/);
+  });
+
+  it('textOf 非 text 元素抛错（image 元素无 .text）', () => {
+    const img: ToolResult = {
+      content: [{ type: 'image', data: '', mimeType: '' }],
+    } as ToolResult;
+    expect(() => textOf(img, 0)).toThrow(/content\[0\] is not a text element/);
+  });
+
+  it('textOf 返回 text 元素的 .text 字段', () => {
+    const txt: ToolResult = {
+      content: [{ type: 'text', text: 'hello' }],
+    } as ToolResult;
+    expect(textOf(txt, 0)).toBe('hello');
+  });
+
+  it('isTextContent 对 text 元素返回 true', () => {
+    expect(isTextContent({ type: 'text', text: 'x' })).toBe(true);
+  });
+
+  it('isTextContent 对非 text 元素返回 false', () => {
+    expect(isTextContent({ type: 'image', data: '', mimeType: '' })).toBe(false);
+  });
+});
+
 // ─── 5 工具端到端 JSON.parse 契约 ────────────────────────────────────────────
 
 describe('5 工具 handleTool 成功路径：content[0] 仍是合法 JSON + content[1] 是 warning', () => {
@@ -201,12 +236,12 @@ describe('follow-up: node-3d node_create_3d 包装', () => {
     );
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
-    // content[0] 仍是合法 JSON，未被 mutate
-    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
-    expect(result!.content[0].text).not.toContain('⚠');
+    // content[0] 仍是合法 JSON，未被 mutate（用 textOf 收窄类型）
+    expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
+    expect(textOf(result, 0)).not.toContain('⚠');
     // content[1] 是独立 warning
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('node_create_3d');
@@ -226,10 +261,10 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
     );
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
-    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
-    expect(result!.content[0].text).not.toContain('⚠');
+    expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
+    expect(textOf(result, 0)).not.toContain('⚠');
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('physics_collision_overlay');
@@ -243,7 +278,7 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 
@@ -254,7 +289,7 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 });
@@ -272,9 +307,9 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
     );
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
-    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('nav_create_region');
@@ -292,7 +327,7 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('nav_create_link');
@@ -308,7 +343,7 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 });
@@ -326,9 +361,9 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
     );
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
-    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('material_create');
@@ -343,7 +378,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
     const warning = result!.content.find(
-      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('material_load');
@@ -357,7 +392,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 
@@ -368,7 +403,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 
@@ -379,7 +414,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
-    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
 });
