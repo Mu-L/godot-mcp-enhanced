@@ -241,7 +241,8 @@ describe('follow-up: node-3d node_create_3d 包装', () => {
     expect(textOf(result, 0)).not.toContain('⚠');
     // content[1] 是独立 warning
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('node_create_3d');
@@ -264,7 +265,8 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
     expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
     expect(textOf(result, 0)).not.toContain('⚠');
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('physics_collision_overlay');
@@ -309,7 +311,8 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
     expect(result!.isError).toBeFalsy();
     expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('nav_create_region');
@@ -327,7 +330,8 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('nav_create_link');
@@ -363,7 +367,8 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
     expect(result!.isError).toBeFalsy();
     expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('material_create');
@@ -378,7 +383,8 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
     const warning = result!.content.find(
-      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el),
+      (el, i): el is { type: 'text'; text: string } =>
+        i > 0 && isTextContent(el) && el.text.includes('⚠'),
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('material_load');
