@@ -7,6 +7,8 @@
 //   2. content[1] 是独立 warning text（含 ⚠ + action 名）
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ToolResult } from '../src/types.js';
 
 const SUCCESS_RESULT = {
@@ -367,5 +369,22 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
     expect(result).not.toBeNull();
     const allText = result!.content.map((el: any) => el.text ?? '').join('');
     expect(allText).not.toContain('⚠');
+  });
+});
+
+// ─── follow-up Task 5: recording 整工具不包装（静态保护） ─────────────────────
+
+describe('follow-up: recording 整工具不包装（C5 文案对录制语义错位，spec §1 特例）', () => {
+  it('recording.ts 源码不含 appendRuntimePersistWarning / runtimePersistWarning 调用', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/tools/recording.ts'), 'utf8');
+    expect(src).not.toContain('appendRuntimePersistWarning');
+    expect(src).not.toContain('runtimePersistWarning');
+  });
+
+  it('recording save/load/start 反向：handleTool 返回不含 ⚠（若 bridge mock 不可行则保留此静态断言为下限）', async () => {
+    // bridge client mock 较重（spec §5 :130 降级）；此 case 用静态源码断言锁定。
+    // 若未来接入 bridge mock，可改为 handleTool('recording', {action:'recording_save',...}, ctx) 端到端断言。
+    const src = readFileSync(resolve(process.cwd(), 'src/tools/recording.ts'), 'utf8');
+    expect(src).not.toMatch(/appendRuntimePersistWarning|runtimePersistWarning/);
   });
 });
