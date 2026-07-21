@@ -480,3 +480,78 @@ describe('follow-up: ui Control action 包装 + 正向', () => {
     expect(warning!.text).toContain('ui_build_layout');
   });
 });
+
+// ─── ui_* follow-up Task 2: theme/query/落盘反向（不加，防回归）──────────────
+
+describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // 查询
+  it('ui_get_layout（查询）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_get_layout', scene_path: 'res://scene.tscn', node_path: 'root/X' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  // theme（文案错位，整体不加）
+  it('ui_set_theme theme_action=create（theme）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_set_theme', scene_path: 'res://scene.tscn', node_path: 'root/X', theme_action: 'create' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('theme_create theme_create_action=create（theme）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'theme_create', scene_path: 'res://scene.tscn', theme_create_action: 'create' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('theme_set_property（theme）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'theme_set_property', theme_node_path: 'root/X', item_type: 'color', prop_name: 'font_color', value: '#ffffff' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  // 持久化（真落盘，不加防误导）
+  it('ui_set_theme theme_action=save（持久化 ResourceSaver）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_set_theme', scene_path: 'res://scene.tscn', node_path: 'root/X', theme_action: 'save', theme_path: 'res://t.tres' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('theme_create save_path（持久化 ResourceSaver）: 返回不含 ⚠', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'theme_create', scene_path: 'res://scene.tscn', theme_create_action: 'create', save_path: 'res://t.tres' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+});
