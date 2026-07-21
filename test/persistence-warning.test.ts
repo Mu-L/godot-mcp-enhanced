@@ -39,6 +39,18 @@ import { handleTool as physicsHandle } from '../src/tools/physics-ops.js';
 import { handleTool as navHandle } from '../src/tools/navigation.js';
 import { handleTool as materialHandle } from '../src/tools/material-ops.js';
 
+// Minor4: 收窄 content 元素 union 到 text 类型，消除 .text 在非 text 元素上的 undefined 访问
+function isTextContent(el: ToolResult['content'][number]): el is { type: 'text'; text: string } {
+  return el.type === 'text';
+}
+
+function textOf(result: ToolResult | null, index: number): string {
+  if (!result || !result.content[index] || !isTextContent(result.content[index])) {
+    throw new Error(`content[${index}] is not a text element`);
+  }
+  return result.content[index].text;
+}
+
 function createMockCtx() {
   return {
     opsScript: '/fake/ops.gd',
