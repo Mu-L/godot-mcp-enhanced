@@ -5,7 +5,7 @@ import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, sanitizeResPath, validateIdentifier } from './shared.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import { BLOCKED_PROPS } from './scene/helpers.js';  // IMP-1 (2026-06-26 review): 复用 scene BLOCKED_PROPS 防 set_params 改危险属性(未来抽 shared)
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -632,6 +632,10 @@ export function getToolDefinitions(): Tool[] {
 
 const TOOL_NAMES = ['material'] as const;
 
+// follow-up C5: 改运行时 material/shader 属性（含 load/shader_load_file，eng-review 修正）
+// → 加提示；save/shader_save_file（落盘）+ read/shader_read/shader_list_templates（只读）不加。
+const MAT_PERSIST_ACTIONS = new Set(['create', 'set_params', 'shader_write', 'shader_apply_template', 'load', 'shader_load_file']);
+
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
@@ -781,7 +785,8 @@ export async function handleTool(
       loadAutoloads,
     });
 
-    return parseGdscriptResult(result, [], materialErrorMapper);
+    const r = parseGdscriptResult(result, [], materialErrorMapper);
+    return MAT_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, `material_${action}`) : r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('Invalid param type')) return opsErrorResult('INVALID_PARAM_TYPE', msg);

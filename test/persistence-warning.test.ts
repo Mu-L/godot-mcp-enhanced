@@ -9,18 +9,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../src/types.js';
 
+const SUCCESS_RESULT = {
+  success: true,
+  compile_success: true,
+  compile_error: '',
+  errors: [],
+  run_success: true,
+  run_error: '',
+  outputs: [{ key: 'result', value: '{"ok":true}' }],
+  raw_output: '',
+  duration_ms: 100,
+};
+
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(async () => ({
-    success: true,
-    compile_success: true,
-    compile_error: '',
-    errors: [],
-    run_success: true,
-    run_error: '',
-    outputs: [{ key: 'result', value: '{"ok":true}' }],
-    raw_output: '',
-    duration_ms: 100,
-  })),
+  executeGdscript: vi.fn(async () => SUCCESS_RESULT),
+  executeGdscriptTrusted: vi.fn(async () => SUCCESS_RESULT),
 }));
 
 import { appendRuntimePersistWarning } from '../src/tools/shared/persistence-warning.js';
@@ -32,6 +35,7 @@ import { handleTool as animationHandle } from '../src/tools/animation/animation-
 import { handleTool as node3dHandle } from '../src/tools/node-3d-ops.js';
 import { handleTool as physicsHandle } from '../src/tools/physics-ops.js';
 import { handleTool as navHandle } from '../src/tools/navigation.js';
+import { handleTool as materialHandle } from '../src/tools/material-ops.js';
 
 function createMockCtx() {
   return {
@@ -287,6 +291,77 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
         project_path: '/fake/p', action: 'query_path',
         start_pos: { x: 0, y: 0, z: 0 }, end_pos: { x: 1, y: 0, z: 0 },
       },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
+  });
+});
+
+// ─── follow-up Task 4: material 包装（executeGdscriptTrusted） ────────────────
+
+describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('material create: content[1] 含 ⚠ + material_create', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'create', node_path: 'root/Mesh', material_type: 'StandardMaterial3D' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('material_create');
+  });
+
+  it('material load（eng-review 修正）: content[1] 含 ⚠ + material_load', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'load', node_path: 'root/Mesh', resource_path: 'res://m.tres' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('material_load');
+  });
+
+  // 反向（A3：落盘 + 只读 ≥2）
+  it('material save（落盘）: 返回不含 ⚠', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'save', node_path: 'root/Mesh', resource_path: 'res://m.tres' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('material read（只读）: 返回不含 ⚠', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'read', node_path: 'root/Mesh' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('material shader_read（只读）: 返回不含 ⚠', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'shader_read', node_path: 'root/Mesh' },
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
