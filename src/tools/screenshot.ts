@@ -125,6 +125,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       let imagePath = args.image_path as string | undefined;
       const projectPathRaw = typeof args.project_path === 'string' ? args.project_path : undefined;
       const projectPath = projectPathRaw?.trim() ? validatePath(projectPathRaw) : undefined;
+      // #1 path-leak: projectPath 提供时校验 isPathInAllowedRoots（对齐 capture :60 requireProjectPath）。
+      // analyze projectPath 可选（仅 image_path 时缺），不能直接换 requireProjectPath（强制必填）。
+      if (projectPath && !isPathInAllowedRoots(projectPath)) {
+        throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${projectPath}. Check your ALLOWED_PROJECT_PATHS setting.`);
+      }
       const question = (args.question as string) ||
         'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.';
 
