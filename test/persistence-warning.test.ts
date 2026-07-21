@@ -29,6 +29,7 @@ import { handleTool as particlesHandle } from '../src/tools/particles.js';
 import { handleTool as signalHandle } from '../src/tools/signal-ops.js';
 import { handleTool as tilemapHandle } from '../src/tools/tilemap-ops.js';
 import { handleTool as animationHandle } from '../src/tools/animation/animation-ops.js';
+import { handleTool as node3dHandle } from '../src/tools/node-3d-ops.js';
 
 function createMockCtx() {
   return {
@@ -165,4 +166,29 @@ describe('5 工具 handleTool 成功路径：content[0] 仍是合法 JSON + cont
       expect(warning!.text).toContain(c.expectAction);
     });
   }
+});
+
+// ─── follow-up Task 1: node-3d 包装 ──────────────────────────────────────────
+
+describe('follow-up: node-3d node_create_3d 包装', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('node_create_3d: content[0] 可 JSON.parse + content[1] 含 ⚠ + node_create_3d', async () => {
+    const result = await node3dHandle(
+      'node_create_3d',
+      { project_path: '/fake/p', type: 'Node3D', name: 'TestNode' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    // content[0] 仍是合法 JSON，未被 mutate
+    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    expect(result!.content[0].text).not.toContain('⚠');
+    // content[1] 是独立 warning
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('node_create_3d');
+  });
 });

@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, validateVector3, TYPE_WHITELIST, validateIdentifier } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, validateVector3, TYPE_WHITELIST, validateIdentifier, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -163,9 +163,12 @@ export async function handleCreate3dNode(
     const errorMapper = (msg: string) =>
       msg.includes('not found') ? ERROR_CODES.NODE_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED;
 
-    return parseGdscriptResult(result, [], errorMapper, {
-      suggestion: 'Use query_scene_tree to list available nodes, or check the node path spelling.',
-    });
+    return appendRuntimePersistWarning(
+      parseGdscriptResult(result, [], errorMapper, {
+        suggestion: 'Use query_scene_tree to list available nodes, or check the node path spelling.',
+      }),
+      'node_create_3d',
+    );
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
