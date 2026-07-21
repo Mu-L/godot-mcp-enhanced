@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 67 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1）。
+// FIXED_DEFECTS 68 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -374,6 +374,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasByteGuard = /Buffer\.byteLength\([^)]+,\s*['"]utf8['"]\)/.test(f);
       const hasStatSync = /statSync\([^)]+\)\.size/.test(f);
       return hasConst && hasByteGuard && hasStatSync ? 0 : 1;
+    } },
+  { key: 'csv-import-timeout-no-atomic-write', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // P2-1(2026-07-21 核实真问题): ResourceSaver.save 直写目标,超时 kill 落在 save 中途产半截损坏 .tres,
+    // Godot 启动 ResourceLoader 扫 res:// parse error 阻塞项目加载。
+    // 修复:tmp+rename 原子提交(ResourceSaver.save 写 .tmp → DirAccess.rename_absolute 覆盖 full_path)。
+    // detect 查 tmp_path 变量 + rename_absolute 调用(删任一→detect=1 复发)。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const hasTmp = /var\s+tmp_path\s*:\s*String\s*=\s*full_path\s*\+\s*"\.tmp"/.test(f);
+      const hasRename = /DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path\s*\)/.test(f);
+      return hasTmp && hasRename ? 0 : 1;
     } },
   { key: 'game-bridge-invalidate-race', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
     // P1-8(2026-07-06 ipc 审查): _doConnect 持久 close/error handler + sendToBridge onError/onClose/timer

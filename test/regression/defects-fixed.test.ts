@@ -82,9 +82,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   识别 "root"/root_name/"root/" 前缀,对齐 handle_edit_node/handle_batch_add_nodes/headless
 //   godot_operations.gd:316,原 root.get_node_or_null 不识别 "root" 致 editor 路由 add_node parent=root 失效),
 //   合计 67。
-    expect(FIXED_DEFECTS.length).toBe(67);
+//   +1(2026-07-21 P2-1): csv-import-timeout-no-atomic-write(data-import.ts ResourceSaver.save 直写目标
+//   改 tmp+rename 原子提交,超时 kill 落在 save 中途只损 tmp,full_path 旧/完整 Godot 启动不 parse error),
+//   合计 68。
+    expect(FIXED_DEFECTS.length).toBe(68);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(67);
+    expect(new Set(keys).size, '存在重名 key').toBe(68);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
