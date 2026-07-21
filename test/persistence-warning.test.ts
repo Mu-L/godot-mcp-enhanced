@@ -30,6 +30,7 @@ import { handleTool as signalHandle } from '../src/tools/signal-ops.js';
 import { handleTool as tilemapHandle } from '../src/tools/tilemap-ops.js';
 import { handleTool as animationHandle } from '../src/tools/animation/animation-ops.js';
 import { handleTool as node3dHandle } from '../src/tools/node-3d-ops.js';
+import { handleTool as physicsHandle } from '../src/tools/physics-ops.js';
 
 function createMockCtx() {
   return {
@@ -190,5 +191,51 @@ describe('follow-up: node-3d node_create_3d 包装', () => {
     );
     expect(warning).toBeDefined();
     expect(warning!.text).toContain('node_create_3d');
+  });
+});
+
+// ─── follow-up Task 2: physics 包装 ──────────────────────────────────────────
+
+describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('physics collision_overlay（创造运行时节点树）: content[1] 含 ⚠ + physics_collision_overlay', async () => {
+    const result = await physicsHandle(
+      'physics',
+      { project_path: '/fake/p', action: 'collision_overlay', parent_path: 'root' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    expect(result!.content[0].text).not.toContain('⚠');
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('physics_collision_overlay');
+  });
+
+  // 反向（A3：只读 action 每 Set ≥2，防误加 Set 漏抓）
+  it('physics raycast（只读）: 返回不含 ⚠', async () => {
+    const result = await physicsHandle(
+      'physics',
+      { project_path: '/fake/p', action: 'raycast', from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: -1, z: 0 } },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('physics query_spatial（只读）: 返回不含 ⚠', async () => {
+    const result = await physicsHandle(
+      'physics',
+      { project_path: '/fake/p', action: 'query_spatial', center: { x: 0, y: 0, z: 0 } },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
   });
 });

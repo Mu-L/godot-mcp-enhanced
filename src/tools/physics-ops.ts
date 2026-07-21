@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, validateVector3 } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, validateVector3, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -439,7 +439,8 @@ export async function handleTool(
     const errorMapper = (msg: string) =>
       msg.includes('not found') ? ERROR_CODES.NODE_NOT_FOUND : ERROR_CODES.SCRIPT_EXEC_FAILED;
 
-    return parseGdscriptResult(result, [], errorMapper);
+    const r = parseGdscriptResult(result, [], errorMapper);
+    return PHYSICS_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, `physics_${action}`) : r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
@@ -447,6 +448,10 @@ export async function handleTool(
     return opsErrorResult('SCRIPT_EXEC_FAILED', msg);
   }
 }
+
+// follow-up C5: collision_overlay 创造运行时可视化节点树（genCollisionOverlayScript），
+// headless 退出丢失 → 加提示；raycast/body_info/diagnose/query_spatial 只读不加。
+const PHYSICS_PERSIST_ACTIONS = new Set(['collision_overlay']);
 
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
