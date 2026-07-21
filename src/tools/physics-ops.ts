@@ -361,6 +361,10 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
 
+// follow-up C5: collision_overlay 创造运行时可视化节点树（genCollisionOverlayScript），
+// headless 退出丢失 → 加提示；raycast/body_info/diagnose/query_spatial 只读不加。
+const PHYSICS_PERSIST_ACTIONS = new Set(['collision_overlay']);
+
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
@@ -448,10 +452,6 @@ export async function handleTool(
     return opsErrorResult('SCRIPT_EXEC_FAILED', msg);
   }
 }
-
-// follow-up C5: collision_overlay 创造运行时可视化节点树（genCollisionOverlayScript），
-// headless 退出丢失 → 加提示；raycast/body_info/diagnose/query_spatial 只读不加。
-const PHYSICS_PERSIST_ACTIONS = new Set(['collision_overlay']);
 
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
