@@ -139,6 +139,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             imagePath = resolve(projectPath, normalizeUserProjectPath(imagePath));
           }
           imagePath = validatePath(imagePath);
+          // #2 path-leak: allowOutside 分支补 isPathInAllowedRoots（对齐 capture :68 守卫）。
+          // validatePath 只 resolve 不校验 root，allowOutside 模式可读 ALLOWED_PROJECT_PATHS 外任意绝对路径。
+          if (!isPathInAllowedRoots(imagePath)) {
+            throw new Error(`Image path is outside allowed project roots: ${imagePath}`);
+          }
         } else {
           if (!projectPath) {
             return opsErrorResult('INVALID_PARAMS', 'project_path is required when ALLOW_OUTSIDE_PROJECT_PATHS is not set.');

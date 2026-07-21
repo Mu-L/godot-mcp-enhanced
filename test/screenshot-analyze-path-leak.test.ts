@@ -69,3 +69,46 @@ describe('screenshot analyze path-leak #1: projectPath 校验（默认模式）'
     expect(result!.content.some((c: any) => c.type === 'image')).toBe(true);
   });
 });
+
+// ─── #2: allowOutside imagePath 可读 allowed roots 外（leak）──────────────────
+describe('screenshot analyze path-leak #2: allowOutside imagePath 校验', () => {
+  let allowedDir: string;
+  let outsideDir: string;
+
+  beforeEach(() => {
+    allowedDir = mkdtempSync(join(tmpdir(), 'allowed-'));
+    outsideDir = mkdtempSync(join(tmpdir(), 'outside-'));
+    writeFileSync(join(outsideDir, 'secret.png'), PNG_BYTES);
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');        // 清 setup.js 设的 UNRESTRICTED
+    process.env.ALLOWED_PROJECT_PATHS = allowedDir;   // 白名单模式 → allowOutside=true 但限 roots
+    _resetPathAllowWarned();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete process.env.ALLOWED_PROJECT_PATHS;
+    _resetPathAllowWarned();
+    rmSync(allowedDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it('修复后: allowOutside image_path=outside 绝对路径 → throw（防 allowed roots 外读）', async () => {
+    const result = handleTool('screenshot', {
+      action: 'analyze',
+      image_path: join(outsideDir, 'secret.png'),
+    }, makeCtx());
+    // 修复前（leak）: :136 validatePath 不校验 → 读 outside（rejects.toThrow 失败 = RED）
+    // 修复后: :136 isPathInAllowedRoots(outside)=false（不在 ALLOWED=allowedDir）→ throw
+    await expect(result).rejects.toThrow(/outside allowed project roots/);
+  });
+
+  it('反向: image_path=allowed 内不误拒', async () => {
+    writeFileSync(join(allowedDir, 'shot.png'), PNG_BYTES);
+    const result = await handleTool('screenshot', {
+      action: 'analyze',
+      image_path: join(allowedDir, 'shot.png'),
+    }, makeCtx());
+    expect(result).not.toBeNull();
+    expect(result!.content.some((c: any) => c.type === 'image')).toBe(true);
+  });
+});
