@@ -1,10 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { parseCsv, generateImportScript, writeTmpCsv, handleTool } from '../../src/tools/data-import.js';
-import { injectHelpers } from '../../src/gdscript-executor.js';
+import { injectHelpers, executeGdscriptTrusted } from '../../src/gdscript-executor.js';
 import type { ToolContext } from '../../src/types.js';
+
+// P2-1 Task 2: mock executeGdscriptTrusted 测 timeout 透传。
+// vi.mock + importOriginal 保留 injectHelpers 等真实 export(Task 1 / T4 命名测试依赖),
+// 仅替换 executeGdscriptTrusted 为可控 mock(vitest 4 推荐模式,避免 vi.doMock 失效)。
+vi.mock('../../src/gdscript-executor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/gdscript-executor.js')>();
+  return {
+    ...actual,
+    executeGdscriptTrusted: vi.fn().mockResolvedValue({
+      compile_success: true,
+      run_success: true,
+      outputs: [
+        { key: 'generated', value: '[]' },
+        { key: 'errors', value: '[]' },
+        { key: 'stats', value: '{}' },
+      ],
+    }),
+  };
+});
 
 describe('parseCsv 前置校验', () => {
   it('空文本 → ok:false', () => {
@@ -330,5 +349,37 @@ describe('generateImportScript P2-1 原子提交 + .tmp 清理', () => {
   it('保留 full_path 作为最终路径 + _generated.append(full_path)', () => {
     expect(script).toMatch(/var\s+full_path\s*:\s*String\s*=\s*_output_dir/);
     expect(script).toMatch(/_generated\.append\(\s*full_path\s*\)/);
+  });
+});
+
+// ─── P2-1 Task 2: handler timeout 可配(schema 加可选 timeout,handler args.timeout ?? 60)──
+// mock executeGdscriptTrusted 拦截到 handleTool :351 调用,断言传入的 timeout 参数。
+// makeValidArgs 构造合法 args 通过 :296 必填 + :338 parseCsv header 校验 + :344 resolveWithinRoot,
+// 到达 :351 executeGdscript 调用。output_dir='out' 相对路径 + project_path=tmpdir() 沙箱放行。
+
+describe('csv_to_resources timeout 可配 P2-1', () => {
+  const makeValidArgs = (overrides: Record<string, unknown> = {}) => ({
+    action: 'csv_to_resources',
+    project_path: tmpdir(),
+    class_path: 'res://r.gd',
+    output_dir: 'out',
+    filename_column: 'id',
+    csv_content: 'id,name\n1,a\n',
+    ...overrides,
+  });
+
+  const makeCtx = (): ToolContext =>
+    ({ findGodot: async () => 'godot', projectDir: tmpdir() } as unknown as ToolContext);
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('不传 timeout → executeGdscript 收到默认 60', async () => {
+    await handleTool('csv_to_resources', makeValidArgs({}), makeCtx());
+    expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 60 }));
+  });
+
+  it('传 timeout=120 → executeGdscript 收到 120', async () => {
+    await handleTool('csv_to_resources', makeValidArgs({ timeout: 120 }), makeCtx());
+    expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 120 }));
   });
 });

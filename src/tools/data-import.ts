@@ -266,6 +266,12 @@ export function getToolDefinitions(): Tool[] {
           filename_column: { type: 'string', description: 'CSV 中作为输出文件名的列名' },
           csv_content: { type: 'string', description: 'CSV 文本内容(与 csv_path 二选一)' },
           csv_path: { type: 'string', description: 'CSV 文件路径(项目内,与 csv_content 二选一)' },
+          timeout: {
+            type: 'number',
+            description: 'GDScript 执行超时秒数(大批量 CSV 可调大,默认 60)',
+            optional: true,
+            default: 60,
+          },
         },
         required: ['action', 'project_path', 'class_path', 'output_dir', 'filename_column'],
       },
@@ -352,7 +358,7 @@ export async function handleTool(
       godotPath: godot,
       projectPath,
       code: script,
-      timeout: 60,
+      timeout: (args.timeout as number | undefined) ?? 60,
       loadAutoloads: false,
     });
 
