@@ -302,3 +302,33 @@ describe('F-7 csv_content 字节上限', () => {
     expect(String(payload.error)).toMatch(/not found/i);
   });
 });
+
+describe('generateImportScript P2-1 原子提交 + .tmp 清理', () => {
+  const script = generateImportScript({
+    classPath: 'res://item.gd',
+    outputDir: '/tmp/out',
+    filenameCol: 'name',
+    csvTmpPath: '/tmp/csv.tmp',
+  });
+
+  it('save 循环用 tmp_path 中转 + rename_absolute 原子提交', () => {
+    expect(script).toMatch(/var\s+tmp_path\s*:\s*String\s*=\s*full_path\s*\+\s*"\.tmp"/);
+    expect(script).toMatch(/ResourceSaver\.save\(\s*res\s*,\s*tmp_path\s*\)/);
+    expect(script).toMatch(/DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path\s*\)/);
+  });
+
+  it('rename 失败时清 tmp + 记 error', () => {
+    expect(script).toMatch(/DirAccess\.remove_absolute\(\s*tmp_path\s*\)/);
+    expect(script).toMatch(/rename failed/);
+  });
+
+  it('脚本开头清上次 kill 留下的 .tres.tmp 残留', () => {
+    expect(script).toMatch(/\.tres\.tmp/);
+    expect(script).toMatch(/clean_dir\.remove\(/);
+  });
+
+  it('保留 full_path 作为最终路径 + _generated.append(full_path)', () => {
+    expect(script).toMatch(/var\s+full_path\s*:\s*String\s*=\s*_output_dir/);
+    expect(script).toMatch(/_generated\.append\(\s*full_path\s*\)/);
+  });
+});
