@@ -4,6 +4,8 @@
 **来源**:`D:\workspace\projects\CardGame2`(Godot 4.7 + godot-mcp-enhanced addon 整目录同步至 HEAD `f75ce95`)A 档 edit_node editor 路由端到端验证。验证 `835c780`(editor-method-map 登记 edit_node/batch_add_nodes)打通 editor 路由、修复 30s 超时**生效**(edit_node 即时返 + 内存改不落盘,2 判据铁证),过程暴露 3 个 editor 路由 follow-up。
 **结论**:editor 路由核心修复(`835c780`/`c24db3f`/`64b18d9`/`c926748`/`0dfc29d`/`1d08a16`)已验证生效;3 个 follow-up 均有绕过,但首用体验差,建议改进。
 
+**🔔 2026-07-20 回标更新**:F1/F2/F3 全部 🟢 实跑验证通过(CardGame2 editor 路由,`_mcp_test_en.tscn`)——F1 fixed `17066d9`、F2 docs `1db3b42`、F3 fixed `5386ff8`。CardGame2 addon 已 cp 同步并 commit(`8084d5f`)。详见下方📌状态区。
+
 ---
 
 ## ✅ 正向确认:edit_node 30s 超时已修复(editor 路径)
@@ -81,7 +83,9 @@ scene edit_node scene_path=res://scenes/_test.tscn node_path=T properties={textu
 
 ## 📌 状态
 
-- **F1/F2/F3**:🟡 open(均有绕过,未阻断核心工作流,但首用体验差)。
+- **F1**:🟢 fixed commit `17066d9`(handle_add_node 改用 CommandHelpers.find_node 识别 parent "root",对齐 edit_node/batch/headless)。实跑验证(2026-07-20,CardGame2 editor 路由,`_mcp_test_en.tscn`):`add_node parent_node_path=root node_type=Sprite2D node_name=F1Test` → `{status:created, node_path:.../root/F1Test}`(修前报 `Parent not found: root`)。
+- **F2**:🟢 closed commit `1db3b42`(docs 注明 editor 路由操作活动场景,scene_path 仅 headless 生效)。实跑验证:全程 `scene_path=_mcp_test_en.tscn` 但操作落在编辑器活动场景(`get_scene_tree` 确认根=root/TestRect),行为与文档一致,无歧义。
+- **F3**:🟢 fixed commit `5386ff8`(add_node/batch_add_nodes 白名单 block 错误信息补 ui_create_control 提示)。实跑验证:add_node TextureRect → `Blocked node type: TextureRect. Control 类(TextureRect/Button 等)请用 ui_create_control 工具`(`code:-32004`);batch TextureRect → `nodes[0].node_type blocked: TextureRect. Control 类...请用 ui_create_control`(含 `nodes[0]` 索引前缀 + ui_create_control 提示,两点都中)。
 - **edit_node 30s 超时**:🟢 fixed(`835c780`/`64b18d9`/`f35a3ef`/`69fcd2e`,editor 路径已端到端验证)。
 - **未覆盖**:headless 路径(`f35a3ef`/`69fcd2e`)未单独验证(editor 连接态无法切 headless);save_scene 持久化链路、batch_add_nodes 资源绑定未验证。
 - **相关**:`docs/review-2026-07-06-gdscript-undo-lifecycle.md`(editor undo lifecycle)、`docs/review-2026-07-06-ipc-reliability.md`(IPC 可靠性)。
