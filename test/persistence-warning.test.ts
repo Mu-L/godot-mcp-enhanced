@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../src/types.js';
 
 const SUCCESS_RESULT = {
@@ -281,6 +281,7 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -292,6 +293,7 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -348,6 +350,7 @@ describe('follow-up: navigation 创造 action 包装 + query_path 不加', () =>
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -399,6 +402,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -410,6 +414,7 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -421,6 +426,19 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('material shader_list_templates（只读，提前 inline 返回不入 Set）: 返回不含 ⚠', async () => {
+    const result = await materialHandle(
+      'material',
+      { project_path: '/fake/p', action: 'shader_list_templates' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -430,16 +448,9 @@ describe('follow-up: material 6 action 包装 + 落盘/只读不加', () => {
 
 describe('follow-up: recording 整工具不包装（C5 文案对录制语义错位，spec §1 特例）', () => {
   it('recording.ts 源码不含 appendRuntimePersistWarning / runtimePersistWarning 调用', () => {
-    const src = readFileSync(resolve(process.cwd(), 'src/tools/recording.ts'), 'utf8');
+    const src = readFileSync(fileURLToPath(new URL('../src/tools/recording.ts', import.meta.url)), 'utf8');
     expect(src).not.toContain('appendRuntimePersistWarning');
     expect(src).not.toContain('runtimePersistWarning');
-  });
-
-  it('recording save/load/start 反向：handleTool 返回不含 ⚠（若 bridge mock 不可行则保留此静态断言为下限）', async () => {
-    // bridge client mock 较重（spec §5 :130 降级）；此 case 用静态源码断言锁定。
-    // 若未来接入 bridge mock，可改为 handleTool('recording', {action:'recording_save',...}, ctx) 端到端断言。
-    const src = readFileSync(resolve(process.cwd(), 'src/tools/recording.ts'), 'utf8');
-    expect(src).not.toMatch(/appendRuntimePersistWarning|runtimePersistWarning/);
   });
 });
 
@@ -494,6 +505,7 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -506,6 +518,7 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -517,6 +530,7 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -524,10 +538,11 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
   it('theme_set_property（theme）: 返回不含 ⚠', async () => {
     const result = await uiHandle(
       'ui',
-      { project_path: '/fake/p', action: 'theme_set_property', theme_node_path: 'root/X', item_type: 'color', prop_name: 'font_color', value: '#ffffff' },
+      { project_path: '/fake/p', action: 'theme_set_property', theme_node_path: 'root/X', item_type: 'color', prop_name: 'font_color', value: [1, 0, 0] },
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -540,6 +555,7 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
@@ -551,6 +567,7 @@ describe('follow-up: ui theme/query/落盘 action 不加提示', () => {
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
     const allText = result!.content.map((el) => (isTextContent(el) ? el.text : '')).join('');
     expect(allText).not.toContain('⚠');
   });
