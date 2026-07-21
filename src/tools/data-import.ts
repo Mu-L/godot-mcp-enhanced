@@ -144,13 +144,13 @@ func _initialize():
 \tif mkdir_err != OK:
 \t\t_errors.append({"row": 0, "reason": "create output dir failed: " + str(mkdir_err)})
 \t\t_mcp_done(); return
-\t# P2-1: 清上次 kill 留下的 .tres.tmp 残留（半截无害但占空间，每次调用自清）
+\t# P2-1: 清上次 kill 留下的 .tmp.tres 残留（半截无害但占空间，每次调用自清）
 \tvar clean_dir = DirAccess.open(_output_dir)
 \tif clean_dir:
 \t\tclean_dir.list_dir_begin()
 \t\tvar clean_fn = clean_dir.get_next()
 \t\twhile clean_fn != "":
-\t\t\tif clean_fn.ends_with(".tres.tmp"):
+\t\t\tif clean_fn.ends_with(".tmp.tres"):
 \t\t\t\tclean_dir.remove(clean_fn)
 \t\t\tclean_fn = clean_dir.get_next()
 \t\tclean_dir.list_dir_end()
@@ -183,7 +183,7 @@ func _initialize():
 \t\tvar full_path: String = _output_dir + "/" + filename + ".tres"
 \t\t# P2-1: tmp+rename 原子提交。kill 落在 save(tmp) 中途→tmp 半截 full_path 旧(不损);
 \t\t# rename 后→full_path 完整。full_path 永不半截→Godot 启动不 parse error→不阻塞加载。
-\t\tvar tmp_path: String = full_path + ".tmp"
+\t\tvar tmp_path: String = full_path.get_basename() + ".tmp.tres"
 \t\t# F-5(2026-07-04 审查): ResourceSaver.save 返回 Error,失败记 error + continue(不谎报 generated)。
 \t\tvar save_err: int = ResourceSaver.save(res, tmp_path)
 \t\tif save_err != OK:

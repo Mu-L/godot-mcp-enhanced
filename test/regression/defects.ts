@@ -378,11 +378,12 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   { key: 'csv-import-timeout-no-atomic-write', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
     // P2-1(2026-07-21 核实真问题): ResourceSaver.save 直写目标,超时 kill 落在 save 中途产半截损坏 .tres,
     // Godot 启动 ResourceLoader 扫 res:// parse error 阻塞项目加载。
-    // 修复:tmp+rename 原子提交(ResourceSaver.save 写 .tmp → DirAccess.rename_absolute 覆盖 full_path)。
-    // detect 查 tmp_path 变量 + rename_absolute 调用(删任一→detect=1 复发)。
+    // 修复:tmp+rename 原子提交(ResourceSaver.save 写 .tmp.tres → DirAccess.rename_absolute 覆盖 full_path)。
+    // tmp_path 用 .tmp.tres 扩展名(ResourceSaver 按扩展名选 saver,只认 .tres/.res,拒 .tmp 后缀 err 15)。
+    // detect 查 tmp_path 变量(tmp=.tmp.tres)+ rename_absolute 调用(删任一→detect=1 复发)。
     detect: () => {
       const f = readSrc('src/tools/data-import.ts');
-      const hasTmp = /var\s+tmp_path\s*:\s*String\s*=\s*full_path\s*\+\s*"\.tmp"/.test(f);
+      const hasTmp = /var\s+tmp_path\s*:\s*String\s*=\s*full_path\.get_basename\(\)\s*\+\s*"\.tmp\.tres"/.test(f);
       const hasRename = /DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path\s*\)/.test(f);
       return hasTmp && hasRename ? 0 : 1;
     } },

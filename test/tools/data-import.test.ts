@@ -331,7 +331,8 @@ describe('generateImportScript P2-1 原子提交 + .tmp 清理', () => {
   });
 
   it('save 循环用 tmp_path 中转 + rename_absolute 原子提交', () => {
-    expect(script).toMatch(/var\s+tmp_path\s*:\s*String\s*=\s*full_path\s*\+\s*"\.tmp"/);
+    // P2-1 fix: tmp_path 用 .tmp.tres 扩展名（ResourceSaver 拒 .tmp 后缀 err 15）
+    expect(script).toMatch(/var\s+tmp_path\s*:\s*String\s*=\s*full_path\.get_basename\(\)\s*\+\s*"\.tmp\.tres"/);
     expect(script).toMatch(/ResourceSaver\.save\(\s*res\s*,\s*tmp_path\s*\)/);
     expect(script).toMatch(/DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path\s*\)/);
   });
@@ -341,8 +342,8 @@ describe('generateImportScript P2-1 原子提交 + .tmp 清理', () => {
     expect(script).toMatch(/rename failed/);
   });
 
-  it('脚本开头清上次 kill 留下的 .tres.tmp 残留', () => {
-    expect(script).toMatch(/\.tres\.tmp/);
+  it('脚本开头清上次 kill 留下的 .tmp.tres 残留', () => {
+    expect(script).toMatch(/\.tmp\.tres/);
     expect(script).toMatch(/clean_dir\.remove\(/);
   });
 
