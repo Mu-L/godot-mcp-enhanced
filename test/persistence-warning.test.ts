@@ -31,6 +31,7 @@ import { handleTool as tilemapHandle } from '../src/tools/tilemap-ops.js';
 import { handleTool as animationHandle } from '../src/tools/animation/animation-ops.js';
 import { handleTool as node3dHandle } from '../src/tools/node-3d-ops.js';
 import { handleTool as physicsHandle } from '../src/tools/physics-ops.js';
+import { handleTool as navHandle } from '../src/tools/navigation.js';
 
 function createMockCtx() {
   return {
@@ -232,6 +233,60 @@ describe('follow-up: physics collision_overlay 包装 + 只读 action 不加', (
     const result = await physicsHandle(
       'physics',
       { project_path: '/fake/p', action: 'query_spatial', center: { x: 0, y: 0, z: 0 } },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    const allText = result!.content.map((el: any) => el.text ?? '').join('');
+    expect(allText).not.toContain('⚠');
+  });
+});
+
+// ─── follow-up Task 3: navigation 包装 ───────────────────────────────────────
+
+describe('follow-up: navigation 创造 action 包装 + query_path 不加', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('nav create_region: content[1] 含 ⚠ + nav_create_region', async () => {
+    const result = await navHandle(
+      'nav',
+      { project_path: '/fake/p', action: 'create_region', name: 'TestRegion' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    expect(() => JSON.parse(result!.content[0].text)).not.toThrow();
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('nav_create_region');
+  });
+
+  it('nav create_link（非主 action，防 Set 写漏）: content[1] 含 ⚠ + nav_create_link', async () => {
+    const result = await navHandle(
+      'nav',
+      {
+        project_path: '/fake/p', action: 'create_link', name: 'TestLink',
+        start_position: { x: 0, y: 0, z: 0 }, end_position: { x: 1, y: 0, z: 0 },
+      },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const warning = result!.content.find(
+      (el, i) => i > 0 && el.type === 'text' && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('nav_create_link');
+  });
+
+  it('nav query_path（只读）: 返回不含 ⚠', async () => {
+    const result = await navHandle(
+      'nav',
+      {
+        project_path: '/fake/p', action: 'query_path',
+        start_pos: { x: 0, y: 0, z: 0 }, end_pos: { x: 1, y: 0, z: 0 },
+      },
       createMockCtx() as any,
     );
     expect(result).not.toBeNull();

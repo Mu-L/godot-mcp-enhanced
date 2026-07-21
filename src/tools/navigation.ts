@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, validateVector3 } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, validateVector3, appendRuntimePersistWarning } from './shared.js';
 import { ff } from './shared/value-serializer.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -351,6 +351,10 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
 
+// follow-up C5: 创造/改运行时导航节点树（NavigationRegion3D/Agent3D/Link3D + 烘焙 mesh + 参数）
+// → 加提示；query_path 只读不加。
+const NAV_PERSIST_ACTIONS = new Set(['create_region', 'bake_mesh', 'create_agent', 'set_params', 'create_link']);
+
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {
@@ -480,7 +484,8 @@ export async function handleTool(
       return NAV_ERROR_CODES.SCRIPT_EXEC_FAILED;
     };
 
-    return parseGdscriptResult(result, paramWarnings, errorMapper);
+    const r = parseGdscriptResult(result, paramWarnings, errorMapper);
+    return NAV_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, `nav_${action}`) : r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
