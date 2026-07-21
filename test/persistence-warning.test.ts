@@ -38,6 +38,7 @@ import { handleTool as node3dHandle } from '../src/tools/node-3d-ops.js';
 import { handleTool as physicsHandle } from '../src/tools/physics-ops.js';
 import { handleTool as navHandle } from '../src/tools/navigation.js';
 import { handleTool as materialHandle } from '../src/tools/material-ops.js';
+import { handleTool as uiHandle } from '../src/tools/ui/index.js';
 
 // Minor4: 收窄 content 元素 union 到 text 类型，消除 .text 在非 text 元素上的 undefined 访问
 function isTextContent(el: ToolResult['content'][number]): el is { type: 'text'; text: string } {
@@ -439,5 +440,43 @@ describe('follow-up: recording 整工具不包装（C5 文案对录制语义错�
     // 若未来接入 bridge mock，可改为 handleTool('recording', {action:'recording_save',...}, ctx) 端到端断言。
     const src = readFileSync(resolve(process.cwd(), 'src/tools/recording.ts'), 'utf8');
     expect(src).not.toMatch(/appendRuntimePersistWarning|runtimePersistWarning/);
+  });
+});
+
+// ─── ui_* follow-up Task 1: Control 包装 + 正向 ─────────────────────────────
+
+describe('follow-up: ui Control action 包装 + 正向', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('ui_create_control: content[0] 可 JSON.parse + content[1] 含 ⚠ + ui_create_control', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_create_control', scene_path: 'res://scene.tscn', node_type: 'Label', node_name: 'TestLabel' },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    expect(() => JSON.parse(textOf(result, 0))).not.toThrow();
+    expect(textOf(result, 0)).not.toContain('⚠');
+    const warning = result!.content.find(
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el) && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('ui_create_control');
+  });
+
+  it('ui_build_layout（批量，非主 action 防 Set 写漏）: content[1] 含 ⚠ + ui_build_layout', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_build_layout', scene_path: 'res://scene.tscn', parent_path: 'root', tree: { type: 'VBoxContainer', name: 'TestVBox' } },
+      createMockCtx() as any,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const warning = result!.content.find(
+      (el, i): el is { type: 'text'; text: string } => i > 0 && isTextContent(el) && el.text.includes('⚠'),
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('ui_build_layout');
   });
 });

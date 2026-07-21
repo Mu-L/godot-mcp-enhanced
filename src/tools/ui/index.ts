@@ -6,7 +6,7 @@ import type { RiskLevel } from '../../core/tool-registry.js';
 import { getErrorMessage } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { executeGdscriptTrusted } from '../../gdscript-executor.js';
-import { normalizeNodePath, sanitizeResPath, opsErrorResult, parseGdscriptResult, NON_PERSIST } from '../shared.js';
+import { normalizeNodePath, sanitizeResPath, opsErrorResult, parseGdscriptResult, NON_PERSIST, appendRuntimePersistWarning } from '../shared.js';
 import { ACTIONS, CONTROL_TYPES, ANCHOR_PRESETS, ERROR_CODES, DRAW_OP_KINDS, findBlockedProps } from './types.js';
 import type { DrawOp, UiNodeSpec } from './types.js';
 import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScript } from './ui-create.js';
@@ -205,6 +205,10 @@ export function getToolDefinitions(): Tool[] {
 }
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
+
+// follow-up C5: Control 创造/改节点树（headless 退出丢失）→ 加提示；ui_get_layout 查询 +
+// ui_set_theme/theme_create/theme_set_property（Theme 资源，C5 文案 add_node 错位）不加。
+const UI_PERSIST_ACTIONS = new Set(['ui_create_control', 'ui_set_layout', 'ui_anchor_preset', 'ui_container_add', 'ui_draw_recipe', 'ui_build_layout']);
 
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
@@ -429,7 +433,8 @@ export async function handleTool(
       return ERROR_CODES.SCRIPT_EXEC_FAILED;
     };
 
-    return parseGdscriptResult(result, [], errorMapper);
+    const r = parseGdscriptResult(result, [], errorMapper);
+    return UI_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, action) : r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
