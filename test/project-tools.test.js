@@ -395,8 +395,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // hooks(1) + CLAUDE.md(1) + 7 rule files + 1 manifest action = 10
-    expect(parsed.actions.length).toBe(10);
+    // hooks(1) + CLAUDE.md(1) + 7 rule files + 1 manifest action + 1 AGENTS.md = 11
+    expect(parsed.actions.length).toBe(11);
 
     // Verify settings.json
     const settingsPath = join(dir, '.claude', 'settings.json');
@@ -446,8 +446,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // CLAUDE.md(1) + 7 rule files + 1 manifest action = 9 (no hooks)
-    expect(parsed.actions.length).toBe(9);
+    // CLAUDE.md(1) + 7 rule files + 1 manifest action + 1 AGENTS.md = 10 (no hooks)
+    expect(parsed.actions.length).toBe(10);
     expect(parsed.actions.some(a => a.includes('CLAUDE.md'))).toBe(true);
     expect(parsed.actions.some(a => a.includes('rules'))).toBe(true);
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);
@@ -463,9 +463,12 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    expect(parsed.actions.length).toBe(1);
-    expect(parsed.actions[0]).toContain('hooks');
+    // hooks(1) + AGENTS.md(1) = 2（claude_md=false 不写 CLAUDE.md，agents_md 默认 true）
+    expect(parsed.actions.length).toBe(2);
+    expect(parsed.actions.some(a => a.includes('hooks'))).toBe(true);
+    expect(parsed.actions.some(a => a.includes('AGENTS.md'))).toBe(true);
     expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(false);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
   });
 
   it('skips when already configured', async () => {
@@ -474,12 +477,12 @@ describe('project-tools handleTool — setup_project_rules', () => {
     // First run: creates everything
     await callProject('setup_project_rules', { project_path: dir }, ctx);
 
-    // Second run: should skip hooks and CLAUDE.md (rules 已最新 → manifest 报"全部最新")
+    // Second run: should skip hooks and CLAUDE.md and AGENTS.md (rules 已最新 → manifest 报"全部最新")
     const result = await callProject('setup_project_rules', { project_path: dir }, ctx);
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    expect(parsed.actions.length).toBe(3);
+    expect(parsed.actions.length).toBe(4);
     // hooks should be skipped, rules should be skipped
     expect(parsed.actions.some(a => a.includes('skipped'))).toBe(true);
   });

@@ -12,6 +12,7 @@ import {
   buildAutoloads, buildInputMap, buildPhysics, buildLayerNames, buildMcpMapping,
   buildTypeGuide, buildBestPractices, mergeSections, SECTION_ORDER, GODOT_MCP_RULES,
 } from './claudemd-builder.js';
+import { buildAgentsMdSections, mergeAgentsMd, AGENTS_SECTION_IDS as AGENTS_SECTIONS } from './agentsmd-builder.js';
 import { DETAILED_RULE_TEMPLATES } from './rule-templates.js';
 import {
   buildAdoptManifest, planReconcile, hashContent, countDeviations,
@@ -66,6 +67,7 @@ export function getToolDefinitions(): Tool[] {
             default: 'check',
           },
           claude_md: { type: 'boolean', description: '创建/追加 CLAUDE.md 验证规则（默认 true）', default: true },
+          agents_md: { type: 'boolean', description: '创建/追加 AGENTS.md 项目规则（ZCode/Codex/Cursor 等遵循 AGENTS.md 标准的客户端读取，默认 true）', default: true },
           ci: { type: 'boolean', description: '生成 GitHub Actions CI workflow（默认 false）', default: false },
           godot_version: { type: 'string', description: 'CI 中使用的 Godot 版本（默认 4.4）', default: '4.4' },
           force: { type: 'boolean', description: '覆盖已有配置（默认 false）', default: false },
@@ -269,7 +271,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const p = requireProjectPath(args);
       const doHooks = args.hooks !== false;
       const doClaudeMd = args.claude_md !== false;
+      const doAgentsMd = args.agents_md !== false;
       const force = args.force === true;
+      // mcpPkgPath 提升到 case 顶部：doClaudeMd 与 doAgentsMd 块共用
+      const mcpPkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
 
       if (!existsSync(join(p, 'project.godot'))) {
         return textResult(`Error: No project.godot found at ${p}. Not a Godot project.`);
@@ -439,7 +444,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
         // Read MCP version from package.json for template substitution
         //（base 与详细规则统一走 {{MCP_VERSION}} 插值，放在 base 段之前避免 TDZ）
-        const mcpPkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+        //（mcpPkgPath 已在 case 顶部声明，此处与 doAgentsMd 块共用）
         let mcpVersion = '0.16.0';
         try { mcpVersion = JSON.parse(readFileSync(mcpPkgPath, 'utf-8')).version || mcpVersion; } catch { /* fallback */ }
 
@@ -531,6 +536,41 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             if (byClass['local-modified']) actions.push(`rules: ${byClass['local-modified'].length} 个文件本地已修改（版本最新）`);
             if (byClass['latest'] && Object.keys(byClass).length === 1) actions.push('rules: 全部最新');
           }
+        }
+      }
+
+      // ── AGENTS.md rules（ZCode 等遵循 AGENTS.md 标准的客户端）──
+      if (doAgentsMd) {
+        const agentsMdPath = join(p, 'AGENTS.md');
+
+        // 独立 parse config（不引用 doClaudeMd 块内的 config：claude_md=false 时该块不执行）
+        let configForAgents: GodotConfig | null = null;
+        try {
+          configForAgents = ctx.parseGodotConfig(readFileSync(join(p, 'project.godot'), 'utf-8')) as GodotConfig;
+        } catch { configForAgents = null; }
+
+        // 独立解析 mcpVersion（不引用 doClaudeMd 块内的 mcpVersion）
+        let agentsMcpVersion = '0.16.0';
+        try { agentsMcpVersion = JSON.parse(readFileSync(mcpPkgPath, 'utf-8')).version || agentsMcpVersion; } catch { /* fallback */ }
+
+        const sectionsVersioned = buildAgentsMdSections(configForAgents, p, agentsMcpVersion);
+        const projectName = configForAgents
+          ? (configForAgents.application as Record<string, unknown>)?.['config/name'] || basename(p)
+          : basename(p);
+
+        if (existsSync(agentsMdPath)) {
+          const existing = readFileSync(agentsMdPath, 'utf-8');
+          const hasMcpSections = [...AGENTS_SECTIONS].some(h => existing.includes(h));
+          if (hasMcpSections && !force) {
+            actions.push('AGENTS.md: skipped (already configured, use force=true to update)');
+          } else {
+            writeAtomic(agentsMdPath, mergeAgentsMd(existing, sectionsVersioned));
+            actions.push(force ? 'AGENTS.md: updated (force)' : 'AGENTS.md: merged new sections into existing file');
+          }
+        } else {
+          const body = sectionsVersioned.map(([h, b]) => `${h}\n${b}`).join('\n\n');
+          writeAtomic(agentsMdPath, `# ${projectName}\n\n${body}\n`);
+          actions.push('AGENTS.md: created with project metadata');
         }
       }
 
