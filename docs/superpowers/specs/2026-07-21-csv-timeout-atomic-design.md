@@ -1,7 +1,7 @@
 # csv_to_resources 超时残留修复设计（P2-1）
 
 > 日期：2026-07-21
-> 状态：设计待审
+> 状态：已实现（commits `1c59865`..`0131823`；fix `0131823` 同步 `.tmp.tres` 扩展名——ResourceSaver 拒 `.tmp` err15 回归坑）
 > 关联：核实见 `D:\workspace\Obsidian\GodotMCP\开发日志\2026-07-21 P2 核实（csv 残留真+completion 误报）.md`
 
 ## 背景
@@ -37,7 +37,7 @@ P2-1（核实结论：真问题 IMPORTANT）：`csv_to_resources` 在写入 .tre
 
 **A.1 脚本开头清 .tmp 残留**（mkdir 守卫后、CSV 循环前）
 
-清上次 kill 留在 output_dir 的 `.tres.tmp`（半截无害但占空间，堆积影响）：
+清上次 kill 留在 output_dir 的 `.tmp.tres`（半截无害但占空间，堆积影响）：
 
 ```gdscript
 var clean_dir = DirAccess.open(_output_dir)
@@ -45,7 +45,7 @@ if clean_dir:
     clean_dir.list_dir_begin()
     var clean_fn = clean_dir.get_next()
     while clean_fn != "":
-        if clean_fn.ends_with(".tres.tmp"):
+        if clean_fn.ends_with(".tmp.tres"):
             clean_dir.remove(clean_fn)
         clean_fn = clean_dir.get_next()
     clean_dir.list_dir_end()
@@ -57,7 +57,9 @@ if clean_dir:
 
 ```gdscript
 var full_path: String = _output_dir + "/" + filename + ".tres"
-var tmp_path: String = full_path + ".tmp"
+# .tmp.tres 扩展名:ResourceSaver 按路径扩展名分派 saver,只认 .tres/.res;
+# .tres.tmp 会 err 15 ERR_FILE_UNRECOGNIZED(fix 0131823 回归坑)
+var tmp_path: String = full_path.get_basename() + ".tmp.tres"
 var save_err: int = ResourceSaver.save(res, tmp_path)
 if save_err != OK:
     _errors.append({"row": _row_count, "value": filename, "reason": "save failed: " + str(save_err)})
@@ -80,7 +82,7 @@ _generated.append(full_path)
 
 **rename 覆盖策略**：
 - 主路径：`DirAccess.rename_absolute` 原子覆盖已存在（Godot 4.x：Windows `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` / POSIX `rename()`，同文件系统原子）
-- plan 实现时**实测验证** 4.6.2 + 4.7 覆盖行为
+- **已实测**（fix `0131823` 阶段，Godot 4.7 headless）：`DirAccess.rename_absolute(tmp, full)` 覆盖已存在 full_path = err 0 ✓（验收#9 完成，降级路径未触发）
 - 降级（若某版本不覆盖）：`if file_exists(full_path): remove(full_path)` 再 `rename`。remove+rename 间窗口 full_path 不存在，kill 仍不产半截（损失旧文件但不阻塞加载），可接受
 
 ### B. handler timeout 可配（`data-import.ts:332-338`）
@@ -120,8 +122,8 @@ handler 须从 args 取 timeout（确认 args 解析路径，与现有 filenameC
     // 修复:tmp+rename 原子提交(DirAccess.rename_absolute)。detect 查 tmp_path + rename_absolute 模式存在。
     detect: () => {
         const f = readSrc('src/tools/data-import.ts');
-        const hasTmp = /var\s+tmp_path\s*:\s*String\s*=\s*full_path\s*\+\s*"\.tmp"/.test(f);
-        const hasRename = /DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path/.test(f);
+        const hasTmp = /var\s+tmp_path\s*:\s*String\s*=\s*full_path\.get_basename\(\)\s*\+\s*"\.tmp\.tres"/.test(f);
+        const hasRename = /DirAccess\.rename_absolute\(\s*tmp_path\s*,\s*full_path\s*\)/.test(f);
         return hasTmp && hasRename ? 0 : 1;
     } },
 ```
@@ -150,15 +152,15 @@ detect 查 tmp_path 赋值 + rename_absolute 调用（删任一 → detect=1 复
 
 ## 验收标准
 
-- [ ] GDScript 模板含 tmp_path + rename_absolute 原子提交
-- [ ] 脚本开头清 .tres.tmp 残留
-- [ ] handler timeout 可配（args.timeout ?? 60）
-- [ ] schema 含可选 timeout 字段（default 60）
-- [ ] defects.ts 登记 csv-import-timeout-no-atomic-write（FIXED，detect=0）
-- [ ] tsc 0 error
-- [ ] vitest 全量绿（含新增测试）
-- [ ] 现有 data-import 测试无回归
-- [ ] Godot 4.6.2 + 4.7 DirAccess.rename_absolute 覆盖行为实测（或降级 remove+rename）
+- [x] GDScript 模板含 tmp_path + rename_absolute 原子提交（`data-import.ts` GDSCRIPT_TEMPLATE）
+- [x] 脚本开头清 .tmp.tres 残留（mkdir 守卫后 clean_dir 块）
+- [x] handler timeout 可配（`args.timeout ?? 60`，`data-import.ts` handler）
+- [x] schema 含可选 timeout 字段（default 60）
+- [x] defects.ts 登记 csv-import-timeout-no-atomic-write（FIXED，detect=0，`defects.ts:378-389`）
+- [x] tsc 0 error（fix `0131823` 亲验）
+- [x] vitest 全量绿（data-import 27/27 + integration 5/5 + defects-fixed 69/69；4 pre-existing T11 elicitation 非本次）
+- [x] 现有 data-import 测试无回归（integration 5/5 恢复）
+- [x] Godot 4.7 DirAccess.rename_absolute 覆盖行为实测（fix `0131823`，rename 覆盖 err0；4.6.2 未单独跑，OS 级 MoveFileExW/POSIX rename 保证足够）
 
 ## YAGNI 边界
 
