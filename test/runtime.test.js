@@ -459,6 +459,9 @@ describe('run_project — Imp-4 process replacement guard', () => {
 
     expect(setProcessBusy).not.toHaveBeenCalled();
     expect(ctx.setRunningProcess).not.toHaveBeenCalled();
+    // ADVISORY-3（final review Minor-4）：守卫 false 时 unregister 仍在守卫外执行（runtime.ts:208），移除旧 procA pid。
+    // 若将来误把 unregister 移进守卫内，此断言会 RED（procA 被 procB 替换后 unregister 不再触发）。
+    expect(unregisterSpawnedGodotPid).toHaveBeenCalledWith(54321);
   });
 
   it('Imp-4: runningProcess 仍是该进程时,close 正常清 busy/running', async () => {
@@ -495,5 +498,7 @@ describe('run_project — Imp-4 process replacement guard', () => {
 
     expect(setProcessBusy).not.toHaveBeenCalled();
     expect(ctx.setRunningProcess).not.toHaveBeenCalled();
+    // ADVISORY-3（final review Minor-4）：error handler 同理，守卫外 unregister 执行（runtime.ts:218）。
+    expect(unregisterSpawnedGodotPid).toHaveBeenCalledWith(54321);
   });
 });
