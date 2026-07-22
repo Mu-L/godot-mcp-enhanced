@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgentsMd, AGENTS_SECTION_IDS } from '../../src/tools/agentsmd-builder.js';
+import { buildAgentsMd, buildAgentsMdSections, mergeAgentsMd, AGENTS_SECTION_IDS } from '../../src/tools/agentsmd-builder.js';
 import type { GodotConfig } from '../../src/helpers.js';
 
 const config: GodotConfig = {
@@ -48,5 +48,17 @@ describe('agentsmd-builder', () => {
   it('含 ZCode 内联说明（不指向 .claude/rules/）', () => {
     const md = buildAgentsMd(config, '.', 'TestGame', '0.99.0');
     expect(md).toContain('已全部内联到本文件');
+  });
+
+  it('二次合并不产生 base H1 降级的伪段（幂等）', () => {
+    const first = buildAgentsMd(config, '.', 'TestGame', '0.99.0');
+    const sections = buildAgentsMdSections(config, '.', '0.99.0');
+    const merged = mergeAgentsMd(first, sections);
+    // base 段 body 内不应有 ## Godot MCP 开发规则（H1 已剥，非降级为 H2）
+    expect(merged).not.toMatch(/\n## Godot MCP 开发规则\n/);
+    // 幂等：二次合并后 AGENTS_SECTION_IDS 的段仍各出现一次
+    for (const h of AGENTS_SECTION_IDS) {
+      expect(merged.split(h).length).toBe(2);  // 段头出现 1 次 → split 得 2 段
+    }
   });
 });

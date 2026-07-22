@@ -395,8 +395,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // hooks(1) + CLAUDE.md(1) + 6 rule files + 1 manifest action = 9
-    expect(parsed.actions.length).toBe(9);
+    // hooks(1) + CLAUDE.md(1) + 7 rule files + 1 manifest action = 10
+    expect(parsed.actions.length).toBe(10);
 
     // Verify settings.json
     const settingsPath = join(dir, '.claude', 'settings.json');
@@ -446,8 +446,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // CLAUDE.md(1) + 6 rule files + 1 manifest action = 8 (no hooks)
-    expect(parsed.actions.length).toBe(8);
+    // CLAUDE.md(1) + 7 rule files + 1 manifest action = 9 (no hooks)
+    expect(parsed.actions.length).toBe(9);
     expect(parsed.actions.some(a => a.includes('CLAUDE.md'))).toBe(true);
     expect(parsed.actions.some(a => a.includes('rules'))).toBe(true);
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);

@@ -104,8 +104,12 @@ export function buildAgentsMdSections(
     sections.push(['## 项目信息', buildInlineMapping()]);
   }
 
-  // ── base 规则（GODOT_MCP_RULES，H1+H2 → 降级为 H2+H3）──
-  const baseContent = GODOT_MCP_RULES.replace(/\{\{MCP_VERSION\}\}/g, mcpVersion);
+  // ── base 规则（GODOT_MCP_RULES，H2 → 降级为 H3）──
+  // 剥 H1：段头已是 ## Godot MCP 通用规则，H1 冗余且降级为 H2 后会被
+  // parseSections 误判为顶层新段（不在 AGENTS_SECTION_IDS → 当用户段保留），破坏幂等合并。
+  const baseContent = GODOT_MCP_RULES
+    .replace(/\{\{MCP_VERSION\}\}/g, mcpVersion)
+    .replace(/^# Godot MCP 开发规则\n+/, '');
   sections.push(['## Godot MCP 通用规则', demoteHeadings(baseContent).trim()]);
 
   // ── 各子系统规则模板（剥离 frontmatter + 版本引用，降级 H2→H3/H3→H4）──
