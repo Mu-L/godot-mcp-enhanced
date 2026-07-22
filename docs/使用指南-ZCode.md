@@ -68,6 +68,10 @@ ZCode 支持三种录入方式（来源 mcp-services 页，2026-07-22 抓取）�
 }
 ```
 
+`.zcode/config.json` 的两个作用域（来源 mcp-services 页，2026-07-22 抓取）：
+- 用户级：`~/.zcode/cli/config.json`
+- 工作区级：`<项目根>/.zcode/config.json`
+
 或兼容格式 `<项目根>/.agents/mcp.json`，键 `mcpServers`：
 
 ```json
