@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Security（execute 取证，对照 UE 9b128514）
+
+- **execute_gdscript 崩溃取证套件**：spawn godot 之前对【原始用户 code】算字节级 SHA-256 + 生成 `executionId`，记一条 `EXECUTE_BEGIN` 结构化审计日志（不含原始 code，对齐 I-10 字面量脱敏）；`ExecuteGdscriptResult` 回填 `executionId`/`scriptSha256`（成功 / RID leak / 无 marker 三路径都回填）。崩溃/超时后可凭日志反查具体执行（哪段 code 的 hash、写到哪个临时文件），无需原始 code 入日志。新增 `buildExecAuditEvent()` 纯函数 + 8 测试（5 单元 + 3 源码契约锁 log-before-exec 顺序）。差异化护城河：Godot AI 的 `game_eval` 是运行时求值，无 execute 前哈希留痕与崩溃溯源。
+
 ### BREAKING — scene 工具行为对齐（spec A 闭环）
 
 - `scene edit_node` 现在自动落盘到 .tscn（之前仅改内存，需配合持久化操作）。迁移：直接调 edit_node 即落盘，无需再调 save_scene

@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from 'fs';
 import { writeFile, mkdir, rm, readdir, lstat, mkdtemp } from 'fs/promises';
 import { join, basename, resolve } from 'path';
 import { tmpdir, userInfo } from 'os';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
 import { forceKillTree, getProjectDir, getRunningProcess, acquireShortRunningSlot, releaseShortRunningSlot } from './core/process-state.js';
 import { buildSafeEnv } from './helpers.js';
@@ -459,6 +459,10 @@ export interface ExecuteGdscriptResult {
   duration_ms: number;
   /** Auto-detected autoload references (non-empty when load_autoloads was auto-enabled) */
   autoload_detected?: string[];
+  /** C-AUDIT: per-execution id（对照 UE 9b128514），崩溃/超时后凭日志反查具体执行 */
+  executionId?: string;
+  /** C-AUDIT: 原始用户 code 的字节级 SHA-256（hex），不含原始 code 本身（对齐 I-10） */
+  scriptSha256?: string;
 }
 
 export interface ExecuteGdscriptOptions {
@@ -468,6 +472,37 @@ export interface ExecuteGdscriptOptions {
   timeout: number; // seconds
   /** When true, runs with full autoload context (slower but can access autoloads like DataRegistry) */
   loadAutoloads?: boolean;
+}
+
+// ─── Execute 取证审计（C-AUDIT，对照 UE 9b128514）─────────────────────────────
+//
+// 在 spawn godot 之前对【原始用户 code】算字节级 SHA-256 + 生成 executionId，记一条
+// EXECUTE_BEGIN 结构化审计日志。崩溃/超时后可凭日志反查到具体执行（哪段 code、写到哪个
+// 临时文件）。事件【不含原始 code】（对齐 I-10 字面量脱敏），只放 hash + 路径 + 模式。
+
+export interface ExecAuditEvent {
+  audit: 'EXECUTE_BEGIN';
+  executionId: string;
+  scriptSha256: string;
+  scriptPath: string;
+  mode: string;
+  autoload: boolean;
+}
+
+export function buildExecAuditEvent(input: {
+  code: string;
+  scriptPath: string;
+  mode: string;
+  autoload: boolean;
+}): ExecAuditEvent {
+  return {
+    audit: 'EXECUTE_BEGIN',
+    executionId: randomUUID(),
+    scriptSha256: createHash('sha256').update(input.code, 'utf8').digest('hex'),
+    scriptPath: input.scriptPath,
+    mode: input.mode,
+    autoload: input.autoload,
+  };
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -1124,6 +1159,21 @@ export async function executeGdscript(
     godotArgs.push('--script', tempFile);
   }
 
+  // C-AUDIT (对照 UE 9b128514): spawn 前留痕——原始 code 的字节级 SHA-256 + executionId，
+  // 记 EXECUTE_BEGIN 审计（不含原始 code，对齐 I-10）。崩溃/超时后凭日志反查；executionId/
+  // scriptSha256 同时回填到结果（见下方 resolve），便于调用方与日志双向定位。
+  const execMode = isFullClass(code)
+    ? (loadAutoloads ? 'full_class_autoload' : 'full_class')
+    : (loadAutoloads ? 'snippet_autoload' : 'snippet');
+  const auditEvent = buildExecAuditEvent({
+    code,
+    scriptPath: tempFile,
+    mode: execMode,
+    autoload: loadAutoloads,
+  });
+  getLogger().info('security', JSON.stringify(auditEvent));
+  const { executionId, scriptSha256 } = auditEvent;
+
   // Spawn Godot process
   return new Promise<ExecuteGdscriptResult>((resolve, reject) => {
     // C-PERF-01: Use Buffer[] to avoid O(n²) string concatenation.
@@ -1240,6 +1290,8 @@ export async function executeGdscript(
           raw_output: logLines.join('\n'),
           duration_ms: duration,
           autoload_detected: autoloadDetected,
+          executionId,
+          scriptSha256,
         });
       } else {
         // No marker found — likely a compile error or crash
@@ -1261,6 +1313,8 @@ export async function executeGdscript(
               raw_output: logLines.join('\n'),
               duration_ms: duration,
               autoload_detected: autoloadDetected,
+              executionId,
+              scriptSha256,
             });
             return;
           }
@@ -1276,6 +1330,8 @@ export async function executeGdscript(
           raw_output: logLines.join('\n'),
           duration_ms: duration,
           autoload_detected: autoloadDetected,
+          executionId,
+          scriptSha256,
         });
       }
     });
