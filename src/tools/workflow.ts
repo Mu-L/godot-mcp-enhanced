@@ -251,6 +251,13 @@ func _snap(node: Node, max_depth: int, depth: int) -> Dictionary:
 `;
 }
 
+/** A3: user:// res:// 分支 .. 段拒绝（对齐 command_helpers.gd has_path_traversal 语义）。
+ * 统一 resolveWithinRoot 会破坏 user:// 语义（user:// 映射到 OS 用户数据目录非项目根），
+ * 故最小补 .. 段拒绝：检测 /../ 、startsWith('../')、endsWith('/..')、=== '..' 四形。 */
+function hasTraversalSegments(p: string): boolean {
+  return p.includes('/../') || p.startsWith('../') || p.endsWith('/..') || p === '..';
+}
+
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'workflow') return null;
 
@@ -380,6 +387,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
               const rawPath = (screenshot.path as string) || 'user://mcp_dev_screenshot.png';
               if (!rawPath.startsWith('user://') && !rawPath.startsWith('res://')) {
                 bridgeResult.screenshot = { success: false, error: 'path must start with user:// or res://' };
+              } else if (hasTraversalSegments(rawPath)) {
+                bridgeResult.screenshot = { success: false, error: 'path traversal blocked' };
               } else {
                 const ssResp = await sendToBridge('take_screenshot', { path: rawPath }, 10000);
                 bridgeResult.screenshot = ssResp.error
@@ -503,6 +512,10 @@ func _initialize():
                   // B5:reference_path 限 res://、user:// 或项目内绝对路径,防项目外任意文件读取
                   let referencePath: string;
                   if (rawReferencePath.startsWith('res://') || rawReferencePath.startsWith('user://')) {
+                    if (hasTraversalSegments(rawReferencePath)) {
+                      assertionResults.push({ description: desc, passed: false, error: 'path traversal blocked' });
+                      continue;
+                    }
                     referencePath = rawReferencePath;
                   } else {
                     try { referencePath = resolveWithinRoot(projectPath, rawReferencePath); }
@@ -568,6 +581,10 @@ func _initialize():
               // B5:frames_dir 限 res://、user:// 或项目内绝对路径
               let framesDir: string;
               if (rawFramesDir.startsWith('res://') || rawFramesDir.startsWith('user://')) {
+                if (hasTraversalSegments(rawFramesDir)) {
+                  assertionResults.push({ description: fd.description, passed: false, error: 'path traversal blocked' });
+                  continue;
+                }
                 framesDir = rawFramesDir;
               } else {
                 try { framesDir = resolveWithinRoot(projectPath, rawFramesDir); }
