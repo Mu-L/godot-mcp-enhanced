@@ -362,18 +362,48 @@ function escapeShellArg(s: string): string {
 const ORPHAN_SCAN_TIMEOUT_MS = 15_000;
 
 /**
- * Scan OS for orphaned Godot processes matching a project directory and kill them.
- * Returns the number of processes killed. Throttled to once per 30s.
+ * 清理本会话 orphan Godot 进程（V-01 第二层，会话隔离版）。
  *
- * Windows: uses Get-CimInstance with PowerShell variable for path parameterization.
- * Linux/macOS: uses pgrep + grep -F for literal path matching.
+ * 默认（第一层）：遍历 `_spawnedGodotPids`，清"脱离 `_runningProcess` 管理且仍存活"的 PID。
+ *   - 跳过 `_runningProcess.pid`（正在管理的进程不杀）
+ *   - 已退出 PID 惰性移除
+ *   - 存活且脱离管理 → killPidTree（双平台清整树）
+ *
+ * opt-in（第二层，崩溃恢复兜底）：`GODOT_MCP_FULL_SYSTEM_SCAN=true` 且提供 projectDir 时，
+ *   走 V-01 全系统扫描（清命令行含 projectDir 的所有 Godot，跳过 runningPid）。
+ *
+ * 30s 节流。返回清理数。
  */
-export async function killOrphanGodotProcesses(projectDir: string): Promise<number> {
+export async function killOrphanGodotProcesses(projectDir?: string): Promise<number> {
   if (Date.now() - _lastOrphanScanTime < ORPHAN_SCAN_INTERVAL_MS) return 0;
   _lastOrphanScanTime = Date.now();
 
-  if (!projectDir) return 0;
+  const runningPid = _runningProcess?.pid;
+  let killed = 0;
 
+  // 第一层（默认）：本会话 PID 集合
+  for (const pid of Array.from(_spawnedGodotPids)) {
+    if (pid === runningPid) continue;  // 正在管理，跳过
+    if (!isPidAlive(pid)) { _spawnedGodotPids.delete(pid); continue; }  // 已退出，惰性移除
+    killPidTree(pid);
+    _spawnedGodotPids.delete(pid);
+    killed++;
+  }
+
+  // 第二层（opt-in 崩溃恢复兜底）
+  if (process.env.GODOT_MCP_FULL_SYSTEM_SCAN === 'true' && projectDir) {
+    killed += await fullSystemScanGodot(projectDir, runningPid);
+  }
+  return killed;
+}
+
+/**
+ * V-01 全系统扫描（仅 GODOT_MCP_FULL_SYSTEM_SCAN=true 时调用）。
+ * 扫描命令行含 projectDir 的 Godot 进程并清理，跳过 excludePid（正在管理的进程）。
+ * 保留 escapePsSingleQuote / escapeShellArg 转义（注入防护）。
+ */
+async function fullSystemScanGodot(projectDir: string, excludePid?: number): Promise<number> {
+  if (!projectDir) return 0;
   const normalizedDir = projectDir.replace(/\\/g, '/');
 
   if (isWin) {
@@ -410,7 +440,7 @@ export async function killOrphanGodotProcesses(projectDir: string): Promise<numb
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        const pids = out.trim().split('\n').map(Number).filter(n => n > 0);
+        const pids = out.trim().split('\n').map(Number).filter(n => n > 0 && n !== excludePid);
         for (const pid of pids) {
           try {
             // P1: same async-error guard as forceKillTree — a spawn 'error' without
@@ -456,7 +486,7 @@ export async function killOrphanGodotProcesses(projectDir: string): Promise<numb
         if (settled) return;
         settled = true;
         const lines = out.trim().split('\n').filter(l => /^\d+$/.test(l.trim()));
-        const pids = lines.map(Number).filter(n => n > 0);
+        const pids = lines.map(Number).filter(n => n > 0 && n !== excludePid);
         for (const pid of pids) {
           try { process.kill(pid, 'SIGTERM'); } catch { /* best effort */ }
         }

@@ -578,44 +578,78 @@ describe('spawnedGodotPids registry', () => {
   });
 });
 
-// ─── killOrphanGodotProcesses (V-01 second layer) ───────────────────────────
+// ─── killOrphanGodotProcesses (默认基于集合 + opt-in 全系统扫描) ────────────
 
 describe('killOrphanGodotProcesses', () => {
   beforeEach(() => {
     resetState();
+    vi.clearAllMocks();
   });
 
-  it('returns 0 when projectDir is empty', async () => {
-    const count = await killOrphanGodotProcesses('');
-    expect(count).toBe(0);
-  });
-
-  it('returns 0 when no orphan processes exist', async () => {
-    const count = await killOrphanGodotProcesses('/nonexistent/project/path');
-    expect(count).toBeGreaterThanOrEqual(0);
-  });
-
-  it('throttles: second call within 30s returns 0', async () => {
-    await killOrphanGodotProcesses('/some/project');
-    const count = await killOrphanGodotProcesses('/some/project');
-    expect(count).toBe(0);
-  });
-
-  it('Windows: uses literal .Contains($path) for matching, not -like wildcard (D4)', async () => {
-    // 非 Windows 走 pgrep 分支,不 spawn powershell — 仅 Windows 验证命令字符串
+  it('默认路径：清集合里存活 PID（Windows taskkill）', async () => {  // T3a
     if (process.platform !== 'win32') return;
+    registerSpawnedGodotPid(process.pid);  // 当前进程，isPidAlive=true
+    const count = await killOrphanGodotProcesses();
+    expect(count).toBe(1);
+    expect(spawn).toHaveBeenCalledWith('taskkill', ['/F', '/T', '/PID', String(process.pid)], { stdio: 'ignore' });
+    expect(getSpawnedGodotPids()).toEqual([]);  // 清后集合空
+  });
+
+  it('跳过当前 _runningProcess.pid（正在管理的进程不杀）', async () => {  // T4
+    const fakeRunning = { killed: false, pid: process.pid, kill: vi.fn(), on: vi.fn() };
+    setRunningProcess(fakeRunning);
+    registerSpawnedGodotPid(process.pid);      // == runningPid，应跳过
+    registerSpawnedGodotPid(999999);            // 不存在，惰性移除（isPidAlive=false）
+    const count = await killOrphanGodotProcesses();
+    expect(count).toBe(0);  // runningPid 跳过 + 999999 不存活，均不计 killed
+    expect(getSpawnedGodotPids()).toEqual([process.pid]);  // runningPid 仍在集合（未清，因跳过）
+  });
+
+  it('已退出 PID 惰性移除，返回 0', async () => {  // T5
+    registerSpawnedGodotPid(999999);  // 不存在的 pid，isPidAlive=false
+    const count = await killOrphanGodotProcesses();
+    expect(count).toBe(0);
+    expect(getSpawnedGodotPids()).toEqual([]);  // 惰性删除
+  });
+
+  it('30s 节流：第二次调用返回 0', async () => {  // T6
+    registerSpawnedGodotPid(999999);
+    await killOrphanGodotProcesses();
+    const count = await killOrphanGodotProcesses();
+    expect(count).toBe(0);
+  });
+
+  it('opt-in：GODOT_MCP_FULL_SYSTEM_SCAN=true 时触发全系统扫描', async () => {  // T3c
+    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
+    const count = await killOrphanGodotProcesses('/some/project');
+    // fullSystemScanGodot 走 spawn（Win: powershell / POSIX: sh），count 取决于 mock；
+    // 关键验证：env 开启时额外 spawn 被调用（powershell 或 sh）
+    const scanSpawn = spawn.mock.calls.find(c => c[0] === 'powershell' || c[0] === 'sh');
+    expect(scanSpawn).toBeDefined();
+    expect(count).toBeGreaterThanOrEqual(0);
+    vi.unstubAllEnvs();
+  });
+
+  it('opt-in 关闭：不触发全系统扫描', async () => {  // T3c-neg
+    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'false');
+    await killOrphanGodotProcesses('/some/project');
+    const scanSpawn = spawn.mock.calls.find(c => c[0] === 'powershell' || c[0] === 'sh');
+    expect(scanSpawn).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
+  it('Windows: fullSystemScanGodot 用 literal .Contains($path)（D4，opt-in 路径）', async () => {  // T8
+    if (process.platform !== 'win32') return;
+    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
     spawn.mockClear();
-    // 路径含 [ ] 会让 -like 通配符误判;修复后用 .Contains 精确匹配
     const weirdPath = 'D:/my[game]/proj';
     await killOrphanGodotProcesses(weirdPath);
     const psCall = spawn.mock.calls.find(c => c[0] === 'powershell');
     expect(psCall).toBeDefined();
     const cmd = psCall[1].find(a => typeof a === 'string' && a.includes('Where-Object'));
-    expect(cmd).toBeDefined();
-    // D4:路径匹配用 .Contains($path) 字面量,不再用 -like ('*'+$path+'*') 通配符
     expect(cmd).toContain('.Contains($path)');
     expect(cmd).not.toMatch(/-like\s+\('\*'\s*\+\s*\$path/);
-    // $path 值被注入(escapePsSingleQuote 仅转义单引号,方括号原样保留)
     expect(cmd).toContain(weirdPath);
+    vi.unstubAllEnvs();
   });
 });
