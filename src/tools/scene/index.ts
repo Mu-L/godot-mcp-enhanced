@@ -224,7 +224,7 @@ export async function handleTool(
 
       const params: Record<string, unknown> = {};
       if (action === 'create_scene') {
-        const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; // A7: 越权防护（对齐 read_scene/add_node）
+        try { const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
         // 2026-07-12 CRITICAL RCE 复合链修复：root_node_type 补字符校验
         // 与 add_node:141 / batch_add_nodes:315 / quick_scene:257 对齐。
         // 堵特殊字符注入（shell 元字符 / 路径穿越透传到 godot_operations.gd）。
@@ -236,10 +236,10 @@ export async function handleTool(
         params.root_node_type = rootNodeType;
         if (args.root_node_name) params.root_node_name = args.root_node_name;
       } else if (action === 'save_scene') {
-        const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; // A7: 越权防护
+        try { const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
         if (args.new_path) { try { const np = normalizeUserProjectPath(String(args.new_path)); resolveWithinRoot(p, np); params.new_path = np; } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'new_path contains path traversal'); } }
       } else if (action === 'load_sprite') {
-        const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; // A7: 越权防护
+        try { const sp = normalizeUserProjectPath(args.scene_path as string); resolveWithinRoot(p, sp); params.scene_path = sp; } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'scene_path contains path traversal'); }
         const tp = String(args.texture_path);
         try { sanitizeResPath(tp, 'texture_path'); } catch { releaseShortRunningSlot(); return opsErrorResult('INVALID_PATH', 'texture_path contains path traversal'); }
         params.texture_path = tp; params.node_path = args.node_path || 'root';

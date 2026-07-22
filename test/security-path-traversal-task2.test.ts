@@ -86,37 +86,72 @@ describe('Task 2: TS path traversal hardening (A2/A6/A7/A9)', () => {
   });
 
   // ─── A7: scene create_scene / save_scene / load_sprite ──────────────────
+  // review Important #1: scene_path 含 `..` 不再 throw（slot 泄漏 DoS），
+  // 改为 catch + releaseShortRunningSlot + 返 INVALID_PATH 错误结果。
   describe('A7: scene create_scene scene_path traversal', () => {
-    it('rejects create_scene scene_path with `..` segment', async () => {
-      // 修复前: normalizeUserProjectPath 无 resolveWithinRoot 包裹（越权传给 godot）
-      // 修复后: resolveWithinRoot 抛 Path traversal detected
-      await expect(sceneHandle('scene', {
+    it('rejects create_scene scene_path with `..` segment (no throw, releases slot)', async () => {
+      // 修复前(b592a23): resolveWithinRoot 裸调抛 Error，slot 不释放
+      // 修复后: catch + releaseShortRunningSlot + opsErrorResult('INVALID_PATH')
+      const r = await sceneHandle('scene', {
         action: 'create_scene',
         project_path: tmpProj,
         scene_path: '../outside/evil.tscn',
-      }, makeCtx())).rejects.toThrow(/Path traversal detected/);
+      }, makeCtx());
+      expect(r?.isError).toBe(true);
+      expect(JSON.parse(r!.content[0].text).error_code).toBe('INVALID_PATH');
     });
   });
 
   describe('A7: scene save_scene scene_path traversal', () => {
-    it('rejects save_scene scene_path with `..` segment', async () => {
-      await expect(sceneHandle('scene', {
+    it('rejects save_scene scene_path with `..` segment (no throw, releases slot)', async () => {
+      const r = await sceneHandle('scene', {
         action: 'save_scene',
         project_path: tmpProj,
         scene_path: '../outside/evil.tscn',
-      }, makeCtx())).rejects.toThrow(/Path traversal detected/);
+      }, makeCtx());
+      expect(r?.isError).toBe(true);
+      expect(JSON.parse(r!.content[0].text).error_code).toBe('INVALID_PATH');
     });
   });
 
   describe('A7: scene load_sprite scene_path traversal', () => {
-    it('rejects load_sprite scene_path with `..` segment', async () => {
-      await expect(sceneHandle('scene', {
+    it('rejects load_sprite scene_path with `..` segment (no throw, releases slot)', async () => {
+      const r = await sceneHandle('scene', {
         action: 'load_sprite',
         project_path: tmpProj,
         scene_path: '../outside/evil.tscn',
         texture_path: 'res://icon.svg',
         node_path: 'root',
-      }, makeCtx())).rejects.toThrow(/Path traversal detected/);
+      }, makeCtx());
+      expect(r?.isError).toBe(true);
+      expect(JSON.parse(r!.content[0].text).error_code).toBe('INVALID_PATH');
+    });
+  });
+
+  // review Important #1: slot 释放验证——连续 3 次恶意 scene_path 后第 4 次合法调用
+  // 不应 CONCURRENCY_LIMIT（证明 slot 已释放，非 DoS）。
+  describe('A7: scene_path slot release (review Important #1)', () => {
+    it('3x malicious scene_path then 1x legitimate succeeds (no CONCURRENCY_LIMIT)', async () => {
+      // 3 次恶意调用：每次应返 INVALID_PATH，不应 throw，不应泄漏 slot
+      for (let i = 0; i < 3; i++) {
+        const r = await sceneHandle('scene', {
+          action: 'create_scene',
+          project_path: tmpProj,
+          scene_path: '../outside/evil.tscn',
+        }, makeCtx());
+        expect(r?.isError).toBe(true);
+        expect(JSON.parse(r!.content[0].text).error_code).toBe('INVALID_PATH');
+      }
+      // 第 4 次合法调用：应成功，不应 CONCURRENCY_LIMIT
+      // （若 slot 泄漏，3 次后 count=3=MAX，第 4 次 acquireShortRunningSlot 返 false → CONCURRENCY_LIMIT）
+      const ok = await sceneHandle('scene', {
+        action: 'create_scene',
+        project_path: tmpProj,
+        scene_path: 'scenes/new.tscn',
+        root_node_type: 'Node2D',
+      }, makeCtx());
+      expect(ok?.isError).not.toBe(true);
+      expect(ok!.content[0].text).toMatch(/create_scene/);
     });
   });
 
