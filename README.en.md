@@ -130,6 +130,11 @@ CodeBuddy (2026-06-27 verified) supports external stdio MCP servers: **Settings 
 
 [Warp](https://www.warp.dev/) supports MCP natively: **Settings → Agents → MCP servers → + Add → CLI Server**, paste the same json (`command: npx`, `args: ["-y", "godot-mcp-enhanced"]`).
 
+### ZCode (Zhipu GLM-5.2 ADE)
+
+[ZCode](https://zcode.z.ai/) supports MCP. **Settings → MCP servers → New** (stdio, `command: npx`, `args: ["-y", "godot-mcp-enhanced"]`), or write to `<project>/.zcode/config.json` / `.agents/mcp.json`. **Key**: ZCode reads `AGENTS.md` (not `CLAUDE.md`) — run `setup_project_rules` (dual-write by default) to generate `AGENTS.md`.
+> Full steps, three config methods, env / permission matrix in [ZCode guide](docs/使用指南-ZCode.md).
+
 ### One-click setup
 
 ```bash

@@ -13,6 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `scene edit_node` 传 `instance` 属性现被 block（I-2 安全：防注入 ExtResource 实例化恶意场景）
 - `scene batch_add_nodes` 部分节点失败现返错误（之前 exit 0 静默）
 
+### 行为变更 — ZCode 深度支持（AGENTS.md 双写 + engine-quirks 分发）
+
+- `setup_project_rules` 现在默认同时生成 `AGENTS.md`（与 `CLAUDE.md` 并列）。`AGENTS.md` 是 ZCode / Codex / Cursor / Cline 等遵循 AGENTS.md 标准的客户端的指令来源。升级后首次运行会在项目根新增 `AGENTS.md` 并进入 git。如不需要，传 `agents_md=false`。
+- `setup_project_rules` 现在分发 `godot-mcp-engine-quirks.md`（引擎陷阱知识，原仅在仓库自用 `.claude/rules/`，未纳入分发）。升级后目标项目 `.claude/rules/` 会新增此文件。
+
 ## [0.23.0] - 2026-07-13
 
 ### Fixed — Security（CRITICAL，多轮独立审查核实）
