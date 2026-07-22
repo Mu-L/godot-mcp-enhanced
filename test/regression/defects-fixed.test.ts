@@ -85,9 +85,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-21 P2-1): csv-import-timeout-no-atomic-write(data-import.ts ResourceSaver.save 直写目标
 //   改 tmp+rename 原子提交,超时 kill 落在 save 中途只损 tmp,full_path 旧/完整 Godot 启动不 parse error),
 //   合计 68。
-    expect(FIXED_DEFECTS.length).toBe(68);
+//   +1(2026-07-22 orphan 隔离): orphan-scan-session-scoped(killOrphanGodotProcesses 默认基于
+//   _spawnedGodotPids 会话集合,全系统扫须 GODOT_MCP_FULL_SYSTEM_SCAN opt-in 门控,签名 projectDir 改可选),
+//   合计 69。
+    expect(FIXED_DEFECTS.length).toBe(69);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(68);
+    expect(new Set(keys).size, '存在重名 key').toBe(69);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

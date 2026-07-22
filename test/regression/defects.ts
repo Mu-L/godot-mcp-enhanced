@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 68 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1）。
+// FIXED_DEFECTS 69 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -717,6 +717,20 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // 注：handle_remove_node:119 用 get_node_or_null(node_path) 非 parent_path，不匹配，不影响。
       return countMatchesInFile('addons/godot_mcp_server/commands/node_commands.gd', /root\.get_node_or_null\(parent_path\)/);
     } },
+  // ─── 2026-07-22 orphan 扫描会话隔离（多会话安全）──────────────────────────
+  { key: 'orphan-scan-session-scoped', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // killOrphanGodotProcesses 默认走 V-01 全系统扫 → 多个并发会话操作同一项目时误杀对方的编辑器/游戏进程。
+    // fix: 默认路径基于 _spawnedGodotPids 集合（仅 run_project 注册的 orphan 候选），
+    // 全系统扫描须 GODOT_MCP_FULL_SYSTEM_SCAN=true opt-in 门控（崩溃恢复兜底）；
+    // killOrphanGodotProcesses 签名 projectDir: string → projectDir?: string（默认路径不依赖它）。
+    // detect: 三特征齐备（_spawnedGodotPids 集合 + GODOT_MCP_FULL_SYSTEM_SCAN 门控 + optional 签名）；任一缺失即复发。
+    detect: () => {
+      const f = readSrc('src/core/process-state.ts');
+      const hasPidSet = /let _spawnedGodotPids\b/.test(f);
+      const hasOptIn = /GODOT_MCP_FULL_SYSTEM_SCAN/.test(f);
+      const hasOptionalSig = /killOrphanGodotProcesses\(projectDir\?:\s*string\)/.test(f);
+      return hasPidSet && hasOptIn && hasOptionalSig ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -800,7 +814,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
     // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 52 }, // ...51=Task 3(f857615)前序累积见下;Task 3 blender-finder.ts:10 增 _blenderPath 缓存(同 godot-finder _pathCache 先例, findGodot 缓存模式) 51→52
+    baseline: 53 }, // ...51=Task 3(f857615)前序累积见下;Task 3 blender-finder.ts:10 增 _blenderPath 缓存(同 godot-finder _pathCache 先例, findGodot 缓存模式) 51→52;orphan-scan T1(a8d6a78)增 _spawnedGodotPids 会话 PID 集合(同 _runningProcess 既有模式, 多会话隔离) 52→53
     // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46；MCP Logging(Task 1 _mcpServer + _clientReady 注入 setter, 同 setMcpServer/_singletonWarned 既有模式) 46→48；MCP Progress(Task 1 b43ba4b _progressSender + _progressClientReady 注入 setter, 同 Logging 既有模式) 48→50；MCP Elicit(Task 1 _elicitServer 单值注入, 同 logger/progress server 注入模式但无 clientReady——elicitInput 是 request 非 notification) 50→51
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)
