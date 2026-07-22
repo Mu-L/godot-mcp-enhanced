@@ -349,11 +349,15 @@ export async function handleTool(
   // T7 修订:res:// 前缀必须先剥离(resolveWithinRoot 不识别 res://,会生成 real-project\res:\... 畸形路径)。
   const safeOutputDir = resolveWithinRoot(projectPath, normalizeUserProjectPath(outputDir));
 
+  // A1 (2026-07-23 安全): classPath 经 root 校验——经 executeGdscriptTrusted 跳沙箱 + load() + Class.new()，
+  // 越权路径 = RCE（gdscript-template-injection 复发实例，defects.ts:55）。对齐 outputDir 沙箱模式。
+  const safeClassPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(classPath));
+
   // 写临时 CSV(GDScript FileAccess 读,数据零进脚本源码 = CRITICAL-1 注入根治)
   const csvTmpPath = writeTmpCsv(csvContent);
   try {
     const godot = await ctx.findGodot();
-    const script = generateImportScript({ classPath, outputDir: safeOutputDir, filenameCol, csvTmpPath });
+    const script = generateImportScript({ classPath: safeClassPath, outputDir: safeOutputDir, filenameCol, csvTmpPath });
     const r = await executeGdscript({
       godotPath: godot,
       projectPath,

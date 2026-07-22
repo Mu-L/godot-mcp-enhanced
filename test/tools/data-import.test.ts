@@ -384,3 +384,26 @@ describe('csv_to_resources timeout 可配 P2-1', () => {
     expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 120 }));
   });
 });
+
+// ─── A1 (2026-07-23 安全): class_path 路径遍历 → RCE 防护 ──────────────────────
+// RCE 链: classPath 仅类型断言(as string)→ generateImportScript → GDScript load() + Class.new()
+// → 经 executeGdscriptTrusted 跳沙箱(gdscript-executor.ts:1012-1013)→ 加载项目外 evil.gd 实例化
+// _init() = 任意代码执行。修复: classPath 补 resolveWithinRoot(root, normalizeUserProjectPath(...))
+// 沙箱校验,对齐 outputDir :350 模式(defects.ts:55 gdscript-template-injection 复发实例)。
+// 越界 throw 由 ToolDispatcher 统一捕获;handleTool async → rejects.toThrow。
+
+describe('A1 class_path 路径遍历防护(堵 RCE)', () => {
+  it('class_path 越权(.. 段)被 resolveWithinRoot 拦截', async () => {
+    // 构造合法 csv_content + 合法 output_dir/filename_column,仅 class_path 越权
+    const args = {
+      action: 'csv_to_resources',
+      project_path: tmpdir(),
+      class_path: 'res://../../evil.gd',
+      output_dir: 'out',
+      filename_column: 'name',
+      csv_content: 'name\na\n',
+    };
+    const ctx = { findGodot: async () => 'godot', projectDir: tmpdir() } as unknown as ToolContext;
+    await expect(handleTool('csv_to_resources', args, ctx)).rejects.toThrow(/Path traversal/);
+  });
+});
