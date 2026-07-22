@@ -291,6 +291,7 @@ export function buildMcpMapping(): string {
     '| 编辑器模式 | .claude/rules/godot-mcp-editor.md |',
     '| UI 布局 | .claude/rules/godot-mcp-ui.md |',
     '| 录制回放 | .claude/rules/godot-mcp-recording.md |',
+    '| 引擎陷阱 | .claude/rules/godot-mcp-engine-quirks.md |',
   ].join('\n');
 }
 
