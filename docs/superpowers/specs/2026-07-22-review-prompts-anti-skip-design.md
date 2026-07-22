@@ -75,7 +75,7 @@ status: approved
 
 **定位:C 块是专项2 自身深挖清单(`专项2-可靠性.md:28-46` 第 1-8 条)的导读,不是额外新增项**——目的是让审查者一眼看出"本专项深挖什么、与通用版有何不同",防止跑完通用版误判可省。
 
-通用版【P0 进程通信可靠性】+【P1 并发】+【P1 历史 bug 模式】已**横切提及** scheduleReconnect 状态机、重连耗尽 maxReconnectAttempts、health-monitor、资源泄漏、降级/fallback 对称性(通用版 grep 实测均命中)。本专项做两件事:
+通用版【P0 进程通信可靠性】+【P1 并发】+【P1 历史 bug 模式】已**横切提及** scheduleReconnect 状态机、重连耗尽 maxReconnectAttempts、health-monitor、资源泄漏、并发改编辑器状态(async 竞争 / free 后访问 / 主线程)、降级/fallback 对称性(通用版 grep 实测均命中)。本专项做两件事:
 
 1. 对上述横切项**单维度系统深挖**(通用版是横切一句,本专项是深挖清单 + 调用链 + 行号);
 2. 覆盖通用版**完全未单列的边界场景**(grep 实测 0 命中):
