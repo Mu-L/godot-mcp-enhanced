@@ -28,6 +28,7 @@ import {
   getProjectDir,
   setProjectDir,
   forceKillTree,
+  killPidTree,
   killProcess,
   isProcessBusy,
   setProcessBusy,
@@ -37,6 +38,9 @@ import {
   acquireShortRunningSlot,
   releaseShortRunningSlot,
   getShortRunningCount,
+  registerSpawnedGodotPid,
+  unregisterSpawnedGodotPid,
+  getSpawnedGodotPids,
   killOrphanGodotProcesses,
 } from '../src/core/process-state.js';
 
@@ -289,6 +293,44 @@ describe('forceKillTree', () => {
   });
 });
 
+// ─── killPidTree (orphan 清理辅助，双平台对等 forceKillTree) ─────────────────
+
+describe('killPidTree', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetState();
+  });
+
+  it('Windows: taskkill /F /T /PID <pid>', () => {  // T3a-Win
+    if (process.platform !== 'win32') return;
+    killPidTree(12345);
+    expect(spawn).toHaveBeenCalledWith('taskkill', ['/F', '/T', '/PID', '12345'], { stdio: 'ignore' });
+  });
+
+  it('POSIX: pkill -P <pid> + process.kill(SIGTERM) 双杀', () => {  // T3b
+    if (process.platform === 'win32') return;  // isWin 模块常量加载时固化，POSIX 分支 win32 不执行
+    killPidTree(4242);
+    expect(spawn).toHaveBeenCalledWith('pkill', ['-P', '4242'], { stdio: 'ignore' });
+    // process.kill 对真实 pid 4242 会抛（不存在），best-effort 吞掉；验证 spawn pkill 已调即可
+  });
+
+  it('POSIX: pkill spawn error 不崩 (P1 先例 alpine 无 procps)', () => {  // T3b-err
+    if (process.platform === 'win32') return;
+    const { EventEmitter } = require('events');
+    spawn.mockImplementationOnce(() => {
+      const child = new EventEmitter();
+      child.kill = vi.fn();
+      return child;
+    });
+    expect(() => killPidTree(4242)).not.toThrow();
+  });
+
+  it('no-op when pid is falsy', () => {
+    killPidTree(0);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
 // ─── killProcess ─────────────────────────────────────────────────────────────
 
 describe('killProcess', () => {
@@ -501,6 +543,38 @@ describe('acquireShortRunningSlot / releaseShortRunningSlot', () => {
     acquireShortRunningSlot();
     resetState();
     expect(getShortRunningCount()).toBe(0);
+  });
+});
+
+// ─── spawnedGodotPids registry ──────────────────────────────────────────────
+
+describe('spawnedGodotPids registry', () => {
+  beforeEach(() => resetState());
+
+  it('register adds pid to the set', () => {  // T1
+    registerSpawnedGodotPid(12345);
+    expect(getSpawnedGodotPids()).toContain(12345);
+  });
+
+  it('unregister removes pid from the set', () => {  // T1
+    registerSpawnedGodotPid(12345);
+    registerSpawnedGodotPid(67890);
+    unregisterSpawnedGodotPid(12345);
+    expect(getSpawnedGodotPids()).toEqual([67890]);
+  });
+
+  it('register ignores illegal pids (0 / negative / NaN)', () => {  // T2
+    registerSpawnedGodotPid(0);
+    registerSpawnedGodotPid(-1);
+    registerSpawnedGodotPid(NaN);
+    expect(getSpawnedGodotPids()).toEqual([]);
+  });
+
+  it('resetState clears the set', () => {  // T7
+    registerSpawnedGodotPid(111);
+    registerSpawnedGodotPid(222);
+    resetState();
+    expect(getSpawnedGodotPids()).toEqual([]);
   });
 });
 

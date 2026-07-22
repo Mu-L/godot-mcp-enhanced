@@ -48,6 +48,33 @@ export function forceKillTree(proc: ChildProcess): void {
   }
 }
 
+/** 探测 PID 是否存活（signal 0，不发信号）。 */
+function isPidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/**
+ * 按 PID 杀进程树（与 forceKillTree 共享双平台语义，IMPORTANT-1）。
+ * Windows taskkill /F /T 清整树；POSIX pkill -P 杀子进程 + SIGTERM 主进程
+ * （Godot 可能 spawn 导入/资源子进程，对等 forceKillTree POSIX 分支）。
+ * 导出仅为测试可测性（@internal）。
+ */
+export function killPidTree(pid: number): void {
+  if (!pid) return;
+  if (isWin) {
+    try {
+      const tk = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+      tk.on('error', () => {});  // P1 先例：防 uncaughtException
+    } catch { /* best effort */ }
+  } else {
+    try {
+      const pk = spawn('pkill', ['-P', String(pid)], { stdio: 'ignore' });
+      pk.on('error', () => {});  // P1 先例：pkill 缺失(alpine)防 uncaughtException
+    } catch { /* best effort */ }
+    try { process.kill(pid, 'SIGTERM'); } catch { /* best effort */ }
+  }
+}
+
 /** Async kill: waits for 'close' event, with 5 s fallback. */
 export function killProcess(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
@@ -102,6 +129,26 @@ let _busySince = 0;
 
 // Short-running counter: query_scene_tree / inspect_node (seconds-level operations)
 let _shortRunningCount = 0;
+
+// 仅 run_project 注册（长生命周期游戏进程，崩溃残留需 orphan 兜底）。
+// launch_editor 不注册（detached 编辑器，用户有意长期运行）；
+// B 类 headless 不注册（自带 forceKillTree 清理）。
+let _spawnedGodotPids: Set<number> = new Set();
+
+/** 记录本会话 spawn 的需要 orphan 兜底的 Godot 进程 PID（仅 run_project）。 */
+export function registerSpawnedGodotPid(pid: number): void {
+  if (pid && pid > 0) _spawnedGodotPids.add(pid);
+}
+
+/** 进程正常退出时移除（主动清理，避免集合累积死 PID）。 */
+export function unregisterSpawnedGodotPid(pid: number): void {
+  _spawnedGodotPids.delete(pid);
+}
+
+/** 测试用：读取当前集合。 */
+export function getSpawnedGodotPids(): number[] {
+  return Array.from(_spawnedGodotPids);
+}
 
 // ─── C-04: Async queue for serializing state mutations ────────────────────────
 let _queueTail: Promise<void> = Promise.resolve();
@@ -289,6 +336,7 @@ export function resetState(): void {
   _busyOwner = '';
   _busySince = 0;
   _shortRunningCount = 0;
+  _spawnedGodotPids = new Set();
   _queueTail = Promise.resolve();
   _lastOrphanScanTime = 0;
 }
