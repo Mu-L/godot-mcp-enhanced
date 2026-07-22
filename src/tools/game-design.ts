@@ -268,7 +268,7 @@ import { opsErrorResult } from './shared.js';
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { getErrorMessage } from '../types.js';
-import { requireProjectPath, resolveWithinRoot } from "../helpers.js";
+import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from "../helpers.js";
 
 /** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
@@ -326,7 +326,7 @@ export async function handleTool(
   switch (action) {
     case "validate_gdd": {
       const projectPath = requireProjectPath(args);
-      const fullPath = resolveWithinRoot(projectPath, args.gdd_path as string);
+      const fullPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.gdd_path as string));
       let content: string;
       try {
         content = readFileSync(fullPath, "utf-8");

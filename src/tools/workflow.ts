@@ -699,9 +699,9 @@ func _initialize():
       const missing: string[] = [];
 
       for (const s of scripts) {
-        // issue #12: 兼容 res:// 前缀(strip → 项目相对),与 read_script 路径解析一致
-        const rel = s.startsWith('res://') ? s.slice(6) : s;
-        const full = join(projectPath, rel);
+        // A6: resolveWithinRoot 越权防护（替代裸 join，防 existsSync 信息泄露）。
+        // normalizeUserProjectPath 剥 res:// 前缀，resolveWithinRoot 校验 .. 段。
+        const full = resolveWithinRoot(projectPath, normalizeUserProjectPath(s));
         if (existsSync(full)) {
           fullPaths.push(full);
         } else {

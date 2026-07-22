@@ -2,7 +2,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
-import { requireProjectPath, resolveWithinRoot, scanFiles } from '../helpers.js';
+import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, scanFiles } from '../helpers.js';
 import { getLogger } from '../core/logger.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { batchValidateScripts } from './validation.js';
@@ -229,14 +229,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   let resolvedScriptPath: string | undefined;
   if (typeof args.scene_path === 'string' && args.scene_path) {
     try {
-      resolvedScenePath = resolveWithinRoot(projectPath, args.scene_path);
+      // A9: normalizeUserProjectPath 剥 res:// 前缀，再 resolveWithinRoot 校验（统一模式）。
+      resolvedScenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path));
     } catch {
       return opsErrorResult('INVALID_PARAMS', `scene_path traversal detected: ${args.scene_path}`);
     }
   }
   if (typeof args.script_path === 'string' && args.script_path) {
     try {
-      resolvedScriptPath = resolveWithinRoot(projectPath, args.script_path);
+      resolvedScriptPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.script_path));
     } catch {
       return opsErrorResult('INVALID_PARAMS', `script_path traversal detected: ${args.script_path}`);
     }

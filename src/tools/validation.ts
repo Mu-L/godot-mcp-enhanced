@@ -538,9 +538,17 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const scene = args.scene as string | undefined;
       const captureTree = args.capture_tree === true;
 
+      // A2: scene 越权防护（防 ../ 读项目外 .tscn）。resolveWithinRoot 仅校验,
+      // safeScene 传 normalize 后的相对路径（godot CLI 与 query_scene_tree.gd 均期望相对路径）。
+      let safeScene: string | undefined;
+      if (scene) {
+        const normalized = normalizeUserProjectPath(scene);
+        safeScene = resolveWithinRoot(projectPath, normalized);
+      }
+
       const godot = await ctx.findGodot();
       const cmdArgs = ['--headless', '--path', projectPath];
-      if (scene) cmdArgs.push(scene);
+      if (safeScene) cmdArgs.push(safeScene);
 
       const versionWarning = await checkVersionMismatch(projectPath, godot);
 
@@ -599,7 +607,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         coverage: 'full run window — all stdout/stderr analyzed',
       };
 
-      if (captureTree && scene) {
+      if (captureTree && safeScene) {
         try {
           const scriptsDir = dirname(ctx.opsScript);
           const treeScript = join(scriptsDir, 'query_scene_tree.gd');
@@ -607,7 +615,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             const treeSpawnResult = await spawnGodot(godot, [
                 '--headless', '--path', projectPath,
                 '--script', treeScript,
-                JSON.stringify({ scene_path: scene, max_depth: 3 }),
+                JSON.stringify({ scene_path: safeScene, max_depth: 3 }),
               ], { timeoutMs: 30_000 });
             const treeResult = treeSpawnResult.stdout;
             if (treeResult) {

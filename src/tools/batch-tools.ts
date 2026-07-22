@@ -215,8 +215,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const sceneB = args.scene_b as string;
       const ignoreProps = new Set((args.ignore_properties as string[]) || ['metadata/_edit_lock']);
 
-      const absA = resolveWithinRoot(projectPath, sceneA);
-      const absB = resolveWithinRoot(projectPath, sceneB);
+      const absA = resolveWithinRoot(projectPath, normalizeUserProjectPath(sceneA));
+      const absB = resolveWithinRoot(projectPath, normalizeUserProjectPath(sceneB));
 
       if (!existsSync(absA)) {
         return opsErrorResult('NOT_FOUND', `Scene A not found: ${sceneA}`);
