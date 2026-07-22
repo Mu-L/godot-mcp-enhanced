@@ -93,6 +93,13 @@ function readBridgeSecret(): string | null {
   _cachedSecret = null;
   const secretPath = findBridgeSecretPath();
   try {
+    // A4 (2026-07-23 审查): symlink 检查必须在权限收紧之前——否则 secretPath 若是 symlink
+    // 指向受害者文件,icacls/chmod 已篡改其 ACL/mode 才被拒(DoS)。对齐 editor-auth.ts:75-81。
+    const lstat = lstatSync(secretPath);
+    if (lstat.isSymbolicLink()) {
+      getLogger().error('security', `Bridge secret file ${secretPath} is a symlink — refusing to read.`);
+      return null;
+    }
     // Tighten permissions: owner-only read
     if (process.platform === 'win32') {
       try {
@@ -106,11 +113,6 @@ function readBridgeSecret(): string | null {
       try {
         chmodSync(secretPath, 0o600);
       } catch (err) { getLogger().debug('bridge', `chmod secret file: ${err}`); }
-    }
-    const lstat = lstatSync(secretPath);
-    if (lstat.isSymbolicLink()) {
-      getLogger().error('security', `Bridge secret file ${secretPath} is a symlink — refusing to read.`);
-      return null;
     }
     const stat = statSync(secretPath);
     if (!_permWarned && process.platform !== 'win32' && (stat.mode & 0o007) !== 0) {

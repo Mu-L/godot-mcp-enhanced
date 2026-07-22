@@ -18,10 +18,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
 
-const { mockCreate, mockExists, mockRead } = vi.hoisted(() => ({
+const { mockCreate, mockExists, mockRead, mockLstat, mockChmod, mockExec } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockExists: vi.fn(() => true),
   mockRead: vi.fn(() => 'test-secret'),
+  // A4: 默认非 symlink;测试时 override 为 symlink 验证权限收紧未发生
+  mockLstat: vi.fn(() => ({ isSymbolicLink: () => false })),
+  // A4: 暴露 chmod/exec 作 spy,断言 symlink 时二者均未被调用(副作用未发生)
+  mockChmod: vi.fn(),
+  mockExec: vi.fn(),
 }));
 
 vi.mock('net', () => ({ createConnection: mockCreate }));
@@ -29,9 +34,14 @@ vi.mock('fs', () => ({
   existsSync: mockExists,
   readFileSync: mockRead,
   writeFileSync: vi.fn(), copyFileSync: vi.fn(), unlinkSync: vi.fn(),
-  chmodSync: vi.fn(), statSync: vi.fn(), lstatSync: vi.fn(() => ({ isSymbolicLink: () => false })),
+  chmodSync: mockChmod, statSync: vi.fn(), lstatSync: mockLstat,
   renameSync: vi.fn(),
 }));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  // 仅替换 execFileSync(A4 断言目标);保留 execFile/spawn 等(helpers.ts:57 execFileAsync 依赖)
+  return { ...actual, execFileSync: mockExec };
+});
 vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
 
 import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState } from '../src/tools/game-bridge.js';
@@ -426,6 +436,42 @@ describe('game-bridge error & path validation', () => {
         timeout: 100, interval_ms: 100,
       }, ctx);
       expect(result.isError).not.toBe(true);
+    });
+  });
+
+  describe('A4: symlink secret → 权限收紧(icacls/chmod)不得先于拒绝发生', () => {
+    // readBridgeSecret 当前顺序 icacls/chmod(副作用) → lstatSync symlink 检查(拒绝)。
+    // 若 secretPath 是 symlink 指向受害者文件,icacls/chmod 已篡改其 ACL/mode 才被拒(DoS)。
+    // 修复后:lstatSync + symlink 拒绝移到 icacls/chmod 之前,对齐 editor-auth.ts:75-81。
+    it('symlink secret: icacls(win32)/chmod(非 win32) 均未被调用 + secret 被拒绝', async () => {
+      // 默认 mockRead 返 'test-secret'(模拟成功),但 symlink 检查应在读之前拒绝。
+      // 不需 setupBridgeSocket:readBridgeSecret 在 _doConnect 入口同步返 null → 直接抛
+      // BridgeNotConnectedError,不到达 createConnection。
+      mockLstat.mockReturnValueOnce({ isSymbolicLink: () => true });
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      // symlink 必须被拒绝 → secret=null → BRIDGE_NOT_CONNECTED(不是拿到 secret 后的 ping)
+      expect(result).not.toBeNull();
+      expect(result!.isError).toBe(true);
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
+      // 核心断言:权限收紧副作用未发生(无论平台,修复后 symlink 检查在最前)
+      expect(mockExec).not.toHaveBeenCalled();   // win32 icacls
+      expect(mockChmod).not.toHaveBeenCalled();  // 非 win32 chmod 0600
+      // 且 secret 内容未被读入内存(拒绝在 readFileSync 之前)
+      expect(mockRead).not.toHaveBeenCalled();
+    });
+
+    it('非 symlink secret: 权限收紧正常执行(回归守护,避免过度拒绝)', async () => {
+      // 默认 mockLstat 返 isSymbolicLink:false。校验修复后合法路径仍走 icacls/chmod + 读 secret。
+      setupBridgeSocket('result');
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(result.isError).not.toBe(true);  // secret 正常读到 → ping 成功
+      // 合法路径:按平台执行了 icacls 或 chmod 之一(不要求具体哪个,只要至少一个收紧动作发生)
+      const tightens = mockExec.mock.calls.length + mockChmod.mock.calls.length;
+      expect(tightens).toBeGreaterThan(0);
+      expect(mockRead).toHaveBeenCalled();  // secret 被正常读入
     });
   });
 });
