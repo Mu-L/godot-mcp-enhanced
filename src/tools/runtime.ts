@@ -3,7 +3,7 @@ import { opsErrorResult } from './shared.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, errorResult } from '../types.js';
-import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses } from '../core/process-state.js';
+import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses, registerSpawnedGodotPid, unregisterSpawnedGodotPid } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
 import { isBridgeReady } from './game-bridge.js';
 import { detectGodotVersion } from '../core/godot-finder.js';
@@ -195,6 +195,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             void killProcess(proc);
             ctx.setRunningProcess(null);
           }
+          if (proc.pid) unregisterSpawnedGodotPid(proc.pid);  // 守卫外：该 proc 退出即移除自身 pid
         }, timeout * 1000);
       }
 
@@ -204,6 +205,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           setProcessBusy(false);
           ctx.setRunningProcess(null);
         }
+        if (proc.pid) unregisterSpawnedGodotPid(proc.pid);  // 守卫外（ADVISORY-3）：旧 proc 被替换时守卫 false 但仍需移除
         if (autoStopTimer) clearTimeout(autoStopTimer);
       });
 
@@ -213,11 +215,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           setProcessBusy(false);
           ctx.setRunningProcess(null);
         }
+        if (proc.pid) unregisterSpawnedGodotPid(proc.pid);  // 守卫外
         if (autoStopTimer) clearTimeout(autoStopTimer);
         appendOutput([`Spawn error: ${err.message}`]);
       });
 
       ctx.setRunningProcess(proc, true); // skip busy check — slot acquired via acquireProcessSlot above
+      if (proc.pid) registerSpawnedGodotPid(proc.pid);
 
       if (waitForBridge) {
         // M3: 显式命名 ms(isBridgeReady 接收 ms;bridgeTimeout 是秒,见 :130)
@@ -247,7 +251,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const projectDir = (typeof rawPath === 'string' && rawPath.length > 0 ? rawPath : '') || ctx.projectDir || '';
         const orphanKilled = await killOrphanGodotProcesses(projectDir);
         if (orphanKilled > 0) {
-          return textResult(`Cleaned up ${orphanKilled} orphaned Godot process(es). Project directory: ${projectDir}`);
+          return textResult(`Cleaned up ${orphanKilled} orphaned Godot process(es) from this session.`);
         }
         return textResult('No project is currently running.');
       }

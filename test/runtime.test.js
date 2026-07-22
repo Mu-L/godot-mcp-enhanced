@@ -10,6 +10,7 @@ const mockProc = () => {
   proc.stdin = { write: vi.fn(), end: vi.fn() };
   proc.killed = false;
   proc.unref = vi.fn();
+  proc.pid = 54321;
   return proc;
 };
 
@@ -28,6 +29,8 @@ vi.mock('../src/core/process-state.js', () => ({
   releaseShortRunningSlot: vi.fn(),
   buildBusyErrorMessage: vi.fn(() => 'Busy'),
   killOrphanGodotProcesses: vi.fn(async () => 0),
+  registerSpawnedGodotPid: vi.fn(),
+  unregisterSpawnedGodotPid: vi.fn(),
 }));
 
 vi.mock('../src/helpers.js', () => ({
@@ -64,7 +67,7 @@ import {
   TOOL_META,
 } from '../src/tools/runtime.js';
 import { spawn } from 'child_process';
-import { killProcess, clearOutputBuffer, setProcessBusy } from '../src/core/process-state.js';
+import { killProcess, clearOutputBuffer, setProcessBusy, registerSpawnedGodotPid, unregisterSpawnedGodotPid, killOrphanGodotProcesses } from '../src/core/process-state.js';
 import { isBridgeReady } from '../src/tools/game-bridge.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -268,6 +271,14 @@ describe('runtime handleTool — run_project', () => {
     expect(setProcessBusy).toHaveBeenCalledWith(false);
     expect(ctx.setRunningProcess).toHaveBeenCalledWith(null);
   });
+
+  it('registers spawned pid for orphan cleanup', async () => {  // T9
+    const proc = mockProc();
+    setupSpawnMock(proc);
+    const ctx = createMockCtx();
+    await handleTool('runtime', { action: 'run_project', project_path: '/p' }, ctx);
+    expect(registerSpawnedGodotPid).toHaveBeenCalledWith(54321);
+  });
 });
 
 // ─── handleTool — stop_project ──────────────────────────────────────────────
@@ -283,6 +294,13 @@ describe('runtime handleTool — stop_project', () => {
 
     expect(result).not.toBeNull();
     expect(result.content[0].text).toContain('No project is currently running');
+  });
+
+  it('calls killOrphanGodotProcesses when no running process (orphan cleanup)', async () => {  // T10
+    vi.clearAllMocks();
+    const ctx = createMockCtx({ runningProcess: null });
+    await handleTool('runtime', { action: 'stop_project', project_path: '/p' }, ctx);
+    expect(killOrphanGodotProcesses).toHaveBeenCalled();
   });
 
   it('kills running process and returns classified output', async () => {
