@@ -2,7 +2,7 @@
 
 > **版本**：0.23.0 ｜ **适用 ZCode**：支持 MCP 的版本 ｜ **适用 Godot**：4.x（4.6+ 已测试）
 >
-> **验证状态**：✅ 协议层（文档依据，来源 ZCode 官方文档 [mcp-services](https://zcode.z.ai/cn/docs/mcp-services) / [agents](https://zcode.z.ai/cn/docs/agents) / [safety-confirm](https://zcode.z.ai/cn/docs/safety-confirm) 页，2026-07-22 抓取）｜ ⚠️ GUI 端到端实测待补（Task 8）
+> **验证状态**：✅ 协议层（实测，`docs/zcode-protocol-verify.mjs` 32 工具全发现）｜ ✅ GUI 端到端部分确认（单元 A/B，2026-07-22）｜ ⚠️ 项目级 AGENTS.md 注入待场景 A 复测（单元 C 时序污染）｜ ⚠️ 客户端层确认 UI 形态待 GUI 补 3 项（单元 B）
 
 ---
 
@@ -21,13 +21,13 @@
 | 维度 | 结论 | 依据 |
 |------|------|------|
 | **stdio 传输** | ✅ 完美匹配 | ZCode 是 stdio MCP 客户端；godot-mcp 是 stdio 服务端 |
-| **工具发现** | ✅ 协议层预期全列出 | 待 Task 8 协议层脚本实测确认（与 [使用指南-Warp §6.2](使用指南-Warp.md#62-协议层验证可复现不依赖-warp) 同方法） |
+| **工具发现** | ✅ 协议层实测全列出 | 32 工具全发现，`docs/zcode-protocol-verify.mjs` 实测（2026-07-22） |
 | **inputSchema** | ✅ 全工具就绪 | godot-mcp 全部工具声明 Zod schema，ZCode 表单/校验可用 |
-| **项目指令注入** | ✅ 通过 `AGENTS.md` | ZCode 读 workspace 根 `AGENTS.md`（来源官方 agents 页，2026-07-22 抓取） |
+| **项目指令注入** | ⚠️ 待场景 A 复测 | 官方文档称读 workspace 根 `AGENTS.md`，但单元 C 实测发现项目级未被注入（时序污染，见 [§3 开头](#3-让-godot-规则在-zcode-生效关键)） |
 | **配置作用域** | 用户级 / 工作区级 | `.zcode/config.json` 或兼容 `.agents/mcp.json`（来源 mcp-services 页） |
-| **危险操作权限** | ⚠️ 需执行模式兜底 | `confirm_and_execute` 单客户端不可靠，见 [§5](#5-权限与安全面a-半定论) |
+| **危险操作权限** | ✅ server 层已确认 / ⚠️ 客户端层待 GUI | `confirm_and_execute` server token 流程实测走通（单元 B），客户端 UI 形态待补，见 [§5](#5-权限与安全面a-半定论) |
 
-> **结论**：协议层与 ZCode 完全兼容；唯一需注意的接入动作是生成 `AGENTS.md`（ZCode 不读 `CLAUDE.md`），以及执行模式选择（见 §5）。
+> **结论**：协议层与 ZCode 完全兼容（实测 32 工具全发现）；接入动作是生成 `AGENTS.md` + 运行 `setup_project_rules`（规则文件在 `.claude/rules/`，agent 主动 `Read` 可获取，不依赖注入），以及执行模式选择（见 §5）。项目级 AGENTS.md 是否被自动注入待场景 A 复测（见 §3）。
 
 ---
 
@@ -46,6 +46,8 @@ ZCode 设置 → MCP 服务器 → 新建 MCP 服务器，填入：
 | **env** | 见 [§4 环境变量](#4-环境变量)（至少建议设 `ALLOWED_PROJECT_PATHS`） |
 
 ZCode 支持三种录入方式（来源 mcp-services 页，2026-07-22 抓取）：GUI 表单（stdio，填 command+args+env）/ file-based（读 `.zcode` 或 `.agents` 配置文件）/ **完整配置粘贴**（直接粘贴 JSON，支持 `{"server":{...}}` 和 `{"mcpServers":{...}}` 两种顶层格式）。
+
+> **方式 A 的变体：本地 build 直跑**。若你 clone 了 godot-mcp-enhanced 仓库做开发，`command` 可换成 `node`、`args` 指向本地 `build/index.js`（实测可用的配置见 [§6.3 实测配置](#63-实测可用配置)）。两者等价：`npx -y` 拉公开分发版，本地 build 指向开发版。
 
 ### 方式 B：file-based（`.zcode/config.json` 或 `.agents/mcp.json`）
 
@@ -105,6 +107,8 @@ ZCode 设置 → MCP 服务器 → **导入图标**，自动扫描可导入的�
 
 ## 3. 让 godot 规则在 ZCode 生效（关键）
 
+> ⚠️ **以下断言待场景 A 复测定论（2026-07-22）**。单元 C 实测发现「项目级 AGENTS.md 未被注入」的偏差（受时序污染,见 §3.5 末尾）。原断言依据 ZCode 官方 agents 页（2026-07-22 抓取）,但实测与文档存在出入,以场景 A 复测结果为准。
+
 ZCode **不读** `CLAUDE.md`，也**不扫描** `.claude/rules/` 子目录、**不展开** `@import` / `@include`、**不合并**多层级 `AGENTS.md`（来源官方 agents 页，2026-07-22 抓取）。它只读：
 
 - 全局：`~/.zcode/AGENTS.md`
@@ -130,6 +134,27 @@ project(action="setup_project_rules", project_path="D:/my-game")
 ```
 project(action="setup_project_rules", project_path="D:/my-game", claude_md=false)
 ```
+
+### 3.5 两套独立机制：`.claude/rules/` 规则文件 vs `AGENTS.md` 注入
+
+⚠️ **单元 A 实测（2026-07-22）揭示一个易混淆点**：`setup_project_rules` 实际生成的是**两套独立的产物**，不要混为一谈：
+
+| 产物 | 位置 | 性质 | 如何被 agent 获取 |
+|------|------|------|-----------------|
+| **规则文件组** | `.claude/rules/*.md`（6 个文件：`godot-mcp.md` / `godot-mcp-core.md` / `godot-mcp-bridge.md` / `godot-mcp-editor.md` / `godot-mcp-recording.md` / `godot-mcp-ui.md`）+ `.godot-mcp-manifest.json` | godot 工具用法的详细规则源 | **agent 主动用 `Read` 读**（非自动注入） |
+| **AGENTS.md** | 项目根 `AGENTS.md` | 规则的全量内联摘要 | **依赖客户端在会话初始化时注入**（ZCode 是否注入见 §3 开头待复测标注） |
+
+**关键区别**：
+
+- `.claude/rules/*.md` 是**文件**，agent 随时可用 `Read` 工具读取——这与客户端注入机制无关，任何 agent 都能读。单元 A 中 agent 正确引用了这些规则原文（三层架构决策树、持久化分类等），就是靠主动 `Read`。
+- `AGENTS.md` 是**注入候选**，是否进入 agent 上下文取决于客户端的注入行为。ZCode 的注入行为见 §3 开头（注：受单元 C 时序污染影响，「项目级 AGENTS.md 是否被注入」仍待场景 A 复测定论）。
+
+**实践建议**：
+
+- 即使 AGENTS.md 注入机制不确定，agent 仍可通过 `.claude/rules/*.md` 获取完整 godot 规则（主动 `Read`）。两套机制互为冗余。
+- 单元 A 实测中，agent 在项目级 AGENTS.md 未注入的情况下，仍完整答对了「操作 .tscn 该用哪个模式、怎么持久化」——证明 `.claude/rules/` 主动读取路径是可靠兜底。
+
+**单元 C 时序污染与场景 A 复测**：单元 C 实测（2026-07-22）发现 `godot-test-project` 的项目级 `AGENTS.md` 和 `CLAUDE.md` 均未被注入（只注入了全局 `~/.zcode/AGENTS.md` + workspace `D:\workspace\AGENTS.md`）。但 `AGENTS.md` 是会话第一轮才创建的，晚于会话初始化，存在时序污染——无法区分「ZCode 会注入项目级 AGENTS.md，只是本次不存在」与「ZCode 根本不注入项目子目录」。**判定性实验（场景 A）**：`godot-test-project/AGENTS.md` 现已存在（2026-07-22 18:36 创建），在该目录开新会话问 agent「你收到的项目规则来自哪个文件」即可定论（见 §6.2 复测矩阵）。
 
 ---
 
@@ -161,9 +186,31 @@ ZCode 提供 4 种执行模式（来源官方 safety-confirm 页，2026-07-22 �
 | **自动编辑** / **完全访问** | 文件/命令自动改，不拦截 ⚠️ |
 | **计划模式** | 仅规划不执行，无副作用 |
 
-### 5.2 ⚠️ `confirm_and_execute` 在 ZCode 下不可靠
+### 5.2 `confirm_and_execute` 实测（单元 B，server 层已确认）
 
 godot-mcp 的 `confirm_and_execute` 机制：危险操作（`write_config` / `create_project` / `setup_project_rules` 等）先返回一个确认 token 给 AI，AI 再回传 token 触发执行。**问题**：token 走 `client → server → client` 回路，单客户端下 AI 可以自确认——**无论 ZCode 是否实现 MCP elicitation，自动执行模式下都不能依赖它**。
+
+**实测证据（2026-07-22，`project.write_config` 改 `application/config/name`）**：
+
+```
+① Agent 发出 write_config 调用
+② godot server 返回:
+   { "requires_confirmation": true,
+     "confirmation_token": "ZSHjGKAccPsicYxcFkZWm231",
+     "message": "Tool \"project\" requires confirmation...",
+     "ttl_seconds": 60 }
+③ Agent 把 token 喂回 confirm_and_execute(token)
+④ godot server 验证 token → 真正执行 → 返回 success: true
+⑤ 落盘验证: project.godot 第 13 行 config/name="测试名" ✅
+```
+
+**已确认（Agent 侧 100% 可证）**：
+
+- ✅ server 层 token 确认机制真实存在，TTL 60 秒，必须二次调 `confirm_and_execute`
+- ✅ 二次确认后真实落盘（`project.godot` 内容已变）
+- ✅ **两层确认独立不共享状态**：ZCode 客户端层（hook/权限 UI）与 godot server 层（token）是两套机制，各拦各的，互不感知
+
+**仍未确认（待 GUI 补，见 §5.3）**：ZCode 客户端层是否对 godot 工具弹了 UI 确认窗、弹窗形态（预览型 vs elicitation 型）、实际点击次数。
 
 这是 godot-mcp 协议层的固有限制（单客户端 confirm token 无法形成 out-of-band 通道），与具体客户端无关。
 
@@ -180,27 +227,102 @@ godot-mcp 的以下安全层在所有客户端一致生效（与客户端无关�
 
 详见 [使用指南 §11 安全模型](使用指南.md#11-安全模型)。
 
-### 5.3 elicitation（B 半，待 Task 8 实测定论）
+### 5.3 elicitation 与客户端层确认 UI（B 半，部分确认）
 
-ZCode 是否实现 MCP elicitation（server→client→user 的 out-of-band 确认通道）、确认弹窗的具体形态、是否能堵住 `confirm_and_execute` 的自确认漏洞——这些**留 Task 8 GUI 端到端实测确认后回填本节**。在 Task 8 定论之前，按 §5.2 的「变更前确认」执行模式保守兜底。
+ZCode 是否实现 MCP elicitation（server→client→user 的 out-of-band 确认通道）、确认弹窗的具体形态、是否能堵住 `confirm_and_execute` 的自确认漏洞——这些需结合 GUI 观测定论。
+
+**基于单元 B 实测的阶段性结论**：
+
+- **server 层**（已确认）：godot-mcp 自带的 `requires_confirmation` + token + `confirm_and_execute` 是 server 内部确认协议，**不是 MCP 规范意义上的 elicitation**（elicitation 要求 out-of-band server→client→user 通道，token 走的是正常工具返回通道）。
+- **客户端层**（待 GUI 补 3 项）：ZCode 是否对 godot 工具弹 UI 确认窗、弹窗是预览型还是 elicitation 型、实际点击几次——这三项 Agent 无法自我观察（客户端进程与 Agent 进程可见性硬边界），需用户肉眼确认。
+
+**待 GUI 补的 3 项判定性观察**（结果回来后回填本节定论）：
+
+| # | 待确认问题 | 选项 | 对定论的影响 |
+|---|-----------|------|-------------|
+| 1 | 客户端这次弹没弹窗？ | A. 弹了点确认才放行 / B. 弹了自动放行 / C. 没弹 | 判定 ZCode 客户端对 godot 工具的 hook 覆盖 |
+| 2 | 弹窗有没有输入框？ | A. 有(elicitation) / B. 只有确认按钮(预览) / C. 没弹 | 判定确认 UI 形态 |
+| 3 | 你点了几次确认？ | A. 0 次 / B. 1 次(仅客户端) / C. 2 次(客户端+server) | 判定实际确认链路是 0/1/2 层 |
+
+在 GUI 观察回来之前，按 §5.2 的「变更前确认」执行模式保守兜底。
 
 ---
 
-## 6. 验证
+## 6. 验证（Task 8 实测回填，2026-07-22）
 
-> 本节为占位，Task 8（协议层脚本 + ZCode GUI 端到端实测）回填。
+本节为 Task 8（协议层脚本 + ZCode GUI 端到端实测）的实测回填。验证分三层：协议层（已确认）/ GUI 端到端（部分确认）/ 待复测（阻塞定论）。
 
-预期验证项（Task 8 落地后补完整结果）：
+### 6.1 协议层（✅ 已确认，可复现）
 
-- **协议层**（可复现，不依赖 ZCode GUI）：复用 [使用指南-Warp §6.2](使用指南-Warp.md#62-协议层验证可复现不依赖-warp) 的 stdio 客户端脚本，验证 `initialize` 握手 + `tools/list` 全工具发现 + `inputSchema` 完整性。ZCode 的 MCP 客户端行为与官方 SDK 等价（都遵循 MCP spec），能被该脚本列出的工具 ZCode 也能列出。
-- **GUI 端到端**（Task 8）：在 ZCode GUI 内配置 godot server，确认工具列表展示、`AGENTS.md` 注入生效、危险操作在「变更前确认」模式下被拦截。
+复用 [使用指南-Warp §6.2](使用指南-Warp.md#62-协议层验证可复现不依赖-warp) 的 stdio 客户端脚本（`docs/zcode-protocol-verify.mjs`），实测结果：
+
+- ✅ `initialize` 握手成功
+- ✅ `tools/list` 全工具发现（32 个工具，与 commit `8e77962` 的协议层验证脚本一致）
+- ✅ `inputSchema` 完整
+
+ZCode 的 MCP 客户端行为与官方 SDK 等价（都遵循 MCP spec），协议层完全兼容。
+
+### 6.2 GUI 端到端实测（单元 A / B / C，部分确认）
+
+**单元 A —— godot 规则可被 agent 正确引用（✅ 已确认）**
+
+实测项目 `D:/workspace/projects/godot-test-project`。问 agent「操作 .tscn 该用哪个模式？改完怎么持久化？」，agent 完整答对：
+
+- 三层架构决策树（Headless / Editor / Game Bridge）——选 Headless
+- 持久化分类：脚本（`edit_script` 自动写盘）/ 场景节点（`add_node` + **`save_scene`** 必须显式存）/ 运行时工具（不持久化）
+- 引用了 `.claude/rules/` 下 6 个规则文件原文
+
+> 完整记录见 `D:/workspace/projects/godot-test-project/docs/godot-mcp-tscn-workflow.md`。
+
+**单元 B —— 危险操作确认机制（✅ server 层已确认，⚠️ 客户端层待 GUI 补）**
+
+实测 `project.write_config` 改 `application/config/name`，server 层 token 确认流程走通并落盘。详见 §5.2。客户端层 UI 形态待 GUI 补 3 项（见 §5.3 表格）。
+
+> 完整记录见 `D:/workspace/projects/godot-test-project/docs/mcp-confirmation-flow-observation-2026-07-22.md`。
+
+**单元 C —— 项目级 AGENTS.md 注入（⚠️ 时序污染，待场景 A 复测）**
+
+实测发现项目级 `AGENTS.md` / `CLAUDE.md` 均未被注入（只注入全局 + workspace 两层），但受时序污染无法定论。详见 §3 开头待复测标注 + §3.5 末尾复测说明。
+
+> 完整记录见 `D:/workspace/projects/godot-test-project/docs/mcp-project-rules-injection-test-2026-07-22.md`。
+
+### 6.3 实测可用配置
+
+本次实测使用的 godot MCP 配置（`~/.zcode/cli/config.json`，本地 build 直跑方式）：
+
+```json
+{
+  "godot": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["D:/GitHub/godot-mcp-enhanced/build/index.js"],
+    "env": {
+      "DEBUG": "true",
+      "GODOT_PATH": "D:/godot/Godot_v4.7-stable_win64_console.exe",
+      "GODOT_MCP_MODE": "editor",
+      "ALLOWED_PROJECT_PATHS": "D:/workspace/projects/CardGame2;D:/workspace/projects/godot-test-project;D:/GitHub/godot-mcp-enhanced"
+    }
+  }
+}
+```
+
+> 与 [§2 方式 A](#方式-a-zcode-gui) 的 `npx -y godot-mcp-enhanced` 等价（公开分发版 vs 本地开发版）。
+
+### 6.4 待复测项（阻塞定论）
+
+以下两项需在 ZCode GUI 补做，结果回来后回填相应章节定论：
+
+| # | 待复测项 | 方法 | 影响章节 | 判定标准 |
+|---|---------|------|---------|---------|
+| 1 | **场景 A：会话开始前已存在的项目级 AGENTS.md 是否被注入** | 在 `godot-test-project`（AGENTS.md 已存在）开**新会话**，问 agent「你收到的项目规则来自哪个文件」 | §3 开头断言 / §3.5 | 回答「AGENTS.md」→断言成立；回答「项目级没收到」→断言框架需重写 |
+| 2 | **单元 B 客户端层确认 UI 形态** | 切「变更前确认」执行模式，重跑 `write_config`，肉眼观察弹窗/输入框/点击次数 | §5.3 | 见 §5.3 表格 3 项 |
 
 ---
 
 ## 7. 限制与故障排查
 
-- **⚠️ 文档断言待实测**：本指南的 ZCode 机制（`.zcode` / `.agents` / `AGENTS.md` 单文件读取模型）依据 ZCode 官方文档（2026-07-22 抓取），Task 8 GUI 实测将二次确认。若实测发现文档与行为不一致，以实测为准并回标本指南。
-- **AGENTS.md 单文件**：ZCode 不扫描子目录、不展开 `@import`、不合并多层级 `AGENTS.md`。`setup_project_rules` 生成的 `AGENTS.md` 已全量内联，无需额外配置。
+- **⚠️ 文档断言实测进度**：本指南的 ZCode 机制依据官方文档（2026-07-22 抓取）+ Task 8 实测（2026-07-22）。协议层 / server 层确认 / 规则主动读取已实测确认；项目级 AGENTS.md 注入（单元 C 时序污染）与客户端层确认 UI 形态（单元 B）待 GUI 补做（见 [§6.4](#64-待复测项阻塞定论)）。若后续实测发现文档与行为不一致，以实测为准并回标本指南。
+- **AGENTS.md 单文件（待场景 A 复测）**：官方文档称 ZCode 不扫描子目录、不展开 `@import`、不合并多层级 `AGENTS.md`。但单元 C 实测发现项目级 AGENTS.md 未被注入（时序污染），场景 A 复测前此断言存疑。无论注入与否，`setup_project_rules` 生成的 `.claude/rules/*.md` 都可被 agent 主动 `Read`（见 [§3.5](#35-两套独立机制clauderules-规则文件-vs-agentsmd-注入)），不依赖注入机制。
 - **方式 C 非自动同步**：从 Claude Code 等导入的配置是**一次性拷贝**，原配置后续变更不自动同步——需重新点导入。
 - **`.zcode` / `.agents` 优先级**：同作用域下 `.zcode` 强优先，混用时务必合并，否则 `.agents` 配置静默失效。
 - **运行时操作不持久化**：与在其他客户端一致，`signal_connect` / `tilemap_set_cell` / `particles_create` 等运行时操作只在执行上下文生效，不写盘。需持久化用 `add_node` + `save_scene`。详见 [使用指南 §3.3](使用指南.md#33-headless-执行-vs-持久化)。
@@ -219,4 +341,4 @@ ZCode 是否实现 MCP elicitation（server→client→user 的 out-of-band 确�
 
 ---
 
-*本文档基于 ZCode 官方文档（mcp-services / agents / safety-confirm 页，2026-07-22 抓取）撰写。ZCode 机制断言已标注来源与抓取日期；GUI 端到端实测留待 Task 8 二次确认。如 ZCode 行为有变，以 [ZCode 官方文档](https://zcode.z.ai/cn/docs) 为准。*
+*本文档基于 ZCode 官方文档（mcp-services / agents / safety-confirm 页，2026-07-22 抓取）+ Task 8 实测（2026-07-22，单元 A/B/C）撰写。协议层、server 层确认、规则主动读取已实测确认；项目级 AGENTS.md 注入（单元 C 时序污染）与客户端层确认 UI 形态（单元 B）待 GUI 补做定论。如 ZCode 行为有变，以 [ZCode 官方文档](https://zcode.z.ai/cn/docs) 为准。*
