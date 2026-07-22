@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import type { GodotConfig } from '../helpers.js';
 import { getLogger } from '../core/logger.js';
+import { mergeSections as mergeSectionsGeneric } from './shared/section-merge.js';
 
 // MCP 管理的章节标识（含旧格式，用于识别并替换）
 export const SECTION_IDS = new Set([
@@ -18,6 +19,11 @@ export const SECTION_ORDER: string[] = [
   '## Autoload', '## Input Map', '## 物理设置', '## 层级名称',
   '## MCP 规则映射', '## GDScript 类型规范', '## 代码最佳实践',
 ];
+
+// 绑定 CLAUDE.md 的 SECTION_IDS，保持调用方（project.ts）签名不变
+export function mergeSections(existing: string, newSections: Array<[string, string]>): string {
+  return mergeSectionsGeneric(existing, newSections, SECTION_IDS);
+}
 
 // godot-mcp.md 固定模板内容
 // {{MCP_VERSION}} 占位符由 setup_project_rules 在写入时插值（与 DETAILED_RULE_TEMPLATES 统一路径）
@@ -332,95 +338,7 @@ export function buildBestPractices(): string {
 }
 
 // ─── Merge Engine ─────────────────────────────────────────────────────────
+// parseSections / mergeSections / Section / normalizeHeader 已抽离到
+// src/tools/shared/section-merge.ts（参数化 sectionIds，供 AGENTS.md builder 复用）。
+// 本文件通过上方 mergeSections 包装绑定 SECTION_IDS，保持 project.ts 零改动。
 
-interface Section {
-  header: string;
-  headerNorm: string;
-  body: string;
-  isMcp: boolean;
-}
-
-function normalizeHeader(line: string): string {
-  return line.replace(/\s+/g, ' ').trim();
-}
-
-function parseSections(content: string): { title: string; preSections: string; sections: Section[] } {
-  const lines = content.split('\n');
-
-  // Extract title (# ...)
-  let title = '';
-  let titleEndIdx = 0;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^# /.test(lines[i]!)) {
-      title = lines[i]!;
-      titleEndIdx = i + 1;
-      break;
-    }
-  }
-
-  // Collect text between title and first ## header
-  let preSections = '';
-  let firstSectionIdx = lines.length;
-  for (let i = titleEndIdx; i < lines.length; i++) {
-    if (/^## (?!#)/.test(lines[i]!)) {
-      firstSectionIdx = i;
-      break;
-    }
-    preSections += (preSections ? '\n' : '') + lines[i]!;
-  }
-  preSections = preSections.trim();
-
-  // Parse ## sections
-  const sections: Section[] = [];
-  let current: Section | null = null;
-
-  for (let i = firstSectionIdx; i < lines.length; i++) {
-    const headerMatch = lines[i]!.match(/^## (?!#)\s*(.*)/);
-    if (headerMatch) {
-      if (current) sections.push(current);
-      const fullHeader = '## ' + headerMatch[1]!.trim();
-      const norm = normalizeHeader(fullHeader);
-      current = {
-        header: fullHeader,
-        headerNorm: norm,
-        body: '',
-        isMcp: SECTION_IDS.has(norm),
-      };
-    } else if (current) {
-      current.body += (current.body ? '\n' : '') + lines[i];
-    }
-  }
-  if (current) sections.push(current);
-
-  return { title, preSections, sections };
-}
-
-export function mergeSections(existing: string, newSections: Array<[string, string]>): string {
-  if (!existing.trim()) {
-    return newSections.map(([h, b]) => `${h}\n${b}`).join('\n\n') + '\n';
-  }
-
-  const { title, preSections, sections } = parseSections(existing);
-
-  // Collect user (non-MCP) sections in original order
-  const userSections = sections.filter(s => !s.isMcp);
-
-  // Build output
-  const parts: string[] = [];
-  if (title) parts.push(title);
-
-  // New MCP sections
-  for (const [header, body] of newSections) {
-    parts.push(`${header}\n${body}`);
-  }
-
-  // User pre-section text（保留原始空白，空字符串代表 title 后无内容）
-  if (preSections !== '') parts.push(preSections);
-
-  // User sections
-  for (const s of userSections) {
-    parts.push(s.body.trim() ? `${s.header}\n${s.body}` : s.header);
-  }
-
-  return parts.join('\n\n') + '\n';
-}
