@@ -2,7 +2,7 @@
 
 > **版本**：0.23.0 ｜ **适用 ZCode**：支持 MCP 的版本 ｜ **适用 Godot**：4.x（4.6+ 已测试）
 >
-> **验证状态**：✅ 协议层（实测，32 工具全发现）｜ ✅ GUI 端到端全确认（单元 A/B/C + 场景 A 复测，2026-07-22）｜ ✅ 项目级 AGENTS.md 注入已确认（场景 A）｜ ✅ 客户端层确认 UI 形态已确认（yolo 模式下零介入，非 elicitation）
+> **验证状态**：✅ 协议层（实测，32 工具全发现）｜ ✅ GUI 端到端实测已完成（单元 A/B/C + 场景 A 复测，单元 B 客户端层仅覆盖 yolo 模式）｜ ✅ 项目级 AGENTS.md 注入已确认（场景 A）｜ ✅ 客户端层确认 UI 形态已确认（yolo 模式下零介入，非 elicitation）
 
 ---
 
@@ -151,7 +151,7 @@ project(action="setup_project_rules", project_path="D:/my-game", claude_md=false
 
 **实践建议**：
 
-- 即使 AGENTS.md 注入机制不确定，agent 仍可通过 `.claude/rules/*.md` 获取完整 godot 规则（主动 `Read`）。两套机制互为冗余。
+- 两套机制互为冗余——AGENTS.md 注入（场景 A 已确认）+ agent 主动 `Read` `.claude/rules/*.md`，任一路径都能让 godot 规则进入 agent 上下文。即使会话中临时生成的 AGENTS.md 未被注入（时序坑），agent 仍可主动 `Read` 规则文件兜底。
 - 单元 A 实测中，agent 在项目级 AGENTS.md 未注入的情况下，仍完整答对了「操作 .tscn 该用哪个模式、怎么持久化」——证明 `.claude/rules/` 主动读取路径是可靠兜底。
 
 **单元 C 时序污染的最终归因（场景 A 复测已确认）**：单元 C 早期实测发现 `godot-test-project` 项目级 `AGENTS.md` 未被注入，因 `AGENTS.md` 是会话第一轮才创建的（晚于初始化）。场景 A 复测（AGENTS.md 已存在时开新会话）证实：**项目级 AGENTS.md 会被干净注入为 workspace instructions**。结论：单元 C 的偏差纯系时序导致，ZCode 的注入机制本身符合官方文档断言。**实践教训**：若要让 AGENTS.md 在某会话生效，必须在会话开始前生成它；会话进行中生成的不会热加载。
@@ -174,7 +174,7 @@ ZCode 的 `env` 字段直传到 godot-mcp 进程，与 [使用指南-Warp §4](�
 
 ---
 
-## 5. 权限与安全（面③ A 半定论）
+## 5. 权限与安全
 
 ### 5.1 ZCode 执行模式 × godot 危险操作
 
@@ -214,7 +214,7 @@ godot-mcp 的 `confirm_and_execute` 机制：危险操作（`write_config` / `cr
 
 这是 godot-mcp 协议层的固有限制（单客户端 confirm token 无法形成 out-of-band 通道），与具体客户端无关。
 
-**建议（A 半定论）**：
+**建议**：
 
 - 在 ZCode 里用 **「变更前确认」** 执行模式兜底，不要依赖 `confirm_and_execute`
 - 把 godot 危险操作的拦截责任交给 ZCode 的执行模式 + godot-mcp 自身的路径白名单 / GDScript 沙箱 / Bridge 密钥
@@ -227,14 +227,14 @@ godot-mcp 的以下安全层在所有客户端一致生效（与客户端无关�
 
 详见 [使用指南 §11 安全模型](使用指南.md#11-安全模型)。
 
-### 5.3 elicitation 定论（B 半确认，yolo 模式下无 elicitation）
+### 5.3 elicitation 定论（作用域：yolo 模式）
 
 基于单元 B 实测（含客户端层 GUI 观察，2026-07-22）的最终结论：
 
 - **server 层**（已确认）：godot-mcp 自带的 `requires_confirmation` + token + `confirm_and_execute` 是 server 内部确认协议，**不是 MCP 规范意义上的 elicitation**（elicitation 要求 out-of-band server→client→user 通道，token 走的是正常工具返回通道）。
 - **客户端层**（yolo 模式下已确认）：**ZCode 客户端层对 godot MCP 工具零介入**——无 GUI 弹窗、无输入框、无 elicitation 形态。`write_config` 调用直接返回 server 的 token JSON，Agent 收到后自行决定是否调 `confirm_and_execute`。实测中 Agent 未调 confirm_and_execute，配置实际未被写入（token 60 秒后失效）。
 
-**B 半最终定论**：
+**最终定论（yolo 模式作用域）**：
 
 | 问题 | 定论 | 依据 |
 |------|------|------|
