@@ -282,7 +282,7 @@ func create_scene(params):
 					cleanup_and_quit([scene_root], 1)
 					return
 
-	var save_error = ResourceSaver.save(packed_scene, full_scene_path)
+	var save_error = _save_atomic(packed_scene, full_scene_path)
 	scene_root.free()
 	if save_error == OK:
 		print("Scene created successfully at: " + params.scene_path)
@@ -349,7 +349,7 @@ func add_node(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var save_error = ResourceSaver.save(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path)
 		if save_error == OK:
 			print("Node '%s' of type '%s' added successfully" % [params.node_name, params.node_type])
 		else:
@@ -403,7 +403,7 @@ func edit_node(params):
 	var packed_scene = PackedScene.new()
 	var result = packed_scene.pack(scene_root)
 	if result == OK:
-		var save_error = ResourceSaver.save(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path)
 		if save_error == OK:
 			print("Node '%s' edited successfully" % params.node_path)
 		else:
@@ -486,7 +486,7 @@ func batch_add_nodes(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var save_error = ResourceSaver.save(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path)
 		if save_error == OK:
 			print("Batch add completed: %d/%d nodes added to %s" % [added_count, nodes.size(), params.scene_path])
 			if failed_count > 0:
@@ -561,7 +561,7 @@ func load_sprite(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var error = ResourceSaver.save(packed_scene, full_scene_path)
+		var error = _save_atomic(packed_scene, full_scene_path)
 		if error == OK:
 			print("Sprite loaded successfully with texture: " + full_texture_path)
 		else:
@@ -638,7 +638,7 @@ func export_mesh_library(params):
 			return
 
 	if item_id > 0:
-		var error = ResourceSaver.save(mesh_library, full_output_path)
+		var error = _save_atomic(mesh_library, full_output_path)
 		if error == OK:
 			print("MeshLibrary exported successfully with %d items to: %s" % [item_id, full_output_path])
 		else:
@@ -686,7 +686,7 @@ func save_scene(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var error = ResourceSaver.save(packed_scene, save_path)
+		var error = _save_atomic(packed_scene, save_path)
 		if error == OK:
 			print("Scene saved successfully to: " + save_path)
 		else:
@@ -822,7 +822,7 @@ func resave_resources(params):
 	for scene_path in scenes:
 		var scene = load(scene_path)
 		if scene:
-			var error = ResourceSaver.save(scene, scene_path)
+			var error = _save_atomic(scene, scene_path)
 			if error == OK:
 				success_count += 1
 			else:
@@ -844,7 +844,7 @@ func resave_resources(params):
 			missing_uids += 1
 			var res = load(script_path)
 			if res:
-				var error = ResourceSaver.save(res, script_path)
+				var error = _save_atomic(res, script_path)
 				if error == OK:
 					generated_uids += 1
 				else:
@@ -853,3 +853,19 @@ func resave_resources(params):
 				log_error("Failed to load resource: " + script_path)
 
 	print("Resave complete: %d scenes saved, %d errors, %d UIDs generated" % [success_count, error_count, generated_uids])
+
+# B7: 原子化资源写——tmp+rename 防超时 kill 落在 save 中途产半截损坏 .tres/.tscn 阻塞项目加载。
+# tmp 必须以目标扩展名结尾(ResourceSaver 按扩展名分派 saver, 裸 .tmp 返回 err 15)。
+# 对齐 data-import.ts:188 已验证范例 + memory resourcesaver-extension-dispatch。
+func _save_atomic(res, full_path: String) -> int:
+	var ext := full_path.get_extension()  # tres/res/tscn/gd/shader/gdshader
+	var tmp := full_path + ".tmp." + ext
+	var save_err: int = ResourceSaver.save(res, tmp)
+	if save_err != OK:
+		DirAccess.remove_absolute(tmp)  # save 失败清半截 tmp
+		return save_err
+	var rename_err: int = DirAccess.rename_absolute(tmp, full_path)
+	if rename_err != OK:
+		DirAccess.remove_absolute(tmp)  # rename 失败清 tmp
+		return rename_err
+	return OK
