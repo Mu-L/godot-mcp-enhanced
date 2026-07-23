@@ -128,6 +128,8 @@ static func create_material(spec: Variant) -> Material:
 	if spec is String:
 		var s: String = spec
 		if s.begins_with("res://"):
+			if CommandHelpers.has_path_traversal(s):
+				return MaterialPresets.create("default")
 			var loaded = load(s)
 			return loaded if loaded is Material else MaterialPresets.create("default")
 		return MaterialPresets.create(s)  # 预设名（未知 → default 回退）
