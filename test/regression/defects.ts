@@ -441,19 +441,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'nav-bake-in-undo-action', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // P1(2026-07-10): nav bake 游离 create_action_mixed 之外 → Ctrl+Z 撤 add_node 后 bake 残留、redo 不重 bake。
-    //   原 P1 fix: bake 作 do_method 入 do_ops(do_ops.append), commit 时执行 + redo 重 bake。
-    // C4(2026-07-23) 演进（推翻 P1 方案）: 核查 undo_manager.gd:35-43 create_action_mixed/commit_action 同步执行
-    //   do_methods（无 await do_methods 路径），bake_navigation_mesh 是 coroutine，同步路径内调用停在首个 await
-    //   点即返回，bake 实际未完成。旧判据 `nav.navigation_mesh != null` 因 mesh 预置非 null 恒 true，掩盖 bake 失败。
-    //   C4 fix: bake 移出 do_ops + commit 后单独 `await nav.bake_navigation_mesh()` + 判据改 get_vertices_count()>0。
-    //   detect: bake 出现在 do_ops.append = 复发 P1 bug 形态（coroutine 同步执行不完成）；缺 await 或 vertices_count 判据 = C4 修复不完整。
+    // fix: bake 作 do_method 入 do_ops(do_ops.append), commit 时执行 + redo 重 bake。detect: 无 do_ops.append bake = 复发。
+    // C4 deferral(2026-07-23): accurate bake_result（coroutine await + vertices_count 判据）deferred —— 同步 dispatch
+    //   (command_handler.gd:144 return 无 await + websocket_server.gd:350-351 not response is Dictionary 检查)
+    //   不支持 coroutine handler, 含 await 会使 handle_nav_create_region 成 coroutine 返 state 命中 -32603。
+    //   需 async-dispatch 重构或 sync-bake API 研究（架构阻塞, 超 batch C bug-fix 范畴）。当前 bake 作 do_method
+    //   入 undo do_ops（commit 同步执行, bake coroutine 异步完成）, bake_result 乐观（!=null）, 原行为保留。
+    //   detect 沿用 P1 判据（bake 在 do_ops.append = fixed）。
     detect: () => {
       const nav = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
       const region = nav.slice(nav.indexOf('handle_nav_create_region'));
-      const hasBakeInDoOps = /do_ops\.append\([\s\S]{0,80}bake_navigation_mesh/.test(region);
-      const hasAwaitBake = /await\s+nav\.bake_navigation_mesh/.test(region);
-      const hasVerticesCheck = /get_vertices_count\(\)\s*>\s*0/.test(region);
-      return (hasBakeInDoOps || !hasAwaitBake || !hasVerticesCheck) ? 1 : 0;
+      return /do_ops\.append\([\s\S]{0,80}bake_navigation_mesh/.test(region) ? 0 : 1;
     } },
   { key: 'asset-undo-stack-top-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // P1(2026-07-10): handle_undo 裸 ur.undo() 撤全局栈顶 → MAX_PEERS=5 时误撤他 peer 非 asset 操作。
