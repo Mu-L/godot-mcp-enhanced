@@ -108,9 +108,11 @@ describe('HealthMonitor — state transitions', () => {
   });
 
   it('transitions connected→reconnecting on max consecutive failures', () => {
+    // B1: 仅 heartbeat 类失败驱动 reconnecting（旧实现用 'timeout' errorType
+    // 走旧 bug 路径——consecutiveFails 无差别累加；B1 修复后须用 'heartbeat'）
     const monitor = new HealthMonitor({ maxConsecutiveFailures: 3 });
     for (let i = 0; i < 3; i++) {
-      monitor.recordFailure('timeout', 'err');
+      monitor.recordFailure('heartbeat', 'err');
     }
     expect(monitor.getState()).toBe('reconnecting');
   });
@@ -345,5 +347,27 @@ describe('HealthMonitor — onStateChange control loop (P0 fix)', () => {
 
     monitor.stopHeartbeat();
     vi.useRealTimers();
+  });
+});
+
+// ─── B1 修复（批次 B 可靠性）──────────────────────────────────────────────────
+// bug: health-monitor.ts:126 consecutiveFails 无差别累加（不查 errorType）→
+// 工具失败(TOOL_ERROR) 也驱动 state → reconnecting，触发编辑器误降级。
+// 修复：新增 consecutiveHeartbeatFails，仅 heartbeat 类失败驱动 reconnecting。
+
+describe('HealthMonitor — B1 errorType 分流', () => {
+  it('B1: tool errors do not drive reconnecting; only heartbeat failures do', () => {
+    const hm = new HealthMonitor({ maxConsecutiveFailures: 5 });
+    hm.setState('connected');
+    // 模拟 5 次工具失败（ToolDispatcher 传 TOOL_ERROR）
+    for (let i = 0; i < 5; i++) {
+      hm.recordFailure('TOOL_ERROR', `tool fail ${i}`);
+    }
+    expect(hm.getState()).not.toBe('reconnecting'); // TOOL_ERROR 不进 reconnecting
+    // 5 次心跳失败才进 reconnecting
+    for (let i = 0; i < 5; i++) {
+      hm.recordFailure('heartbeat', `ping false ${i}`);
+    }
+    expect(hm.getState()).toBe('reconnecting');
   });
 });

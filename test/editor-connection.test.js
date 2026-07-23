@@ -236,4 +236,33 @@ describe('EditorConnection', () => {
 
     conn.disconnect();
   });
+
+  // B3: request() 支持 options.timeoutMs 短超时（心跳 ping 用 5s 而非业务默认 30s）。
+  // bug: GodotServer.ts:460 pingFn 复用 request('ping') 的 30s 默认超时——
+  // 编辑器主线程卡死时 ping 要等 30s 才失败，连续 5 次 = ~150s 才触发降级。
+  it('B3: request() honors options.timeoutMs (short heartbeat timeout)', async () => {
+    wss.on('connection', (ws) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        // 仅回 auth，不回 ping —— 模拟编辑器卡死（TCP OPEN 但主线程无响应）
+        if (msg.method === 'auth') {
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        }
+      });
+    });
+
+    // requestTimeout=30000 (业务默认) —— 模拟生产配置；心跳传 timeoutMs=500 覆盖
+    const conn = new EditorConnection({ port, reconnect: false, requestTimeout: 30000, secret: 'test-secret' });
+    await conn.connect();
+
+    const start = Date.now();
+    // options.timeoutMs=500 应覆盖默认 30000
+    await expect(conn.request('ping', {}, { timeoutMs: 500 })).rejects.toThrow(/Request timeout/);
+    const elapsed = Date.now() - start;
+    // 应在 ~500ms 超时，远小于 30000ms
+    expect(elapsed).toBeGreaterThanOrEqual(450);
+    expect(elapsed).toBeLessThan(5000); // 5s buffer（CI 慢机器宽容），但绝不应接近 30s
+
+    conn.disconnect();
+  });
 });

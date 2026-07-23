@@ -303,7 +303,11 @@ export class EditorConnection {
     });
   }
 
-  request(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  request(
+    method: string,
+    params: Record<string, unknown> = {},
+    options?: { timeoutMs?: number },
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.connected) {
         reject(new Error('Not connected'));
@@ -326,10 +330,13 @@ export class EditorConnection {
         return;
       }
       const id = this.requestId = candidate;
+      // B3: 心跳等活性检测传独立短超时(options.timeoutMs),默认回退业务 requestTimeoutMs(30s)。
+      // 差异化理由:心跳 ping 失败目的是"快速发现卡死",业务请求用长超时是"容忍慢操作"。
+      const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Request timeout: ${method}`));
-      }, this.requestTimeoutMs);
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
       const msg = JSON.stringify({ jsonrpc: '2.0', id, method, params });

@@ -65,6 +65,8 @@ export class HealthMonitor {
   private totalSuccesses = 0;
   private totalFailures = 0;
   private consecutiveFails = 0;
+  // B1: 仅心跳类失败驱动 reconnecting；工具失败(TOOL_ERROR)贡献 degraded 统计不驱动状态机
+  private consecutiveHeartbeatFails = 0;
 
   // H-02: Sliding windows using RingBuffer (O(1) push, no Array.shift)
   private responseTimes!: RingBuffer<number>;
@@ -101,6 +103,7 @@ export class HealthMonitor {
     this.totalRequests++;
     this.totalSuccesses++;
     this.consecutiveFails = 0;
+    this.consecutiveHeartbeatFails = 0;
 
     this.responseTimes.push(responseTimeMs);
 
@@ -124,6 +127,11 @@ export class HealthMonitor {
     this.totalRequests++;
     this.totalFailures++;
     this.consecutiveFails++;
+    // B1: 只有 heartbeat 类失败驱动 reconnecting 阈值。工具失败(TOOL_ERROR)仍
+    // 贡献 totalFailures / recentFailures(degraded 统计)，但不推动状态机到 reconnecting。
+    if (errorType === 'heartbeat') {
+      this.consecutiveHeartbeatFails++;
+    }
 
     this.pushRecentFlag(false);
 
@@ -218,7 +226,9 @@ export class HealthMonitor {
     if (this.state === 'disconnected') return; // only manual
 
     // Check reconnecting threshold
-    if (this.consecutiveFails >= this.opts.maxConsecutiveFailures) {
+    // B1: 仅 heartbeat 类失败（consecutiveHeartbeatFails）驱动 reconnecting。
+    // 工具失败(TOOL_ERROR) 不推动状态机到 reconnecting（避免编辑器误降级）。
+    if (this.consecutiveHeartbeatFails >= this.opts.maxConsecutiveFailures) {
       if (this.state !== 'reconnecting') {
         this.setState('reconnecting');
       }
@@ -276,6 +286,7 @@ export class HealthMonitor {
           this.totalRequests++;
           this.totalSuccesses++;
           this.consecutiveFails = 0;
+          this.consecutiveHeartbeatFails = 0;
           this.pushRecentFlag(true);
           if (this.state !== 'connected') this.setState('connected');
         } else {

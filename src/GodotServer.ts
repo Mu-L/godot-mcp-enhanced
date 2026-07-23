@@ -421,6 +421,9 @@ export class GodotServer {
   /** 编辑器不可用时的统一降级动作（WS 重连耗尽 / 心跳检测卡死 共用）。
    *  2026-07-12 P0：抽公共逻辑，reconnectExhausted handler 与 onStateChange 回调共用。 */
   private handleEditorStall(): void {
+    // B2: 清 zombie——旧 EditorConnection 的 WS 仍 OPEN + reconnectEnabled=true,
+    // 不 disconnect 则闭包重连耗尽后跨实例触发 reconnectExhausted 再降级。
+    try { this.editorConn?.disconnect(); } catch { /* best-effort */ }
     this.dispatcher?.markEditorFallback();
     this.connectionMode = 'headless';
     // I-04: atomic degradeToHeadless() 避免 two separate _pendingModeSwitch writes racing
@@ -457,7 +460,7 @@ export class GodotServer {
       const hm = this.dispatcher?.getHealthMonitor();
       if (hm) {
         hm.startHeartbeat(
-          () => (this.editorConn ? this.editorConn.request('ping').then(() => true).catch(() => false) : Promise.resolve(false)),
+          () => (this.editorConn ? this.editorConn.request('ping', {}, { timeoutMs: 5000 }).then(() => true).catch(() => false) : Promise.resolve(false)),
         );
         // 2026-07-12 P0 控制回路接线：心跳检测编辑器卡死（连续 ping 失败进 reconnecting）时主动降级。
         // 堵 HealthMonitor 纯仪表盘缺口：编辑器主线程卡死但 TCP OPEN 时 WS 不 close →
@@ -468,6 +471,12 @@ export class GodotServer {
             this.handleEditorStall();
           }
         });
+        // B6: 重建(rebuild)成功后 hm.state 可能残留 'reconnecting'(上次 stall 留下),
+        // 首个心跳要等 heartbeatIntervalMs 才纠正——期间 onStateChange 不再触发降级但状态错。
+        // 显式 setState('connected') 即刻复位。首次连接 hm 本就 connected,此处为 no-op。
+        // B1 兼容：connected 态下工具失败(TOOL_ERROR)只进 degraded 不进 reconnecting,
+        // 故此复位不会被 TOOL_ERROR 误触发再次降级。
+        hm.setState('connected');
       }
       this.connectionMode = 'editor';
       this.dispatcher?.setConnectionMode('editor');
