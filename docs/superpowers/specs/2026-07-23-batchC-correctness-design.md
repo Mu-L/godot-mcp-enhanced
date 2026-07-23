@@ -15,7 +15,7 @@
 | # | 位置 | finding | 严重度 |
 |---|------|---------|--------|
 | C1 | sync_commands.gd:127/144 | _on_node_added/removed 绕路 _command_handler.get_plugin()（不存在→null→get_child(0) fallback 错场景） | IMPORTANT |
-| C2 | gdscript-executor.ts:1361 | extractCompileError marker 分支裸 includes（用户 print "Parse Error:" 误判 compile_success:false） | IMPORTANT |
+| C2 | gdscript-executor.ts:1361 | extractCompileError **单分支**裸 includes（用户 print "Parse Error:" 误判 compile_success:false；marker/no-marker 两调用路径共用此函数） | IMPORTANT |
 | C3 | websocket_server.gd:267 | params:null 放行→Dictionary 强类型 SCRIPT ERROR 中断帧 packet 循环 | IMPORTANT |
 | C4 | nav_commands.gd:37/58/64 | bake_result 判据恒 true（mesh 预置非 null）+ bake_navigation_mesh coroutine 未 await | IMPORTANT |
 | C5 | path_generator.gd:18 | resolve_points 不 strip "root/" 前缀（与 asset_placer/command_helpers 不一致） | ADVISORY |
@@ -25,8 +25,8 @@
 | C9 | test_commands.gd:29 | test_assert 用 str() 比较（Vector3 vs Array / bool vs int 永不等） | IMPORTANT |
 | C10 | animtree_commands.gd:69/100/136 | add_state/add_transition/set_blend 不建 undo action（Ctrl+Z 只撤 create） | IMPORTANT |
 | C11 | node_commands.gd:216-256 | batch_add_nodes 预校验 instantiate 的 Node commit 失败时孤儿 leak | IMPORTANT |
-| C12 | node_commands.gd:179 / scene_commands.gd:205 | edit_node/set_instance_property undo 只读属性 old_val=null 错误赋值 | IMPORTANT |
-| C13 | ui_commands.gd:264/421/435 | set_params 任意 key + load font/stylebox null 未守 | IMPORTANT |
+| C12 | node_commands.gd:179 / scene_commands.gd:196 | edit_node/set_instance_property undo old_val=null（不存在的 property get 返 null）→ undo 时 set(key,null) 错误赋值 | IMPORTANT |
+| C13 | ui_commands.gd:259/417/431 | set_params 任意 key + load font/stylebox null 未守 | IMPORTANT |
 
 ## 设计（6 task 组）
 
@@ -60,15 +60,15 @@
 **C10**（animtree_commands.gd）：handle_animtree_create（:52）有 create_action_mixed undo，但 add_state（:69）/add_transition（:100）/set_blend（:136）直接改 sm/tree 无 undo action。
 - 修复：三者用既有 `_undo_manager.create_action_mixed` 模式（nav_commands.gd:53 示范），add undo op + 对应 undo op（remove_state/remove_transition/reset_blend）。设计决策④。
 
-**C11**（node_commands.gd:216-256 batch_add_nodes）：预校验 :230 `ClassDB.instantiate` ≤100 Node（未 add_child），:256 commit；commit 中途某 add_child 抛错→已 instantiate Node 孤儿 leak。
-- 修复：commit 失败 catch 遍历 validated 清未入树：`if not cls.is_inside_tree(): cls.free()`。
+**C11**（node_commands.gd:216-256 batch_add_nodes，核查确认**整函数体无 try/catch**）：预校验 :230 `ClassDB.instantiate` ≤100 Node（未 add_child），:255-260 commit（:256 create_action_mixed / else 分支 callv 两条路径）；commit 中途某 add_child/callv 抛错→已 instantiate Node 孤儿 leak。
+- 修复：新增 try/catch 包裹 :255-260 commit 块，catch 内遍历 validated 清未入树：`if not cls.is_inside_tree(): cls.free()`。
 
-**C12**（node_commands.gd:179 edit_node / scene_commands.gd:205 set_instance_property）：undo `old_val = node.get(key)`，只读属性返 null，undo 时 `set(key, null)` 错误赋值（注释 node_commands.gd:149-150 已承认 follow-up）。
-- 修复：记录 old_val 前查 `PROPERTY_USAGE_READ_ONLY` flag（`property_usage` via get_property_list），只读属性跳过 undo 记录（或记标记 undo 时跳过 set）。设计决策④。
+**C12**（node_commands.gd:179 edit_node / scene_commands.gd:196 set_instance_property）：undo `old_val = node.get(key)`，**不存在的 property get 返 null**（核查校准：Godot 里只读属性 get 返当前值非 null，真正返 null 的是不存在的 key；spec 原措辞"只读属性返 null"略偏），undo 时 `set(key, null)` 错误赋值（注释 node_commands.gd:149-150 已承认 follow-up）。另：spec 原标 scene_commands.gd:205 实为非 undo path 的 `target.set()`，真实 undo old_value 读取在 :196。
+- 修复：记录 old_val 前查 `PROPERTY_USAGE_READ_ONLY` flag（`property_usage` via get_property_list），只读属性跳过 undo 记录（或记标记 undo 时跳过 set）。**plan 期细化**：区分「只读属性→跳过 undo」vs「可写但当前值 null→仍记 undo（null 为合法旧值）」，避免 redo 丢失可写属性。设计决策④。
 
 ### 组 4：GD-参数校验（C13 + C5）
 
-**C13**（ui_commands.gd）：① :264 set_params 遍历 params `theme.set(key, val)`，key 任意 String，Theme 无该动态属性 silent fail；② :421/:435 `load(font_path)`/`load(sb_path)` 返 null 直接传 set_default_font/set_stylebox → SCRIPT ERROR 或 silent no-op。
+**C13**（ui_commands.gd，行号已 grep 校准 :259/417/431）：① :259 set_params 遍历 params `theme.set(key, val)`，key 任意 String（现状仅过滤含 ":" 或 "/" 的 key），Theme 无该动态属性 silent fail；② :417/:431 `load(font_path)`/`load(sb_path)` 返 null 直接传 set_default_font/set_stylebox → SCRIPT ERROR 或 silent no-op。
 - 修复：① set_params 校验 key（查 Theme 有效属性白名单或 get_property_list，无效 key 报错/跳过+warn）；② load 后 null 守卫（返 error 而非传 null）。
 
 **C5**（path_generator.gd:18 resolve_points）：`get_node_or_null(path_node)` 不 strip "root/" 前缀。
@@ -76,8 +76,8 @@
 
 ### 组 5：TS 正确性（C2 + C6 + C7 + C8）
 
-**C2**（gdscript-executor.ts:1361 extractCompileError）：marker 成功分支裸 `trimmed.includes('Parse Error:') || ...('Script Error:')` 扫全部行，用户 `print("Parse Error: debug")` 误判。no-marker 分支用 `\b...\b` 词边界。
-- 修复：marker 分支对齐 no-marker 的 `\b` 词边界正则（`/\bParse Error:/` 等），避免命中用户 print 内容。
+**C2**（gdscript-executor.ts:1361 extractCompileError）：**单分支** `trimmed.includes('Parse Error:') || ...('Script Error:')` 扫全部行——marker 与 no-marker 两条调用路径都调此函数，用户 `print("Parse Error: debug")` 误判 compile_success:false。注意 :1303 的 `/\b(Parse Error|Script Error|SCRIPT ERROR)\b/` 是 no-marker 调用方的**二次兜底**（只决定 run_error 文案，不参与 compile_success 判定），并非 extractCompileError 的"另一分支"。
+- 修复：extractCompileError:1361 改 `\b` 词边界正则（如 `/\b(Parse Error|Script Error):/`），一处即覆盖两调用路径，避免命中用户 print 内容。
 
 **C6**（data-import.ts:318-334 csv_content 分支）：无前置 size 守卫，超大字符串 MCP SDK JSON.parse 阶段 OOM（后置 :337 守卫太晚）。
 - 修复：csv_content 解析前置 size 守卫（对齐 csv_file 分支的 MAX_CSV_SIZE 检查，在 JSON.parse 前）。
@@ -90,7 +90,7 @@
 
 ### 组 6：defects detect + CHANGELOG
 
-defects.ts 加 C1-C13 detect 闭包（FIXED 返回 0，内联非 global 正则避 lastIndex bug，批次 B 教训）+ defects-fixed 计数同步（80→93）+ CHANGELOG 批次 C 段。RED→GREEN 验证。
+`test/regression/defects.ts` 加 C1-C13 detect 闭包（FIXED 返回 0，内联非 global 正则避 lastIndex bug，批次 B 教训）+ `test/regression/defects-fixed.test.ts` 计数同步（80→93）+ CHANGELOG 批次 C 段。RED→GREEN 验证。
 
 ## 不修 / 否决
 
