@@ -459,4 +459,21 @@ describe('EditorToolExecutor B4 connection-error structuring (mocked conn)', () 
       expect(payload.editor_disconnected).toBe(true);
     })();
   });
+
+  // T2-M1 (final review): 字符串兜底分支必须守 errCode===undefined，
+  // 否则插件结构化错误（带 number code 如 -32602）其 message 恰含连接子串（最现实 "Disconnected"，
+  // 如 "Node Disconnected from parent"）会被误判连接错误 → code/data 被吞 + 反挂 do_not_retry+editor_disconnected。
+  it('T2-M1: plugin structured error with "Disconnected" substring must NOT be flagged as connection error', async () => {
+    mockConn.request.mockRejectedValueOnce(
+      Object.assign(new Error('Node Disconnected from parent'), { code: -32602, data: { node: 'x' } }),
+    );
+    const res = await executor.execute('editor', { action: 'edit_node' });
+    const payload = JSON.parse(res.content[0].text);
+    // 结构化 code/data 须保留
+    expect(payload.code).toBe(-32602);
+    expect(payload.data).toEqual({ node: 'x' });
+    // 连接类反挂字段不得出现（核心：修复前会误判）
+    expect(payload.do_not_retry).toBeUndefined();
+    expect(payload.editor_disconnected).toBeUndefined();
+  });
 });

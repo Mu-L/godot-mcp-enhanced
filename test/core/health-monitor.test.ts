@@ -357,13 +357,16 @@ describe('HealthMonitor — onStateChange control loop (P0 fix)', () => {
 
 describe('HealthMonitor — B1 errorType 分流', () => {
   it('B1: tool errors do not drive reconnecting; only heartbeat failures do', () => {
-    const hm = new HealthMonitor({ maxConsecutiveFailures: 5 });
+    const hm = new HealthMonitor({ maxConsecutiveFailures: 5, degradedThreshold: 3 });
     hm.setState('connected');
     // 模拟 5 次工具失败（ToolDispatcher 传 TOOL_ERROR）
     for (let i = 0; i < 5; i++) {
       hm.recordFailure('TOOL_ERROR', `tool fail ${i}`);
     }
     expect(hm.getState()).not.toBe('reconnecting'); // TOOL_ERROR 不进 reconnecting
+    // T1-M1 (final review): 正向断言 TOOL_ERROR 贡献 degraded
+    //（recentFailures=5 ≥ degradedThreshold=3 → degraded，仅不进 reconnecting）
+    expect(hm.getState()).toBe('degraded');
     // 5 次心跳失败才进 reconnecting
     for (let i = 0; i < 5; i++) {
       hm.recordFailure('heartbeat', `ping false ${i}`);

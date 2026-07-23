@@ -84,16 +84,22 @@ export class EditorToolExecutor {
       const message = err instanceof Error ? err.message : 'Unknown error';
       // B4: 连接类错误结构化判定（覆盖原字符串匹配漏项 Disconnected / JSON parse error）
       // 5 个 code 由 EditorConnection reject 站点挂载;字符串兜底保护外部 path 未挂 code 的回归。
+      // T2-M1 (final review): 字符串兜底必须守 errCode===undefined，否则插件结构化错误（带 number code 如
+      // -32602）其 message 恰含连接子串（最现实 "Disconnected"，如 "Node Disconnected from parent"）会被
+      // 误判连接错误 → code/data 被吞 + 反挂 do_not_retry+editor_disconnected。已挂 code（string 连接 code
+      // 或 number 插件 code）走第一分支;无 code 的旧 Error 走字符串兜底;两路径互斥。
       const CONN_ERROR_CODES = new Set([
         'CONNECTION_LOST', 'NOT_CONNECTED', 'REQUEST_TIMEOUT', 'DISCONNECTED', 'PARSE_ERROR',
       ]);
       const isConnectionError =
         (typeof errCode === 'string' && CONN_ERROR_CODES.has(errCode)) ||
-        message.includes('Connection lost') ||
-        message.includes('Not connected') ||
-        message.includes('Request timeout') ||
-        message.includes('Disconnected') ||
-        message.includes('JSON parse error');
+        (errCode === undefined && (
+          message.includes('Connection lost') ||
+          message.includes('Not connected') ||
+          message.includes('Request timeout') ||
+          message.includes('Disconnected') ||
+          message.includes('JSON parse error')
+        ));
 
       const errorPayload: Record<string, unknown> = { error: message };
       // I-12: 保留插件结构化 code/data（连接类错误除外——它们的 code 是本地连接语义非插件语义,
