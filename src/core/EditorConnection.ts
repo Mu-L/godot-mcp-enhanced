@@ -20,6 +20,7 @@ interface EditorConnectionOptions {
   requestTimeout?: number;
   maxReconnectAttempts?: number;
   secret?: string;
+  authTimeout?: number;
 }
 
 interface PendingRequest {
@@ -128,6 +129,7 @@ export class EditorConnection {
   private readonly maxReconnectMs: number;
   private readonly connectTimeoutMs: number;
   private readonly requestTimeoutMs: number;
+  private readonly authTimeoutMs: number;
   private reconnectAttempt = 0;
   private readonly maxReconnectAttempts: number;
   private readonly editorSecret: string | null;
@@ -148,6 +150,7 @@ export class EditorConnection {
     this.maxReconnectMs = options.maxReconnectInterval ?? 60000;
     this.connectTimeoutMs = options.connectTimeout ?? 10000;
     this.requestTimeoutMs = options.requestTimeout ?? 30000;
+    this.authTimeoutMs = options.authTimeout ?? 10000;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 20;
     this.editorSecret = options.secret ?? null;
   }
@@ -435,7 +438,7 @@ export class EditorConnection {
         this.connectAttempt = true; // Prevent close handler from scheduling reconnect
         reject(new Error('Auth handshake timeout'));
         this.ws?.close();
-      }, 10000);
+      }, this.authTimeoutMs);
 
       // I-01: Use id=-1 for auth (negative IDs never conflict with normal requests)
       this.pending.set(AUTH_REQUEST_ID, {
@@ -558,6 +561,12 @@ export class EditorConnection {
     }
   }
 
+  /**
+   * B8: 连接活性语义说明。
+   * 仅反映 ws 'open'/'close' 事件后的 connected flag, 非TCP 实时活性——
+   * TCP 半开(对端 accept 不响应不 close)时此方法仍返回 true。
+   * 实时活性检测见 HealthMonitor 心跳(health-monitor.ts startHeartbeat + ping)。
+   */
   isConnected(): boolean {
     return this.connected;
   }
