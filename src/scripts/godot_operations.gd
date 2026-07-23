@@ -116,6 +116,9 @@ func _init():
 		return
 	log_info("Executing operation: " + operation)
 
+	# B7: 进程启动清 res:// 残留 *.tmp.{tres,tscn,res}(超时 kill 落在 save 中途的半截文件)
+	_clean_atomic_tmp()
+
 	match operation:
 		"create_scene":
 			create_scene(params)
@@ -844,7 +847,10 @@ func resave_resources(params):
 			missing_uids += 1
 			var res = load(script_path)
 			if res:
-				var error = _save_atomic(res, script_path)
+				# B7 例外: 此处 resave 旨在触发 .uid 边车生成(须在原路径 script_path),
+				# 原子化(_save_atomic 写 .tmp.<ext>)会令 .uid 边车落到 tmp 路径→rename 后孤儿→目的失败。
+				# 脚本/shader resave 快,半截损坏下次 load 即暴露; .uid 语义优先, 不原子化。
+				var error = ResourceSaver.save(res, script_path)
 				if error == OK:
 					generated_uids += 1
 				else:
@@ -860,6 +866,9 @@ func resave_resources(params):
 func _save_atomic(res, full_path: String) -> int:
 	var ext := full_path.get_extension()  # tres/res/tscn/gd/shader/gdshader
 	var tmp := full_path + ".tmp." + ext
+	# B7: 写前清同路径旧 tmp(防上次同路径 crash 残留阻塞本次 save)
+	if FileAccess.file_exists(tmp):
+		DirAccess.remove_absolute(tmp)
 	var save_err: int = ResourceSaver.save(res, tmp)
 	if save_err != OK:
 		DirAccess.remove_absolute(tmp)  # save 失败清半截 tmp
@@ -869,3 +878,19 @@ func _save_atomic(res, full_path: String) -> int:
 		DirAccess.remove_absolute(tmp)  # rename 失败清 tmp
 		return rename_err
 	return OK
+
+
+# B7 启动清理: 扫 res:// 残留 *.tmp.{tres,tscn,res}(_save_atomic 超时 kill 半截产物)。
+# 对齐 plan「★关键约束」+ data-import.ts:188 clean_dir 模式; 每进程早跑一次。
+# .godot/ 导入缓存被 find_files 的 "." 前缀跳过排除。
+func _clean_atomic_tmp() -> void:
+	var removed := 0
+	for ext in [".tmp.tres", ".tmp.tscn", ".tmp.res"]:
+		var stale := find_files("res://", ext)
+		for tmp_path in stale:
+			if DirAccess.remove_absolute(tmp_path) == OK:
+				removed += 1
+			else:
+				log_error("Failed to remove stale atomic tmp: " + tmp_path)
+	if removed > 0:
+		log_info("Cleaned %d stale atomic tmp file(s)" % removed)
