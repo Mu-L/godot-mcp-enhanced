@@ -176,10 +176,16 @@ func handle_edit_node(params: Dictionary, request_id: int) -> Dictionary:
 			failed.append({"key": String(key), "error": String(r["error"])})
 			continue
 		var coerced: Variant = r["value"]
-		var old_val: Variant = node.get(String(key))
+		# C12: 只读属性（PROPERTY_USAGE_READ_ONLY）set 无意义/可能拒；
+		# 且 node.get(key) 对不存在的 property 返 null，记 undo 会致 undo 回放 set(key,null) 错误赋值。
+		# 跳过只读属性的 undo（do 仍 set 尝试，undo 不回放只读 set，避免错误赋值）。
+		# 可写但当前值 null 仍记 undo（null 是合法旧值）。
+		var usage: Variant = CommandHelpers._get_property_usage(node, String(key))
+		if usage == null or (int(usage) & PROPERTY_USAGE_READ_ONLY) == 0:
+			var old_val: Variant = node.get(String(key))
+			undo_ops.append({"type": "method", "target": node, "method": "set", "args": [String(key), old_val]})
 		# op 显式 type:"method"（对齐 handle_add_node:66），method:"set" 经 undo_manager.gd:55 callv spread
 		do_ops.append({"type": "method", "target": node, "method": "set", "args": [String(key), coerced]})
-		undo_ops.append({"type": "method", "target": node, "method": "set", "args": [String(key), old_val]})
 
 	if do_ops.is_empty():
 		# 全 property coerce 失败：不注册 undo，返失败列表
@@ -252,12 +258,25 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 		do_ops.append({"type": "reference", "value": cls})
 		undo_ops.append({"type": "method", "target": parent_node, "method": "remove_child", "args": [cls]})
 
+	# C11: commit 中途失败（某 add_child/callv 在 undo_manager 内部 push_error 但 GDScript 无异常机制）
+	# → 已预校验 instantiate 的 Node 孤儿 leak。
+	# 原因：validated[i].cls 在 :233 ClassDB.instantiate 完成，commit 失败后无清理 → 孤儿 Node + 子 Resource leak。
+	# GDScript 无 try/catch 异常语法（语言级限制），改 commit 后扫 validated：
+	# 未入树的 cls（add_child 失败的孤儿）显式 free；已入树的（成功 add_child）由场景树 owner 管理生命周期。
+	# is_instance_valid 守护：已被 undo_manager reference op 持有的 cls 不重复 free。
 	if _undo_manager != null:
 		_undo_manager.create_action_mixed("Batch Add %d Nodes (req:%d)" % [validated.size(), request_id], do_ops, undo_ops)
 	else:
 		for op in do_ops:
 			if String(op.get("type", "method")) == "method":
 				op["target"].callv(op["method"], op["args"])
+
+	# 扫孤儿：commit 后任何未入树的 cls（add_child 失败的预 instantiate Node）立即 free 防 leak。
+	for v in validated:
+		var cls: Node = v["cls"]
+		if cls != null and is_instance_valid(cls) and not cls.is_inside_tree():
+			cls.free()
+
 	return {"result": {"added": validated.size(), "failed": failed}}
 
 

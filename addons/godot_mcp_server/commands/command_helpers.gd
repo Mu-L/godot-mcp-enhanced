@@ -128,6 +128,17 @@ static func coerce_value_for_property(obj: Object, prop_name: String, val: Varia
 	return val
 
 
+## C12: 查属性的 PROPERTY_USAGE_* flag（via get_property_list）。
+## 用于 edit_node / set_instance_property 判断属性是否只读。
+## 只读属性 undo 回放 set(prop, null) 会错误赋值（node.get 对不存在/只读属性返当前值或 null），
+## 故调用方据返回值跳过只读属性的 undo。找不到属性返 null（调用方决定处理）。
+static func _get_property_usage(obj: Object, prop: String) -> Variant:
+	for p in obj.get_property_list():
+		if String(p.get("name", "")) == prop:
+			return p.get("usage", 0)
+	return null
+
+
 ## C9: 类型感知相等比较（test_assert property_equals 用）。
 ## 旧实现在 test_commands.gd 用 str(val) == str(expected)，对常见场景永真返回 false：
 ## - str(Vector3(1,2,3)) != str([1,2,3])：节点属性 vs JSON Array 表达

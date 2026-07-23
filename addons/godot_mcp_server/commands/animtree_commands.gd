@@ -89,11 +89,21 @@ func handle_animtree_add_state(params: Dictionary) -> Dictionary:
 
 	var anim_node = AnimationNodeAnimation.new()
 	anim_node.animation = animation
-	sm.add_node(state_name, anim_node)
 
+	# C10: add_state 建 undo action（do=add_node / undo=remove_node），Ctrl+Z 撤销前撤 create。
+	# position 一并入 add_node 第三参（API 默认 Vector2.ZERO，非 Dictionary 时用 ZERO）。
+	# 注：anim_node 是 Resource（AnimationNode），由 sm 持有引用，不需要 reference op。
 	var pos = params.get("position")
+	var pos_vec: Vector2 = Vector2.ZERO
 	if pos != null and pos is Dictionary:
-		sm.set_node_position(state_name, Vector2(float(pos.get("x", 0.0)), float(pos.get("y", 0.0))))
+		pos_vec = Vector2(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)))
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("AnimTree Add State %s" % state_name,
+			[{"type": "method", "target": sm, "method": "add_node", "args": [state_name, anim_node, pos_vec]}],
+			[{"type": "method", "target": sm, "method": "remove_node", "args": [state_name]}])
+	else:
+		sm.add_node(state_name, anim_node, pos_vec)
 
 	return {"result": {"state": state_name, "animation": animation, "status": "added"}}
 
@@ -129,7 +139,15 @@ func handle_animtree_add_transition(params: Dictionary) -> Dictionary:
 			if cond_name != "":
 				transition.add_condition(cond_name, cond_value)
 
-	sm.add_transition(from_state, to_state, transition)
+	# C10: add_transition 建 undo action（do=add_transition / undo=remove_transition by from/to）。
+	# AnimationNodeStateMachine.remove_transition(StringName from, StringName to) 直接按状态名删。
+	# transition 是 Resource，由 sm 持有引用，不需要 reference op。
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("AnimTree Add Transition %s->%s" % [from_state, to_state],
+			[{"type": "method", "target": sm, "method": "add_transition", "args": [from_state, to_state, transition]}],
+			[{"type": "method", "target": sm, "method": "remove_transition", "args": [from_state, to_state]}])
+	else:
+		sm.add_transition(from_state, to_state, transition)
 
 	return {"result": {"from": from_state, "to": to_state, "xfade": transition.xfade_time, "status": "transition_added"}}
 
@@ -155,10 +173,22 @@ func handle_animtree_set_blend(params: Dictionary) -> Dictionary:
 	if value == null:
 		return {"error": {"code": -32004, "message": "value is required"}}
 
+	# C10: set_blend 建 undo action（do=set param=new / undo=set param=old）。
+	# param_name 是 parameters/xxx 动态属性（非 PROPERTY_USAGE_READ_ONLY，null 旧值合法）。
+	# 用 property op（add_do_property / add_undo_property）而非 method op，对齐 set_instance_property 模式。
+	var new_val: Variant
 	if value is Dictionary:
-		tree.set(param_name, Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0))))
+		new_val = Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
 	else:
-		tree.set(param_name, float(value))
+		new_val = float(value)
+
+	if _undo_manager != null:
+		var old_val: Variant = tree.get(param_name)
+		_undo_manager.create_action_mixed("AnimTree Set Blend %s" % param_name,
+			[{"type": "property", "target": tree, "property": param_name, "value": new_val}],
+			[{"type": "property", "target": tree, "property": param_name, "value": old_val}])
+	else:
+		tree.set(param_name, new_val)
 
 	return {"result": {"parameter": param_name, "status": "blend_set"}}
 

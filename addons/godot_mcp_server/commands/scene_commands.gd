@@ -191,16 +191,20 @@ func handle_set_instance_property(params: Dictionary, request_id: int = 0) -> Di
 		return {"error": {"code": -32004, "message": "PROPERTY_TYPE_MISMATCH: " + prop_name + " — " + String(r["error"])}}
 	prop_value = r["value"]
 
-	# UndoRedo: 记录旧值
+	# UndoRedo: 记录旧值（C12: 只读属性跳过 undo，避免回放 set(prop,null) 错误赋值）
 	if _undo_manager != null:
-		var old_value = target.get(prop_name)
+		var undo_ops: Array = []
+		# C12: PROPERTY_USAGE_READ_ONLY 属性的 get 返当前值但 set 无意义；
+		# 不存在属性 get 返 null，记 undo 会错误赋值。只读跳过 undo，可写仍记（null 合法旧值）。
+		var usage: Variant = CommandHelpers._get_property_usage(target, prop_name)
+		if usage == null or (int(usage) & PROPERTY_USAGE_READ_ONLY) == 0:
+			var old_value: Variant = target.get(prop_name)
+			undo_ops.append({"type": "property", "target": target, "property": prop_name, "value": old_value})
 		_undo_manager.create_action_mixed("Set Instance Property (req:%d)" % request_id,
 			[
 				{"type": "property", "target": target, "property": prop_name, "value": prop_value}
 			],
-			[
-				{"type": "property", "target": target, "property": prop_name, "value": old_value}
-			]
+			undo_ops
 		)
 	else:
 		target.set(prop_name, prop_value)
