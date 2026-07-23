@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 69 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1）。
+// FIXED_DEFECTS 71 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -55,6 +55,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   { key: 'gdscript-template-injection', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
       // fixed：用户/外部路径不再裸 ${} 插值（改 gdEscape 转义）。命中裸插值即复发。
+      // 复发实例：data-import class_path（2026-07-23 批次 A1 修复，resolveWithinRoot 校验）
       // 源头1: gdscript-executor.ts 的 ${userCode}/${userSnippet}
       const exec = countMatchesInFile('src/gdscript-executor.ts', /\$\{userCode\}|\$\{[^}]*userSnippet[^}]*\}/g);
       // 源头2: frame-verify/gdscripts.ts 的路径插值（reference_path/frames_dir 来自 MCP 工具参数，不可信）。
@@ -730,6 +731,22 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasOptIn = /GODOT_MCP_FULL_SYSTEM_SCAN/.test(f);
       const hasOptionalSig = /killOrphanGodotProcesses\(projectDir\?:\s*string\)/.test(f);
       return hasPidSet && hasOptIn && hasOptionalSig ? 0 : 1;
+    } },
+  // ─── 2026-07-23 批次 A 安全修复（A5/A10 detect 防复发）──────────────────────────
+  { key: 'asset-factory-load-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // A5(2026-07-23 批次 A): asset_factory create_material 在 begins_with("res://") 后、load 前必须
+    // has_path_traversal（防 user:// 或 ../ 穿越 load 任意文件）。复发：删 has_path_traversal 调用即 detect=1。
+    detect: () => {
+      return readSrc('addons/godot_mcp_server/commands/asset/asset_factory.gd').includes('has_path_traversal') ? 0 : 1;
+    } },
+  { key: 'ui-scene-local-blocked-removed', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // A10(2026-07-23 批次 A): ui_commands/scene_commands 本地 blocked 列表应删除，统一用
+    // CommandHelpers.BLOCKED_PROPERTIES（command_helpers.gd:111）。复发：任一文件重现本地 blocked 列表即 detect=1。
+    // 注：BLOCKED_PROPERTIES 在 command_helpers.gd（不在 ui/scene），故 detect 不误报。
+    detect: () => {
+      const ui = readSrc('addons/godot_mcp_server/commands/ui_commands.gd').match(/BLOCKED_PROPS\b|blocked\s*:\s*Array/);
+      const sc = readSrc('addons/godot_mcp_server/commands/scene_commands.gd').match(/var\s+blocked|blocked\s*:\s*Array/);
+      return (ui || sc) ? 1 : 0;
     } },
 ];
 

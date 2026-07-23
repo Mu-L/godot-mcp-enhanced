@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 38 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 71 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -17,7 +17,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 38 条且无重名', () => {
+  it('FIXED_DEFECTS 覆盖 71 条且无重名', () => {
     // 31 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者 2026-07-04 detect 反转——
     //   654b162 误加 super 触发 4.6.2+ parse error,移除 6 处 super 后 detect 计数"原生类虚函数有 super"=0 防回归）
@@ -88,9 +88,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-22 orphan 隔离): orphan-scan-session-scoped(killOrphanGodotProcesses 默认基于
 //   _spawnedGodotPids 会话集合,全系统扫须 GODOT_MCP_FULL_SYSTEM_SCAN opt-in 门控,签名 projectDir 改可选),
 //   合计 69。
-    expect(FIXED_DEFECTS.length).toBe(69);
+//   +2(2026-07-23 批次 A 安全修复): asset-factory-load-traversal(A5 asset_factory load 前 has_path_traversal) /
+//   ui-scene-local-blocked-removed(A10 ui/scene 本地 blocked 删除,统一 BLOCKED_PROPERTIES),合计 71。
+    expect(FIXED_DEFECTS.length).toBe(71);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(69);
+    expect(new Set(keys).size, '存在重名 key').toBe(71);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
