@@ -39,6 +39,14 @@ describe('CallRecorder', () => {
     expect(recentErrors[0]).toMatchObject({ tool: 'b', type: 'TOOL_ERROR', msg: 'boom', ms: 2 });
   });
 
+  it('call-recorder msg 经 sanitizeMsg 脱敏（secret pattern 不入库）', () => {
+    const rec = getCallRecorder();
+    rec.record('tool', false, 10, 'ERR', 'password=SECRET123 api_key=abc');
+    const stats = rec.getStats();
+    expect(JSON.stringify(stats.recentErrors)).not.toContain('SECRET123');
+    expect(JSON.stringify(stats.recentErrors)).not.toContain('api_key=abc');
+  });
+
   it('getRecent returns last n records', () => {
     const r = getCallRecorder();
     for (let i = 0; i < 60; i++) r.record(`t${i}`, true, i);

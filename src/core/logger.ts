@@ -126,7 +126,7 @@ function sanitizeMeta(meta: Record<string, unknown>): Record<string, unknown> {
 const SENSITIVE_KV_RE = /(\b\w*(?:password|secret|token|key|auth)\w*)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;)]+)/gi;
 
 /** Sanitize msg — 截断 + 敏感 key=value 值脱敏（P2-10） */
-function sanitizeMsg(msg: string): string {
+export function sanitizeMsg(msg: string): string {
   const redacted = msg.replace(SENSITIVE_KV_RE, '$1$2***');
   return truncate(redacted);
 }
@@ -410,7 +410,7 @@ function createLogger(opts: LoggerOptions = {}): Logger {
       call_id: callId,
       duration_ms: durationMs,
     };
-    if (err) entry.error = err;
+    if (err) entry.error = sanitizeMsg(err);
     writeEntry(entry);
   }
 

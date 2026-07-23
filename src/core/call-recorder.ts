@@ -1,5 +1,6 @@
 // src/core/call-recorder.ts
 import { RingBuffer } from './ring-buffer.js';
+import { sanitizeMsg } from './logger.js';
 import type { ToolResult } from '../types.js';
 
 export interface CallRecord {
@@ -47,7 +48,7 @@ class CallRecorder {
   record(tool: string, ok: boolean, ms: number, errorType?: string, msg?: string, _instanceId?: string): void {
     if (this.startTime === 0) this.startTime = Date.now();
     const t = Math.floor((Date.now() - this.startTime) / 1000);
-    this.recent.push({ tool, ok, ms, t, errorType, msg });
+    this.recent.push({ tool, ok, ms, t, errorType, msg: sanitizeMsg(msg ?? '') });
     this.total++;
     if (ok) this.success++; else this.fail++;
     const entry = this.byTool.get(tool) ?? { n: 0, fail: 0 };
@@ -55,7 +56,7 @@ class CallRecorder {
     if (!ok) entry.fail++;
     this.byTool.set(tool, entry);
     if (!ok && errorType) {
-      this.recentErrors.push({ tool, type: errorType, msg: msg ?? '', ms });
+      this.recentErrors.push({ tool, type: errorType, msg: sanitizeMsg(msg ?? ''), ms });
     }
   }
 
