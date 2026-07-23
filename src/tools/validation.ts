@@ -540,10 +540,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       // A2: scene 越权防护（防 ../ 读项目外 .tscn）。resolveWithinRoot 仅校验,
       // safeScene 传 normalize 后的相对路径（godot CLI 与 query_scene_tree.gd 均期望相对路径）。
+      // I1 fix(2026-07-23 final review): 不用 resolveWithinRoot 返回值（绝对路径）——
+      // 会让 godot CLI 收到项目绝对路径而非项目内相对路径，功能性回归。对齐 A7 模式
+      // （scene/index.ts:227 resolveWithinRoot 仅校验，传 normalize 后相对 sp）。
       let safeScene: string | undefined;
       if (scene) {
         const normalized = normalizeUserProjectPath(scene);
-        safeScene = resolveWithinRoot(projectPath, normalized);
+        resolveWithinRoot(projectPath, normalized);  // 仅校验, throw if 越界
+        safeScene = normalized;  // 传 normalize 后相对路径（godot CLI / query_scene_tree.gd 期望相对）
       }
 
       const godot = await ctx.findGodot();

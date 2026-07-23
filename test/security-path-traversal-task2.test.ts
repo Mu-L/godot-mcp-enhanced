@@ -72,6 +72,38 @@ describe('Task 2: TS path traversal hardening (A2/A6/A7/A9)', () => {
     });
   });
 
+  // ─── I1 (2026-07-23 final review): A2 合法 scene → godot CLI 收到相对路径 ──────
+  // 修复前(b592a23): safeScene = resolveWithinRoot(...) → 绝对路径（如 tmpProj\main.tscn）
+  //   → cmdArgs.push(绝对路径) → godot CLI 收到项目绝对路径而非项目内相对路径（功能性回归）。
+  // 修复后: resolveWithinRoot 仅校验，safeScene = normalized → cmdArgs 收到 'scenes/main.tscn'。
+  // 断言: spawnGodot 主调用的 cmdArgs 末尾元素是相对 scene 路径，非项目绝对路径。
+  describe('A2: validation run_and_verify 合法 scene 格式(I1 回归保护)', () => {
+    it('legitimate scene → cmdArgs 收到相对路径(非绝对)', async () => {
+      const { spawnGodot } = await import('../src/tools/spawn-helper.js');
+      vi.clearAllMocks();
+      const r = await validationHandle('validation', {
+        action: 'run_and_verify',
+        project_path: tmpProj,
+        scene: 'scenes/main.tscn',
+      }, makeCtx());
+      // 1. 合法路径不应 reject / 报错（功能性不破坏）
+      expect(r).toBeDefined();
+      // 2. spawnGodot 被调用（tmpProj 无 .gd 文件 → precheck 跳过 → 仅主调用触发一次）
+      expect(spawnGodot).toHaveBeenCalled();
+      // 3. 主调用 cmdArgs 末尾元素是相对 scene 路径
+      //    cmdArgs = ['--headless', '--path', tmpProj, safeScene]（I1 fix 后 safeScene='scenes/main.tscn'）
+      const calls = vi.mocked(spawnGodot).mock.calls;
+      const mainCall = calls.find(c =>
+        Array.isArray(c[1]) && (c[1] as string[]).some(a => a.includes('scenes/main.tscn')));
+      expect(mainCall, '主 cmdArgs 应含 scene 路径').toBeDefined();
+      const cmdArgs = mainCall![1] as string[];
+      const sceneArg = cmdArgs[cmdArgs.length - 1];
+      expect(sceneArg).toBe('scenes/main.tscn');  // 相对路径
+      // 4. 反向: 非项目绝对路径(I1 bug 复发会让 sceneArg 含 tmpProj)
+      expect(sceneArg).not.toMatch(tmpProj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    });
+  });
+
   // ─── A6: workflow batch_validate scripts ────────────────────────────────
   describe('A6: workflow batch_validate scripts traversal', () => {
     it('rejects script path with `..` segment', async () => {

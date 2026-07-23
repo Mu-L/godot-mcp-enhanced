@@ -407,3 +407,37 @@ describe('A1 class_path 路径遍历防护(堵 RCE)', () => {
     await expect(handleTool('csv_to_resources', args, ctx)).rejects.toThrow(/Path traversal/);
   });
 });
+
+// ─── I1 (2026-07-23 final review): A1 合法路径 → load() 收到 res:// 格式（非绝对）────
+// 修复前(a2669b5): safeClassPath = resolveWithinRoot(...) → 绝对路径（如 D:\tmp\r.gd）
+//   → generateImportScript → _class_path := "D:\tmp\r.gd" → load() 期望 res:// 失效。
+// 修复后: resolveWithinRoot 仅校验，safeClassPath = 'res://' + normalized → load("res://r.gd")。
+describe('A1 class_path 合法路径格式(I1 回归保护)', () => {
+  it('合法 class_path → load() 收到 res:// 格式,非项目绝对路径', async () => {
+    vi.clearAllMocks();
+    const projDir = tmpdir();
+    const r = await handleTool(
+      'csv_to_resources',
+      {
+        action: 'csv_to_resources',
+        project_path: projDir,
+        class_path: 'res://r.gd',
+        output_dir: 'out',
+        filename_column: 'id',
+        csv_content: 'id,name\n1,a\n',
+      },
+      { findGodot: async () => 'godot', projectDir: projDir } as unknown as ToolContext,
+    );
+    // 1. 合法路径不应 reject / 报错
+    expect(r).not.toBeNull();
+    // 2. executeGdscriptTrusted(别名 executeGdscript) 被调用,其 code 含 _class_path 行
+    expect(executeGdscriptTrusted).toHaveBeenCalled();
+    const callArgs = vi.mocked(executeGdscriptTrusted).mock.calls[0]![0] as { code: string };
+    const m = callArgs.code.match(/var\s+_class_path\s*:=\s*"([^"]*)"/);
+    expect(m, '_class_path 行必须存在').not.toBeNull();
+    // 3. load() 收到 res:// 格式(I1 fix 后)
+    expect(m![1]).toBe('res://r.gd');
+    // 4. 反向: 非项目绝对路径(I1 bug 复发会让 m[1] 含 projDir)
+    expect(m![1]).not.toMatch(projDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  });
+});

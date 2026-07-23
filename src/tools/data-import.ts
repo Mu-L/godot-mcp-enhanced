@@ -351,7 +351,12 @@ export async function handleTool(
 
   // A1 (2026-07-23 安全): classPath 经 root 校验——经 executeGdscriptTrusted 跳沙箱 + load() + Class.new()，
   // 越权路径 = RCE（gdscript-template-injection 复发实例，defects.ts:55）。对齐 outputDir 沙箱模式。
-  const safeClassPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(classPath));
+  // I1 fix(2026-07-23 final review): resolveWithinRoot 仅校验，不用返回值（绝对路径会让
+  // load() 收到 "D:\..." 而非 res:// 格式，功能性回归）。normalizeUserProjectPath 剥了 res://
+  // 前缀，load() 需要补回 res://。穿越由 resolveWithinRoot 校验拒绝。
+  const normalizedClassPath = normalizeUserProjectPath(classPath);
+  resolveWithinRoot(projectPath, normalizedClassPath);  // 仅校验, throw if 越界（堵 RCE 穿越链）
+  const safeClassPath = 'res://' + normalizedClassPath;  // load() 需要 res:// 格式
 
   // 写临时 CSV(GDScript FileAccess 读,数据零进脚本源码 = CRITICAL-1 注入根治)
   const csvTmpPath = writeTmpCsv(csvContent);
