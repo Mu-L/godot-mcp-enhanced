@@ -3,12 +3,6 @@ extends Node
 var _plugin: EditorPlugin
 var _undo_manager: Node
 
-const BLOCKED_PROPS: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
-	"process_input", "process_unhandled_input", "process_unhandled_key_input",
-	"process_internal", "physics_process_mode", "input_event", "ready",
-	"material", "texture", "mesh", "collision_layer", "collision_mask",
-	"collision_priority", "transform", "global_transform"]
-
 # IMPORTANT-14 (review): 严格白名单替代 is_parent_class(node_type,"Control") 兜底。
 # 原写法放行任意 Control 子类(含第三方 class_name 脚本),实例化时触发其 _init/_ready 执行任意 GDScript。
 # 与 node_commands.gd ALLOWED_NODE_TYPES(I-4)对齐;须与 TS 端 ui_create_control 的 29 种 Control 同步。
@@ -56,7 +50,7 @@ func handle_ui_create_control(params: Dictionary, request_id: int) -> Dictionary
 	var properties = params.get("properties")
 	if properties != null and properties is Dictionary:
 		for key in properties:
-			if key.begins_with("_") or key in BLOCKED_PROPS:
+			if key.begins_with("_"):
 				continue
 			if not key is String:
 				continue
@@ -65,8 +59,9 @@ func handle_ui_create_control(params: Dictionary, request_id: int) -> Dictionary
 			var val = properties[key]
 			if val is Object:
 				continue
-			if CommandHelpers.property_exists_and_type_ok(node, key, val):
-				node.set(key, val)
+			var r := CommandHelpers.coerce_property_value(node, key, val)
+			if r["ok"]:
+				node.set(key, r["value"])
 
 	if _undo_manager != null:
 		_undo_manager.create_action_mixed("Create UI Control (req:%d)" % request_id,
@@ -314,7 +309,7 @@ func handle_ui_container_add(params: Dictionary, request_id: int) -> Dictionary:
 	var child_properties = params.get("child_properties")
 	if child_properties != null and child_properties is Dictionary:
 		for key in child_properties:
-			if key.begins_with("_") or key in BLOCKED_PROPS:
+			if key.begins_with("_"):
 				continue
 			if not key is String:
 				continue
@@ -323,8 +318,9 @@ func handle_ui_container_add(params: Dictionary, request_id: int) -> Dictionary:
 			var cval = child_properties[key]
 			if cval is Object:
 				continue
-			if CommandHelpers.property_exists_and_type_ok(child, key, cval):
-				child.set(key, cval)
+			var r := CommandHelpers.coerce_property_value(child, key, cval)
+			if r["ok"]:
+				child.set(key, r["value"])
 
 	if _undo_manager != null:
 		_undo_manager.create_action_mixed("UI Container Add (req:%d)" % request_id,

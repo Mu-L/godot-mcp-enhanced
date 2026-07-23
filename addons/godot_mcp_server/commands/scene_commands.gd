@@ -112,13 +112,8 @@ func handle_instance_scene(params: Dictionary) -> Dictionary:
 	if not node_name.is_empty():
 		instance.name = node_name
 
-	var blocked: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
-		"process_input", "process_unhandled_input", "process_unhandled_key_input",
-		"process_internal", "physics_process_mode", "input_event", "ready",
-			"material", "texture", "mesh", "collision_layer", "collision_mask",
-			"collision_priority", "transform", "global_transform"]
 	for key in properties:
-		if key.begins_with("_") or key in blocked:
+		if key.begins_with("_"):
 			continue
 		if not key is String:
 			continue
@@ -127,9 +122,9 @@ func handle_instance_scene(params: Dictionary) -> Dictionary:
 		var val = properties[key]
 		if val is Object:
 			continue
-		var coerced = CommandHelpers.coerce_value_for_property(instance, key, val)
-		if CommandHelpers.property_exists_and_type_ok(instance, key, coerced):
-			instance.set(key, coerced)
+		var r := CommandHelpers.coerce_property_value(instance, key, val)
+		if r["ok"]:
+			instance.set(key, r["value"])
 
 	var ei := _get_ei()
 	if ei == null:
@@ -182,14 +177,8 @@ func handle_set_instance_property(params: Dictionary, request_id: int = 0) -> Di
 
 	if target == root or target.owner != root:
 		return {"error": {"code": -32004, "message": "NODE_NOT_INSTANCE"}}
-	prop_value = CommandHelpers.coerce_value_for_property(target, prop_name, prop_value)
 
-	var blocked: Array = ["script", "owner", "name", "parent", "children", "tree", "meta", "process_mode", "process_priority",
-		"process_input", "process_unhandled_input", "process_unhandled_key_input",
-		"process_internal", "physics_process_mode", "input_event", "ready",
-		"material", "texture", "mesh", "collision_layer", "collision_mask",
-		"collision_priority", "transform", "global_transform"]
-	if prop_name.begins_with("_") or prop_name in blocked:
+	if prop_name.begins_with("_"):
 		return {"error": {"code": -32004, "message": "BLOCKED_PROPERTY: " + prop_name}}
 	if ":" in prop_name or "/" in prop_name:
 		return {"error": {"code": -32004, "message": "BLOCKED_SUBPROPERTY: " + prop_name}}
@@ -197,8 +186,10 @@ func handle_set_instance_property(params: Dictionary, request_id: int = 0) -> Di
 		return {"error": {"code": -32004, "message": "INVALID_PROPERTY_NAME: " + prop_name}}
 	if prop_value is Object:
 		return {"error": {"code": -32004, "message": "OBJECT_VALUES_NOT_ALLOWED"}}
-	if not CommandHelpers.property_exists_and_type_ok(target, prop_name, prop_value):
-		return {"error": {"code": -32004, "message": "PROPERTY_TYPE_MISMATCH: " + prop_name}}
+	var r := CommandHelpers.coerce_property_value(target, prop_name, prop_value)
+	if not r["ok"]:
+		return {"error": {"code": -32004, "message": "PROPERTY_TYPE_MISMATCH: " + prop_name + " — " + String(r["error"])}}
+	prop_value = r["value"]
 
 	# UndoRedo: 记录旧值
 	if _undo_manager != null:
