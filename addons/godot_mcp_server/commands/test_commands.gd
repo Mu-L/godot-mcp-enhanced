@@ -26,7 +26,8 @@ func handle_test_assert(params: Dictionary) -> Dictionary:
 			var prop: String = params.get("property", "")
 			var val = node.get(prop)
 			var expected = params.get("expected")
-			var match = str(val) == str(expected)
+			# C9: 类型感知比较（CommandHelpers.values_equal），修复 str() 比较致 Vector3 vs Array / bool vs int 永不等
+			var match = CommandHelpers.values_equal(val, expected)
 			return {"result": {"passed": match, "message": "%s.%s = %s (expected: %s)" % [path, prop, str(val), str(expected)], "actual": str(val)}}
 		"signal_connected":
 			var src_path: String = params.get("path", "")

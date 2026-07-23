@@ -441,11 +441,19 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'nav-bake-in-undo-action', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // P1(2026-07-10): nav bake 游离 create_action_mixed 之外 → Ctrl+Z 撤 add_node 后 bake 残留、redo 不重 bake。
-    // fix: bake 作 do_method 入 do_ops(do_ops.append), commit 时执行 + redo 重 bake。detect: 无 do_ops.append bake = 复发。
+    //   原 P1 fix: bake 作 do_method 入 do_ops(do_ops.append), commit 时执行 + redo 重 bake。
+    // C4(2026-07-23) 演进（推翻 P1 方案）: 核查 undo_manager.gd:35-43 create_action_mixed/commit_action 同步执行
+    //   do_methods（无 await do_methods 路径），bake_navigation_mesh 是 coroutine，同步路径内调用停在首个 await
+    //   点即返回，bake 实际未完成。旧判据 `nav.navigation_mesh != null` 因 mesh 预置非 null 恒 true，掩盖 bake 失败。
+    //   C4 fix: bake 移出 do_ops + commit 后单独 `await nav.bake_navigation_mesh()` + 判据改 get_vertices_count()>0。
+    //   detect: bake 出现在 do_ops.append = 复发 P1 bug 形态（coroutine 同步执行不完成）；缺 await 或 vertices_count 判据 = C4 修复不完整。
     detect: () => {
       const nav = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
       const region = nav.slice(nav.indexOf('handle_nav_create_region'));
-      return /do_ops\.append\([\s\S]{0,80}bake_navigation_mesh/.test(region) ? 0 : 1;
+      const hasBakeInDoOps = /do_ops\.append\([\s\S]{0,80}bake_navigation_mesh/.test(region);
+      const hasAwaitBake = /await\s+nav\.bake_navigation_mesh/.test(region);
+      const hasVerticesCheck = /get_vertices_count\(\)\s*>\s*0/.test(region);
+      return (hasBakeInDoOps || !hasAwaitBake || !hasVerticesCheck) ? 1 : 0;
     } },
   { key: 'asset-undo-stack-top-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // P1(2026-07-10): handle_undo 裸 ur.undo() 撤全局栈顶 → MAX_PEERS=5 时误撤他 peer 非 asset 操作。

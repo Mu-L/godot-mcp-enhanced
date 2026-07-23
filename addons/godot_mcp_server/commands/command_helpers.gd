@@ -128,6 +128,36 @@ static func coerce_value_for_property(obj: Object, prop_name: String, val: Varia
 	return val
 
 
+## C9: 类型感知相等比较（test_assert property_equals 用）。
+## 旧实现在 test_commands.gd 用 str(val) == str(expected)，对常见场景永真返回 false：
+## - str(Vector3(1,2,3)) != str([1,2,3])：节点属性 vs JSON Array 表达
+## - str(true) != str(1)：bool vs int（语义应不等，但应可控而非 str 偶然）
+## 本 helper 显式分流：同类型直接 ==；Array↔数学类型分量比；int/float 数字宽松；其余 str fallback。
+## bool↔int 由 typeof 严格分离（TYPE_BOOL ≠ TYPE_INT）落入 str fallback，str(True)!=str(1) 返回 false（语义正确）。
+static func values_equal(val, expected) -> bool:
+	# 同类型直接 ==（含 bool==bool / int==int / Vector3==Vector3 / Array==Array 元素比）
+	if typeof(val) == typeof(expected):
+		return val == expected
+	# Array ↔ 数学类型：JSON 端常用 Array 表达 Vector/Color，分量逐一比
+	if expected is Array:
+		if val is Vector2:
+			return expected.size() == 2 and float(expected[0]) == val.x and float(expected[1]) == val.y
+		if val is Vector3:
+			return expected.size() == 3 and float(expected[0]) == val.x and float(expected[1]) == val.y and float(expected[2]) == val.z
+		if val is Vector4:
+			return expected.size() == 4 and float(expected[0]) == val.x and float(expected[1]) == val.y and float(expected[2]) == val.z and float(expected[3]) == val.w
+		if val is Color:
+			return expected.size() == 4 and float(expected[0]) == val.r and float(expected[1]) == val.g and float(expected[2]) == val.b and float(expected[3]) == val.a
+		return false
+	# int↔float 数字宽松（GDScript == 本就宽松，这里显式表达意图）
+	if typeof(val) == TYPE_INT and typeof(expected) == TYPE_FLOAT:
+		return float(val) == float(expected)
+	if typeof(val) == TYPE_FLOAT and typeof(expected) == TYPE_INT:
+		return float(val) == float(expected)
+	# 其余异类型（bool↔int / Vector3↔Dictionary / String↔int ...）退回字符串比较
+	return str(val) == str(expected)
+
+
 ## editor 侧 BLOCKED_PROPERTIES —— 对齐 headless godot_operations.gd BLOCKED_PROPERTIES + TS BLOCKED_PROPS。
 ## instance 额外在 coerce_property_value 内双保险拒绝（I-2: 可注入 ExtResource 实例化恶意场景 _ready）。
 const BLOCKED_PROPERTIES := [

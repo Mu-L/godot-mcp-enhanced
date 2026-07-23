@@ -270,8 +270,9 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		return
 
 	# security P2#1 fix: params 非 Dictionary 防御(防畸形输入致 handle 内 params.get 报错中断帧处理, 多 peer 互影响)
+	# C3: null params 也 reject（旧 `!= null and not` 短路放行 null → 命中 handle 强类型 Dictionary → SCRIPT ERROR 中断帧 packet 循环）
 	var _rpc_params = parsed.get("params", {})
-	if _rpc_params != null and not (_rpc_params is Dictionary):
+	if _rpc_params == null or not (_rpc_params is Dictionary):
 		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "error": {"code": -32602, "message": "Invalid params: must be an object"}}))
 		return
 	# Auth endpoint — always allowed

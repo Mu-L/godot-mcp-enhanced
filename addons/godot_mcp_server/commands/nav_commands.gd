@@ -14,6 +14,7 @@ func cleanup() -> void:
 	_undo_manager = null
 
 func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary:
+	# C4: 本函数含 await nav.bake_navigation_mesh()，GDScript 中含 await 的 func 自动成为 coroutine。
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
 		return {"error": {"code": -32003, "message": "No scene currently open in editor"}}
@@ -38,30 +39,30 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 
 	var want_bake: bool = params.get("bake", false)
 	var bake_result: bool = false
+	# C4: bake 移出 undo do_op —— create_action_mixed/commit_action 同步执行 do_methods（无 await），
+	# bake_navigation_mesh 是 coroutine，同步路径内调用停在首个 await 点即返回，bake 实际未完成。
+	# undo 路径仅 add/remove_child；redo 不会自动重 bake（用户可显式调 nav_bake_mesh 触发）。
 	if _undo_manager != null:
 		var do_ops: Array = [
 			{"type": "method", "target": parent_node, "method": "add_child", "args": [nav]},
 			{"type": "method", "target": nav, "method": "set_owner", "args": [root]},
 			{"type": "reference", "value": nav}
 		]
-		if want_bake:
-			# P1 修复: bake 作为 do_method 入 undo 栈(commit 时执行, redo 重 bake),
-			# 取代原 action 外单独 bake —— 避免 Ctrl+Z 撤 add_node 后 bake 残留、redo
-			# 不重 bake 的游离态。undo 无清空 method, 但 nav 被 reference 保护且 redo
-			# 总是 fresh bake, undo→redo 周期内 mesh 状态一致。
-			do_ops.append({"type": "method", "target": nav, "method": "bake_navigation_mesh", "args": []})
 		_undo_manager.create_action_mixed("Create Nav Region (req:%d)" % request_id, do_ops,
 			[
 				{"type": "method", "target": parent_node, "method": "remove_child", "args": [nav]}
 			])
-		# commit_action 已执行 do_methods(含 bake), 读结果
-		bake_result = want_bake and nav.navigation_mesh != null
+		if want_bake:
+			# C4: coroutine 须 await（同步调 bake_navigation_mesh 仅执行到首个 await 点就返回，bake 未完成）
+			await nav.bake_navigation_mesh()
+			# C4: 判据改 vertices_count > 0（旧 mesh != null 判据因 mesh 预置非 null 恒 true，掩盖 bake 失败）
+			bake_result = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices_count() > 0
 	else:
 		parent_node.add_child(nav)
 		nav.owner = root
 		if want_bake:
-			nav.bake_navigation_mesh()
-			bake_result = nav.navigation_mesh != null
+			await nav.bake_navigation_mesh()
+			bake_result = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices_count() > 0
 
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
 
