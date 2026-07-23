@@ -101,11 +101,25 @@ export class EditorConnection {
   private fireDisconnect(): void {
     if (this._disconnectFired) return;
     this._disconnectFired = true;
-    for (const handler of this.disconnectHandlers) handler();
+    // B5: 单 handler 抛错不阻断后续 handler / scheduleReconnect（对齐 health-monitor:156-160 容错模式）
+    for (const handler of this.disconnectHandlers) {
+      try {
+        handler();
+      } catch (err) {
+        getLogger().warn('editor', `disconnect handler threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   private fireReconnect(): void {
-    for (const handler of this.reconnectHandlers) handler();
+    // B5: 同 fireDisconnect 容错模式,单 handler 抛错不阻断后续
+    for (const handler of this.reconnectHandlers) {
+      try {
+        handler();
+      } catch (err) {
+        getLogger().warn('editor', `reconnect handler threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   private readonly host: string;
@@ -238,9 +252,10 @@ export class EditorConnection {
         this.connected = false;
         this.ws = null;
         // Reject all pending requests — they will never receive a response
+        // B4: 挂 err.code='CONNECTION_LOST' 供 Executor 分流(do_not_retry),不依赖字符串匹配
         for (const [, pending] of this.pending) {
           clearTimeout(pending.timer);
-          pending.reject(new Error('Connection lost'));
+          pending.reject(Object.assign(new Error('Connection lost'), { code: 'CONNECTION_LOST' }));
         }
         this.pending.clear();
         // Don't clear notificationHandlers — they need to survive reconnect
@@ -296,7 +311,8 @@ export class EditorConnection {
           if (pending) {
             clearTimeout(pending.timer);
             this.pending.delete(badId);
-            pending.reject(new Error(`JSON parse error in editor response: ${getErrorMessage(err)}`));
+            // B4: 挂 err.code='PARSE_ERROR' 供 Executor 分流(do_not_retry),覆盖原字符串匹配漏项
+            pending.reject(Object.assign(new Error(`JSON parse error in editor response: ${getErrorMessage(err)}`), { code: 'PARSE_ERROR' }));
           }
         }
       }
@@ -310,7 +326,8 @@ export class EditorConnection {
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.connected) {
-        reject(new Error('Not connected'));
+        // B4: 挂 err.code='NOT_CONNECTED' 供 Executor 分流(do_not_retry)
+        reject(Object.assign(new Error('Not connected'), { code: 'NOT_CONNECTED' }));
         return;
       }
       // Increment and wrap (ID 0 is reserved/skipped to avoid falsy confusion).
@@ -335,7 +352,8 @@ export class EditorConnection {
       const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Request timeout: ${method}`));
+        // B4: 挂 err.code='REQUEST_TIMEOUT' 供 Executor 分流(do_not_retry)
+        reject(Object.assign(new Error(`Request timeout: ${method}`), { code: 'REQUEST_TIMEOUT' }));
       }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
@@ -503,7 +521,8 @@ export class EditorConnection {
     this.authenticated = false;
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('Disconnected'));
+      // B4: 挂 err.code='DISCONNECTED' 供 Executor 分流(do_not_retry),覆盖原字符串匹配漏项
+      pending.reject(Object.assign(new Error('Disconnected'), { code: 'DISCONNECTED' }));
     }
     this.pending.clear();
     this.notificationHandlers.clear();

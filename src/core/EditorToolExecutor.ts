@@ -78,20 +78,32 @@ export class EditorToolExecutor {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (err) {
-      if (err instanceof Error && ('code' in err || 'data' in err)) {
-        // Preserve structured error info from editor plugin (I-12)
-        const structured: Record<string, unknown> = { error: err.message };
-        if ('code' in err) structured.code = (err as Record<string, unknown>).code;
-        if ('data' in err) structured.data = (err as Record<string, unknown>).data;
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify(structured) }],
-          isError: true,
-        };
-      }
+      const errCode = (err instanceof Error && 'code' in err)
+        ? (err as Record<string, unknown>).code
+        : undefined;
       const message = err instanceof Error ? err.message : 'Unknown error';
-      // Distinguish connection-lost errors from tool execution failures
-      const isConnectionError = message.includes('Connection lost') || message.includes('Not connected') || message.includes('Request timeout');
+      // B4: 连接类错误结构化判定（覆盖原字符串匹配漏项 Disconnected / JSON parse error）
+      // 5 个 code 由 EditorConnection reject 站点挂载;字符串兜底保护外部 path 未挂 code 的回归。
+      const CONN_ERROR_CODES = new Set([
+        'CONNECTION_LOST', 'NOT_CONNECTED', 'REQUEST_TIMEOUT', 'DISCONNECTED', 'PARSE_ERROR',
+      ]);
+      const isConnectionError =
+        (typeof errCode === 'string' && CONN_ERROR_CODES.has(errCode)) ||
+        message.includes('Connection lost') ||
+        message.includes('Not connected') ||
+        message.includes('Request timeout') ||
+        message.includes('Disconnected') ||
+        message.includes('JSON parse error');
+
       const errorPayload: Record<string, unknown> = { error: message };
+      // I-12: 保留插件结构化 code/data（连接类错误除外——它们的 code 是本地连接语义非插件语义,
+      // 暴露给客户端会被误解为插件 JSON-RPC code 触发错误处理逻辑）
+      if (!isConnectionError && err instanceof Error && 'code' in err) {
+        errorPayload.code = (err as Record<string, unknown>).code;
+      }
+      if (!isConnectionError && err instanceof Error && 'data' in err) {
+        errorPayload.data = (err as Record<string, unknown>).data;
+      }
       if (isConnectionError) {
         errorPayload.editor_disconnected = true;
         // ipc P0-1: 连接断开期间 in-flight 调用结果未知(编辑器侧可能已执行并入 undo 栈),

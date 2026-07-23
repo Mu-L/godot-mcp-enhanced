@@ -265,4 +265,36 @@ describe('EditorConnection', () => {
 
     conn.disconnect();
   });
+
+  // B5: fireDisconnect/fireReconnect 单 handler 抛错不应阻断后续 handler
+  // (对齐 health-monitor:156-160 容错模式)。原实现裸 for-of 迭代,首个抛错即中断迭代。
+  it('B5: a throwing disconnect handler does not block other handlers', () => {
+    const conn = new EditorConnection({ port: 9999 });
+    const called = [];
+    conn.addOnDisconnectHandler(() => { called.push('first'); throw new Error('boom'); });
+    conn.addOnDisconnectHandler(() => { called.push('second'); });
+    // fireDisconnect 私有,通过 as any 直访(单测 handler 迭代逻辑,绕过 ws close 事件路径)
+    conn.fireDisconnect();
+    // 两个都跑,不因首个抛错中断
+    expect(called).toEqual(['first', 'second']);
+  });
+
+  it('B5: fireDisconnect guard prevents duplicate firing (second call no-op)', () => {
+    const conn = new EditorConnection({ port: 9999 });
+    const called = [];
+    conn.addOnDisconnectHandler(() => { called.push('one'); });
+    // _disconnectFired 守卫:第二次 fireDisconnect 应早返回
+    conn.fireDisconnect();
+    conn.fireDisconnect();
+    expect(called).toEqual(['one']);
+  });
+
+  it('B5: a throwing reconnect handler does not block other handlers', () => {
+    const conn = new EditorConnection({ port: 9999 });
+    const called = [];
+    conn.addOnReconnectHandler(() => { called.push('first'); throw new Error('boom'); });
+    conn.addOnReconnectHandler(() => { called.push('second'); });
+    conn.fireReconnect();
+    expect(called).toEqual(['first', 'second']);
+  });
 });

@@ -372,3 +372,91 @@ describe('EditorToolExecutor execute branches (mocked conn)', () => {
     expect(result.isError).toBeFalsy();
   });
 });
+
+// B4: 连接类错误结构化（err.code 判定 do_not_retry，覆盖原字符串匹配漏项 Disconnected/JSON parse error）
+describe('EditorToolExecutor B4 connection-error structuring (mocked conn)', () => {
+  let mockConn;
+  let executor;
+
+  beforeEach(() => {
+    clearRegistry();
+    registerTools([
+      { name: 'add_node', readonly: false, long_running: false },
+      { name: 'edit_node', readonly: false, long_running: false },
+    ]);
+    mockConn = {
+      request: vi.fn(),
+      onNotification: vi.fn(),
+      offNotification: vi.fn(),
+      addOnDisconnectHandler: vi.fn(),
+      addOnReconnectHandler: vi.fn(),
+      removeOnDisconnectHandler: vi.fn(),
+      removeOnReconnectHandler: vi.fn(),
+    };
+    executor = new EditorToolExecutor(mockConn);
+  });
+
+  afterEach(() => { clearRegistry(); });
+
+  it('B4: do_not_retry covers Disconnected + JSON parse error via err.code', async () => {
+    // Case 1: DISCONNECTED code → do_not_retry=true + editor_disconnected=true
+    mockConn.request.mockRejectedValueOnce(
+      Object.assign(new Error('Disconnected'), { code: 'DISCONNECTED' }),
+    );
+    const res = await executor.execute('editor', { action: 'add_node' });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.do_not_retry).toBe(true);
+    expect(payload.editor_disconnected).toBe(true);
+    expect(payload.error).toBe('Disconnected');
+
+    // Case 2: PARSE_ERROR code → do_not_retry=true（原字符串匹配漏项）
+    mockConn.request.mockRejectedValueOnce(
+      Object.assign(new Error('JSON parse error in editor response: Unexpected token'), { code: 'PARSE_ERROR' }),
+    );
+    const res2 = await executor.execute('editor', { action: 'add_node' });
+    const payload2 = JSON.parse(res2.content[0].text);
+    expect(payload2.do_not_retry).toBe(true);
+    expect(payload2.editor_disconnected).toBe(true);
+  });
+
+  it('B4: plugin structured error (non-connection code) preserves code/data WITHOUT do_not_retry', async () => {
+    // 插件返回的 JSON-RPC 结构化错误（如 -32602 NODE_NOT_FOUND）须保留 code/data，
+    // 且不挂 do_not_retry（插件错误可重试，与连接断开语义不同）
+    mockConn.request.mockRejectedValueOnce(
+      Object.assign(new Error('NODE_NOT_FOUND'), { code: -32602, data: { path: 'x' } }),
+    );
+    const res = await executor.execute('editor', { action: 'edit_node' });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.code).toBe(-32602);
+    expect(payload.data).toEqual({ path: 'x' });
+    expect(payload.do_not_retry).toBeUndefined();
+    expect(payload.editor_disconnected).toBeUndefined();
+  });
+
+  it('B4: CONNECTION_LOST / NOT_CONNECTED / REQUEST_TIMEOUT all map to do_not_retry', async () => {
+    // 兜底回归：5 个连接 code 都须被识别（防后续重构漏登）
+    for (const code of ['CONNECTION_LOST', 'NOT_CONNECTED', 'REQUEST_TIMEOUT']) {
+      mockConn.request.mockRejectedValueOnce(
+        Object.assign(new Error(`msg-${code}`), { code }),
+      );
+      const res = await executor.execute('editor', { action: 'add_node' });
+      const payload = JSON.parse(res.content[0].text);
+      expect(payload.do_not_retry, `code=${code}`).toBe(true);
+      expect(payload.editor_disconnected, `code=${code}`).toBe(true);
+      // 连接类 code 不保留为插件 code（避免误导客户端按插件错误处理）
+      expect(payload.code, `code=${code}`).toBeUndefined();
+    }
+  });
+
+  it('B4: legacy string-matching still works for messages without err.code (back-compat)', () => {
+    // 旧路径（无 code 的 Error）仍按 message 字符串匹配判 do_not_retry；
+    // 这保护外部代码 path 未挂 code 的回归。
+    return (async () => {
+      mockConn.request.mockRejectedValueOnce(new Error('Connection lost'));
+      const res = await executor.execute('editor', { action: 'add_node' });
+      const payload = JSON.parse(res.content[0].text);
+      expect(payload.do_not_retry).toBe(true);
+      expect(payload.editor_disconnected).toBe(true);
+    })();
+  });
+});
