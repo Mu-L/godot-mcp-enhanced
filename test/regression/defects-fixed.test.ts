@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 80 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 81 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -99,9 +99,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   resource-write-non-atomic(B7 17 处 ResourceSaver.save 改 _save_atomic/tmp+rename 三环境) /
 //   is-connected-no-jsdoc(B8 isConnected 活性语义 JSDoc) / auth-timeout-hardcoded(B10 authTimeoutMs 参数化),
 //   合计 80。
-    expect(FIXED_DEFECTS.length).toBe(80);
+//   +1(2026-07-23 editor 多实例 key 误删): editor-secret-cross-instance-delete(websocket_server.gd
+//   _delete_secret_file 删 key 前校验 on_disk == _secret,防多实例共享固定路径互删致存活实例 key 丢失),
+//   合计 81。
+    expect(FIXED_DEFECTS.length).toBe(81);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(80);
+    expect(new Set(keys).size, '存在重名 key').toBe(81);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

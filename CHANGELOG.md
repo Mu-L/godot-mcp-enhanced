@@ -25,6 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **资源写原子化（B7）**：17 处 ResourceSaver.save 改 tmp+rename 原子提交（三环境：headless godot_operations.gd 9 处 + addons 3 处 + TS 生成 5 处），防超时 kill 产半截损坏资源阻塞项目加载
 - **advisory（B8+B9+B10）**：isConnected 活性语义 JSDoc；orphan 崩溃恢复 opt-in 文档；authTimeoutMs 参数化
 
+### Fixed — Editor（mcp_editor.key 多实例互删，2026-07-23）
+
+- **editor-secret-cross-instance-delete**：`addons/godot_mcp_server/websocket_server.gd` `_delete_secret_file` 原无条件 `DirAccess.remove_absolute(_secret_file)`，多个 editor 实例（或禁用→启用插件）共享固定路径 `.godot/mcp_editor.key` 时，任一实例 `_exit_tree` 会删掉仍存活实例的 key。现象：editor 日志称 `Auth secret written` 但文件找不到；TS 端 TTL 缓存（5 min）过期后重连读不到 key → editor 工具连不上。改为删前 `FileAccess.get_file_as_string` 校验 `on_disk == _secret`，只清自己生成的 key（读失败返 "" != _secret 也不删，安全侧）。defects.ts 加 FIXED 条目（detect 查 `on_disk == _secret`）+ 计数 80→81。
+
 ### Not Fixed — 经审查否决
 
 - ~~A11 find_node traversal~~：eng-review 否决（范畴错误）。find_node 唯一出口 `root.get_node_or_none` 纯内存，返 Node 零流入 load/DirAccess；NodePath `..` 是 Godot 父节点引用语法不逃逸场景树。若需禁 node_path `..` 应走 schema 契约变更（归 D 工具治理批次）。

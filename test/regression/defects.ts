@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 80 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9）。
+// FIXED_DEFECTS 81 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -868,6 +868,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasUsage = /this\.authTimeoutMs/.test(f);
       return hasField && hasUsage ? 0 : 1;
     } },
+  { key: 'editor-secret-cross-instance-delete', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // (2026-07-23 editor 多实例 key 误删): _delete_secret_file 原无条件 DirAccess.remove_absolute(_secret_file),
+    // 多 editor 实例共享固定路径 .godot/mcp_editor.key 时,任一实例 _exit_tree 会删掉仍存活实例的 key
+    // (TS 端 TTL 缓存过期后重连读不到 key → editor 工具连不上)。实例内存 _secret 仍有效(9090 仍 LISTEN)
+    // 但磁盘 key 已丢,现象为"日志称 written 但文件找不到"。
+    // fix: 删前 FileAccess.get_file_as_string 读磁盘内容,仅在 on_disk == _secret 时删(只清自己的 key)。
+    // detect: websocket_server.gd 含 "on_disk == _secret"(=内容校验存在);不含=回到无条件删旧版。
+    detect: () => fileContains('addons/godot_mcp_server/websocket_server.gd', /on_disk == _secret/) ? 0 : 1 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
