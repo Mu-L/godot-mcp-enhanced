@@ -117,7 +117,7 @@ func handle_save(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": "RESOURCE_SAVE_FAILED", "message": "pack failed: %d" % err}}
 	# 确保目标目录存在（res:// 下子目录可能未建）
 	DirAccess.make_dir_recursive_absolute(res_path.get_base_dir())
-	err = ResourceSaver.save(pkg, res_path)
+	err = CommandHelpers._save_atomic(pkg, res_path)
 	if err != OK:
 		return {"error": {"code": "RESOURCE_SAVE_FAILED", "message": "save failed: %d" % err}}
 	return {"result": {"resource_path": res_path}}

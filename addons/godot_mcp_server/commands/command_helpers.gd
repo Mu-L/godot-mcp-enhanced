@@ -50,6 +50,28 @@ static func has_path_traversal(p: String) -> bool:
 	return "/../" in p or p.begins_with("../") or p.ends_with("/..") or p == ".."
 
 
+## B7: 原子化资源写——tmp+rename 防超时 kill 落在 save 中途产半截损坏 .tres/.tscn 阻塞项目加载。
+## tmp 必须以目标扩展名结尾(ResourceSaver 按扩展名分派 saver, 裸 .tmp 返回 err 15)。
+## 对齐 data-import.ts:188 已验证范例 + headless godot_operations.gd _save_atomic(同模式独立实现)。
+## T3a 教训1: FileAccess.file_exists 静态; DirAccess 的 file_exists 是实例方法(Godot 4)。
+## T3a 教训3: write-before-clean——同路径旧 tmp 残留先清,防阻塞本次 save。
+static func _save_atomic(res, full_path: String) -> int:
+	var ext := full_path.get_extension()  # tres/res/tscn
+	var tmp := full_path + ".tmp." + ext
+	# 写前清同路径旧 tmp(防上次同路径 crash 残留阻塞本次 save)
+	if FileAccess.file_exists(tmp):
+		DirAccess.remove_absolute(tmp)
+	var save_err: int = ResourceSaver.save(res, tmp)
+	if save_err != OK:
+		DirAccess.remove_absolute(tmp)  # save 失败清半截 tmp
+		return save_err
+	var rename_err: int = DirAccess.rename_absolute(tmp, full_path)
+	if rename_err != OK:
+		DirAccess.remove_absolute(tmp)  # rename 失败清 tmp
+		return rename_err
+	return OK
+
+
 ## Parse a Vector3 from JSON/array sources. T5: shared vec3 parser for asset_placer
 ## (replaces per-file _vec3 copies from asset-forge). Accepts Array or PackedFloat64Array
 ## of length >= 3; any other type or short array returns Vector3.ZERO (defensive).

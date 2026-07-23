@@ -55,9 +55,21 @@ export function genUiSetThemeScript(
 \tvar dir = "${gdEscape(themePath)}".get_base_dir()
 \tif not DirAccess.dir_exists_absolute(dir):
 \t\tDirAccess.make_dir_recursive_absolute(dir)
-\tvar err = ResourceSaver.save(theme, "${gdEscape(themePath)}")
+\tvar _full := "${gdEscape(themePath)}"
+\tvar _ext := _full.get_extension()
+\tvar _tmp := _full + ".tmp." + _ext
+\tif FileAccess.file_exists(_tmp):
+\t\tDirAccess.remove_absolute(_tmp)
+\tvar err := ResourceSaver.save(theme, _tmp)
 \tif err != OK:
+\t\tDirAccess.remove_absolute(_tmp)
 \t\t_mcp_output("error", "Failed to save theme: " + str(err))
+\t\t_mcp_done()
+\t\treturn
+\tvar _ren := DirAccess.rename_absolute(_tmp, _full)
+\tif _ren != OK:
+\t\tDirAccess.remove_absolute(_tmp)
+\t\t_mcp_output("error", "Failed to rename tmp: " + str(_ren))
 \t\t_mcp_done()
 \t\treturn`;
       break;
@@ -138,9 +150,21 @@ export function genThemeCreateScript(
 \tvar dir = "${gdEscape(savePath)}".get_base_dir()
 \tif not DirAccess.dir_exists_absolute(dir):
 \t\tDirAccess.make_dir_recursive_absolute(dir)
-\tvar err = ResourceSaver.save(theme, "${gdEscape(savePath)}")
+\tvar _full := "${gdEscape(savePath)}"
+\tvar _ext := _full.get_extension()
+\tvar _tmp := _full + ".tmp." + _ext
+\tif FileAccess.file_exists(_tmp):
+\t\tDirAccess.remove_absolute(_tmp)
+\tvar err := ResourceSaver.save(theme, _tmp)
 \tif err != OK:
+\t\tDirAccess.remove_absolute(_tmp)
 \t\t_mcp_output("error", "Failed to save theme: " + str(err))
+\t\t_mcp_done()
+\t\treturn
+\tvar _ren := DirAccess.rename_absolute(_tmp, _full)
+\tif _ren != OK:
+\t\tDirAccess.remove_absolute(_tmp)
+\t\t_mcp_output("error", "Failed to rename tmp: " + str(_ren))
 \t\t_mcp_done()
 \t\treturn
 \t_mcp_output("saved", {"resource_path": "${gdEscape(savePath)}"})

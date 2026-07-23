@@ -266,7 +266,7 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 				return {"error": {"code": -32004, "message": "theme_path is required for save action"}}
 			if not _validate_resource_path(save_path):
 				return {"error": {"code": -32004, "message": "theme_path must start with res:// or user://: " + save_path}}
-			var err = ResourceSaver.save(theme, save_path)
+			var err = CommandHelpers._save_atomic(theme, save_path)
 			if err != OK:
 				return {"error": {"code": -32000, "message": "Failed to save theme: " + str(err)}}
 		"load":
@@ -370,7 +370,7 @@ func handle_theme_create(params: Dictionary) -> Dictionary:
 	if save_path != "":
 		if not _validate_resource_path(save_path):
 			return {"error": {"code": -32004, "message": "save_path must start with res:// or user://: " + save_path}}
-		var err = ResourceSaver.save(theme, save_path)
+		var err = CommandHelpers._save_atomic(theme, save_path)
 		if err != OK:
 			return {"error": {"code": -32000, "message": "Failed to save theme: " + str(err)}}
 

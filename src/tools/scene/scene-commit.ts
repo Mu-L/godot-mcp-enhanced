@@ -115,7 +115,7 @@ export function generateCommitScript(
 
   const sp = gdEscape(scenePath);
   const saveBlock = save
-    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar err = ResourceSaver.save(packed, "${sp}")\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": err == OK, "results": _results}))`
+    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": err == OK, "results": _results}))`
     : `\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": false, "results": _results}))`;
 
   const fillHelper = hasFill

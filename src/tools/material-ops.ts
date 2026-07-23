@@ -351,9 +351,21 @@ func _initialize():
 \tvar dir = "${gdEscape(resourcePath)}".get_base_dir()
 \tif not DirAccess.dir_exists_absolute(dir):
 \t\tDirAccess.make_dir_recursive_absolute(dir)
-\tvar err = ResourceSaver.save(mat, "${gdEscape(resourcePath)}")
+\tvar _full := "${gdEscape(resourcePath)}"
+\tvar _ext := _full.get_extension()
+\tvar _tmp := _full + ".tmp." + _ext
+\tif FileAccess.file_exists(_tmp):
+\t\tDirAccess.remove_absolute(_tmp)
+\tvar err := ResourceSaver.save(mat, _tmp)
 \tif err != OK:
+\t\tDirAccess.remove_absolute(_tmp)
 \t\t_mcp_output("error", "Failed to save resource: " + str(err))
+\t\t_mcp_done()
+\t\treturn
+\tvar _ren := DirAccess.rename_absolute(_tmp, _full)
+\tif _ren != OK:
+\t\tDirAccess.remove_absolute(_tmp)
+\t\t_mcp_output("error", "Failed to rename tmp: " + str(_ren))
 \t\t_mcp_done()
 \t\treturn
 \t_mcp_output("saved", {"resource_path": "${gdEscape(resourcePath)}"})
