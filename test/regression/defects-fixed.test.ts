@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 71 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 80 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -17,7 +17,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 71 条且无重名', () => {
+  it('FIXED_DEFECTS 覆盖 80 条且无重名', () => {
     // 31 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者 2026-07-04 detect 反转——
     //   654b162 误加 super 触发 4.6.2+ parse error,移除 6 处 super 后 detect 计数"原生类虚函数有 super"=0 防回归）
@@ -90,9 +90,18 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   合计 69。
 //   +2(2026-07-23 批次 A 安全修复): asset-factory-load-traversal(A5 asset_factory load 前 has_path_traversal) /
 //   ui-scene-local-blocked-removed(A10 ui/scene 本地 blocked 删除,统一 BLOCKED_PROPERTIES),合计 71。
-    expect(FIXED_DEFECTS.length).toBe(71);
+//   +9(2026-07-23 批次 B 可靠性修复 B1-B8/B10): health-monitor-error-type-misdegrade(B1 evaluateState 按
+//   errorType 分流,仅 heartbeat 驱动 reconnecting) / editor-stall-no-zombie-clear(B2 handleEditorStall disconnect
+//   清 zombie) / heartbeat-ping-reuses-request-timeout(B3 ping 独立 5s 超时) /
+//   executor-do-not-retry-string-match(B4 CONN_ERROR_CODES Set 结构化判定) /
+//   editor-connection-handler-no-try-catch(B5 fireDisconnect/fireReconnect try/catch) /
+//   rebuild-no-setstate-connected(B6 重建 setState('connected') 即刻复位) /
+//   resource-write-non-atomic(B7 17 处 ResourceSaver.save 改 _save_atomic/tmp+rename 三环境) /
+//   is-connected-no-jsdoc(B8 isConnected 活性语义 JSDoc) / auth-timeout-hardcoded(B10 authTimeoutMs 参数化),
+//   合计 80。
+    expect(FIXED_DEFECTS.length).toBe(80);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(71);
+    expect(new Set(keys).size, '存在重名 key').toBe(80);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

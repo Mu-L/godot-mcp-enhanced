@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A8 logger error + call-recorder msg 套 sanitizeMsg
 - A10 ui/scene property 改走 coerce_property_value + 删本地 blocked（instance 纵深统一）
 
+### Fixed — Reliability（批次 B：降级链路 + 进程通信 + 资源写原子化，2026-07-23）
+
+10 条可靠性 finding 修复（5 份审查：专项2 可靠性 4 条 + 通用版进程通信 6 条）：
+
+- **降级链路统一（B1+B2+B3+B6）**：B1 evaluateState 按 errorType 分流（仅 heartbeat 驱动 reconnecting，工具失败不再误降级）；B3 心跳用独立 5s 超时（原复用 30s，TCP 半开降级 ~225s→~85s）；B2 handleEditorStall disconnect 清 zombie；B6 重建后 setState('connected') 即刻复位
+- **进程通信（B4+B5）**：B4 连接类错误结构化 err.code（do_not_retry 覆盖 Disconnected/JSON parse error，Executor 合并 I-12 分支）；B5 fireDisconnect/fireReconnect try/catch 容错
+- **资源写原子化（B7）**：17 处 ResourceSaver.save 改 tmp+rename 原子提交（三环境：headless godot_operations.gd 9 处 + addons 3 处 + TS 生成 5 处），防超时 kill 产半截损坏资源阻塞项目加载
+- **advisory（B8+B9+B10）**：isConnected 活性语义 JSDoc；orphan 崩溃恢复 opt-in 文档；authTimeoutMs 参数化
+
 ### Not Fixed — 经审查否决
 
 - ~~A11 find_node traversal~~：eng-review 否决（范畴错误）。find_node 唯一出口 `root.get_node_or_none` 纯内存，返 Node 零流入 load/DirAccess；NodePath `..` 是 Godot 父节点引用语法不逃逸场景树。若需禁 node_path `..` 应走 schema 契约变更（归 D 工具治理批次）。

@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 71 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2）。
+// FIXED_DEFECTS 80 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -747,6 +747,126 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const ui = readSrc('addons/godot_mcp_server/commands/ui_commands.gd').match(/BLOCKED_PROPS\b|blocked\s*:\s*Array/);
       const sc = readSrc('addons/godot_mcp_server/commands/scene_commands.gd').match(/var\s+blocked|blocked\s*:\s*Array/);
       return (ui || sc) ? 1 : 0;
+    } },
+  // ─── 2026-07-23 批次 B 可靠性修复（B1-B8/B10，B9 advisory 不入 detect）──────────────────
+  { key: 'health-monitor-error-type-misdegrade', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B1(2026-07-23 批次 B): evaluateState 原用无差别 consecutiveFails 累加,工具失败(TOOL_ERROR)也推动
+    // 状态机进 reconnecting 致编辑器误降级。fix: recordFailure(errorType) 按 errorType 分流,仅 heartbeat
+    // 类失败递增 consecutiveHeartbeatFails 驱动 reconnecting 阈值;工具失败只进 degraded 统计不推动状态机。
+    // detect: evaluateState 使用 consecutiveHeartbeatFails(非 consecutiveFails)比对 maxConsecutiveFailures。
+    detect: () => {
+      const f = readSrc('src/core/health-monitor.ts');
+      return f.includes('consecutiveHeartbeatFails >= this.opts.maxConsecutiveFailures') ? 0 : 1;
+    } },
+  { key: 'editor-stall-no-zombie-clear', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B2(2026-07-23 批次 B): handleEditorStall 未 disconnect 旧 EditorConnection,WS 仍 OPEN +
+    // reconnectEnabled=true,闭包重连耗尽后跨实例触发 reconnectExhausted 再降级(zombie 连接)。
+    // fix: handleEditorStall 入口 try { this.editorConn?.disconnect() } catch {} 清 zombie。
+    // detect: handleEditorStall 函数体含 disconnect() 调用(切片从函数头到下一个 private 方法)。
+    detect: () => {
+      const f = readSrc('src/GodotServer.ts');
+      const start = f.indexOf('handleEditorStall(): void');
+      if (start < 0) return 1;
+      const nextPrivate = f.indexOf('\n  private ', start + 10);
+      const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 800);
+      return body.includes('disconnect()') ? 0 : 1;
+    } },
+  { key: 'heartbeat-ping-reuses-request-timeout', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B3(2026-07-23 批次 B): startHeartbeat 的 pingFn 原复用 request() 默认 30s 超时,TCP 半开时单次降级
+    // 链路 ~225s(5×30s+UI 恢复)。fix: ping 独立 5s 超时(request('ping', {}, { timeoutMs: 5000 })),
+    // 半开降级缩到 ~85s(5×5s+连接周期)。detect: ping 调用带 timeoutMs 选项。
+    detect: () => {
+      const f = readSrc('src/GodotServer.ts');
+      return /request\(\s*['"]ping['"][^)]*timeoutMs\s*:/.test(f) ? 0 : 1;
+    } },
+  { key: 'executor-do-not-retry-string-match', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B4(2026-07-23 批次 B): EditorToolExecutor isConnectionError 原纯字符串 includes('Connection lost') 漏
+    // Disconnected / JSON parse error 等挂 err.code 的连接类错误,do_not_retry 误覆盖。fix: 结构化 CONN_ERROR_CODES
+    // Set 判定(5 个 code: CONNECTION_LOST/NOT_CONNECTED/REQUEST_TIMEOUT/DISCONNECTED/PARSE_ERROR),
+    // 字符串兜底保留防外部 path 未挂 code 回归。detect: EditorToolExecutor 含 CONN_ERROR_CODES Set 定义。
+    detect: () => {
+      return readSrc('src/core/EditorToolExecutor.ts').includes('CONN_ERROR_CODES') ? 0 : 1;
+    } },
+  { key: 'editor-connection-handler-no-try-catch', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B5(2026-07-23 批次 B): fireDisconnect/fireReconnect 裸 for handler() 迭代,单 handler 抛错阻断后续
+    // handler / scheduleReconnect。fix: 每个 handler 调用 try/catch 包裹(对齐 health-monitor:156-160 容错模式)。
+    // detect: fireDisconnect + fireReconnect 两函数体均含 try + catch(切片 fireDisconnect→fireReconnect→host)。
+    detect: () => {
+      const f = readSrc('src/core/EditorConnection.ts');
+      const disStart = f.indexOf('private fireDisconnect');
+      const recStart = f.indexOf('private fireReconnect');
+      const hostStart = f.indexOf('private readonly host');
+      if (disStart < 0 || recStart < 0 || hostStart < 0) return 1;
+      const disBody = f.slice(disStart, recStart);
+      const recBody = f.slice(recStart, hostStart);
+      return (disBody.includes('try') && disBody.includes('catch')
+        && recBody.includes('try') && recBody.includes('catch')) ? 0 : 1;
+    } },
+  { key: 'rebuild-no-setstate-connected', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B6(2026-07-23 批次 B): 重建(rebuild)成功后 hm.state 可能残留 'reconnecting'(上次 stall 留下),
+    // 首个心跳要等 heartbeatIntervalMs 才纠正——期间 onStateChange 不再触发降级但状态错(脏状态)。
+    // fix: establishEditorConnection 成功路径末尾显式 hm.setState('connected') 即刻复位。
+    // detect: establishEditorConnection 函数体含 setState('connected')。
+    detect: () => {
+      const f = readSrc('src/GodotServer.ts');
+      const start = f.indexOf('private async establishEditorConnection');
+      if (start < 0) return 1;
+      const nextPrivate = f.indexOf('\n  private ', start + 10);
+      const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 3000);
+      return body.includes("setState('connected')") ? 0 : 1;
+    } },
+  { key: 'resource-write-non-atomic', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // B7(2026-07-23 批次 B): 17 处 ResourceSaver.save 直写目标,超时 kill 落在 save 中途产半截损坏资源
+    // 阻塞项目加载。fix: 改 _save_atomic / tmp+rename 原子提交(三环境):
+    // ① headless godot_operations.gd 9 处 → 抽 _save_atomic helper(写 .tmp.<ext> → rename_absolute),
+    //    保留 :853 uid 边车直写例外(.uid 必须落原路径,原子化致 .uid 孤儿);
+    // ② addons command_helpers.gd 3 处 → static _save_atomic helper(同模式);
+    // ③ TS 生成 5 处(ui-theme.ts×2 + scene-commit.ts + scene-instance.ts + material-ops.ts)→ 内联
+    //    .tmp.<ext> + rename_absolute 模式字符串(data-import.ts 已 P2-1 先例,detect 不重复计)。
+    // detect: 三环境特征齐备(gd _save_atomic + ResourceSaver.save≤2 / addons static _save_atomic / 4 TS 文件含 .tmp.+rename_absolute)。
+    detect: () => {
+      // 1. headless godot_operations.gd: _save_atomic 定义 + ResourceSaver.save 计数 ≤2(helper + uid 例外)
+      const gd = readSrc('src/scripts/godot_operations.gd');
+      const gdSaveAtomic = /func _save_atomic\(/.test(gd);
+      const gdSaveCount = (gd.match(/ResourceSaver\.save\(/g) ?? []).length;
+      const gdOk = gdSaveAtomic && gdSaveCount <= 2;
+      // 2. addons command_helpers.gd: static func _save_atomic
+      const addonsOk = /static func _save_atomic\(/.test(
+        readSrc('addons/godot_mcp_server/commands/command_helpers.gd'));
+      // 3. TS 4 文件每个含 .tmp. + rename_absolute(ui-theme/scene-commit/scene-instance/material-ops)
+      const tsFiles = [
+        'src/tools/ui/ui-theme.ts',
+        'src/tools/scene/scene-commit.ts',
+        'src/tools/scene/scene-instance.ts',
+        'src/tools/material-ops.ts',
+      ];
+      let tsOk = true;
+      for (const rel of tsFiles) {
+        const src = readSrc(rel);
+        if (!src.includes('.tmp.') || !src.includes('rename_absolute')) tsOk = false;
+      }
+      return gdOk && addonsOk && tsOk ? 0 : 1;
+    } },
+  { key: 'is-connected-no-jsdoc', status: 'fixed', severity: 'ADVISORY', dimension: 'Maintainability',
+    // B8(2026-07-23 批次 B): isConnected() 无 JSDoc,调用方误认作 TCP 实时活性(实际仅 ws open/close flag,
+    // TCP 半开时仍返 true)。fix: 补 JSDoc 说明活性语义 + 指引 HealthMonitor 心跳为实时检测。
+    // detect: isConnected 方法前 500 字符含 "TCP" + "HealthMonitor"(活性语义标记词)。
+    detect: () => {
+      const f = readSrc('src/core/EditorConnection.ts');
+      const idx = f.indexOf('isConnected(): boolean');
+      if (idx < 0) return 1;
+      const before = f.slice(Math.max(0, idx - 500), idx);
+      return before.includes('TCP') && before.includes('HealthMonitor') ? 0 : 1;
+    } },
+  { key: 'auth-timeout-hardcoded', status: 'fixed', severity: 'ADVISORY', dimension: 'Maintainability',
+    // B10(2026-07-23 批次 B): performAuth 原硬编码 authTimeout=10000 ms,与 constructor options 脱节。
+    // fix: constructor 读 options.authTimeout ?? 10000 → authTimeoutMs 字段,performAuth 用 this.authTimeoutMs。
+    // detect: authTimeoutMs 字段定义 + performAuth 使用 this.authTimeoutMs。
+    detect: () => {
+      const f = readSrc('src/core/EditorConnection.ts');
+      const hasField = /private readonly authTimeoutMs\s*:\s*number/.test(f);
+      const hasUsage = /this\.authTimeoutMs/.test(f);
+      return hasField && hasUsage ? 0 : 1;
     } },
 ];
 
