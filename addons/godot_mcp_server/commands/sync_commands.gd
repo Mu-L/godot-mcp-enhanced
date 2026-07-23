@@ -124,7 +124,7 @@ func _cache_paths_recursive(node: Node, depth: int = 0) -> void:
 
 
 func _on_node_added(node: Node) -> void:
-	var edited_root = CommandHelpers.get_edited_scene_root(_command_handler.get_plugin() if _command_handler and _command_handler.has_method("get_plugin") else null)
+	var edited_root = CommandHelpers.get_edited_scene_root(_plugin)
 	if edited_root != null and not edited_root.is_ancestor_of(node) and node != edited_root:
 		return
 	var path = str(node.get_path())
@@ -141,7 +141,7 @@ func _on_node_added(node: Node) -> void:
 
 
 func _on_node_removed(node: Node) -> void:
-	var edited_root = CommandHelpers.get_edited_scene_root(_command_handler.get_plugin() if _command_handler and _command_handler.has_method("get_plugin") else null)
+	var edited_root = CommandHelpers.get_edited_scene_root(_plugin)
 	if edited_root != null and not edited_root.is_ancestor_of(node) and node != edited_root:
 		return
 	var id = node.get_instance_id()
