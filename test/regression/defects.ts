@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 93 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12）。
+// FIXED_DEFECTS 94 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -977,6 +977,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasFontGuard = /var font = load/.test(fontCase) && /font == null/.test(fontCase);
       const hasSbGuard = /var sb = load/.test(sbCase) && /sb == null/.test(sbCase);
       return (hasKeyCheck && hasFontGuard && hasSbGuard) ? 0 : 1;
+    } },
+
+  // ─── 2026-07-24 批次 D 工具治理（D1 asset/android 游离；D2 find_node traversal 撤销转 follow-up 见 spec）──
+  { key: 'asset-android-tool-orphan', status: 'fixed', severity: 'IMPORTANT', dimension: 'Tooling',
+    // D1(批次 D): asset/android 在 module-loader 注册但不在 TOOL_GROUPS/ALWAYS_ALLOWED → isToolAllowed 恒 false
+    // （发现层 tools/list 隐藏 + profile 不强制）。fix: TOOL_GROUPS 补 asset/android 组。detect: 含两 key = fixed。
+    detect: () => {
+      const f = readSrc('src/core/tool-registry.ts');
+      const m = f.slice(f.indexOf('export const TOOL_GROUPS'), f.indexOf('ALWAYS_ALLOWED'));
+      return /asset:\s*\{[^}]*tools:\s*\['asset'\]/.test(m) && /android:\s*\{[^}]*tools:\s*\['android'\]/.test(m) ? 0 : 1;
     } },
 ];
 

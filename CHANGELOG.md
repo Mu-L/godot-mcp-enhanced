@@ -42,6 +42,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 defects.ts 加 12 条 FIXED detect（C1/C2/C3/C5-C13）+ 计数 81→93。C4 由 nav-bake-in-undo-action（P1 bake 在 do_ops fixed）+ deferral 注释跟踪，不加新 OPEN detect（accurate bake_result 是架构 follow-up，非 bug-fix 可修）。
 
+### Fixed — Tooling（批次 D：asset/android 工具游离，2026-07-24）
+
+- **asset-android-tool-orphan（D1）**：`src/core/tool-registry.ts` asset/android 工具在 module-loader 注册（`module-loader.ts:57,71,75`）但不在 `TOOL_GROUPS`/`ALWAYS_ALLOWED` → `isToolAllowed('asset'/'android')` 恒 false（发现层 tools/list 隐藏 + profile 不强制，执行层 ReadOnlyGuard 兜底非 RCE）。补 `asset`(requires editor) + `android`(requires []) 2 组，toolToGroup reverse map + activeGroups + getFilteredTools 链自动派生一致。方案 a（不修 executeToolCall，避免破坏 advanced-proxy delegateCall 逃生舱）。android requires:[] 核实（`android.ts:212` deploy=spawnGodot headless export，无 EditorConnection）。
+
+**D2 撤销**（find_node 内置 has_path_traversal）：经 eng-review + memory [[nodepath-traversal-category-error]] 核实为范畴错误复活（批次 A A11 已否决同建议）——has_path_traversal 是 resource 范畴（`command_helpers.gd:46` 注释 "resource path"），find_node 出口 get_node_or_null 纯场景树，NodePath `..` 是 Godot 合法父引用（`../Sibling`）非 fs traversal。D2 转 follow-up（NodePath `..` 策略统一：node_commands:51 项目拒 .. vs memory 范畴错误，历史痕迹需项目方拍板；若对齐 memory 撤既存 8 处节点路径前置，若禁 .. 走 schema pattern 非内置）。
+
 ### Not Fixed — 经审查否决
 
 - ~~A11 find_node traversal~~：eng-review 否决（范畴错误）。find_node 唯一出口 `root.get_node_or_none` 纯内存，返 Node 零流入 load/DirAccess；NodePath `..` 是 Godot 父节点引用语法不逃逸场景树。若需禁 node_path `..` 应走 schema 契约变更（归 D 工具治理批次）。
