@@ -22,9 +22,8 @@ describe('C10/C11/C12 undo 完整性', () => {
 
 	const node = readFileSync('addons/godot_mcp_server/commands/node_commands.gd', 'utf8');
 
-	it('C11 batch_add_nodes commit 有 try/catch + 孤儿清理（is_inside_tree + free）', () => {
+	it('C11 batch_add_nodes commit 孤儿清理（is_inside_tree + free，GDScript 无 try/catch）', () => {
 		const batch = node.match(/func handle_batch_add_nodes[\s\S]*?^func /m)?.[0] ?? '';
-		expect(batch).toMatch(/try:|catch/);
 		expect(batch).toContain('is_inside_tree()');
 		expect(batch).toContain('.free()');
 	});
