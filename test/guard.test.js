@@ -125,12 +125,11 @@ describe('requiresConfirmation', () => {
   // 非 GUARDED 工具零行为改变（Task 7 修复）：这些工具原不在 GUARDED 表中 →
   // requiresConfirmation 此前对所有 action 返回 false → 迁移后必须保持 false。
   // 锁定 spec §4.1：当前在 GUARDED 外的 action 一律标 read。
+  // P0-2 (批次 E): animation_track 的 remove_track/remove_keyframe/update_keyframe 改 destructive 需确认，
+  // 移出此「保持不确认」列表（见下方反向 it）。add_track/add_keyframe/set_curve 仍 read 不确认。
   it.each([
     ['animation_track', 'add_track'],
-    ['animation_track', 'remove_track'],
     ['animation_track', 'add_keyframe'],
-    ['animation_track', 'remove_keyframe'],
-    ['animation_track', 'update_keyframe'],
     ['animation_track', 'set_curve'],
     ['editor', 'sync_start'],
     ['editor', 'sync_stop'],
@@ -148,6 +147,13 @@ describe('requiresConfirmation', () => {
     ['docs', 'search_classes'],
   ])('非 GUARDED 工具 %s.%s 保持不确认 (false)', (tool, action) => {
     expect(requiresConfirmation(tool, { action })).toBe(false);
+  });
+
+  // P0-2 (批次 E): animation_track 破坏性操作（删轨道/关键帧/改值）现需确认（对齐 animation-ops:691 destructive）。
+  it('P0-2: animation_track 破坏性 action 需确认', () => {
+    expect(requiresConfirmation('animation_track', { action: 'remove_track' })).toBe(true);
+    expect(requiresConfirmation('animation_track', { action: 'remove_keyframe' })).toBe(true);
+    expect(requiresConfirmation('animation_track', { action: 'update_keyframe' })).toBe(true);
   });
 
   // H-1: project 现为 GUARDED 工具——有真实副作用的 action 标 'write' 触发确认；
