@@ -4,6 +4,8 @@
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
 // detect 谓词忠实复现 defects.md 行 196-538。
+// P1-6 (批次 E): 多数 detect 是静态 grep（countMatchesInFile/readSrc.match）防源码形态复发，非运行时行为验证；
+//   安全/竞态类（沙箱绕过/TOCTOU/HMAC 重放）运行时覆盖另见专门测试（gdscript-executor-core 沙箱触发等）。
 import { countMatchesInFile, countMatchesInDir, fileContains, readSrc, PROJECT_ROOT } from './detect-helpers.js';
 // ts-gdscript-tool-drift 复用 M1
 import { diffMatrices } from '../../src/capability/diff-matrix.js';
