@@ -297,4 +297,58 @@ describe('EditorConnection', () => {
     conn.fireReconnect();
     expect(called).toEqual(['first', 'second']);
   });
+
+  // P0-1: 重连耗尽致命路径。编辑器崩溃/kill-9 后若重连耗尽,reconnectExhaustedHandler
+  // 必须恰好触发一次(I-04 去重不变量——不因 ws close 的 fireDisconnect 重复),且
+  // reconnectEnabled=false 后不再尝试。此前全文 0 处覆盖 maxReconnectAttempts /
+  // reconnectExhausted,唯一重连测试只覆盖 attempt 1。编辑器崩溃后 MCP 瘫痪且测试无法捕获。
+  it('fires reconnectExhausted exactly once after maxReconnectAttempts then stops (P0-1)', { timeout: 30_000 }, async () => {
+    let connectionCount = 0;
+    wss.on('connection', (ws) => {
+      connectionCount++;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: true,
+      reconnectInterval: 20,
+      maxReconnectInterval: 40,
+      maxReconnectAttempts: 3,
+      connectTimeout: 400,
+      secret: 'test-secret',
+    });
+
+    let exhaustedCalls = 0;
+    conn.addOnReconnectExhaustedHandler(() => { exhaustedCalls++; });
+
+    // 初始 connect 必须成功(authenticated=true),否则 close handler wasConnected=false 不进重连链
+    await conn.connect();
+    expect(connectionCount).toBe(1);
+    expect(conn.connected).toBe(true);
+
+    // 模拟编辑器崩溃:终止现有连接 + 关 server → client ws close → scheduleReconnect;
+    // 后续每次重连 ECONNREFUSED,由 reconnectTimer 的 catch 递归驱动 scheduleReconnect,
+    // 直到 attempt >= max。先 terminate 现有连接——wss.close 的 callback 会等所有活跃连接,
+    // 不 terminate 则 client 以为连着不断开,callback 永挂。
+    for (const client of wss.clients) client.terminate();
+    await new Promise((res) => wss.close(res));
+
+    // 3 次重连尝试 × (backoff 20~40ms + ECONNREFUSED 即时/最多 connectTimeout 400ms)
+    await new Promise((r) => setTimeout(r, 4000));
+
+    // I-04 核心:reconnectExhausted 恰好 1 次(去重,不重复)
+    expect(exhaustedCalls).toBe(1);
+    // 耗尽后连接断开
+    expect(conn.connected).toBe(false);
+
+    // 再等 1s 确认不再重复触发(reconnectEnabled=false,重连链已止)
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(exhaustedCalls).toBe(1);
+
+    conn.disconnect();
+  });
 });
