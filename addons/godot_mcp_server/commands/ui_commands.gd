@@ -256,6 +256,9 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 					var val = p[key]
 					if val is Object:
 						continue
+					# C13: 校验 key 是 Theme 有效属性（避免 silent no-op / 动态属性污染）
+					if not _theme_has_property(theme, String(key)):
+						continue
 					theme.set(key, val)
 		"save":
 			var theme = ctrl.theme
@@ -386,6 +389,16 @@ func _validate_resource_path(p: String) -> bool:
 	return true
 
 
+# C13: 校验 key 是 Theme 有效属性（set_params 用，避免 theme.set 无效 key silent no-op / 动态属性污染）。
+# Theme.get_property_list 含继承自 Resource/Object 的属性 + Theme 特有属性；set 不在列表的 key 会创建
+# 动态属性（无主题效果）= silent no-op。找不到返 false（调用方 continue 跳过）。
+func _theme_has_property(theme: Theme, key: String) -> bool:
+	for p in theme.get_property_list():
+		if String(p.get("name", "")) == key:
+			return true
+	return false
+
+
 # ─── theme_set_property ─────────────────────────────────────────────────────
 
 func handle_theme_set_property(params: Dictionary) -> Dictionary:
@@ -414,7 +427,11 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var font_path: String = str(value)
 			if not _validate_resource_path(font_path):
 				return {"error": {"code": -32004, "message": "font path must start with res:// or user://: " + font_path}}
-			theme.set_default_font(load(font_path))
+			# C13: load null 守卫（load 失败返 null 直接传 set_default_font 致 silent no-op / 错误）
+			var font = load(font_path)
+			if font == null:
+				return {"error": {"code": -32004, "message": "Failed to load font: " + font_path}}
+			theme.set_default_font(font)
 		"color":
 			var c = value
 			if c is Array and c.size() >= 3:
@@ -428,7 +445,11 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var sb_path: String = str(value)
 			if not _validate_resource_path(sb_path):
 				return {"error": {"code": -32004, "message": "stylebox path must start with res:// or user://: " + sb_path}}
-			theme.set_stylebox(prop_name, theme_type, load(sb_path))
+			# C13: load null 守卫
+			var sb = load(sb_path)
+			if sb == null:
+				return {"error": {"code": -32004, "message": "Failed to load stylebox: " + sb_path}}
+			theme.set_stylebox(prop_name, theme_type, sb)
 		_:
 			return {"error": {"code": -32004, "message": "Invalid item_type: " + item_type + ". Must be: default_font, color, constant, stylebox"}}
 

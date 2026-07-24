@@ -15,7 +15,14 @@ const _EPS: float = 1e-4  # 米；与 forge_client.predict_n 同值（F1 同步�
 static func resolve_points(root: Node, path: Array, path_node: String) -> Array:
 	var pts: Array = []
 	if path_node != "":
-		var pn: Node = root.get_node_or_null(path_node)
+		# C5: strip "root/" 前缀 + leading "/"，对齐 command_helpers.find_node。
+		# path_generator 是纯几何静态类（不碰场景树），内联 strip 不引 CommandHelpers 依赖保独立。
+		var clean := path_node
+		while clean.begins_with("/"):
+			clean = clean.substr(1)
+		if clean.begins_with("root/"):
+			clean = clean.substr(5)
+		var pn: Node = root.get_node_or_null(clean)
 		if pn == null or not (pn is Path3D):
 			return []  # 调用方返 PARENT_NOT_FOUND
 		var baked: PackedVector3Array = (pn as Path3D).curve.get_baked_points()
