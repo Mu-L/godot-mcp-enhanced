@@ -9,7 +9,7 @@ describe('C2/C6/C7/C8 TS 正确性', () => {
     const fn = src.match(/function extractCompileError[\s\S]*?\n\}/)?.[0] ?? '';
     expect(fn.length, 'extractCompileError 未找到').toBeGreaterThan(0);
     // \b 词边界正则（对齐 :1303 no-marker 兜底），避免用户 print("Parse Error: debug") 误判
-    expect(fn).toMatch(/\\b\(Parse Error\|Script Error\):/);
+    expect(fn).toMatch(/:\[0-9\]\+ - \(Parse Error\|Script Error\):/);
     // 不再裸 includes（原 trimmed.includes('Parse Error:')）
     expect(fn).not.toMatch(/trimmed\.includes\('Parse Error/);
   });

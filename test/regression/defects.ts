@@ -892,12 +892,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => readSrc('addons/godot_mcp_server/commands/sync_commands.gd').includes('_command_handler.get_plugin()') ? 1 : 0 },
   { key: 'gdscript-executor-compile-error-includes', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // C2(批次 C): extractCompileError 裸 includes('Parse Error:') 扫全部行,用户 print("Parse Error: debug") 被误判
-    // compile 失败。marker/no-marker 两调用路径共用此函数。fix: \b 词边界正则。detect: 函数体不含 trimmed.includes('Parse Error') = fixed。
+    // compile 失败。marker/no-marker 两调用路径共用此函数。fix(final review 根治): Godot 格式 dash 前缀 ":[0-9]+ - Parse Error:"(\b 在词首仍匹配用户 print 非根治)。detect: 函数体含 dash " - Parse Error" = fixed。
     detect: () => {
       const f = readSrc('src/gdscript-executor.ts');
       const start = f.indexOf('function extractCompileError');
-      const body = f.slice(start, start + 400);
-      return /trimmed\.includes\('Parse Error/.test(body) ? 1 : 0;
+      const body = f.slice(start, start + 800);
+      // C2 根治: Godot 格式 dash 前缀 " - Parse Error:"(见 gdscript-executor:1356 注释);复发裸 includes
+      // 或 \b 词边界(词首仍匹配用户 print 非根治) = 1
+      return / - \(Parse Error/.test(body) ? 0 : 1;
     } },
   { key: 'websocket-params-null-passthrough', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // C3(批次 C): params:null 被 "_rpc_params != null and not is Dictionary" 的 and 短路放行→Dictionary 强类型

@@ -1360,9 +1360,10 @@ function extractCompileError(raw: string): string {
   const errors: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    // C2: \b 词边界（对齐 :1303 no-marker 兜底），避免用户 print("Parse Error: debug")
-    // 被原裸 includes 误判为 compile 失败。marker/no-marker 两调用路径共用此函数，一处即覆盖。
-    if (/\b(Parse Error|Script Error):/.test(trimmed)) {
+    // C2 根治(final review 揭示 \b 非根治): Godot 编译错误格式 ":line - Parse Error:"(见 :1356 注释)。
+    // 原 \b 在词首仍匹配——print("Parse Error: debug") 的 "Parse Error:" 在字符串开始,\b 匹配词首边界
+    // 仍误判;dash 前缀要求 Godot 格式 ":<num> - Parse Error:",用户 print 无此格式不匹配。
+    if (/:[0-9]+ - (Parse Error|Script Error):/.test(trimmed)) {
       errors.push(trimmed);
     }
   }
