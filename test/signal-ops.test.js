@@ -91,11 +91,11 @@ describe('genSignalEmitScript', () => {
   });
   it('serializes boolean args', () => {
     const script = genSignalEmitScript('/root/Player', 'toggle', [true]);
-    expect(script.includes('true')).toBeTruthy();
+    expect(script.includes('source.emit_signal("toggle", true)')).toBeTruthy();
   });
   it('serializes null args', () => {
     const script = genSignalEmitScript('/root/Player', 'reset', [null]);
-    expect(script.includes('null')).toBeTruthy();
+    expect(script.includes('source.emit_signal("reset", null)')).toBeTruthy();
   });
   it('throws on unsupported arg types', () => {
     expect(() => genSignalEmitScript('/root/A', 'sig', [{}])).toThrow(/basic types/);

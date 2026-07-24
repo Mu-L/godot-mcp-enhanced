@@ -175,11 +175,13 @@ describe('genMaterialSetParamsScript', () => {
   });
   it('converts boolean', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { visible: true });
-    expect(script.includes('true')).toBeTruthy();
+    expect(script.includes('mat.set_shader_parameter("visible", true)')).toBeTruthy();
+    expect(script.includes('mat.set("visible", true)')).toBeTruthy();
   });
   it('converts null', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { val: null });
-    expect(script.includes('null')).toBeTruthy();
+    expect(script.includes('mat.set_shader_parameter("val", null)')).toBeTruthy();
+    expect(script.includes('mat.set("val", null)')).toBeTruthy();
   });
   it('converts string (resource path) with load() for shader', () => {
     const script = genMaterialSetParamsScript('/root/Player', 0, { tex: 'res://icon.png' });
