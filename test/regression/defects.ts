@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 96 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1）。
+// FIXED_DEFECTS 97 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1007,6 +1007,22 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // remove_track: 'destructive' = fixed（复发 read 标注→1）。
     detect: () => readSrc('src/tools/animation/animation-track.ts').includes("remove_track: 'destructive'") ? 0 : 1,
   },
+  { key: 'bridge-take-screenshot-null-crash-swallow', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // Bridge take_screenshot 的 get_viewport().get_texture().get_image() 链无 null guard:
+    // get_image() 返回 null(窗口后台/viewport 未就绪/DummyRenderer)时 img.save_png() 触发 runtime error
+    // 中断 _cmd_take_screenshot → _handle_message result 停 null → promote error 不触发(null 非 Dictionary)
+    // → 返回 {"result":null} 吞错(客户端只见 null 无 error)。fixed: viewport/texture/img 三层 null guard
+    // 各返结构化 {"error":{code,message}},_handle_message:583 promote error 触发客户端可见。
+    // detect: _cmd_take_screenshot 函数体含 get_image() 但无 img/tex/viewport == null 守卫 → 1(复发)。
+    detect: () => {
+      const f = readSrc('src/scripts/mcp_bridge.gd');
+      const m = f.match(/func _cmd_take_screenshot[\s\S]*?(?=\nfunc |\n# ─)/);
+      if (!m) return 1;
+      const body = m[0];
+      const hasGetImage = /get_image\(\)/.test(body);
+      const hasNullGuard = /\b(?:img|tex|viewport)\s*==\s*null\b/.test(body);
+      return (hasGetImage && !hasNullGuard) ? 1 : 0;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

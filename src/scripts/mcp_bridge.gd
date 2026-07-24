@@ -999,7 +999,14 @@ func _cmd_take_screenshot(params: Dictionary) -> Variant:
 		if segment == ".." or segment == ".":
 			return {"error": {"code": -1, "message": "Screenshot path contains directory traversal"}}
 	var viewport := get_viewport()
-	var img := viewport.get_texture().get_image()
+	if viewport == null:
+		return {"error": {"code": -3, "message": "No active viewport available for screenshot"}}
+	var tex := viewport.get_texture()
+	if tex == null:
+		return {"error": {"code": -3, "message": "Viewport has no render texture (window not yet rendered or headless backend)"}}
+	var img := tex.get_image()
+	if img == null:
+		return {"error": {"code": -3, "message": "Failed to capture viewport image (GPU not ready or window minimized/backgrounded)"}}
 	var err := img.save_png(clean_path)
 	if err != OK:
 		return {"error": {"code": -2, "message": "Failed to save screenshot: error %d" % err}}
