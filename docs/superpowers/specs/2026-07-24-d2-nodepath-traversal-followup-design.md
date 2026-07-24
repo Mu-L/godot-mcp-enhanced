@@ -12,7 +12,7 @@
 
 批次 D D2 原拟在 `command_helpers.find_node` 内置 `has_path_traversal`，经 eng-review + memory 核实为**范畴错误复活**（批次 A A11 已否决同一建议），撤销转 follow-up。
 
-`has_path_traversal`（`command_helpers.gd:49`）是 **resource 范畴**检查（对齐 `godot_operations._sanitize_res_path` 的 res:// 防护），语义是 **fs 路径穿越**。但当前有 **6 处误用于节点路径范畴**（scene tree）——`node_commands:51` 注释自承「get_node_or_null 受场景树结构限制无法逃出 root，但显式拒绝 `..` 段与项目防御一致」，即**知道范畴错误但有意防御性拒绝**。
+`has_path_traversal`（`command_helpers.gd:49`）是 **resource 范畴**检查（对齐 `godot_operations._sanitize_res_path` 的 res:// 防护），语义是 **fs 路径穿越**。但当前有 **6 处误用于节点路径范畴**（scene tree）——`node_commands:51` 注释自承「get_node_or_null 受场景树结构限制无法逃出 root，但显式拒绝 `..` 段与项目防御一致」，即**知道范畴错误但有意防御性拒绝**。`find_node`（`command_helpers.gd:29-43`）唯一出口是 `root.get_node_or_null(p)`——纯场景树查找，返回 Node 不流入 load/DirAccess/FileAccess，零 fs 接触，自证范畴。
 
 ## 决策（用户拍板，方向 A）
 
@@ -44,10 +44,10 @@
 - `ui_commands.gd:387`（_validate_resource_path）
 - `asset_commands.gd:112`（handle_save res_path）
 - `asset_factory.gd:131`（material load）
-- `scene_commands.gd:32`（scene_path res://）
-- `scene_commands.gd:100`（instance_path res://）
+- `scene_commands.gd:32`（scene_path res://，经本地 `_has_path_traversal` 包装 :22-23 转调）
+- `scene_commands.gd:100`（instance_path res://，同上包装）
 
-> **memory 分类更正**：[[nodepath-traversal-category-error]] 原称「8 处节点路径」，实际把 resource scope 的 `scene:32/100` + `ui:387` 错算进节点路径了。实测节点路径范畴 **6 处**，资源范畴 **6 处**，合计 12 处。memory 待更新。
+> **分类更正**：先前分析（批次 D spec）将 `scene:32/100` + `ui:387` 误归「节点路径」范畴（称「8/9 处节点路径」），实际这两处是 resource scope（res:// scene_path/instance_path/_validate_resource_path）。memory [[nodepath-traversal-category-error]] 正文只判范畴（NodePath `..` 是父引用非 fs 穿越）未给计数。实测节点路径范畴 **6 处**，资源范畴 **6 处**，合计 12 处。
 
 ## 实现
 
@@ -73,7 +73,7 @@
 ### 4. CHANGELOG + memory
 
 - **CHANGELOG**：D2 follow-up 段（撤 6 处 + 范畴错误理由 + memory 分类更正）。
-- **memory [[nodepath-traversal-category-error]]**：更新「8 处」→「6 节点路径 + 6 资源范畴」分类更正 + D2 follow-up 闭环（撤 6 处，方向 A）。
+- **memory [[nodepath-traversal-category-error]]**：补入实测分类（6 节点路径范畴撤 + 6 资源范畴保留）+ D2 follow-up 闭环（撤 6 处，方向 A）。memory 原文只判范畴未计数，「8 处」出自批次 D spec 非本 memory，故无需更正 memory 计数。
 
 ## 不做（YAGNI）
 
