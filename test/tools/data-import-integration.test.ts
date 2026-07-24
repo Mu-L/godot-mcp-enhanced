@@ -138,13 +138,20 @@ afterAll(() => {
 // ─── 测试 ──────────────────────────────────────────────────────────────────────
 
 describe.skipIf(!hasGodot)('csvToResources 集成(真 Godot)', () => {
-  beforeAll(() => {
-    // class_name 预热:T1 已触发 --import,缓存命中 TestResource。
+  beforeAll(async () => {
+    // 自预热 real-project(executeGdscript 触发 --import 生成 global_script_class_cache.cfg),
+    // 不依赖 e2e-full T1 — vitest 文件并行,跨文件 cache 依赖不可靠(CI data-import beforeAll 曾在
+    // T1 完成前跑致 cache 缺,5 测试 skipped + 文件 failed,2026-07-24 CI 矩阵首跑暴露)。
+    await executeGdscript({
+      godotPath: GODOT_PATH,
+      projectPath: REAL_PROJECT,
+      code: 'extends SceneTree\nfunc _initialize():\n\tprint("T7-WARMUP_OK")\n\tquit()\n',
+      timeout: 30,
+    });
     const cache = resolve(REAL_PROJECT, '.godot', 'global_script_class_cache.cfg');
     if (!existsSync(cache)) {
       throw new Error(
-        `[T7-SETUP] global_script_class_cache.cfg 不存在(${cache})。` +
-        `T1 应已预热。运行 Godot --import 一次以生成。`,
+        `[T7-SETUP] executeGdscript 预热后 global_script_class_cache.cfg 仍不存在(${cache})。`,
       );
     }
   }, 60000);
