@@ -92,7 +92,9 @@ async function callTool(toolName: string, args: Record<string, unknown>): Promis
   const mod = getModuleForTool(toolName);
   if (!mod) return { text: `MODULE_NOT_FOUND: ${toolName}`, isError: true };
   const result = await mod.handleTool(toolName, { project_path: TEST_PROJECT, ...args }, makeCtx());
-  if (!result) return { text: 'null result', isError: false };
+  // 反假绿(IMPORTANT-9b,对齐 callToolReal:120):null = action 未匹配 default return,
+  // 判 isError:true 暴露 action 笔误/未实现(原 isError:false 静默放行 = 假绿)。
+  if (!result) return { text: 'null result (action 未匹配任何 case — 疑似假绿,核对 action 名)', isError: true };
   if (!isToolResult(result)) return { text: `UNEXPECTED_RESULT: ${JSON.stringify(result).slice(0, 200)}`, isError: true };
   const text = result.content.map(c => c.text).join('\n') ?? '';
   return { text, isError: result.isError === true };
@@ -445,8 +447,7 @@ describe('E2E: docs / manage_tools / instances', () => {
 describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeout: 60_000 }, () => {
   it('validation: run_validation returns structured result', async () => {
     const r = await callTool('validation', { action: 'run_validation' });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(10);
+    expectHasText(r);
   });
 
   it('screenshot: capture returns image data or error', async () => {
@@ -456,8 +457,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       image_path: 'user://e2e_test.png',
     });
     // 3D 场景应返回图片数据或明确的处理结果
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('workflow: dev_loop executes and returns output', async () => {
@@ -465,8 +465,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'dev_loop',
       code: 'var _v = "workflow_ok"\n_mcp_output("test", _v)\n_mcp_done()',
     });
-    expect(r.isError).toBe(false);
-    expect(r.text).toContain('workflow_ok');
+    expectSuccess(r, 'workflow_ok');
   });
 
   it('runtime: inspect_node returns node info', async () => {
@@ -475,8 +474,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       scene_path: 'res://scenes/main.tscn',
       node_path: 'Main',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('animation: list_players returns result', async () => {
@@ -484,8 +482,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'list_players',
       scene_path: 'res://scenes/anim_test.tscn',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('animation_track: add_track returns result', async () => {
@@ -497,8 +494,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       track_type: 'value',
       track_path: ':position:x',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('particles: create returns success or error', async () => {
@@ -509,8 +505,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       name: 'TestParticles',
       type: 'GPUParticles2D',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('tilemap: read returns tilemap data or error', async () => {
@@ -518,8 +513,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'read',
       scene_path: 'res://demos/dynamic_tilemap_layers/dynamic_tilemap.tscn',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('material: read returns material info or not-found error', async () => {
@@ -528,8 +522,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       node_path: '.',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('signal: list returns signal info', async () => {
@@ -538,8 +531,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       node_path: 'TestSprite',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('audio: list returns audio player info', async () => {
@@ -547,8 +539,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'list',
       scene_path: 'res://scenes/main.tscn',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('nav: list returns navigation info', async () => {
@@ -556,8 +547,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'list',
       scene_path: 'res://demos/navigation/navigation_demo.tscn',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('physics: raycast returns hit result', async () => {
@@ -566,8 +556,7 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       from: { x: 0, y: 10, z: 0 },
       to: { x: 0, y: 0, z: 0 },
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('animtree: animtree_create returns result', async () => {
@@ -577,14 +566,12 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       node_path: '.',
       name: 'TestAnimTree',
     });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 
   it('profiler: snapshot returns profiler data', async () => {
     const r = await callTool('profiler', { action: 'snapshot' });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(5);
+    expectHasText(r);
   });
 });
 
