@@ -118,6 +118,25 @@ func _type_convert(raw: String, field: Dictionary, cls_name: String) -> Variant:
 \t\t\treturn raw.split(",")
 \treturn null
 
+# C7: 递归扫 base 下 *.tmp.tres 删除（跨 output_dir 残留自清），对齐 godot_operations.gd
+# find_files 模式（跳过 . 前缀目录如 .godot + depth≤10 防深递归）。原 P2-1 只扫 _output_dir，
+# 换 output_dir 后旧目录 .tmp.tres 残留不扫。每进程 _initialize 跑一次（data-import 模板 extends SceneTree）。
+func _clean_tmp_global(base: String, depth: int = 0) -> void:
+\tif depth > 10:
+\t\treturn
+\tvar d = DirAccess.open(base)
+\tif d == null:
+\t\treturn
+\td.list_dir_begin()
+\tvar fn = d.get_next()
+\twhile fn != "":
+\t\tif d.current_is_dir() and not fn.begins_with("."):
+\t\t\t_clean_tmp_global(base + fn + "/", depth + 1)
+\t\telif fn.ends_with(".tmp.tres"):
+\t\t\td.remove(fn)
+\t\tfn = d.get_next()
+\td.list_dir_end()
+
 func _initialize():
 \tvar Class = load(_class_path)
 \tif Class == null:
@@ -144,16 +163,9 @@ func _initialize():
 \tif mkdir_err != OK:
 \t\t_errors.append({"row": 0, "reason": "create output dir failed: " + str(mkdir_err)})
 \t\t_mcp_done(); return
-\t# P2-1: 清上次 kill 留下的 .tmp.tres 残留（半截无害但占空间，每次调用自清）
-\tvar clean_dir = DirAccess.open(_output_dir)
-\tif clean_dir:
-\t\tclean_dir.list_dir_begin()
-\t\tvar clean_fn = clean_dir.get_next()
-\t\twhile clean_fn != "":
-\t\t\tif clean_fn.ends_with(".tmp.tres"):
-\t\t\t\tclean_dir.remove(clean_fn)
-\t\t\tclean_fn = clean_dir.get_next()
-\t\tclean_dir.list_dir_end()
+\t# C7: 扫 res:// 全局 *.tmp.tres（跨 output_dir 残留自清），对齐 godot_operations.gd _clean_atomic_tmp。
+\t# _clean_tmp_global 递归 + 跳过 .godot + depth≤10。原 P2-1 只扫 _output_dir，换 output_dir 后旧目录残留。
+\t_clean_tmp_global("res://")
 \tvar fn_re := RegEx.create_from_string("^[A-Za-z0-9_.-]+$")
 \twhile not f.eof_reached():
 \t\tvar row: PackedStringArray = f.get_csv_line()
@@ -316,6 +328,12 @@ export async function handleTool(
   // MAX_CSV_BYTES 是模块级 export 常量(writeTmpCsv 共用)。
   let csvContent: string;
   if (args.csv_content) {
+    // C6: 前置 size 守卫(对齐 csv_path 分支 :328 statSync 预检)。后置 :337 太晚——
+    // MCP SDK JSON.parse 阶段已载入 args.csv_content,超大字符串在此前已 OOM。
+    const contentBytes = Buffer.byteLength(args.csv_content as string, 'utf8');
+    if (contentBytes > MAX_CSV_BYTES) {
+      return opsErrorResult('INVALID_PARAMS', `csv_content exceeds ${MAX_CSV_BYTES} bytes limit (${contentBytes} bytes)`);
+    }
     csvContent = args.csv_content as string;
   } else if (args.csv_path) {
     const csvAbsPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.csv_path as string));

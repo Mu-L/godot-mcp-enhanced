@@ -1140,7 +1140,8 @@ export async function executeGdscript(
       tempFiles.push(loaderScenePath);
       godotArgs.push('--scene', loaderScenePath);
     } catch (err) {
-      rm(sessionDir, { recursive: true, force: true }).catch(() => {});
+      // C8: retryRm 对齐 timer(:1255)/close(:1269) 分支(Windows EPERM 容错)。spec C8 :1344 同 bug 一并修。
+      retryRm(sessionDir).catch(() => {});
       releaseShortRunningSlot();
       return {
         success: false,
@@ -1341,7 +1342,8 @@ export async function executeGdscript(
       settled = true;
       clearTimeout(timer);
       releaseShortRunningSlot();
-      rm(sessionDir, { recursive: true, force: true }).catch(() => {});
+      // C8: retryRm 对齐 timer(:1255)/close(:1269) 分支(Windows EPERM 容错,原裸 rm 静默吞错致残留)。
+      retryRm(sessionDir).catch(() => {});
 
       // Spawn failure is fatal — reject so callers can catch and report
       reject(new Error(`Failed to spawn Godot process: ${err.message}`));
@@ -1358,7 +1360,9 @@ function extractCompileError(raw: string): string {
   const errors: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.includes('Parse Error:') || trimmed.includes('Script Error:')) {
+    // C2: \b 词边界（对齐 :1303 no-marker 兜底），避免用户 print("Parse Error: debug")
+    // 被原裸 includes 误判为 compile 失败。marker/no-marker 两调用路径共用此函数，一处即覆盖。
+    if (/\b(Parse Error|Script Error):/.test(trimmed)) {
       errors.push(trimmed);
     }
   }

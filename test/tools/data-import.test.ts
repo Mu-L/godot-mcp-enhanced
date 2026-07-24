@@ -342,9 +342,9 @@ describe('generateImportScript P2-1 原子提交 + .tmp 清理', () => {
     expect(script).toMatch(/rename failed/);
   });
 
-  it('脚本开头清上次 kill 留下的 .tmp.tres 残留', () => {
+  it('脚本开头清上次 kill 留下的 .tmp.tres 残留（C7: 扫 res:// 全局,非仅 _output_dir）', () => {
     expect(script).toMatch(/\.tmp\.tres/);
-    expect(script).toMatch(/clean_dir\.remove\(/);
+    expect(script).toMatch(/_clean_tmp_global\("res:\/\/"\)/);
   });
 
   it('保留 full_path 作为最终路径 + _generated.append(full_path)', () => {
