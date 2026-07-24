@@ -1347,6 +1347,39 @@ describe('ToolDispatcher: findGodot override propagation (CR-1/CR-2)', () => {
     expect(findGodotSpy).toHaveBeenCalledWith('/explicit/project');
   });
 
+  // [FG4] P1-7 (批次 E): godot_path 两层校验拒绝分支——H-02 绝对路径 + H-01 validateGodotBinary。
+  // 现有 godot_path 测试全传绝对路径+mock 成功不触发拒绝（守卫破坏可执行任意二进制）。
+  it('P1-7: rejects relative godot_path (H-02 absolute path)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = makeDispatcher({ readOnlyGuard: guard });
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { godot_path: 'relative/godot.exe' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain('must be an absolute path');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
+  it('P1-7: rejects invalid godot binary (H-01 validateGodotBinary false)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockValidateGodotBinary.mockResolvedValueOnce(false);
+    const dispatcher = makeDispatcher({ readOnlyGuard: guard });
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { godot_path: '/fake/godot.exe' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain('not a valid Godot binary');
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+  });
+
   // [FG3] CR-2: confirm_and_execute 应基于 pending.args(原始工具 args)的 godot_path 计算 override
   it('CR-2: confirm_and_execute uses pending.args godot_path for findGodot override', async () => {
     const guard = createMockGuard(false);
