@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 81 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 93 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -102,9 +102,16 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-23 editor 多实例 key 误删): editor-secret-cross-instance-delete(websocket_server.gd
 //   _delete_secret_file 删 key 前校验 on_disk == _secret,防多实例共享固定路径互删致存活实例 key 丢失),
 //   合计 81。
-    expect(FIXED_DEFECTS.length).toBe(81);
+//   +12(2026-07-23 批次 C 正确性): sync-commands-dead-get-plugin(C1) /
+//   gdscript-executor-compile-error-includes(C2 \b 词边界) / websocket-params-null-passthrough(C3) /
+//   path-generator-no-root-strip(C5) / csv-content-no-precheck-size(C6) / csv-tmp-clean-output-dir-only(C7) /
+//   gdscript-executor-bare-rm-session-dir(C8) / test-assert-str-equality(C9 values_equal) /
+//   animtree-state-transition-blend-no-undo(C10) / batch-add-nodes-commit-orphan-leak(C11) /
+//   edit-node-readonly-undo-null-set(C12) / ui-set-params-no-key-check-load-null(C13),
+//   合计 93。（C4 accurate bake_result deferred——架构阻塞 coroutine vs 同步 dispatch,见 nav-bake-in-undo-action 注释）
+    expect(FIXED_DEFECTS.length).toBe(93);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(81);
+    expect(new Set(keys).size, '存在重名 key').toBe(93);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

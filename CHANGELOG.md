@@ -29,6 +29,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **editor-secret-cross-instance-delete**：`addons/godot_mcp_server/websocket_server.gd` `_delete_secret_file` 原无条件 `DirAccess.remove_absolute(_secret_file)`，多个 editor 实例（或禁用→启用插件）共享固定路径 `.godot/mcp_editor.key` 时，任一实例 `_exit_tree` 会删掉仍存活实例的 key。现象：editor 日志称 `Auth secret written` 但文件找不到；TS 端 TTL 缓存（5 min）过期后重连读不到 key → editor 工具连不上。改为删前 `FileAccess.get_file_as_string` 校验 `on_disk == _secret`，只清自己生成的 key（读失败返 "" != _secret 也不删，安全侧）。defects.ts 加 FIXED 条目（detect 查 `on_disk == _secret`）+ 计数 80→81。
 
+### Fixed — Correctness（批次 C：协议契约 + 返回值语义 + undo 完整性 + 参数校验，2026-07-23/24）
+
+12 条正确性 finding 修复（5 份审查协议正确性/参数校验段 + addons GDScript 正确性 + data-import）。**C4 deferred**（架构阻塞，见末段）：
+
+- **协议契约（C1+C3）**：C1 `sync_commands.gd` `_on_node_added/_on_node_removed` 改用现成 `_plugin` 字段（删 dead `_command_handler.get_plugin()` indirection——command_handler extends Node 无此方法，has_method 恒 false→传 null→get_edited_scene_root(null) fallback get_child(0) 错场景）；C3 `websocket_server.gd` params:null 改 reject -32602（原 `_rpc_params != null and not is Dictionary` 的 and 短路放行 null→Dictionary 强类型 SCRIPT ERROR 中断帧 packet 循环）
+- **返回值语义（C9）**：`test_commands.gd` test_assert 改用 `CommandHelpers.values_equal` 类型感知比较（原 str() 比较 str(Vector3)≠str([10,0,5]) / str(true)≠str(1)，致 Vector3 vs Array / bool vs int 断言永不等；values_equal：同类型直接 ==，Array↔Vector2/3/Color 分量比，bool↔int 严格不等，int/float 宽松）
+- **undo 完整性（C10+C11+C12）**：C10 `animtree_commands.gd` add_state/add_transition/set_blend 加 create_action_mixed undo（原仅 create 有 undo，Ctrl+Z 只撤 create；undo: add_state→remove_node / add_transition→remove_transition / set_blend→property old_val）；C11 `node_commands.gd` batch_add_nodes commit 后扫孤儿 is_inside_tree()+free()（GDScript 无异常机制，commit 失败已 instantiate Node 孤儿 leak）；C12 edit_node/set_instance_property 记 undo 前查 PROPERTY_USAGE_READ_ONLY 跳过只读（原 old_val=node.get(key) 对只读/不存在属性返 null→undo 回放 set(key,null) 错误赋值，加 _get_property_usage helper）
+- **参数校验（C13+C5）**：C13 `ui_commands.gd` set_params 加 `_theme_has_property` 守卫（theme.set 前校验 Theme 有效属性，避免无效 key silent no-op/动态属性污染）+ default_font/stylebox load null 守卫；C5 `path_generator.gd` resolve_points strip "root/" 前缀（对齐 command_helpers.find_node，内联 strip 保 path_generator 纯几何静态类独立性）
+- **TS 正确性（C2+C6+C7+C8）**：C2 `gdscript-executor.ts` extractCompileError 改 \b 词边界正则（原裸 includes 致用户 print("Parse Error: debug") 误判 compile 失败，marker/no-marker 两路径共用一处覆盖）；C8 proc.on('error') :1344 + catch :1143 裸 rm(sessionDir) 改 retryRm（对齐 timer/close，Windows EPERM 容错）；C6 `data-import.ts` csv_content 分支前置 size 守卫（原后置太晚，MCP SDK JSON.parse 阶段已载入 OOM）；C7 data-import GD 模板 `.tmp.tres` 自清从只扫 _output_dir 扩为 `_clean_tmp_global("res://")` 递归扫全局（跨 output_dir 残留，对齐 godot_operations find_files 跳过 .godot + depth≤10）
+- **C4 deferred**：nav bake accurate bake_result（coroutine await + vertices_count 判据）——同步 dispatch（command_handler return 无 await + websocket_server not response is Dictionary 检查）不支持 coroutine handler，含 await 会使 handle_nav_create_region 成 coroutine 返 state 命中 -32603（比原 bake_result 不准的 bug 更糟）。需 async-dispatch 重构或 sync-bake API 研究（架构阻塞，超 bug-fix 范畴）。当前 bake 作 do_method 入 undo do_ops（P1 fix 保留），bake_result 乐观（!=null），`defects.ts` nav-bake-in-undo-action deferral 注释跟踪。
+
+defects.ts 加 12 条 FIXED detect（C1/C2/C3/C5-C13）+ 计数 81→93。C4 由 nav-bake-in-undo-action（P1 bake 在 do_ops fixed）+ deferral 注释跟踪，不加新 OPEN detect（accurate bake_result 是架构 follow-up，非 bug-fix 可修）。
+
 ### Not Fixed — 经审查否决
 
 - ~~A11 find_node traversal~~：eng-review 否决（范畴错误）。find_node 唯一出口 `root.get_node_or_none` 纯内存，返 Node 零流入 load/DirAccess；NodePath `..` 是 Godot 父节点引用语法不逃逸场景树。若需禁 node_path `..` 应走 schema 契约变更（归 D 工具治理批次）。

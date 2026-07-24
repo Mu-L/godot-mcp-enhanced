@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 81 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9）。
+// FIXED_DEFECTS 93 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -882,6 +882,100 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // fix: 删前 FileAccess.get_file_as_string 读磁盘内容,仅在 on_disk == _secret 时删(只清自己的 key)。
     // detect: websocket_server.gd 含 "on_disk == _secret"(=内容校验存在);不含=回到无条件删旧版。
     detect: () => fileContains('addons/godot_mcp_server/websocket_server.gd', /on_disk == _secret/) ? 0 : 1 },
+
+  // ─── 2026-07-23 批次 C 正确性修复（C1/C2/C3/C5/C6/C7/C8/C9/C10/C11/C12/C13；C4 accurate bake_result
+  //   deferred——架构阻塞 coroutine vs 同步 dispatch,见 nav-bake-in-undo-action :445-450 deferral 注释）──────────────────────────
+  { key: 'sync-commands-dead-get-plugin', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C1(批次 C): _on_node_added/removed 绕路 _command_handler.get_plugin()(command_handler extends Node 无此方法→
+    // has_method 恒 false→传 null→get_edited_scene_root(null) fallback get_child(0) 错场景)。fix: 回调用现成 _plugin 字段。
+    // detect: sync_commands.gd 不含 _command_handler.get_plugin() = fixed。
+    detect: () => readSrc('addons/godot_mcp_server/commands/sync_commands.gd').includes('_command_handler.get_plugin()') ? 1 : 0 },
+  { key: 'gdscript-executor-compile-error-includes', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C2(批次 C): extractCompileError 裸 includes('Parse Error:') 扫全部行,用户 print("Parse Error: debug") 被误判
+    // compile 失败。marker/no-marker 两调用路径共用此函数。fix: \b 词边界正则。detect: 函数体不含 trimmed.includes('Parse Error') = fixed。
+    detect: () => {
+      const f = readSrc('src/gdscript-executor.ts');
+      const start = f.indexOf('function extractCompileError');
+      const body = f.slice(start, start + 400);
+      return /trimmed\.includes\('Parse Error/.test(body) ? 1 : 0;
+    } },
+  { key: 'websocket-params-null-passthrough', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C3(批次 C): params:null 被 "_rpc_params != null and not is Dictionary" 的 and 短路放行→Dictionary 强类型
+    // SCRIPT ERROR 中断帧 packet 循环。fix: 改 "== null or not is Dictionary" reject。detect: 不含旧 and 短路 = fixed。
+    detect: () => readSrc('addons/godot_mcp_server/websocket_server.gd').includes('_rpc_params != null and not') ? 1 : 0 },
+  { key: 'path-generator-no-root-strip', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    // C5(批次 C): resolve_points get_node_or_null(path_node) 不 strip "root/" 前缀,与 asset_placer/find_node 不一致。
+    // fix: 内联 strip "root/"+leading "/"(保 path_generator 纯几何静态类独立性)。detect: resolve_points 含 begins_with("root/") = fixed。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/asset/path_generator.gd');
+      const fn = f.slice(f.indexOf('static func resolve_points'), f.indexOf('static func resolve_points') + 500);
+      return /begins_with\("root\/"\)/.test(fn) ? 0 : 1;
+    } },
+  { key: 'csv-content-no-precheck-size', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    // C6(批次 C): csv_content 分支无前置 size 守卫,超大字符串 MCP SDK JSON.parse 阶段已载入 OOM(后置 :337 太晚)。
+    // fix: 前置 byteLength 守卫(对齐 csv_path statSync 预检)。detect: csv_content 分支含 MAX_CSV_BYTES + byteLength = fixed。
+    detect: () => {
+      const f = readSrc('src/tools/data-import.ts');
+      const branch = f.slice(f.indexOf('if (args.csv_content)'), f.indexOf('} else if (args.csv_path)'));
+      return (/MAX_CSV_BYTES/.test(branch) && /byteLength/.test(branch)) ? 0 : 1;
+    } },
+  { key: 'csv-tmp-clean-output-dir-only', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    // C7(批次 C): .tmp.tres 启动自清只扫当前 _output_dir,换 output_dir 后旧目录残留。fix: _clean_tmp_global("res://")
+    // 递归扫全局(对齐 godot_operations find_files 跳过 .godot + depth≤10)。detect: 含 _clean_tmp_global("res://") = fixed。
+    detect: () => readSrc('src/tools/data-import.ts').includes('_clean_tmp_global("res://")') ? 0 : 1 },
+  { key: 'gdscript-executor-bare-rm-session-dir', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    // C8(批次 C): proc.on('error')/catch 的 rm(sessionDir) 非 retryRm,Windows EPERM(Godot 退出瞬间持 .gd 句柄)静默吞错
+    // 致 sessionDir 残留累积。fix: retryRm 对齐 timer(:1255)/close(:1269)。detect: 不含裸 rm(sessionDir, { = fixed。
+    detect: () => /rm\(sessionDir,\s*\{/.test(readSrc('src/gdscript-executor.ts')) ? 1 : 0 },
+  { key: 'test-assert-str-equality', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C9(批次 C): test_assert 用 str(val)==str(expected),str(Vector3(10,0,5))≠str([10,0,5]),str(true)≠str(1),
+    // 致 Vector3 vs Array / bool vs int 断言永不等。fix: CommandHelpers.values_equal 类型感知比较。detect: test_commands 调 values_equal = fixed。
+    detect: () => readSrc('addons/godot_mcp_server/commands/test_commands.gd').includes('values_equal(') ? 0 : 1 },
+  { key: 'animtree-state-transition-blend-no-undo', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C10(批次 C): animtree add_state/add_transition/set_blend 直接改 sm/tree 无 create_action_mixed undo(原仅 create 有),
+    // Ctrl+Z 只撤 create。fix: 三操作 create_action_mixed(add_state→remove_node / add_transition→remove_transition / set_blend→property old_val)。
+    // detect: create_action_mixed 出现 ≥4 处(create + 三操作) = fixed。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/animtree_commands.gd');
+      const count = (f.match(/\bcreate_action_mixed\b/g) || []).length;
+      return count >= 4 ? 0 : 1;
+    } },
+  { key: 'batch-add-nodes-commit-orphan-leak', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C11(批次 C): batch_add_nodes 预校验 ClassDB.instantiate 的 Node,commit 失败(undo_manager push_error,GDScript 无异常)
+    // →已 instantiate Node 孤儿 leak。fix: commit 后扫 validated,is_inside_tree()+free() 清未入树孤儿。detect: 函数体含 is_inside_tree()+.free() = fixed。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/node_commands.gd');
+      const fnStart = f.indexOf('func handle_batch_add_nodes');
+      const fnNext = f.indexOf('\nfunc ', fnStart + 10);
+      const fn = fnNext > 0 ? f.slice(fnStart, fnNext) : f.slice(fnStart, fnStart + 5000);
+      return (/is_inside_tree\(\)/.test(fn) && /\.free\(\)/.test(fn)) ? 0 : 1;
+    } },
+  { key: 'edit-node-readonly-undo-null-set', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C12(批次 C): edit_node/set_instance_property undo old_val=node.get(key),只读/不存在属性 get 返 null→undo 回放 set(key,null)
+    // 错误赋值。fix: 记 undo 前查 PROPERTY_USAGE_READ_ONLY 跳过只读(CommandHelpers._get_property_usage helper)。detect: edit_node + set_instance_property 各含 PROPERTY_USAGE_READ_ONLY = fixed。
+    detect: () => {
+      const node = readSrc('addons/godot_mcp_server/commands/node_commands.gd');
+      const scene = readSrc('addons/godot_mcp_server/commands/scene_commands.gd');
+      const eStart = node.indexOf('func handle_edit_node');
+      const eNext = node.indexOf('\nfunc ', eStart + 10);
+      const edit = eNext > 0 ? node.slice(eStart, eNext) : node.slice(eStart, eStart + 5000);
+      const iStart = scene.indexOf('func handle_set_instance_property');
+      const iNext = scene.indexOf('\nfunc ', iStart + 10);
+      const inst = iNext > 0 ? scene.slice(iStart, iNext) : scene.slice(iStart, iStart + 5000);
+      return (edit.includes('PROPERTY_USAGE_READ_ONLY') && inst.includes('PROPERTY_USAGE_READ_ONLY')) ? 0 : 1;
+    } },
+  { key: 'ui-set-params-no-key-check-load-null', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C13(批次 C): ui set_params 任意 key theme.set 无效属性 silent no-op + default_font/stylebox load 返 null 直接传。
+    // fix: _theme_has_property 守卫 + load null 守卫。detect: 含 _theme_has_property + default_font/stylebox case 各含 == null = fixed。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/ui_commands.gd');
+      const hasKeyCheck = f.includes('_theme_has_property');
+      const fontCase = f.slice(f.indexOf('"default_font"'), f.indexOf('"color"', f.indexOf('"default_font"')));
+      const sbCase = f.slice(f.indexOf('"stylebox"'), f.indexOf('_:', f.indexOf('"stylebox"')));
+      const hasFontGuard = /var font = load/.test(fontCase) && /font == null/.test(fontCase);
+      const hasSbGuard = /var sb = load/.test(sbCase) && /sb == null/.test(sbCase);
+      return (hasKeyCheck && hasFontGuard && hasSbGuard) ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
