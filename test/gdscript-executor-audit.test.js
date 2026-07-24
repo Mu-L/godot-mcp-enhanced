@@ -61,12 +61,20 @@ describe('buildExecAuditEvent — execute 取证事件', () => {
 
 describe('executeGdscript EXECUTE_BEGIN 契约（源码文本）', () => {
   it('在 spawn godot 之前调用 buildExecAuditEvent 并记日志（log-before-exec）', () => {
-    const callIdx = SRC.indexOf('buildExecAuditEvent(');
+    // 精确匹配「调用」而非「定义」:定义是 buildExecAuditEvent(input: {(:492),
+    // 调用是 buildExecAuditEvent({(:1169)。用 'buildExecAuditEvent({' 区分——
+    // 原 'buildExecAuditEvent(' 命中 :492 定义,删 :1169 调用后 indexOf 仍命中定义致
+    // 断言恒绿(假绿);'buildExecAuditEvent({' 只匹配调用,删调用即红。
+    // 运行时触发由 e2e-full 真实执行覆盖(日志可见 [security] {"audit":"EXECUTE_BEGIN",...})。
+    const callIdx = SRC.indexOf('buildExecAuditEvent({');
+    const logIdx = SRC.indexOf('JSON.stringify(auditEvent)');
     const spawnIdx = SRC.indexOf('spawn(godotPath');
-    expect(callIdx, 'buildExecAuditEvent 未被调用').toBeGreaterThan(-1);
+    expect(callIdx, 'buildExecAuditEvent 调用(传 {)未找到——调用可能被删').toBeGreaterThan(-1);
+    expect(logIdx, 'audit 事件未 getLogger().info 记录').toBeGreaterThan(-1);
     expect(spawnIdx, 'spawn(godotPath…) 未找到').toBeGreaterThan(-1);
-    // 关键不变量：审计调用必须在 spawn 之前（UE 9b128514 的核心——执行前留痕）
-    expect(callIdx).toBeLessThan(spawnIdx);
+    // 关键不变量(UE 9b128514 核心——执行前留痕):调用 → 记日志 → spawn 三段递增顺序
+    expect(callIdx).toBeLessThan(logIdx);
+    expect(logIdx).toBeLessThan(spawnIdx);
   });
 
   it('源码含 EXECUTE_BEGIN 审计标签 + scriptSha256', () => {
