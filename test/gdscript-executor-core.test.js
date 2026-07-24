@@ -364,6 +364,22 @@ describe('scanGdscriptSandbox extended', () => {
     expect(warnings.some(w => w.includes('indexed access'))).toBe(true);
   });
 
+  // P1-8 (批次 E): var2str + get_script 是 S-1-review 新增 DANGEROUS_PATTERNS（gdscript-executor.ts:86,88），
+  // 此前 test/ 零触发覆盖。误删→var2str+str2var 重建任意对象链 / .get_script 反射逃逸沙箱。
+  it('flags var2str serialization bypass (P1-8)', () => {
+    process.env.GODOT_MCP_SANDBOX = 'strict';
+    const warnings = scanGdscriptSandbox('var s = var2str(obj)');
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some(w => w.includes('var2str'))).toBe(true);
+  });
+
+  it('flags get_script reflection escape (P1-8)', () => {
+    process.env.GODOT_MCP_SANDBOX = 'strict';
+    const warnings = scanGdscriptSandbox('var s = node.get_script()');
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some(w => w.includes('get_script'))).toBe(true);
+  });
+
   // IMPORTANT-3 (review): Expression.execute 正则 . 不跨行,
   // var e = Expression.new()\ne.execute() 分行写即绕过。
   it('flags Expression.execute split across lines (IMPORTANT-3)', () => {
