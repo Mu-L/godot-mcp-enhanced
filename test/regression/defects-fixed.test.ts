@@ -110,9 +110,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   edit-node-readonly-undo-null-set(C12) / ui-set-params-no-key-check-load-null(C13),
 //   合计 93。（C4 accurate bake_result deferred——架构阻塞 coroutine vs 同步 dispatch,见 nav-bake-in-undo-action 注释）
 //   +1(2026-07-24 批次 D): asset-android-tool-orphan(D1 asset/android TOOL_GROUPS 补组,消除 isToolAllowed 恒 false 游离),合计 94。
-    expect(FIXED_DEFECTS.length).toBe(94);
+    expect(FIXED_DEFECTS.length).toBe(95);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(94);
+    expect(new Set(keys).size, '存在重名 key').toBe(95);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

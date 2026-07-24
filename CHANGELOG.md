@@ -48,6 +48,8 @@ defects.ts 加 12 条 FIXED detect（C1/C2/C3/C5-C13）+ 计数 81→93。C4 由
 
 **D2 撤销**（find_node 内置 has_path_traversal）：经 eng-review + memory [[nodepath-traversal-category-error]] 核实为范畴错误复活（批次 A A11 已否决同建议）——has_path_traversal 是 resource 范畴（`command_helpers.gd:46` 注释 "resource path"），find_node 出口 get_node_or_null 纯场景树，NodePath `..` 是 Godot 合法父引用（`../Sibling`）非 fs traversal。D2 转 follow-up（NodePath `..` 策略统一：node_commands:51 项目拒 .. vs memory 范畴错误，历史痕迹需项目方拍板；若对齐 memory 撤既存 8 处节点路径前置，若禁 .. 走 schema pattern 非内置）。
 
+**D2 follow-up 闭环（2026-07-24，方向 A）**：用户拍板撤节点路径前置（对齐 memory 范畴错误判断）。撤 6 处节点路径范畴 `has_path_traversal` 前置（`node_commands:52/108/161/231` + `asset_placer:154/203`）——范畴错误修正：`has_path_traversal` 是 resource 范畴（res:// fs traversal）误用于 scene tree 节点路径，get_node_or_null 受 SceneTree root 子树限制，`..` 是合法父引用（`root/A/../B` 等价 `root/B`）不能逃逸 fs。撤前置后 get_node_or_null 兜底（null→报 not found，-32002 与撤前同 code）。保留 6 处资源范畴前置（command_helpers:203 / scene:23 / ui:387 / asset_commands:112 / asset_factory:131，res:// 真 fs traversal）。memory 分类更正：原「8 处节点路径」误把 resource scope 的 scene/ui 算入，实测节点路径 6 + 资源 6 = 12。defects detect `nodepath-traversal-category-error`（两文件 CommandHelpers.has_path_traversal 计数=0）防复发。
+
 ### Not Fixed — 经审查否决
 
 - ~~A11 find_node traversal~~：eng-review 否决（范畴错误）。find_node 唯一出口 `root.get_node_or_none` 纯内存，返 Node 零流入 load/DirAccess；NodePath `..` 是 Godot 父节点引用语法不逃逸场景树。若需禁 node_path `..` 应走 schema 契约变更（归 D 工具治理批次）。
