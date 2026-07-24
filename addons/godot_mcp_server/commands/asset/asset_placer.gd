@@ -147,12 +147,11 @@ static func unique_name(parent: Node, base: String) -> String:
 
 
 # resolve_parent：绝对路径剥首段（若=root.name）+ 相对路径都吃；无效返 null
-# 复用 CommandHelpers.has_path_traversal（对齐 node_commands.gd:52 防御深度）
+# 范畴错误修正（D2 follow-up 2026-07-24）：节点路径用 get_node_or_null 解析受 SceneTree root 子树限制，
+# .. 是合法父引用，撤 has_path_traversal 前置（resource 范畴误用），对齐 memory nodepath-traversal-category-error。
 static func resolve_parent(root: Node, parent_path: String) -> Node:
 	if parent_path.is_empty():
 		return root
-	if CommandHelpers.has_path_traversal(parent_path):
-		return null
 	if parent_path.begins_with("/"):
 		# 绝对路径 /Root/Xxx：剥首段（若=root.name）后相对解析，兼容编辑器与 headless
 		var parts := parent_path.substr(1).split("/", false)
@@ -200,8 +199,6 @@ static func _validate_item(root: Node, item: Variant) -> Dictionary:
 	# parent 校验（若提供）
 	var parent_path := String(d.get("parent", ""))
 	if parent_path != "":
-		if CommandHelpers.has_path_traversal(parent_path):
-			return {"code": "INVALID_PARAMS", "message": "parent 路径含遍历（..）: %s" % parent_path}
 		if resolve_parent(root, parent_path) == null:
 			return {"code": "INVALID_PARAMS", "message": "parent 未找到: %s" % parent_path}
 	# material 不强校验（create_material 三态 + null 都吃，非法回退 default）
