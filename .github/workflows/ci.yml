@@ -52,9 +52,8 @@ jobs:
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
-      - name: Check gdscript (M3c, non-blocking)
+      - name: Check gdscript（产出 report；blocking 经下游 score:gate，本步 exit 0 即使 errors>0）
         run: npm run check:gdscript
-        continue-on-error: true
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: npm audit (M3a, non-blocking)
@@ -103,11 +102,23 @@ jobs:
   # exited unexpectedly)。本地 Windows 零复现(fs.watch 行为不同)。Windows 守护退本地
   # (开发者跑 vitest run 验证 game-bridge.test.ts + process-state win32 分支)。详见 issue #15。
 
-  # 第3项-B: 用真实 Godot 跑 E2E,避免 describe.skipIf(!hasGodot) 静默跳过导致的"全绿幻觉"
-  e2e-godot:
-    name: E2E (real Godot)
+  # Godot 多版本矩阵（4.6.3 + 4.7.1）：编译门禁（gdscript-only gate 真 blocking）+ E2E。
+  # check job 的 gdscript blocking 经 score:gate（6 维）；本 job 不跑 score（无 lcov/audit），
+  # 用独立 gdscript-only gate 消费 coverage/gdscript-report.json。
+  godot-matrix:
+    name: Godot ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "4.6.3"
+            url: "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip"
+            bin: "Godot_v4.6.3-stable_linux.x86_64"
+          - name: "4.7.1"
+            url: "https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
+            bin: "Godot_v4.7.1-stable_linux.x86_64"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,21 +127,28 @@ jobs:
           cache: 'npm'
       - run: npm ci --ignore-scripts
       - run: npm run build
-      - name: Install Godot 4.6.3 (linux x86_64)
+      - name: Install Godot ${{ matrix.name }}
         run: |
           set -e
-          curl -L --fail -o /tmp/godot.zip \
-            https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          curl -L --fail -o /tmp/godot.zip ${{ matrix.url }}
           mkdir -p /tmp/godot-bin
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
-          chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
-          echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
-      - name: Run E2E (real Godot integration)
-        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts --reporter=json --outputFile=coverage/e2e-report.json
-      - name: Upload e2e-report.json
+          chmod +x /tmp/godot-bin/${{ matrix.bin }}
+          echo "GODOT_PATH=/tmp/godot-bin/${{ matrix.bin }}" >> "$GITHUB_ENV"
+      - name: Check gdscript（产出 report；正常路径 exit 0 即使 errors>0）
+        run: npm run check:gdscript
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+      - name: Gate gdscript（errors/incomplete → fail；真 blocking 在此，非 check:gdscript 退出码）
+        run: node -e "const r=require('./coverage/gdscript-report.json'); if(r.incomplete||r.errors>0){console.error('gdscript gate FAIL',JSON.stringify(r));process.exit(1)}"
+      - name: E2E (real Godot ${{ matrix.name }})
+        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+      - name: Upload e2e-report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-report
-          path: coverage/e2e-report.json
+          name: e2e-report-${{ matrix.name }}
+          path: coverage/e2e-report-${{ matrix.name }}.json
           if-no-files-found: warn
