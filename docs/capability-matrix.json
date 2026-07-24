@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "android",
-      "group": "unknown",
+      "group": "android",
       "description": "Android Deploy 工具。list_devices: adb 设备列表。get_preset_info: 读 export_presets.cfg Android preset。deploy: export APK + adb install + launch(可选)。",
       "inputSchema": {
         "type": "object",
@@ -504,12 +504,12 @@
       ],
       "readonly": false,
       "longRunning": false,
-      "guarded": false,
-      "securityLevel": "safe",
+      "guarded": true,
+      "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 6,
+        "read": 3,
         "write": 0,
-        "destructive": 0,
+        "destructive": 3,
         "process": 0
       },
       "groupRequires": [],
@@ -714,7 +714,7 @@
     },
     {
       "name": "asset",
-      "group": "unknown",
+      "group": "asset",
       "description": "参数化 3D shape 生成（11 shape）+ 路径阵列 + batch + undo + save 预制件。create/path/batch/undo/save 经 editor 持久化（视口可见、可 undo）；list_shapes/list_materials 静态返回。",
       "inputSchema": {
         "type": "object",
@@ -882,10 +882,12 @@
         "destructive": 0,
         "process": 0
       },
-      "groupRequires": [],
+      "groupRequires": [
+        "editor"
+      ],
       "offlineCapable": false,
       "needsGodot": true,
-      "needsEditor": false,
+      "needsEditor": true,
       "gdScriptImpl": {
         "headless": {
           "exists": false,
@@ -1642,7 +1644,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, android, csv_to_resources, asset",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1691,9 +1693,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 213,
+        "descBytes": 197,
         "schemaBytes": 205,
-        "totalBytes": 418
+        "totalBytes": 402
       }
     },
     {

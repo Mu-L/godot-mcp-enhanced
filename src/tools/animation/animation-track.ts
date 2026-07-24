@@ -366,14 +366,16 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animation_track: {
     readonly: false,
     long_running: false,
-    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
-    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
+    // P0-2 (批次 E): remove_track/remove_keyframe/update_keyframe 是破坏性操作（删轨道/关键帧/改值），
+    // 对齐兄弟模块 animation-ops.ts:691（同名操作标 destructive）。原标 'read' 绕确认门（spec §4.1
+    // 零行为改变决策）是 bug——破坏性操作应确认。add_track/add_keyframe/set_curve 仍 read（非破坏）。
+    // risk-coverage GUARDED_KEYS 加 'animation_track' 允许非 read。
     actionRisks: {
       add_track: 'read',
-      remove_track: 'read',
+      remove_track: 'destructive',
       add_keyframe: 'read',
-      remove_keyframe: 'read',
-      update_keyframe: 'read',
+      remove_keyframe: 'destructive',
+      update_keyframe: 'destructive',
       set_curve: 'read',
     },
   },

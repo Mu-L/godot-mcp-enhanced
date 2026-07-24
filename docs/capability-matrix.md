@@ -4,10 +4,10 @@
 
 ## 概览
 - 工具总数：34
-- securityLevel：danger-api 8 / guarded 15 / safe 11
-- risk：read 102 / write 79 / destructive 7 / process 13
+- securityLevel：danger-api 8 / guarded 16 / safe 10
+- risk：read 99 / write 79 / destructive 10 / process 13
 - L2 覆盖：covered 0 / partial 0 / none 34
-- token 预算：tools/list ≈ 71029B / ~17757 tokens（description 8549B / schema 62480B，schema 占 88%）
+- token 预算：tools/list ≈ 71013B / ~17753 tokens（description 8533B / schema 62480B，schema 占 88%）
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
@@ -21,11 +21,11 @@
 - `validation` (core)
 
 ## 覆盖缺口（L2=none）
-- `android` (unknown)
+- `android` (android)
 - `animation` (animation)
 - `animation_track` (animation)
 - `animtree` (animation)
-- `asset` (unknown)
+- `asset` (asset)
 - `audio` (audio)
 - `blender` (blender)
 - `cpp` (code)
