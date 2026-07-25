@@ -120,6 +120,17 @@ export async function startMcpServer(args: string[]): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     getLogger().warn('godot-mcp', `Dashboard auto-launch skipped: ${msg}`);
   });
+
+  // self-update: 异步查 npm 最新版，有更新 stderr 提示（失败静默，不阻塞 stdio 握手）
+  import('./core/update-checker.js')
+    .then(({ checkForUpdateCached }) => checkForUpdateCached())
+    .then(r => {
+      if (r.updateAvailable) {
+        getLogger().warn('godot-mcp',
+          `Update available: ${r.current} → ${r.latest}. Run: npm i -g godot-mcp-enhanced`);
+      }
+    })
+    .catch(() => { /* 网络失败静默 */ });
 }
 
 // ── 入口分流 ──────────────────────────────────────────────

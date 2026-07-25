@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Self-update（Godot AI 追赶 3/3）
+
+- 新增 `self_update` 工具（action=check/update）：check 查 npm 最新版 + 各项目 addon 版本漂移（只读，免确认）；update 覆盖安装包内 addon 到指定项目（需确认，三层路径校验 + 降级保护）
+- MCP 服务端启动异步查 npm registry，有新版 stderr 提示（24h 缓存，失败静默）
+- 单工具 + action enum 设计避 `guard.ts:65` confirm 门旁路；readOnly 模式拒整工具
+
 ### Fixed — Security（批次 A：RCE + 路径穿越，2026-07-23）
 
 - A1 data-import `class_path` 补 root 校验（堵 RCE，gdscript-template-injection 复发实例）
