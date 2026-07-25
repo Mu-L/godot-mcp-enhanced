@@ -3954,6 +3954,73 @@
       }
     },
     {
+      "name": "self_update",
+      "group": "selfupdate",
+      "description": "检查/更新 enhanced 自身。check：查 npm 最新版 + 各项目 addon 版本漂移（只读）。update：更新指定项目 addon 到包版本（覆盖安装，需确认）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "check",
+              "update"
+            ],
+            "description": "check=查版本状态（只读）/ update=更新项目 addon（破坏性，需确认）"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "目标 Godot 项目路径（update 必填；check 可选，缺省扫 ALLOWED_PROJECT_PATHS 全部）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "project_path"
+      ],
+      "readonly": false,
+      "longRunning": false,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 1,
+        "write": 1,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 182,
+        "schemaBytes": 361,
+        "totalBytes": 543
+      }
+    },
+    {
       "name": "signal",
       "group": "signal",
       "description": "信号操作。connect/disconnect: 连接/断开信号。emit: 发射信号（参数仅基本类型）。list: 列出节点可用信号。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。",
