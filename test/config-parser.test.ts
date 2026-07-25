@@ -22,20 +22,27 @@ describe('parseConfigValue', () => {
   it('空串 → raw（trim==="" 不当数字）', () => {
     expect(parseConfigValue('')).toBe('');
   });
-  it('array（含嵌套）', () => {
+  it('array 平铺', () => {
     expect(parseConfigValue('[1, 2, 3]')).toEqual([1, 2, 3]);
     expect(parseConfigValue('[]')).toEqual([]);
   });
   it('dict', () => {
     expect(parseConfigValue('{a=1, b="x"}')).toEqual({ a: 1, b: 'x' });
   });
-  it('depth=9（>8）触发 raw fallback 防递归爆栈', () => {
-    // 构造 9 层嵌套 array 触发 depth>8 fallback
+  it('depth>8 触发 raw fallback（最内层未递归解析）', () => {
+    // 构造 10 层嵌套 array：depth=0..8 共 9 层正常解析，depth=9 触发 fallback
     let deep = '1';
     for (let i = 0; i < 10; i++) deep = `[${deep}]`;  // 10 层嵌套
     const r = parseConfigValue(deep);
-    // 深层未完全解析（depth>8 返 raw 子串），不栈溢出即通过
-    expect(typeof r === 'string' || typeof r === 'object').toBeTruthy();
+    // 外层 0-8 共 9 层正常解析为嵌套 array
+    expect(Array.isArray(r)).toBe(true);
+    // 递归到最内层：depth=9 返 raw，最内层元素应是字符串 '[1]' 而非数字 1
+    let cur: unknown = r;
+    for (let i = 0; i < 9; i++) {
+      expect(Array.isArray(cur)).toBe(true);
+      cur = (cur as unknown[])[0];
+    }
+    expect(cur).toBe('[1]');  // raw fallback 生效，未递归解析为 number
   });
 });
 
