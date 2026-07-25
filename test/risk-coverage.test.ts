@@ -19,6 +19,7 @@ const GUARDED_KEYS = new Set([
   'signal', 'nav', 'audio', 'ui', 'physics', 'runtime', 'android', 'workflow',
   'validation', 'manage_tools', 'project', 'cpp', 'csv_to_resources', 'asset',
   'blender',
+  'self_update',  // update action 非 read（check=read / update=write）
 ]);
 
 /** 从 inputSchema.action.enum 提取某工具全部 action 名 */

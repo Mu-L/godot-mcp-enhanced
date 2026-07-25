@@ -191,6 +191,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   multi_instance: { description: '多实例', tools: ['godot_list_instances', 'godot_select_instance'], requires: [] },
   asset: { description: '资源操作（asset-forge）', tools: ['asset'], requires: ['editor'] },
   android: { description: 'Android deploy', tools: ['android'], requires: [] },
+  selfupdate: { description: '自更新', tools: ['self_update'], requires: [] },
   dynamic: { description: '动态工具（Godot 端注册但 MCP 侧未定义）', tools: ['godot_advanced_tool', 'godot_list_dynamic_routes'], requires: [] },
 };
 

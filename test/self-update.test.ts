@@ -4,6 +4,15 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getToolDefinitions, handleTool, TOOL_META } from '../src/tools/self-update.js';
 import { _resetPathAllowWarned } from '../src/core/path-utils.js';
+import { isReadOnly } from '../src/core/tool-registry.js';
+import { registerAllModules } from '../src/core/module-loader.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pkgVersion: string = require('../package.json').version;
+
+// 注册所有工具模块（isReadOnly 锚点需要工具已注册到 registry）
+registerAllModules();
 
 const anyCtx = {} as any;
 let tmpProject: string;
@@ -95,5 +104,24 @@ describe('handleTool update', () => {
     const r = await handleTool('self_update', { action: 'bogus' }, anyCtx);
     const parsed = parse(r);
     expect(parsed.error_code).toBe('UNKNOWN_ACTION');
+  });
+
+  it('正常升级分支（installed < pkgVersion）→ updated_from/to 正确', async () => {
+    // 造 plugin.cfg version="0.22.0"（< pkgVersion 0.23.0），compareVersion 不拒绝
+    mkdirSync(join(tmpProject, 'addons', 'godot_mcp_server'), { recursive: true });
+    writeFileSync(join(tmpProject, 'addons', 'godot_mcp_server', 'plugin.cfg'),
+      `[plugin]\n\nname="MCP Server"\nversion="0.22.0"\nscript="plugin.gd"`);
+    const r = await handleTool('self_update', { action: 'update', project_path: tmpProject }, anyCtx);
+    const parsed = parse(r);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.updated_from).toBe('0.22.0');
+    expect(parsed.data.updated_to).toBe(pkgVersion);
+    expect(parsed.data.verifyOk).toBe(true);
+  });
+});
+
+describe('self_update 注册 + readOnly 锚点', () => {
+  it('isReadOnly(self_update)===false（未误标 readonly:true，避免 update 绕过 readOnly 保护）', () => {
+    expect(isReadOnly('self_update')).toBe(false);
   });
 });

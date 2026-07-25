@@ -56,6 +56,7 @@ import * as dataImport from '../tools/data-import.js';
 import * as getContext from '../tools/get-context.js';
 import * as asset from '../tools/asset/asset-ops.js';
 import * as blender from '../tools/blender.js';
+import * as selfUpdate from '../tools/self-update.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ const ALL_MODULES: ToolModule[] = [
   getContext,
   asset,
   blender,
+  selfUpdate,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────
