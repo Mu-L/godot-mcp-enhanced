@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wgt19861219/godot-mcp-enhanced",
+  "description": "Enhanced MCP server for Godot 4.5-4.7: 33 tools / 199 actions, 3-layer architecture (headless CLI + editor WebSocket + in-game bridge) for closed-loop AI game development, with a secure GDScript sandbox + project path allowlist, runtime input recording & frame-verify.",
+  "repository": {
+    "url": "https://github.com/wgt19861219/godot-mcp-enhanced",
+    "source": "github"
+  },
+  "version": "0.24.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "godot-mcp-enhanced",
+      "version": "0.24.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GODOT_PATH",
+          "description": "Path to the Godot executable (auto-detected from PATH / GODOT_PATH / project config if omitted)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GODOT_PROJECT_PATH",
+          "description": "Default Godot project path (auto-detected from the client's cwd if omitted)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ALLOWED_PROJECT_PATHS",
+          "description": "Semicolon-separated whitelist of project paths the server may operate on (security boundary; falls back to GODOT_MCP_UNRESTRICTED for local dev)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
