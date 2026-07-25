@@ -29,5 +29,6 @@ export function itIfGodot(name, fn) {
   if (_godotAvailable) {
     return it(name, fn);
   }
+  console.warn(`[skip] "${name}" skipped — Godot not available. Install Godot + set path to enable.`);
   return it.skip(name, fn);
 }
