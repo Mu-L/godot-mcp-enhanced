@@ -198,7 +198,8 @@ describe('genAnimationBlend', () => {
   });
   it('uses default speed 1.0', () => {
     const script = genAnimationBlend('/root/A', 'idle', 0.5, 1.0);
-    expect(script.includes('1')).toBeTruthy();
+    // speed=1.0 字符串化为 "1"（参考 :195 `1.5` → "1.5"），定位 _ap.play 第 3 参 speed 的实际值
+    expect(script.includes('_ap.play("idle", 0.5, 1, false)')).toBeTruthy();
   });
 });
 

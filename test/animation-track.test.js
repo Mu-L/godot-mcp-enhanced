@@ -195,7 +195,9 @@ describe('genAnimationKeyframeAdd', () => {
 
   it('generates script with default transition', () => {
     const script = genAnimationKeyframeAdd('root/AP', 'idle', 0, 1.0, [1, 2, 3], undefined);
-    expect(script.includes('1')).toBeTruthy();
+    // transition=undefined → 默认 1.0（animation-track.ts:127 `transition ?? 1.0`），JS Number 字符串化为 "1"
+    // 定位 track_insert_key 第 4 参 transition 的实际默认值，而非恒真的 includes('1')
+    expect(script.includes('track_insert_key(0, 1, Vector3(1, 2, 3), 1)')).toBeTruthy();
     expect(script.includes('Vector3(1, 2, 3)')).toBeTruthy();
   });
 });
