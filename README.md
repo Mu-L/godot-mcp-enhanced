@@ -600,6 +600,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.24.0** | 2026-07-25 | **self-update 机制**(Godot AI 追赶 3/3：npm 启动检查 + self_update MCP 工具 addon 检查/更新)+ **5 批审查全闭环**(A 安全 RCE class_path/路径穿越/symlink + B 可靠性降级链路/资源写原子化17处 + C 正确性协议契约/undo/参数校验 + D 工具治理 asset/android TOOL_GROUPS + E 测试缺口加固10/10)+ **batch F 测试覆盖深度**(6 task 假绿修复/纯函数单测/安全动态断言/防回归契约/skip 可见化)+ **CI Godot 4.6.3/4.7.1 版本矩阵** + ZCode 深度支持/AGENTS.md + orphan 扫描会话隔离 + editor key 多实例误删修复 + take_screenshot null guard，4030 测试 |
 | **v0.23.0** | 2026-07-13 | 安全 CRITICAL(零确认 RCE 复合链 `6406de4` + `confirm_and_execute` elicitation out-of-band gate 堵 AI 自确认 token `18ef867` + `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` opt-in 降级)+ editor 路由解锁(editor-method-map 登记 animation_track/export/particles/nav/animtree/ui 21 action `356a061` + scene/node/open_scene/reconnecting)+ bug 修复(path_generator 死循环/scene vector3 coerce/asset color+count/data-import A1-A3)+ HealthMonitor editor stall 检测 `85f5328` + 删 ReconnectionManager 死代码 410 行 `f2773fb` |
 | **v0.22.0** | 2026-07-08 | asset 工具集新工具(11 shape + 路径阵列 discrete/continuous + batch 原子 undo + save 预制件 + 10 材质预设;方案 A 阻塞 continuous ramp 待上游)+ capability-matrix 33 + LICENSE 致谢 AssetForge/Tripo3D |
 | **v0.21.0** | 2026-07-06 | csv_to_resources 新工具(CSV→Godot 资源批量导入,双轨 TS+GDScript)+ ToolAnnotations hints(actionRisks 派生 readOnly/destructive)+ 多轮独立审查核实修复(RCE/ipc/data-import/综合审查 editor 路由 -32601 回退+guard 接线+heartbeat 暂停语义)+ editor 4.7 兼容(EditorInterface/super() 回归/Safe save)+ capability reviewer 设施 + e2e L2 opt-in |
