@@ -8,9 +8,16 @@ import { readEditorSecret, waitForEditorSecret } from '../src/core/editor-auth.j
 // spawn 失败(ENOENT/权限)→ readEditorSecret 误返 null(非生产 bug,生产在用户项目目录正常)。
 // mock execFileSync 让 ACL 验证通过,从而测 readEditorSecret/waitForEditorSecret 的读取逻辑。
 // _TEST_USER 匹配 userInfo().username(Windows process.env.USERNAME = 系统用户名)。
-const { _TEST_USER } = vi.hoisted(() => ({ _TEST_USER: process.env.USERNAME || process.env.USER || 'testuser' }));
+// _execCalls 捕获所有 execFileSync args 数组,供 F3 断言 grant 调用 args[3]===username:M。
+const { _TEST_USER, _execCalls } = vi.hoisted(() => ({
+  _TEST_USER: process.env.USERNAME || process.env.USER || 'testuser',
+  _execCalls: [],
+}));
 vi.mock('child_process', () => ({
-  execFileSync: vi.fn((_cmd, args) => Array.isArray(args) && args.length === 1 ? `${args[0]} ${_TEST_USER}:(R)` : ''),
+  execFileSync: vi.fn((_cmd, args) => {
+    if (Array.isArray(args)) _execCalls.push(args);
+    return Array.isArray(args) && args.length === 1 ? `${args[0]} ${_TEST_USER}:(R)` : '';
+  }),
 }));
 
 let tempDir = null;
@@ -93,6 +100,25 @@ describe('waitForEditorSecret', () => {
 
     const result = await waitForEditorSecret(projectPath, 2000);
     expect(result).toBe('delayed-secret');
+  });
+});
+
+// ─── icacls grant :M 动态断言（F3，防回退 :R/:F）──────────────────────────────
+// restrictFileWindows(editor-auth.ts:32)调 execFileSync('icacls', [filePath,
+// '/inheritance:r', '/grant:r', `${username}:M`])——4 元素 args,args[3]=`${username}:M`。
+// 触发路径:readEditorSecret → 文件存在 → checkFilePermissions → restrictFileWindows。
+// 此 it 静态断言 args[3]===username:M,防后续误改 :R(只读,plugin 无法覆盖写新 secret,
+// MCP 端用旧 secret auth 失败死循环)/:F(full,纵深防御降级)。详见 editor-auth.ts:26-32 注释。
+
+describe('icacls grant :M（防回退 :R/:F）', () => {
+  beforeEach(() => { _execCalls.length = 0; });
+
+  it('ACL 收紧用 /grant:r ${username}:M（args[3] === username:M）', () => {
+    createSecretFile(tempDir, 'acl-test-secret');
+    readEditorSecret(tempDir);
+    const grantCall = _execCalls.find(a => a.includes('/grant:r'));
+    expect(grantCall).toBeDefined();                  // 必须有 grant 调用
+    expect(grantCall[3]).toBe(`${_TEST_USER}:M`);     // args[3] = username:M（非 :R/:F）
   });
 });
 
