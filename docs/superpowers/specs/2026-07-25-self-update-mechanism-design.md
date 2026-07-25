@@ -260,9 +260,13 @@ export function requiresConfirmation(toolName, args): boolean {
 
 ### readOnly 代价（必须注明）
 
-self_update 工具的 update action 是 `write`（非 read）→ `GODOT_MCP_READ_ONLY=true` 模式下 ReadOnlyGuard（ReadOnlyGuard.ts:14，经 ToolDispatcher.ts:273 过滤）**自动拒绝 update action**。check action（read）放行。
+self_update 工具级 `readonly=false`（因 update action 非 read）→ `GODOT_MCP_READ_ONLY=true` 模式下 ReadOnlyGuard **拒整个 self_update 工具——check 和 update action 都不可用**。
 
-**粒度合并的代价**：因采用单工具而非两独立工具，readOnly 模式下「整工具 self_update 的 update action 不可用」（check 仍可用）。这是让 guard.ts 确认门天然工作的必要代价。
+ReadOnlyGuard 是**工具级判定**，非 action 级：`check(toolName)` 签名只收工具名、无 action 参数（ReadOnlyGuard.ts:17），`isReadOnly(toolName)` 工具级（:27），ToolDispatcher.ts:146 列表过滤 + :274 调用 guard 均传工具名。它物理上看不到 action，做不到「放行 check / 拒 update」的 action 级区分。readOnly 模式下客户端经 L146 列表过滤根本看不到 self_update 工具。
+
+self_update 的 TOOL_META **不能设 `readonly:true`**（否则 update action 在 readOnly 模式放行，绕过 readOnly 保护）——`readonly` 须为 false 或省略，`isReadOnly('self_update')===false` 是实现期测试锚点。
+
+**粒度合并的代价**：因采用单工具而非两独立工具，readOnly 模式下「整工具 self_update 不可用（含 check）」。这是让 guard.ts 确认门天然工作的必要代价；若要 readOnly 下 check 可用，须 ReadOnlyGuard 改 action 级判定（超范围，不做）。readOnly 模式下 AI 应提示用户退出 readOnly 再用自更新。
 
 ### 其他安全
 
@@ -310,8 +314,8 @@ const GUARDED_KEYS = new Set([
 
 ### readOnly
 
-- update action 在 `GODOT_MCP_READ_ONLY=true` 下被 ReadOnlyGuard 拒绝
-- check action 放行
+- `GODOT_MCP_READ_ONLY=true` 下 self_update **整工具被拒**：check 与 update action 均不可用（ReadOnlyGuard 工具级判定，经 ToolDispatcher.ts:146 列表过滤，客户端看不到该工具）
+- 实现期锚点：`isReadOnly('self_update')===false`（验证未误标 `readonly:true` 致 update 绕过 readOnly 保护）
 
 ### 启动检查
 
