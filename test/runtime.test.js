@@ -199,6 +199,33 @@ describe('runtime handleTool — launch_editor', () => {
     expect(spawnArgs[1]).toContain('--editor');
     expect(spawnArgs[1]).toContain('--path');
   });
+
+  // F5 防回归（07-22 P1 修复）: launch_editor spawn 的 detached editor 不注册 PID。
+  // 契约：runtime.ts:128 spawn({detached:true, stdio:'ignore'}) + :132 child.unref()
+  // 不调 registerSpawnedGodotPid（仅 run_project:224 调）。
+  // 回归场景：若有人误在 launch_editor 加 registerSpawnedGodotPid(child.pid)，
+  // stop_project 的 killOrphanGodotProcesses 会按 PID 集合清掉其他会话的编辑器
+  // （参考 [[godot-mcp-multi-session-process-ownership]]）。
+  it('launch_editor detached 不注册 PID（多会话契约：防 killOrphanGodotProcesses 误杀其他会话编辑器）', async () => {
+    const proc = mockProc();
+    setupSpawnMock(proc);
+    const ctx = createMockCtx();
+
+    await handleTool('runtime', {
+      action: 'launch_editor',
+      project_path: '/fake/project',
+    }, ctx);
+
+    // 核心契约：detached editor 不进 _spawnedGodotPids 集合
+    expect(registerSpawnedGodotPid).not.toHaveBeenCalled();
+
+    // 双重锁定 detached 语义（future-proof：若有人改 detached:false 也会 RED）
+    const spawnArgs = spawn.mock.calls[0];
+    const spawnOptions = spawnArgs[2];
+    expect(spawnOptions.detached).toBe(true);
+    expect(spawnOptions.stdio).toBe('ignore');
+    expect(proc.unref).toHaveBeenCalled();
+  });
 });
 
 // ─── handleTool — run_project ───────────────────────────────────────────────
