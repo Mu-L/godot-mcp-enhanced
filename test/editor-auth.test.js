@@ -110,7 +110,9 @@ describe('waitForEditorSecret', () => {
 // 此 it 静态断言 args[3]===username:M,防后续误改 :R(只读,plugin 无法覆盖写新 secret,
 // MCP 端用旧 secret auth 失败死循环)/:F(full,纵深防御降级)。详见 editor-auth.ts:26-32 注释。
 
-describe('icacls grant :M（防回退 :R/:F）', () => {
+// icacls 仅 Windows（restrictFileWindows 内 process.platform==='win32' guard，editor-auth.ts:55）。
+// Linux CI 上 readEditorSecret 不触发 icacls → _execCalls 无 grant 调用 → 此 describe 在非 win32 skip。
+describe.skipIf(process.platform !== 'win32')('icacls grant :M（防回退 :R/:F，Windows 专有）', () => {
   beforeEach(() => { _execCalls.length = 0; });
 
   it('ACL 收紧用 /grant:r ${username}:M（args[3] === username:M）', () => {
