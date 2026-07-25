@@ -30,15 +30,15 @@ batch E 剩余 12 项核实结果：
 ### F2 config-parser 单测
 - **文件**：新 `test/config-parser.test.ts`；源 `src/core/config-parser.ts:31`（parseConfigValue）/`:70`（parseGodotConfig）/`:105`（parseMcpScriptOutput）
 - **覆盖**：
-  - `parseGodotConfig`：section 段 / comment 行 / quote 值 / depth=9 raw fallback（depth=8 防爆）
+  - `parseGodotConfig`：section 段 / comment 行 / quote 值
   - `parseMcpScriptOutput`：marker 混入 log 行 / JSON parse 失败 / exitCode≠0 无 marker
-  - `parseConfigValue`：dict/array/quote 解析 + depth 边界
+  - `parseConfigValue`：dict/array/quote 解析 + depth 边界（limit 8 = 0-8 共 9 层，depth=9 即 `>8` 触发 raw fallback 防递归爆栈，config-parser.ts:34）
 - **难度**：易（纯函数）| **类别**：覆盖广度
 
 ### F3 icacls :M 动态断言
 - **文件**：`test/editor-auth.test.js`；源 `src/core/editor-auth.ts:32`（`/grant:r ${username}:M`）
-- **问题**：现有 mock 在 `args.length===3`（grant 调用）返空字符串**无断言**；`defects.ts:506-511` 静态查 `${username}:R` 反模式（:M/:F 算 fixed，但运行时未验证 spawn 真传 :M）
-- **改**：`vi.spyOn`（或 mock execFileSync 捕获 args）断言 icacls grant 调用时 args 含 `${username}:M`，防回退 :R/:F
+- **问题**：现有 mock（`editor-auth.test.js:13`）在 `args.length===1` 走 read-back 分支、其余返空字符串——grant 调用走空分支**无断言**；`defects.ts:506-511` 静态查 `${username}:R` 反模式（:M/:F 算 fixed，但运行时未验证 spawn 真传 :M）
+- **改**：grant 调用是 `execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', \`${username}:M\`])` —— **4 元素 args**，spy/mock 捕获断言 **`args[3] === \`${username}:M\``**（不是 args.length===3，那是误读——read-back 是 args.length===1，grant 是 4 元素）。防回退 :R/:F
 - **难度**：易（spy 断言 args）| **类别**：安全
 
 ### F4 clampParam 单测
@@ -48,7 +48,7 @@ batch E 剩余 12 项核实结果：
 
 ### F5 launch_editor PID 多会话契约（防回归）
 - **文件**：`test/runtime.test.js`（或新）；源 `src/tools/runtime.ts:128`（`spawn(..., { detached: true, stdio: 'ignore' })` + `child.unref()`，**不**调 `registerSpawnedGodotPid`）
-- **覆盖**：断言 `launch_editor` 后 `_spawnedGodotPids` Set 不含 detached editor PID + `killOrphanGodotProcesses` 不杀它（防 07-22 P1 修复回归）
+- **覆盖**：断言 `launch_editor` 后 `_spawnedGodotPids` Set 不含 detached editor PID + `killOrphanGodotProcesses` 不杀它（防 07-22 P1 修复回归）。**或** spy `registerSpawnedGodotPid` 断言 launch_editor 路径 callCount===0（更抗重构，不依赖 Set 内部——eng-review NIT）
 - **难度**：易（断言 Set 内容）| **类别**：安全/多会话
 
 ### F6 skip 静默 warn（L2 + itIfGodot 双处）
