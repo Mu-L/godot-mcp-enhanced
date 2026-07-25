@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { createRequire } from 'module';
 import { compareVersion, checkForUpdateCached } from '../src/core/update-checker.js';
+
+const require = createRequire(import.meta.url);
+// test/ → 上一级包根 → package.json
+const pkgVersion: string = require('../package.json').version;
 
 describe('compareVersion', () => {
   it.each([
@@ -33,6 +38,7 @@ describe('checkForUpdateCached', () => {
     }));
     const r = await checkForUpdateCached({ cacheDir });
     expect(r.latest).toBe('0.24.0');
+    expect(r.current).toBe(pkgVersion);  // M5: current 正确读 package.json
     expect(r.fromCache).toBe(false);
     expect(r.updateAvailable).toBe(compareVersion(r.latest, r.current) > 0);
     const cached = JSON.parse(readFileSync(join(cacheDir, 'update-cache.json'), 'utf-8'));

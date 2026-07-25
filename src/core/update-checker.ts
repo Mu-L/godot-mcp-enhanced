@@ -2,7 +2,7 @@
 // npm registry 最新版查询 + 24h 缓存 + 网络容错。
 // 启动被动提示（index.ts）与 check_update 工具共用同一函数。
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createRequire } from 'module';
 
@@ -29,7 +29,7 @@ export function compareVersion(a: string, b: string): number {
 }
 
 function getDefaultCacheDir(): string {
-  return join(homedir(), '.godot-mcp');  // 复用 instance-manager.ts:72 机器级目录
+  return join(homedir(), '.godot-mcp');  // 复用 instance-manager.ts getDefaultRegistryDir 的 ~/.godot-mcp/ 父目录惯例（机器级，非项目级）
 }
 
 function getCachePath(cacheDir?: string): string {
@@ -49,8 +49,8 @@ function readCache(cachePath: string): CacheData | null {
 
 function writeCache(cachePath: string, data: CacheData): void {
   try {
-    const dir = join(cachePath, '..');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const dir = dirname(cachePath);
+    mkdirSync(dir, { recursive: true });  // recursive 对已存在目录是 noop，避免 existsSync+mkdirSync TOCTOU
     const tmp = cachePath + '.tmp';
     writeFileSync(tmp, JSON.stringify(data), 'utf-8');
     renameSync(tmp, cachePath);  // 原子 rename
@@ -82,11 +82,14 @@ export async function checkForUpdateCached(opts?: { force?: boolean; cacheDir?: 
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(REGISTRY_URL, { signal: ctrl.signal });
-    clearTimeout(timer);
-    if (res.ok) {
-      const obj = (await res.json()) as { version?: string };
-      if (typeof obj.version === 'string') latest = obj.version;
+    try {
+      const res = await fetch(REGISTRY_URL, { signal: ctrl.signal });
+      if (res.ok) {
+        const obj = (await res.json()) as { version?: string };
+        if (typeof obj.version === 'string') latest = obj.version;
+      }
+    } finally {
+      clearTimeout(timer);  // M1: fetch throw 时也确保清理，避免 timer dangling 5s
     }
   } catch { /* 网络/超时/解析失败静默 */ }
   if (latest == null) {

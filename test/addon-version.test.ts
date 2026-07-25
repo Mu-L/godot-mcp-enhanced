@@ -42,6 +42,20 @@ describe('readAddonVersion', () => {
     expect(r.installed).toBe(true);
     expect(r.version).toBeNull();
   });
+
+  it('isPathInAllowedRoots 拒绝时 throw（UNRESTRICTED 未设）', () => {
+    // 临时清空 UNRESTRICTED 触发 deny-by-default，测后恢复
+    const saved = process.env.GODOT_MCP_UNRESTRICTED;
+    process.env.GODOT_MCP_UNRESTRICTED = '';
+    _resetPathAllowWarned();
+    try {
+      // tmpProject 在 os.tmpdir()，不在 cwd（包根）子树 → deny-by-default 拒绝
+      expect(() => readAddonVersion(tmpProject)).toThrow(/不在 ALLOWED_PROJECT_PATHS/);
+    } finally {
+      process.env.GODOT_MCP_UNRESTRICTED = saved;
+      _resetPathAllowWarned();
+    }
+  });
 });
 
 describe('updateAddon', () => {
@@ -52,5 +66,15 @@ describe('updateAddon', () => {
     expect(cfg).toContain('[plugin]');
     expect(cfg).toContain('script="plugin.gd"');
     expect(existsSync(join(dest, 'plugin.gd'))).toBe(true);
+  });
+
+  it('validateProjectRoot 拒绝（无 project.godot）', () => {
+    const noGodotDir = mkdtempSync(join(tmpdir(), 'av-nogodot-'));
+    try {
+      // beforeEach 已设 UNRESTRICTED='true' 跳过白名单，走到 validateProjectRoot 检查 project.godot
+      expect(() => updateAddon(noGodotDir)).toThrow(/no project\.godot/);
+    } finally {
+      rmSync(noGodotDir, { recursive: true, force: true });
+    }
   });
 });
