@@ -65,6 +65,7 @@ export async function handleTool(
 
 async function handleCheck(args: Record<string, unknown>): Promise<ToolResult> {
   const npm = await checkForUpdateCached({ force: true });
+  const hasProjectArg = !!args.project_path;
   const targetPaths = args.project_path
     ? [String(args.project_path)]
     : getAllowedProjectPaths();
@@ -84,7 +85,12 @@ async function handleCheck(args: Record<string, unknown>): Promise<ToolResult> {
         error: e instanceof Error ? e.message : String(e) };
     }
   });
-  return textResult(JSON.stringify(opsSuccess({ npm, addons })));
+  // M7：spec §4.3 — 无 project_path 参数 且 ALLOWED_PROJECT_PATHS 未配置时返提示
+  const data: Record<string, unknown> = { npm, addons };
+  if (!hasProjectArg && targetPaths.length === 0) {
+    data.hint = '未配置 ALLOWED_PROJECT_PATHS，无法扫描项目 addon。配置 ALLOWED_PROJECT_PATHS=/path1;/path2 或传 project_path 参数指定单个项目';
+  }
+  return textResult(JSON.stringify(opsSuccess(data)));
 }
 
 async function handleUpdate(args: Record<string, unknown>): Promise<ToolResult> {
@@ -93,7 +99,15 @@ async function handleUpdate(args: Record<string, unknown>): Promise<ToolResult> 
     return opsErrorResult('INVALID_PARAMS', 'update action 需要 project_path 参数');
   }
   // 降级保护：null（未安装/malformed）直 cp 修复；非 null 且 >包版本 才拒绝
-  const { version: installed, installed: isInstalled } = readAddonVersion(projectPath);
+  // I-1：readAddonVersion 内 isPathInAllowedRoots 若拒会 throw，包 try/catch 返结构化错误
+  // （与 handleCheck 对齐，避免 ToolDispatcher re-throw 成 MCP -32603 generic error 让 AI 无法区分错误源）
+  let installed: string | null;
+  let isInstalled: boolean;
+  try {
+    ({ version: installed, installed: isInstalled } = readAddonVersion(projectPath));
+  } catch (e) {
+    return opsErrorResult('PATH_NOT_ALLOWED', e instanceof Error ? e.message : String(e));
+  }
   if (isInstalled && installed != null && compareVersion(installed, pkgVersion) > 0) {
     return opsErrorResult('DOWNGRADE_REFUSED',
       `项目 addon 版本 ${installed} 比包版本 ${pkgVersion} 新，疑似降级，拒绝`);

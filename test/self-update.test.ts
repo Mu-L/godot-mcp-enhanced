@@ -118,6 +118,51 @@ describe('handleTool update', () => {
     expect(parsed.data.updated_to).toBe(pkgVersion);
     expect(parsed.data.verifyOk).toBe(true);
   });
+
+  it('readAddonVersion throw 时返 PATH_NOT_ALLOWED（I-1，不冒泡 -32603）', async () => {
+    // 验证 handleUpdate 对 readAddonVersion 的调用包了 try/catch，
+    // throw 时返结构化错误（AI 可见），而非让 ToolDispatcher re-throw 成 MCP -32603 generic error
+    const addonVersion = await import('../src/core/addon-version.js');
+    const spy = vi.spyOn(addonVersion, 'readAddonVersion').mockImplementation(() => {
+      throw new Error('不在白名单');
+    });
+    try {
+      const r = await handleTool('self_update',
+        { action: 'update', project_path: '/nonexistent' }, anyCtx);
+      const parsed = parse(r);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
+      expect(parsed.error).toContain('不在白名单');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('handleTool check hint（M7）', () => {
+  it('无 project_path 且未配置 ALLOWED_PROJECT_PATHS 时返 hint', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ version: '0.24.0' }) }));
+    const savedAllowed = process.env.ALLOWED_PROJECT_PATHS;
+    delete process.env.ALLOWED_PROJECT_PATHS;
+    try {
+      const r = await handleTool('self_update', { action: 'check' }, anyCtx);
+      const parsed = parse(r);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data.addons).toEqual([]);
+      expect(typeof parsed.data.hint).toBe('string');
+      expect(parsed.data.hint).toMatch(/ALLOWED_PROJECT_PATHS/);
+    } finally {
+      if (savedAllowed !== undefined) process.env.ALLOWED_PROJECT_PATHS = savedAllowed;
+    }
+  });
+
+  it('传 project_path 时不返 hint（即便 allowed 为空也走单项目分支）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ version: '0.24.0' }) }));
+    const r = await handleTool('self_update', { action: 'check', project_path: tmpProject }, anyCtx);
+    const parsed = parse(r);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.hint).toBeUndefined();
+  });
 });
 
 describe('self_update 注册 + readOnly 锚点', () => {
