@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### CLI: Client Adapters Expansion
+### CLI — Client Adapters Expansion（4→13，配置扩展）
 
 - AI 客户端配置 adapter 从 4 个扩到 **13 个**（+9：Claude Desktop / Windsurf / Cline / Zed / Gemini CLI / Antigravity / Trae / Cherry Studio / Qwen Code），对标 Godot AI 19 client auto-configure
 - `ClientAdapter` 接口加必需 `scope: 'project' | 'global'` 属性
