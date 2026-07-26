@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### CLI: Client Adapters Expansion
+
+- AI 客户端配置 adapter 从 4 个扩到 **13 个**（+9：Claude Desktop / Windsurf / Cline / Zed / Gemini CLI / Antigravity / Trae / Cherry Studio / Qwen Code），对标 Godot AI 19 client auto-configure
+- `ClientAdapter` 接口加必需 `scope: 'project' | 'global'` 属性
+- scope 分布（plan 前置核实）：**global 8**（Codex/Claude Desktop/Windsurf/Cline/Zed/Antigravity/Trae/Cherry Studio）+ **project 5**（Claude Code/Cursor/OpenCode/Gemini CLI/Qwen Code）
+- BOM 防御：`json-config.ts` 加 `stripBom` + `readJsonForCheck`，所有文件型 adapter 的 `isConfigured` 统一经 `readJsonForCheck`（修复带 BOM 合法配置被误判 → doctor 误报 + setup 破坏幂等）
+- user-state 字段 per-client 白名单保留（Cline `disabled`/`autoApprove`、Cherry `isActive`/`installSource`、Antigravity `disabled`/`disabledTools`、Gemini CLI `trust`/`timeout`/`includeTools`/`excludeTools`、Qwen Code `trust`/`includeTools`/`excludeTools`/`timeout`/`description`、OpenCode `enabled`）
+- `setup` / `doctor` 日志标 `(global)`/`(project)` 让用户知情改了哪些全局配置
+- Cherry Studio entry 含 `type:"stdio"`（schema enum 强制，唯一需 type 的 client）
+- 注：client adapter 是 CLI 侧配置，不进 capability-matrix（非 MCP 工具能力）
+
 ## [0.24.0] - 2026-07-25
 
 ### Added — Self-update（Godot AI 追赶 3/3）
