@@ -315,6 +315,14 @@ describe('ToolDispatcher.setEditorExecutor', () => {
 // ── handleCall 管道 ─────────────────────────────────────────────────────────
 
 describe('ToolDispatcher.handleCall', () => {
+  // 默认 fail-closed：清除开发者 shell 可能设的 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true
+  // （elicitation opt-in 降级），否则 4 个 T11 deny 测试被污染——elicitFn 不调用、
+  // deny 路径走降级执行返回 mockToolResult(无 isError)。I-2/I-2b 测降级场景自行
+  // vi.stubEnv('true') 覆盖此默认。见 test/setup-global-unrestricted：敏感 env 须测试内隔离。
+  beforeEach(() => {
+    vi.stubEnv('GODOT_MCP_ALLOW_UNSAFE_CONFIRM', '');
+  });
+
   function createDispatcherForHandleCall(overrides?: Partial<DispatcherOptions>) {
     return new ToolDispatcher(createOptions(overrides));
   }
