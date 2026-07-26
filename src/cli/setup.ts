@@ -56,22 +56,22 @@ export async function runSetup(_args: string[]): Promise<void> {
   for (const adapter of ALL_ADAPTERS) {
     const installed = await adapter.detect();
     if (!installed) {
-      console.log(`  ⊘ ${adapter.name}: not installed, skipping`);
+      console.log(`  ⊘ ${adapter.name} (${adapter.scope}): not installed, skipping`);
       continue;
     }
 
     const already = await adapter.isConfigured(projectDir);
     if (already) {
-      console.log(`  ✓ ${adapter.name}: already configured`);
+      console.log(`  ✓ ${adapter.name} (${adapter.scope}): already configured`);
       continue;
     }
 
     try {
       await adapter.configure(projectDir, godotPath, command, mcpArgs);
-      console.log(`  ✓ ${adapter.name}: configured`);
+      console.log(`  ✓ ${adapter.name} (${adapter.scope}): configured`);
       configured++;
     } catch (err) {
-      console.error(`  ✗ ${adapter.name}: ${getErrorMessage(err)}`);
+      console.error(`  ✗ ${adapter.name} (${adapter.scope}): ${getErrorMessage(err)}`);
     }
   }
 

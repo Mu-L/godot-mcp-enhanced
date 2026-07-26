@@ -4,13 +4,37 @@ import { ClaudeCodeAdapter } from './claude-code.js';
 import { CursorAdapter } from './cursor.js';
 import { OpenCodeAdapter } from './opencode.js';
 import { CodexAdapter } from './codex.js';
+import { ClaudeDesktopAdapter } from './claude-desktop.js';
+import { WindsurfAdapter } from './windsurf.js';
+import { ClineAdapter } from './cline.js';
+import { ZedAdapter } from './zed.js';
+import { AntigravityAdapter } from './antigravity.js';
+import { TraeAdapter } from './trae.js';
+import { CherryStudioAdapter } from './cherry-studio.js';
+import { GeminiCliAdapter } from './gemini-cli.js';
+import { QwenCodeAdapter } from './qwen-code.js';
 
 export type { ClientAdapter } from './types.js';
-export { ClaudeCodeAdapter, CursorAdapter, OpenCodeAdapter, CodexAdapter };
+export {
+  ClaudeCodeAdapter, CursorAdapter, OpenCodeAdapter, CodexAdapter,
+  ClaudeDesktopAdapter, WindsurfAdapter, ClineAdapter, ZedAdapter,
+  AntigravityAdapter, TraeAdapter, CherryStudioAdapter, GeminiCliAdapter, QwenCodeAdapter,
+};
 
 export const ALL_ADAPTERS: ClientAdapter[] = [
+  // project scope
   new ClaudeCodeAdapter(),
   new CursorAdapter(),
   new OpenCodeAdapter(),
+  new GeminiCliAdapter(),
+  new QwenCodeAdapter(),
+  // global scope
   new CodexAdapter(),
+  new ClaudeDesktopAdapter(),
+  new WindsurfAdapter(),
+  new ClineAdapter(),
+  new ZedAdapter(),
+  new AntigravityAdapter(),
+  new TraeAdapter(),
+  new CherryStudioAdapter(),
 ];

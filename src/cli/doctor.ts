@@ -53,12 +53,12 @@ export async function runDoctor(_args: string[]): Promise<void> {
   for (const adapter of ALL_ADAPTERS) {
     const installed = await adapter.detect();
     if (!installed) {
-      console.log(status(false, `${adapter.name}: not installed`));
+      console.log(status(false, `${adapter.name} (${adapter.scope}): not installed`));
       continue;
     }
     // A-09: 区分配置状态
     const { ok, detail } = await checkClientConfig(adapter, projectDir);
-    console.log(status(ok, `${adapter.name}: ${detail}`));
+    console.log(status(ok, `${adapter.name} (${adapter.scope}): ${detail}`));
   }
 
   // 4. 项目结构
