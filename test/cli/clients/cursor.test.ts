@@ -4,6 +4,9 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { CursorAdapter } from '../../../src/cli/clients/cursor.js';
 
+// BOM 必须运行时构建——Write 工具会把 '' 转义解析为字面 BOM 字符写入源码（不可见）
+const BOM = String.fromCharCode(0xFEFF);
+
 describe('CursorAdapter', () => {
   const adapter = new CursorAdapter();
   let testDir: string;
@@ -79,5 +82,14 @@ describe('CursorAdapter', () => {
     expect(config.mcpServers.godot.command).toBe('npx');
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('isConfigured returns true for BOM-prefixed valid JSON (BOM 防御)', async () => {
+    const cursorDir = join(testDir, '.cursor');
+    mkdirSync(cursorDir, { recursive: true });
+    writeFileSync(join(cursorDir, 'mcp.json'), BOM + JSON.stringify({
+      mcpServers: { godot: { command: 'npx' } },
+    }));
+    expect(await adapter.isConfigured(testDir)).toBe(true);
   });
 });

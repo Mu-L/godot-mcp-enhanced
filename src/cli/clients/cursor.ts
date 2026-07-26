@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
 
 export class CursorAdapter implements ClientAdapter {
   name = 'Cursor';
@@ -15,11 +15,9 @@ export class CursorAdapter implements ClientAdapter {
 
   async isConfigured(projectDir: string): Promise<boolean> {
     const mcpPath = join(projectDir, '.cursor', 'mcp.json');
-    if (!existsSync(mcpPath)) return false;
-    try {
-      const content = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-      return !!(content.mcpServers?.godot);
-    } catch { return false; }
+    const content = readJsonForCheck(mcpPath);
+    if (!content) return false;
+    return !!(content.mcpServers as Record<string, unknown> | undefined)?.godot;
   }
 
   async configure(projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {

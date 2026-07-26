@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
 
 export class ClaudeCodeAdapter implements ClientAdapter {
   name = 'Claude Code';
@@ -15,11 +15,9 @@ export class ClaudeCodeAdapter implements ClientAdapter {
 
   async isConfigured(projectDir: string): Promise<boolean> {
     const settingsPath = join(projectDir, '.claude', 'settings.json');
-    if (!existsSync(settingsPath)) return false;
-    try {
-      const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-      return !!(content.mcpServers?.godot);
-    } catch { return false; }
+    const content = readJsonForCheck(settingsPath);
+    if (!content) return false;
+    return !!(content.mcpServers as Record<string, unknown> | undefined)?.godot;
   }
 
   async configure(projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {

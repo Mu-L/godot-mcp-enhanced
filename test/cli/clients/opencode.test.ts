@@ -10,6 +10,8 @@ vi.mock('child_process', () => ({
   }),
 }));
 
+// BOM 必须运行时构建——Write 工具会把 '' 转义解析为字面 BOM 字符写入源码（不可见）
+const BOM = String.fromCharCode(0xFEFF);
 const TEST_DIR = join(tmpdir(), 'godot-mcp-test-opencode');
 
 beforeEach(() => {
@@ -101,5 +103,24 @@ describe('OpenCodeAdapter', () => {
     expect(cfg.mcp.godot.command).toEqual(['npx', 'godot-mcp-enhanced']);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('isConfigured returns true for BOM-prefixed valid JSON (BOM 防御)', async () => {
+    writeFileSync(join(TEST_DIR, 'opencode.json'), BOM + JSON.stringify({
+      mcp: { godot: { type: 'local', command: ['npx'] } },
+    }));
+    const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
+    expect(await new OpenCodeAdapter().isConfigured(TEST_DIR)).toBe(true);
+  });
+
+  it('configure preserves existing enabled user-state (reconfigure)', async () => {
+    writeFileSync(join(TEST_DIR, 'opencode.json'), JSON.stringify({
+      mcp: { godot: { type: 'local', command: ['old'], enabled: false } },
+    }));
+    const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
+    await new OpenCodeAdapter().configure(TEST_DIR, '/godot', 'npx', ['godot-mcp-enhanced']);
+    const config = JSON.parse(readFileSync(join(TEST_DIR, 'opencode.json'), 'utf-8'));
+    expect(config.mcp.godot.enabled).toBe(false);   // 用户旧值保留
+    expect(config.mcp.godot.command).toEqual(['npx', 'godot-mcp-enhanced']); // 配置更新
   });
 });

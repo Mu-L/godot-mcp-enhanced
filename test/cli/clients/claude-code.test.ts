@@ -4,6 +4,9 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { ClaudeCodeAdapter } from '../../../src/cli/clients/claude-code.js';
 
+// BOM 必须运行时构建——Write 工具会把 '' 转义解析为字面 BOM 字符写入源码（不可见）
+const BOM = String.fromCharCode(0xFEFF);
+
 describe('ClaudeCodeAdapter', () => {
   const adapter = new ClaudeCodeAdapter();
   let testDir: string;
@@ -86,5 +89,14 @@ describe('ClaudeCodeAdapter', () => {
     expect(settings.mcpServers.godot.command).toBe('npx');
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('isConfigured returns true for BOM-prefixed valid JSON (BOM 防御)', async () => {
+    const claudeDir = join(testDir, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, 'settings.json'), BOM + JSON.stringify({
+      mcpServers: { godot: { command: 'npx' } },
+    }));
+    expect(await adapter.isConfigured(testDir)).toBe(true);
   });
 });
