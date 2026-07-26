@@ -1,0 +1,61 @@
+import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { randomUUID } from 'crypto';
+import type { ClientAdapter } from './types.js';
+import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+
+export class AntigravityAdapter implements ClientAdapter {
+  name = 'Antigravity';
+  scope = 'global' as const;
+
+  private static readonly USER_STATE_KEYS = ['disabled', 'disabledTools'] as const;
+  private static readonly USER_STATE_DEFAULTS: Record<string, unknown> = { disabled: false, disabledTools: [] };
+
+  // 当前官方路径（Antigravity 2.0/IDE/CLI/SDK 共享）
+  private newPath(): string {
+    return join(homedir(), '.gemini', 'config', 'mcp_config.json');
+  }
+  // 旧 IDE 路径（兼容 detect/isConfigured）
+  private legacyPath(): string {
+    return join(homedir(), '.gemini', 'antigravity', 'mcp_config.json');
+  }
+
+  async detect(): Promise<boolean> {
+    return existsSync(this.newPath()) || existsSync(this.legacyPath());
+  }
+
+  async isConfigured(_projectDir: string): Promise<boolean> {
+    for (const path of [this.newPath(), this.legacyPath()]) {
+      const content = readJsonForCheck(path);
+      if (content && (content.mcpServers as Record<string, unknown> | undefined)?.godot) return true;
+    }
+    return false;
+  }
+
+  async configure(_projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {
+    // 写新路径；读旧 entry 优先从已存在的路径（新或旧）取 user-state
+    const configPath = this.newPath();
+    const existingPath = existsSync(this.newPath()) ? this.newPath()
+      : existsSync(this.legacyPath()) ? this.legacyPath() : configPath;
+    const config = readJsonConfigWithBackup(existingPath);
+    if (!config.mcpServers) config.mcpServers = {};
+    const mcp = config.mcpServers as Record<string, Record<string, unknown>>;
+    const oldEntry = mcp.godot ?? {};
+    const preserved: Record<string, unknown> = {};
+    for (const key of AntigravityAdapter.USER_STATE_KEYS) {
+      preserved[key] = key in oldEntry ? oldEntry[key] : AntigravityAdapter.USER_STATE_DEFAULTS[key];
+    }
+    mcp.godot = {
+      ...preserved,
+      command: mcpCommand,
+      ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
+      env: { GODOT_PATH: godotPath },
+    };
+    const configDir = join(configPath, '..');
+    if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
+    const tmpPath = join(configDir, `.mcp_config.${randomUUID()}.tmp`);
+    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    renameSync(tmpPath, configPath);
+  }
+}
