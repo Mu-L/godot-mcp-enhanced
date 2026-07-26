@@ -6,6 +6,7 @@ const execFileAsync = promisify(execFile);
 
 export class CodexAdapter implements ClientAdapter {
   name = 'Codex';
+  scope = 'global' as const;
 
   async detect(): Promise<boolean> {
     try {

@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 
 export class OpenCodeAdapter implements ClientAdapter {
   name = 'OpenCode';
+  scope = 'project' as const;
 
   async detect(): Promise<boolean> {
     try {

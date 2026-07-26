@@ -22,6 +22,10 @@ describe('ClaudeCodeAdapter', () => {
     expect(adapter.name).toBe('Claude Code');
   });
 
+  it('has project scope', () => {
+    expect(adapter.scope).toBe('project');
+  });
+
   it('isConfigured returns false when no settings file', async () => {
     expect(await adapter.isConfigured(testDir)).toBe(false);
   });

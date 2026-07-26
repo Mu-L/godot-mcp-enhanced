@@ -7,6 +7,7 @@ import { readJsonConfigWithBackup } from './json-config.js';
 
 export class ClaudeCodeAdapter implements ClientAdapter {
   name = 'Claude Code';
+  scope = 'project' as const;
 
   async detect(): Promise<boolean> {
     return existsSync(join(homedir(), '.claude'));

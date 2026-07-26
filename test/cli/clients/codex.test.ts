@@ -16,6 +16,12 @@ describe('CodexAdapter', () => {
     expect(adapter.name).toBe('Codex');
   });
 
+  it('has global scope', async () => {
+    const { CodexAdapter } = await import('../../../src/cli/clients/codex.js');
+    const adapter = new CodexAdapter();
+    expect(adapter.scope).toBe('global');
+  });
+
   it('detects installed codex', async () => {
     const { CodexAdapter } = await import('../../../src/cli/clients/codex.js');
     const adapter = new CodexAdapter();

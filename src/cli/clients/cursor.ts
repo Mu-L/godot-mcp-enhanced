@@ -7,6 +7,7 @@ import { readJsonConfigWithBackup } from './json-config.js';
 
 export class CursorAdapter implements ClientAdapter {
   name = 'Cursor';
+  scope = 'project' as const;
 
   async detect(): Promise<boolean> {
     return existsSync(join(homedir(), '.cursor'));

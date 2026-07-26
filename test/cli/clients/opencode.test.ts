@@ -26,6 +26,11 @@ describe('OpenCodeAdapter', () => {
     expect(new OpenCodeAdapter().name).toBe('OpenCode');
   });
 
+  it('has project scope', async () => {
+    const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
+    expect(new OpenCodeAdapter().scope).toBe('project');
+  });
+
   it('detects installed opencode via --version', async () => {
     const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
     expect(await new OpenCodeAdapter().detect()).toBe(true);

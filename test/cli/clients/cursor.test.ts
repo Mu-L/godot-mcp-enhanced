@@ -30,6 +30,10 @@ describe('CursorAdapter', () => {
     expect(adapter.name).toBe('Cursor');
   });
 
+  it('has project scope', () => {
+    expect(adapter.scope).toBe('project');
+  });
+
   it('isConfigured returns false when no mcp.json', async () => {
     expect(await adapter.isConfigured(testDir)).toBe(false);
   });
