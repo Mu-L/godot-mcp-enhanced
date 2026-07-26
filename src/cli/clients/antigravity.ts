@@ -10,7 +10,7 @@ export class AntigravityAdapter implements ClientAdapter {
   scope = 'global' as const;
 
   private static readonly USER_STATE_KEYS = ['disabled', 'disabledTools'] as const;
-  private static readonly USER_STATE_DEFAULTS: Record<string, unknown> = { disabled: false, disabledTools: [] };
+  private static readonly USER_STATE_DEFAULTS: Record<typeof AntigravityAdapter.USER_STATE_KEYS[number], unknown> = { disabled: false, disabledTools: [] };
 
   // 当前官方路径（Antigravity 2.0/IDE/CLI/SDK 共享）
   private newPath(): string {

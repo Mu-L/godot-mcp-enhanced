@@ -11,7 +11,7 @@ export class ClineAdapter implements ClientAdapter {
 
   // user-state 白名单（reconfigure 保留，首次创建 seed 默认）
   private static readonly USER_STATE_KEYS = ['disabled', 'autoApprove'] as const;
-  private static readonly USER_STATE_DEFAULTS: Record<string, unknown> = { disabled: false, autoApprove: [] };
+  private static readonly USER_STATE_DEFAULTS: Record<typeof ClineAdapter.USER_STATE_KEYS[number], unknown> = { disabled: false, autoApprove: [] };
 
   private configPath(): string {
     // VS Code globalStorage 路径（Cline 是 VS Code 扩展，唯一稳定 MCP 配置位置）

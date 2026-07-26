@@ -50,4 +50,26 @@ describe('AntigravityAdapter', () => {
     expect(config.mcpServers.godot.command).toBe('npx');
     rmSync(fakeHome, { recursive: true, force: true });
   });
+
+  // 反向断言(spec §4):无配置→false / 有配置无 godot key→false,防 isConfigured 假绿
+  it('detect + isConfigured return false when no config path exists', async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), 'mcp-ag-'));
+    vi.doMock('os', () => ({ homedir: () => fakeHome }));
+    const { AntigravityAdapter } = await import('../../../src/cli/clients/antigravity.js');
+    expect(await new AntigravityAdapter().detect()).toBe(false);
+    expect(await new AntigravityAdapter().isConfigured('/ignored')).toBe(false);
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
+
+  it('isConfigured returns false when mcpServers has no godot key (其他 server 占位)', async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), 'mcp-ag-'));
+    vi.doMock('os', () => ({ homedir: () => fakeHome }));
+    const newPath = join(fakeHome, '.gemini', 'config', 'mcp_config.json');
+    mkdirSync(join(newPath, '..'), { recursive: true });
+    writeFileSync(newPath, JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    const { AntigravityAdapter } = await import('../../../src/cli/clients/antigravity.js');
+    expect(await new AntigravityAdapter().detect()).toBe(true);        // 文件存在
+    expect(await new AntigravityAdapter().isConfigured('/ignored')).toBe(false);  // 无 godot key
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
 });

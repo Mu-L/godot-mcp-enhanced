@@ -30,6 +30,8 @@ export class OpenCodeAdapter implements ClientAdapter {
   }
 
   private static readonly USER_STATE_KEYS = ['enabled'] as const;
+  // spec §3.1: 首次创建 seed enabled:true(对齐 OpenCode 官方示例 + Godot AI entry_initial_fields)
+  private static readonly USER_STATE_DEFAULTS: Record<string, unknown> = { enabled: true };
 
   async configure(projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {
     const configPath = join(projectDir, 'opencode.json');
@@ -37,11 +39,11 @@ export class OpenCodeAdapter implements ClientAdapter {
     const config = readJsonConfigWithBackup(configPath);
     if (!config.mcp) config.mcp = {};
     const mcp = config.mcp as Record<string, Record<string, unknown>>;
-    // user-state 保留:读旧 entry 的白名单字段 merge 进新 entry(首次创建 seed 默认)
+    // user-state 保留:读旧 entry 白名单字段 merge 进新 entry;首次创建 seed DEFAULTS(spec §3.1)
     const oldEntry = mcp.godot ?? {};
     const preserved: Record<string, unknown> = {};
     for (const key of OpenCodeAdapter.USER_STATE_KEYS) {
-      if (key in oldEntry) preserved[key] = oldEntry[key];
+      preserved[key] = key in oldEntry ? oldEntry[key] : OpenCodeAdapter.USER_STATE_DEFAULTS[key];
     }
     // opencode local MCP 配置:command 数组 + environment 对象(见 mcp.ts local 分支)
     mcp.godot = {

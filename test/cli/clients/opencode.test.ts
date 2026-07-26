@@ -55,11 +55,12 @@ describe('OpenCodeAdapter', () => {
     expect(await new OpenCodeAdapter().isConfigured(TEST_DIR)).toBe(false);
   });
 
-  it('configure writes opencode.json with command array + environment', async () => {
+  it('configure writes opencode.json + seeds enabled:true (spec §3.1 首次创建默认)', async () => {
     const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
     await new OpenCodeAdapter().configure(TEST_DIR, '/godot/bin', 'npx', ['godot-mcp-enhanced']);
     const cfg = JSON.parse(readFileSync(join(TEST_DIR, 'opencode.json'), 'utf-8'));
     expect(cfg.mcp.godot).toEqual({
+      enabled: true,
       type: 'local',
       command: ['npx', 'godot-mcp-enhanced'],
       environment: { GODOT_PATH: '/godot/bin' },
