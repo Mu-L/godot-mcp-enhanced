@@ -544,7 +544,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const agentsMdPath = join(p, 'AGENTS.md');
 
         // 独立 parse config（不引用 doClaudeMd 块内的 config：claude_md=false 时该块不执行）
-        let configForAgents: GodotConfig | null = null;
+        let configForAgents: GodotConfig | null;
         try {
           configForAgents = ctx.parseGodotConfig(readFileSync(join(p, 'project.godot'), 'utf-8')) as GodotConfig;
         } catch { configForAgents = null; }

@@ -193,7 +193,7 @@ function readProject(projectPath: string | undefined): { name: string; godot: nu
 /** 从 project.godot 文本提 [application] 段 config/name="X" 的 X。无匹配 → null。
  *  批 1 M2：正则锚 [application] 段（[^\[]*? 不跨段），避免其他段同名 key 误匹配。 */
 function parseProjectName(content: string): string | null {
-  const m = content.match(/\[application\][^\[]*?config\/name\s*=\s*"([^"]*)"/);
+  const m = content.match(/\[application\][^[]*?config\/name\s*=\s*"([^"]*)"/);
   return m ? m[1] ?? null : null;
 }
 
