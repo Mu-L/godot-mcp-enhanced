@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL } from '../../src/tools/skill-builder.js';
 import { DETAILED_RULE_TEMPLATES } from '../../src/tools/rule-templates.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('skill-builder 派生逻辑', () => {
   it('WORKFLOW_TO_SKILL 3 个映射正确', () => {
@@ -43,6 +48,18 @@ describe('skill-builder 派生逻辑', () => {
       expect(content.startsWith(`---\nname: ${name}\ndescription: "`)).toBe(true);
       expect(content).toContain('—— 当你');
       expect(content).not.toContain('alwaysApply');
+    }
+  });
+});
+
+// DRY 一致性（防忘记重跑 build:skills）：磁盘 SKILL.md == buildAllSkills() 派生结果
+describe('SKILL.md DRY 一致性（磁盘 == 派生）', () => {
+  it('3 个 SKILL.md 磁盘内容 == buildAllSkills() 派生结果（字符串严格相等）', () => {
+    const skills = buildAllSkills();
+    for (const [name, expected] of skills) {
+      const diskPath = join(__dirname, '..', '..', '.claude', 'skills', name, 'SKILL.md');
+      const disk = readFileSync(diskPath, 'utf-8');
+      expect(disk).toBe(expected);  // 严格相等；wrapper 不加 trailing newline 保证此断言稳定
     }
   });
 });
