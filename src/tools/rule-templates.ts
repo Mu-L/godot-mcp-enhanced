@@ -127,6 +127,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | \`get_tree\` | 获取场景树结构 |
 | \`find_nodes\` | 按名称/类型/路径查找节点 |
 | \`get_node_properties\` | 获取节点属性值 |
+| \`get_node_layout\` | 获取节点完整布局快照（type + position/global_position 成对 + Control anchor/offset + Sprite2D centered + Node3D Vector3，全走 _jsonify） |
 | \`get_performance\` | 获取性能统计（FPS/内存等） |
 | \`get_viewport_info\` | 获取视口信息 |
 | \`take_screenshot\` | 从运行中的游戏截图 |
@@ -659,5 +660,11 @@ alwaysApply: false
 ## 导航（navigation / nav_create_region / nav_query_path）
 
 - **★ \`query_path\` 静默返回空路径**：无导航数据（未创建 region 或未烘焙）时，\`query_path\` 返回 \`path: []\` + \`path_length: 0\` + \`warning: "No navigation data available"\`，**不报错**。\`create_region\` 默认 \`bake=false\`——忘记单独调 \`bake_mesh\` 则后续 \`query_path\` 静默返回空。正确工作流：\`create_region\` → \`bake_mesh\`（单独 120s 超时，其他 action 30s）→ \`query_path\`。看到空 path 先回头确认已 bake。关联：navigation(query_path/create_region/bake_mesh)。
+
+## 节点定位与坐标实测（scene / edit_node / game_query 坐标读取 / UI 布局调试）
+
+- **★ 三种坐标系不可混算**：Sprite2D/Node2D 系的 \`position\` 是节点原点，Sprite2D 还有 \`centered\`（true=纹理以 position 为中心绘制，false=从 position 起绘）+ \`offset\`；Control 系（TextureRect/Button/Panel 等）用 \`anchor\` + \`offset_left/right/top/bottom\`，\`position\` 是相对父节点左上角且受父 Container 布局影响，\`global_position\` 才是屏幕坐标。纸面推算「Sprite2D 视觉中心」vs「TextureRect anchor 位置」vs「Control global_position」三者极易错，必须读运行时真实值再算。关联：scene/edit_node 设坐标属性、game_query(get_node_properties) 读坐标、UI 布局调试。
+- **★ 定位类问题先实测不纸面猜**：调坐标/布局/对齐时第一步用 game bridge 读真实值，不要 headless 截图（空白，见「截图与捕获」段）或纸面推算：(1) \`game_query find_nodes\` 确认真实节点路径与类型；(2) \`game_query get_node_properties\` 读 \`position\`/\`global_position\`/\`size\`/\`offset_*\`；(3) \`game_query take_screenshot\`（GPU 真渲染）+ 视觉确认实际渲染的是哪个元素；(4) 看到真实数据再改。反例：据「偏右上」反馈想当然以为是 lock 按钮、反复改 4 次无果，game bridge 实测发现根本没 lock、偏的是角标——根因就是没第一时间实测。关联：game_query/find_ui_elements、screenshot（headless 空白）；headless 截图根因见 godot-mcp-core.md「Headless 截图限制」。\`get_node_layout\` method 一次返全布局（含 \`global_position\` 成对），优先于手动拼 \`get_node_properties\` 扁平 dump。
+- **★ Node3D.scale 对部分节点无效**：Node3D.xml 原文 "The behavior of some 3D node types is not affected by this property. These include Light3D, Camera3D, AudioStreamPlayer3D"。\`get_node_layout\` 照读这些节点的 scale 值，但引擎忽略——AI 勿用 scale 对这几类节点做布局推断。关联：game_query(get_node_layout) Node3D 分支。
 `,
 };
