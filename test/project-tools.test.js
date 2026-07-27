@@ -395,8 +395,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // hooks(1) + CLAUDE.md(1) + 7 rule files + 1 manifest action + 1 AGENTS.md = 11
-    expect(parsed.actions.length).toBe(11);
+    // hooks(1) + CLAUDE.md(1) + 10 rule files + 1 manifest action + 1 AGENTS.md = 14
+    expect(parsed.actions.length).toBe(14);
 
     // Verify settings.json
     const settingsPath = join(dir, '.claude', 'settings.json');
@@ -434,6 +434,9 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(existsSync(join(rulesDir, 'godot-mcp-editor.md'))).toBe(true);
     expect(existsSync(join(rulesDir, 'godot-mcp-ui.md'))).toBe(true);
     expect(existsSync(join(rulesDir, 'godot-mcp-recording.md'))).toBe(true);
+    expect(existsSync(join(rulesDir, 'godot-mcp-workflow-bridge-e2e.md'))).toBe(true);
+    expect(existsSync(join(rulesDir, 'godot-mcp-workflow-verify.md'))).toBe(true);
+    expect(existsSync(join(rulesDir, 'godot-mcp-workflow-safe-edit.md'))).toBe(true);
   });
 
   it('skips hooks when hooks=false', async () => {
@@ -446,8 +449,8 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.actions).toBeDefined();
-    // CLAUDE.md(1) + 7 rule files + 1 manifest action + 1 AGENTS.md = 10 (no hooks)
-    expect(parsed.actions.length).toBe(10);
+    // CLAUDE.md(1) + 10 rule files + 1 manifest action + 1 AGENTS.md = 13 (no hooks)
+    expect(parsed.actions.length).toBe(13);
     expect(parsed.actions.some(a => a.includes('CLAUDE.md'))).toBe(true);
     expect(parsed.actions.some(a => a.includes('rules'))).toBe(true);
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);
