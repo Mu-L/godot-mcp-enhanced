@@ -31,6 +31,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | `get_tree` | 获取场景树结构 |
 | `find_nodes` | 按名称/类型/路径查找节点 |
 | `get_node_properties` | 获取节点属性值 |
+| `get_node_layout` | 获取节点完整布局快照（type + position/global_position 成对 + Control anchor/offset + Sprite2D centered + Node3D Vector3，全走 _jsonify） |
 | `get_performance` | 获取性能统计（FPS/内存等） |
 | `get_viewport_info` | 获取视口信息 |
 | `take_screenshot` | 从运行中的游戏截图 |
