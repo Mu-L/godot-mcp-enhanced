@@ -381,7 +381,7 @@ export function getToolDefinitions(): Tool[] {
           port: { type: 'number', description: 'game_bridge_install: 桥接监听端口（当前忽略，始终 9081）', default: 9081 },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property',
+            description: 'game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property',
           },
           params: {
             type: 'object',
@@ -410,14 +410,14 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool handler ───────────────────────────────────────────────────────────
 
-const QUERY_METHODS = new Set([
-  'ping', 'get_tree', 'find_nodes', 'get_node_properties',
+export const QUERY_METHODS = new Set([
+  'ping', 'get_tree', 'find_nodes', 'get_node_properties', 'get_node_layout',
   'get_performance', 'get_viewport_info', 'take_screenshot',
 ]);
 
 /** Read-only query methods excluding take_screenshot (handled separately via bridge.screenshot). */
 export const BRIDGE_READ_ONLY_METHODS = new Set([
-  'ping', 'get_tree', 'find_nodes', 'get_node_properties',
+  'ping', 'get_tree', 'find_nodes', 'get_node_properties', 'get_node_layout',
   'get_performance', 'get_viewport_info',
 ]);
 

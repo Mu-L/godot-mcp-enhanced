@@ -91,8 +91,9 @@ describe('workflow dev_loop bridge logic', () => {
     expect(BRIDGE_READ_ONLY_METHODS.has('get_tree')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('find_nodes')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('get_node_properties')).toBe(true);
+    expect(BRIDGE_READ_ONLY_METHODS.has('get_node_layout')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('get_performance')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('get_viewport_info')).toBe(true);
-    expect(BRIDGE_READ_ONLY_METHODS.size).toBe(6);
+    expect(BRIDGE_READ_ONLY_METHODS.size).toBe(7);
   });
 });

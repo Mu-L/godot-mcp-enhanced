@@ -1508,7 +1508,7 @@
           },
           "method": {
             "type": "string",
-            "description": "game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property"
+            "description": "game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property"
           },
           "params": {
             "type": "object",
@@ -1637,8 +1637,8 @@
       },
       "size": {
         "descBytes": 592,
-        "schemaBytes": 3257,
-        "totalBytes": 3849
+        "schemaBytes": 3274,
+        "totalBytes": 3866
       }
     },
     {
