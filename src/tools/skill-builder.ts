@@ -25,18 +25,18 @@ export const WORKFLOW_TO_SKILL: Record<string, string> = {
 export function deriveSkillFromWorkflow(tpl: string, skillName: string): string {
   // 1. 剥 rule frontmatter
   const fmMatch = tpl.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!fmMatch) throw new Error('skill-builder: workflow 模板缺 rule frontmatter (---...---)');
+  if (!fmMatch) throw new Error(`skill-builder: ${skillName} 的 workflow 模板缺 rule frontmatter (---...---)`);
   const frontmatter = fmMatch[1]!;
   const afterFm = tpl.slice(fmMatch[0].length);
 
   // 2. 提取 description 引号内纯文本
   const descMatch = frontmatter.match(/^description:\s*"([\s\S]*?)"\s*$/m);
-  if (!descMatch) throw new Error('skill-builder: workflow frontmatter 缺 description (带引号)');
-  const description = descMatch[1];
+  if (!descMatch) throw new Error(`skill-builder: ${skillName} 的 workflow frontmatter 缺 description (带引号)`);
+  const description = descMatch[1]!;
 
   // 3. 剃到首个 ## 前（版本引用行 + 空行）
   const h2Idx = afterFm.search(/^##\s/m);
-  if (h2Idx === -1) throw new Error('skill-builder: workflow 模板缺 ## 标题');
+  if (h2Idx === -1) throw new Error(`skill-builder: ${skillName} 的 workflow 模板缺 ## 标题`);
   const body = afterFm.slice(h2Idx);
 
   // 4. 组装（description 重新包引号，不加 H1）
