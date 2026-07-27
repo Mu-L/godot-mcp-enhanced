@@ -86,6 +86,16 @@ read_scene / read_script → understand structure → write_script / edit_script
 - **`validate_project`** — static scan for missing resources, broken `preload()`/`load()` paths, orphaned `.import` files
 - **`import_resources`** — bulk-register resources (images/audio/fonts/3D), auto-generate `.import`
 
+### Structured workflows (with checklists)
+
+Following agentic-skills methodology (e.g. obra/superpowers), this project ships AI-followable structured development workflows (`setup_project_rules` generates them to `.claude/rules/godot-mcp-workflow-*.md`):
+
+- **Bridge E2E flow** — install → run(wait_for_bridge) → ping → input+wait → screenshot/frame-verify
+- **Edit→Run→Verify loop** — read → edit → run_and_verify → validate_scripts → verify_delivery
+- **Safe-edit flow** — search_and_replace first / validate after edit / override-guard / confirm token
+
+Each workflow ships with a checklist + common-deviation tips, keeping AI on-rails and reducing footguns.
+
 ## Tools (28)
 
 > **28 MCP tools** (merged tool definitions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.

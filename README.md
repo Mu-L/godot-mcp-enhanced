@@ -111,6 +111,16 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 - **`validate_project`** — 静态扫描缺失资源、无效 `preload()`/`load()` 路径、孤立 `.import` 文件
 - **`import_resources`** — 扫描目录批量注册资源(图片/音频/字体/3D 模型),自动生成 `.import`
 
+### 结构化开发流程（带 checklist）
+
+对标 agentic skills 方法论（如 obra/superpowers），本项目不止堆工具，还提供 AI 可遵循的结构化开发流程（`setup_project_rules` 生成到 `.claude/rules/godot-mcp-workflow-*.md`）：
+
+- **Bridge E2E 流程** — install → run(wait_for_bridge) → ping → 操作+wait → 截图/frame-verify 留证
+- **改→跑→验证闭环** — read → edit → run_and_verify → validate_scripts → verify_delivery
+- **安全编辑流** — search_and_replace 优先 / 改后 validate / 防覆盖 / 确认令牌
+
+每个流程带 checklist + 常见偏离提示，让 AI 少踩坑、按纪律走。
+
 ## 工具一览
 
 > 共 28 个 MCP 工具(merged tool definition),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
