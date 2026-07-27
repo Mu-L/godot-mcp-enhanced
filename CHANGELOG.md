@@ -6,7 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### CLI — Client Adapters Expansion（4→13，配置扩展）
+## [0.24.1] - 2026-07-27
+
+### Fixed — Documentation Sync
+
+- **rule-templates.ts 同步**：第三方审查（`docs/reviews/2026-07-27-get-node-layout.md`）发现 commit `3d11541` 改了 `.claude/rules/godot-mcp-bridge.md` + `godot-mcp-engine-quirks.md`（get_node_layout method 表 + 节点定位段）但未同步独立副本 `src/tools/rule-templates.ts`（违反 `AGENTS.md` 独立副本同步约束，CI `check-rules-version-bump.mjs` 不校验内容 drift）。本次补齐：method 表加 get_node_layout 行 + engine-quirks 模板补「节点定位与坐标实测」整段（含 Node3D.scale bullet 顺手补 ★ 标记）。
+
+### Docs — Process
+
+- **AGENTS.md 加三段强制流程**：(1)「改动 `.claude/rules/` 后」核查 step；(2)「plan 落地后必出第三方审查文档」；(3)「完成前必登 memory」。源于 get_node_layout PR 第三方审查反馈 + 用户反馈 memory/review 双断档。
+- **新增 `docs/reviews/` 目录**：补 7 月 5 条断档链路的第三方审查文档（get-node-layout / client-adapters / ci-godot-matrix / self-update / batchf），每条派独立 code-reviewer 子 agent 审查。
+
+## [0.24.0] - 2026-07-25
+
+### Added — Self-update（Godot AI 追赶 3/3）
 
 - AI 客户端配置 adapter 从 4 个扩到 **13 个**（+9：Claude Desktop / Windsurf / Cline / Zed / Gemini CLI / Antigravity / Trae / Cherry Studio / Qwen Code），对标 Godot AI 19 client auto-configure
 - `ClientAdapter` 接口加必需 `scope: 'project' | 'global'` 属性

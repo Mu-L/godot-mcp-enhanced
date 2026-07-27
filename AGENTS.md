@@ -282,6 +282,23 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 6. 编辑 `.gd` 文件后,用 MCP 工具 `validate_scripts` 验证语法(触发 Godot 完整编译,含跨文件依赖,捕获 headless 遗漏的 Parse Error)。
 
+### 改动 `.claude/rules/` 后（⚠️ 高频踩坑，CI 盲区）
+
+7. 凡 commit 改动 `.claude/rules/godot-mcp-*.md`，**必须同步** `src/tools/rule-templates.ts` 对应段（独立副本约束，见「独立副本同步约束」段）。CI（`scripts/check-rules-version-bump.mjs`）**不校验内容一致性**，drift 静默放过。
+   - 核查命令：`grep <新增关键词> src/tools/rule-templates.ts`（应为 ≥1 命中）
+   - 改了 `rule-templates.ts` 后须 `npm version patch --no-git-tag-version`（否则 `check-rules-version-bump.mjs:92-96` 会拦）+ `npm run build`。
+   - 此规则源于 2026-07-27 get_node_layout PR 教训（前序 final review 漏抓此 drift，第三方审查才发现，详见 memory `independent-copy-sync-ci-blindspot`）。
+
+### plan 落地后必出第三方审查文档
+
+8. 每条 spec → plan → 实现 → 验证链路完成后，**必须**产出独立审查文档放 `docs/reviews/YYYY-MM-DD-<feature>.md`（目录不存在则建）。
+   - **审查者**：派 `code-reviewer` 子 agent 独立审查（隔离视角，不预设 plan 作者声明为真，所有声明 grep/read 实测）。
+   - **审查范围**：设计正确性 / TS-GD 一致性 / 测试质量 / 部署同步 / **仓库级约束（AGENTS.md）独立核查**（不能只对照 spec §改动面清单打勾）/ 验证完整性。
+   - **⚠️ spec §改动面清单本身要核查完整性**：spec 作者可能漏列仓库级约束涉及的文件（如 `rule-templates.ts`、`build/`、`capability-matrix`）。审查者必须独立 grep 仓库级约束（AGENTS.md「独立副本同步约束」「分发产物与独立副本边界」段）涉及的文件，不能只核对 spec 列出的改动清单。源于 2026-07-27 get_node_layout PR 教训：spec §4 漏列 `rule-templates.ts`，final review 只对照 spec 打勾，漏抓 B-1 BLOCKING drift（详见 memory `final-review-must-check-repo-constraints-not-just-spec`）。
+   - **格式**：总体判定（SHIPPED / SHIPPED WITH NITS / BLOCKING ISSUES）+ 逐维度结论（带 file:line 证据）+ Blocking Issues + Nits + 值得进 memory 的工程教训。
+   - 历史模式参考：`docs/review-2026-07-06-*.md`、`docs/review-2026-07-20-editor-routing-followup.md`、`docs/reviews/2026-07-27-get-node-layout.md`。
+   - 此规则源于 2026-07-27 用户反馈：7 月起多条 spec/plan 落地后断了审查文档产出（6 月还有，7 月回退）。
+
 ---
 
 ## 代码风格
@@ -420,6 +437,17 @@ CI 脚本 `scripts/check-rules-version-bump.mjs` 会在模板变更时强制要�
 
 ---
 
+## 完成前必登 memory（跨会话上下文不丢）
+
+声明任务"完成"前，**必须**把以下信息登进 memory（MCP `mcp__memory__create_entities`）：
+
+- **feature-decision-log**：feature 名 / commit 清单 / 关键设计决策（含被拒方案及理由）/ 实现位置（file:line）/ deferred 项（诚实标注）/ 遗留 issue 指针。
+- **engineering-lesson / methodology-lesson / testing-lesson**：本次过程中发现的、值得跨会话保留的工程教训（每条一句话，含可复现的 file:line 或场景）。
+
+不登 memory 视为未完成 —— 跨会话上下文会丢，下个 agent 拿不到决策依据。此规则源于 2026-07-27 用户反馈：7 月多条链路（self-update / batchf / client-adapters / ci-matrix / get-node-layout）memory 零登记，跨会话上下文全丢。
+
+---
+
 ## 变更日志
 
 | 日期 | 变更 |
@@ -427,3 +455,4 @@ CI 脚本 `scripts/check-rules-version-bump.mjs` 会在模板变更时强制要�
 | 2026-07-22 | 初版,基于通用 AGENTS.md 模板 19 维重组,内容映射自 `CLAUDE.md` + `README.md` + `package.json` + `tsconfig.json` + `eslint.config.js` + `vitest.config.ts` |
 | 2026-07-22 | 第一轮审查修正:`.claude/rules/` 与 `rule-templates.ts` 关系从「生成产物」更正为「独立副本同步」(依据 `rule-templates.ts:4` 注释) |
 | 2026-07-22 | 第二轮审查修正:补全 MCP 子系统表丢失的 8 行(粒子/TileMap/动画/导航/材质/信号/音频/工作流,含 rule 文件归属);清理第 190 行与「独立副本」声明的措辞矛盾 |
+| 2026-07-27 | 加「改动 `.claude/rules/` 后」+ 「plan 落地后必出第三方审查文档」+ 「完成前必登 memory」三段强制流程（源于 2026-07-27 get_node_layout PR 第三方审查反馈 + 用户反馈 memory/review 双断档） |
