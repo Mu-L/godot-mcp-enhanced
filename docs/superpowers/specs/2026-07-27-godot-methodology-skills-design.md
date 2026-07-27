@@ -3,7 +3,7 @@
 - **日期**：2026-07-27
 - **状态**：design（待 user review → writing-plans）
 - **范围**：方法论 pack 形态 B（仓库自身的 Claude Code skill）。互补形态 A（v0.25.0 已交付）。不含 spec §9 原设想的"生成到用户项目 .claude/skills/"——本期消费者缩小为**仅仓库自身开发用**（见 §1 范围调整）。
-- **来源**：spec `2026-07-27-godot-methodology-workflows-design.md` §9 + 2026-07-27 brainstorming（两节定稿）
+- **来源**：spec `2026-07-27-godot-methodology-workflows-design.md` §9 + 2026-07-27 brainstorming（两节定稿 + 用户审 4 ADVISORY 修正）
 
 ## 1. 背景与目标 + 范围调整
 
@@ -56,18 +56,21 @@ export function buildAllSkills(): Map<string, string>;
 **派生规则**（输入 = `DETAILED_RULE_TEMPLATES['godot-mcp-workflow-*.md']`）：
 1. 剥 rule frontmatter：去首部 `---\n...\n---\n`（含 description + alwaysApply 两字段）
 2. 剃到首个 `##` 前的所有内容：`> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+\n\n`（版本引用行 + 紧随空行）
-3. 提取 rule 的 `description` 值（frontmatter 内），复用为 SKILL description（已含"—— 当你…时使用"触发短语）
-4. 组装：`---\nname: <skillName>\ndescription: <ruleDescription>\n---\n\n<正文从 ## 起>`
+3. 提取 rule frontmatter 内 `description` 的**引号内纯文本**：`rule-templates.ts` 的 description 形如 `description: "..."`，取**引号内的中文文本**（不含引号本身，不含 `description:` 前缀）
+4. 组装：`---\nname: <skillName>\ndescription: "<纯文本>"\n---\n\n<正文从 ## 起>`。**SKILL frontmatter 的 description 重新包双引号**（Claude Code SKILL.md description 含中文时带引号；§5 DRY 断言对引号敏感，须明确——提取剥引号、输出重新包引号，两端约定一致）
 
 **不加 H1**：SKILL.md 正文从 rule 的 `## 标题`（H2）开始，不额外加 `# Title`（派生最简，Claude Code skill 不强制 H1）。
 
 **description 语言**：中文，直接复用 rule 模板的（项目中文定位；Claude Code 按 description 语义匹配，中文可行）。rule 模板的 description 已含触发短语（形态 A v0.25.0 已写入，如"...输入模拟 —— 当你需要验证运行时行为、做 E2E 测试、模拟输入或回归测试时使用"）。
 
+**实现优化（非强制，spec 不锁死）**：`WORKFLOW_TO_SKILL` 的 key（3 个 workflow 文件名）与 `test/tools/rule-templates-workflows.test.ts` 的 `WORKFLOW_KEYS` 相同。实现时可从 `DETAILED_RULE_TEMPLATES` 过滤 `workflow-` 前缀派生 key，避免两处硬编码同组 key 漂移——实现者把握，不强制。
+
 ## 4. 生成与维护（CLI wrapper + npm script）
 
 **新 `scripts/build-skills.mjs`**（CLI wrapper，对齐项目惯例：`generate-docs` → `scripts/generate-doc-db.js`、`build-matrix` → `npm run build && node build/capability/build-matrix.js`）：
 - import 编译产物 `build/tools/skill-builder.js`
-- 调 `buildAllSkills()`，对每个 `name→content` 写 `.claude/skills/<name>/SKILL.md`（mkdirSync 递归建目录）
+- 调 `buildAllSkills()`，对每个 `name→content` 用 `writeFileSync(path, content)` 写 `.claude/skills/<name>/SKILL.md`（`mkdirSync(path, {recursive:true})` 递归建目录）
+- **`writeFileSync(path, content)` 不加额外 trailing newline**（**不**写 `content + '\n'`）——保证 §5 DRY 断言"磁盘 == `buildAllSkills()` 派生结果"字符串严格相等；若加 `\n` 则磁盘 ≠ 派生结果，DRY 断言必失败
 - `skill-builder.ts` 保持纯导出（无 CLI 副作用），副作用隔离在 wrapper——测试直接 import 纯函数
 
 **`package.json` scripts 加**：
@@ -91,16 +94,16 @@ rule-templates.ts (DETAILED_RULE_TEMPLATES 的 3 workflow 模板, 单一源)
 
 ## 5. 测试（`test/tools/skill-builder.test.ts`，vitest）
 
-放 `test/tools/`（与 `arch-templates.test.ts` / `base-rule-version.test.ts` / `rule-templates-workflows.test.ts` 同构——vitest 测模板源结构合法性）。
+放 `test/tools/`（与 `arch-templates.test.ts` / `base-rule-version.test.ts` / `rule-templates-workflows.test.ts` 同构——vitest 测模板源结构合法性；但其中"磁盘 == 派生结果"的 DRY 一致性是**新模式**，现有测试未做过，见下）。
 
 **断言**：
 1. **派生逻辑**（`deriveSkillFromWorkflow`）：
-   - 剥 rule frontmatter（输出不以 `---\ndescription:` / `alwaysApply:` 开头，但含 SKILL 的 `name:` / `description:`）
-   - 剃版本引用行（输出不含 `> 适用于 godot-mcp-enhanced` / `{{MCP_VERSION}}`）
-   - 输出以 `---\nname: <skillName>\n` 开头 + 含 `## ` 标题
+   - 剥 rule frontmatter：输出**不含 `alwaysApply:` 字段**（rule frontmatter 剥净的证据），含 SKILL 的 `name:` + `description:`
+   - 剃版本引用行：输出不含 `> 适用于 godot-mcp-enhanced` / `{{MCP_VERSION}}`
+   - 输出以 `---\nname: <skillName>\ndescription: "` 开头（description 带引号，§3 第 4 步）+ 含 `## ` 标题
 2. **WORKFLOW_TO_SKILL 映射**：3 个 key 存在 + skill name 正确（`godot-mcp-bridge-e2e` / `godot-mcp-verify-loop` / `godot-mcp-safe-edit`）
-3. **buildAllSkills**：返回 3 个 entry，每个 SKILL.md frontmatter 合法（`name` 非空 + `description` 含"—— 当你"触发短语）
-4. **DRY 一致性**（新模式，防忘记重跑 build:skills）：对每个 skill，读磁盘 `.claude/skills/<name>/SKILL.md` 内容 == `buildAllSkills().get(name)` 派生结果（字符串相等）。开发者改 `rule-templates.ts` 后忘跑 `build:skills` → 此断言失败 → `npm test` 直接报"SKILL.md 漂移"。
+3. **buildAllSkills**：返回 3 个 entry，每个 SKILL.md frontmatter 合法（`name` 非空 + `description` 含"—— 当你"触发短语 + description 带双引号）
+4. **DRY 一致性**（新模式，防忘记重跑 build:skills）：对每个 skill，读磁盘 `.claude/skills/<name>/SKILL.md` 内容 == `buildAllSkills().get(name)` 派生结果（**字符串严格相等**；依赖 §4 wrapper 不加 trailing newline）。开发者改 `rule-templates.ts` 后忘跑 `build:skills` → 此断言失败 → `npm test` 直接报"SKILL.md 漂移"。
 
 **DRY 一致性放 vitest 而非独立 CI step 的理由**（先例核实）：
 - 派生逻辑本身该有单元测试（纯逻辑，天然属 vitest）；DRY 一致性是派生函数端到端正确性的自然延伸（磁盘 == 派生结果）
@@ -129,11 +132,11 @@ rule-templates.ts (DETAILED_RULE_TEMPLATES 的 3 workflow 模板, 单一源)
 ## 7. 验收标准
 
 1. `npm run build:skills` 在干净仓库跑后，`.claude/skills/` 出现 3 个 `<name>/SKILL.md`
-2. 每个 SKILL.md frontmatter 合法（`name` 非空 + `description` 含"—— 当你"触发短语）
+2. 每个 SKILL.md frontmatter 合法（`name` 非空 + `description` 带双引号 + 含"—— 当你"触发短语）
 3. 每个 SKILL.md 正文从 `##` 标题起，不含 rule frontmatter（`alwaysApply`）+ 不含版本引用行（`> 适用于` / `{{MCP_VERSION}}`）
 4. `test/tools/skill-builder.test.ts` 全 PASS（派生逻辑 + WORKFLOW_TO_SKILL 映射 + DRY 一致性 + frontmatter 合法）
 5. 改 `rule-templates.ts` 某 workflow 模板后，不跑 `build:skills` → `npm test` 的 DRY 一致性断言失败（防忘记重跑机制有效）
-6. `npm test` 全量无回归（含既有 4096 passed）
+6. `npm test` 全量无新增失败（不少于现有用例数；不硬编码具体数——基线随用例增减）
 
 ## 8. 风险
 
