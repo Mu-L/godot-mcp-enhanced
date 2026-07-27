@@ -19,6 +19,7 @@
 - **不加 H1**：SKILL.md 正文从 rule 的 `## 标题`（H2）起，不额外加 `# Title`。
 - **ESM**：`package.json` `"type": "module"`；测试 import 源 `../../src/tools/skill-builder.js`（vitest 转译 .ts），wrapper import 编译产物 `../build/tools/skill-builder.js`（对齐 build-matrix 模式，先 `npm run build`）。
 - **测试位置**：`test/tools/skill-builder.test.ts`（与 `arch-templates.test.ts` / `rule-templates-workflows.test.ts` 同构）。
+- **无需 version bump**：本 plan 只新增 `skill-builder.ts` 派生消费者，**不改 `rule-templates.ts` 模板内容**——`check-rules-version-bump.mjs` 不触发，执行者勿困惑。
 
 ---
 
@@ -109,7 +110,7 @@ export function buildAllSkills(): Map<string, string> {
 }
 ```
 
-- [ ] **Step 2: 写派生逻辑测试（不含 DRY 一致性，Task 2 加）**
+- [ ] **Step 2: 写派生逻辑测试（含 throw 分支覆盖，不含 DRY 一致性——Task 2 加）**
 
 创建 `D:\GitHub\godot-mcp-enhanced\test\tools\skill-builder.test.ts`：
 
@@ -126,7 +127,7 @@ describe('skill-builder 派生逻辑', () => {
     expect(WORKFLOW_TO_SKILL['godot-mcp-workflow-safe-edit.md']).toBe('godot-mcp-safe-edit');
   });
 
-  it('deriveSkillFromWorkflow 剥 rule frontmatter + 剃版本行 + 包 SKILL frontmatter（description 带引号）', () => {
+  it('deriveSkillFromWorkflow 剥 rule frontmatter + 剃版本行 + 包 SKILL frontmatter（description 带引号，无 H1）', () => {
     const tpl = DETAILED_RULE_TEMPLATES['godot-mcp-workflow-bridge-e2e.md']!;
     const skill = deriveSkillFromWorkflow(tpl, 'godot-mcp-bridge-e2e');
     // 剥 rule frontmatter（不含 alwaysApply）
@@ -136,11 +137,17 @@ describe('skill-builder 派生逻辑', () => {
     expect(skill).not.toContain('{{MCP_VERSION}}');
     // 包 SKILL frontmatter（name + description 带双引号开头）
     expect(skill.startsWith('---\nname: godot-mcp-bridge-e2e\ndescription: "')).toBe(true);
-    // 正文从 ## 起（不加 H1）
+    // 正文从 ## 起（H2）；无独立 H1——用行首锚定 \n#\s+\S，避免误匹配 ## 内的 "#"+空格
     expect(skill).toContain('\n## ');
-    expect(skill.indexOf('# ')).toBe(skill.indexOf('## ')); // 无单独 H1（# 后非 #）
+    expect(skill).not.toMatch(/\n#\s+\S/);  // 无独立 H1（\n 后单 # + 空格 + 非空白；## 的 # 后是 # 非空格，不匹配）
     // description 含触发短语
     expect(skill).toContain('—— 当你');
+  });
+
+  it('deriveSkillFromWorkflow 缺 frontmatter / description / ## 时 throw', () => {
+    expect(() => deriveSkillFromWorkflow('no frontmatter here', 'x')).toThrow();              // 缺 frontmatter
+    expect(() => deriveSkillFromWorkflow('---\nalwaysApply: false\n---\n\n## h2', 'x')).toThrow();  // 缺 description
+    expect(() => deriveSkillFromWorkflow('---\ndescription: "d"\n---\n\nno h2 here', 'x')).toThrow(); // 缺 ##
   });
 
   it('buildAllSkills 返回 3 个 entry，frontmatter 合法', () => {
@@ -158,10 +165,10 @@ describe('skill-builder 派生逻辑', () => {
 });
 ```
 
-- [ ] **Step 3: 跑测试确认 PASS**
+- [ ] **Step 3: 跑测试确认 PASS（4 个 it）**
 
 Run: `npx vitest run test/tools/skill-builder.test.ts`
-Expected: PASS（3 个 it 全过）
+Expected: PASS（4 个 it：映射 / 派生正路径 / throw 分支 / buildAllSkills）
 
 - [ ] **Step 4: tsc 编译确认（wrapper Task 2 要 import 编译产物）**
 
@@ -175,9 +182,9 @@ git add src/tools/skill-builder.ts test/tools/skill-builder.test.ts
 git commit -m "feat(skills): skill-builder 派生函数 + 派生逻辑测试
 
 - WORKFLOW_TO_SKILL 映射（3 workflow → skill name）
-- deriveSkillFromWorkflow（剥 rule frontmatter + 剃版本行 + 包 SKILL frontmatter）
+- deriveSkillFromWorkflow（剥 rule frontmatter + 剃版本行 + 包 SKILL frontmatter）+ 3 throw 分支
 - buildAllSkills 返回 3 个 SKILL.md 内容
-- 测试：映射/派生/buildAllSkills frontmatter 合法
+- 测试：映射/派生正路径/throw 分支/buildAllSkills frontmatter 合法
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -236,7 +243,7 @@ console.log(`Done: ${count} skills generated.`);
 
 - [ ] **Step 2: package.json 加 build:skills script**
 
-打开 `D:\GitHub\godot-mcp-enhanced\package.json`。在 scripts 段（`"generate-docs"` 行 :30 附近）之后加一行（保持字母/逻辑顺序，放 generate-docs 后）：
+打开 `D:\GitHub\godot-mcp-enhanced\package.json`。在 scripts 段的 `"generate-docs"` 行（:30）之后加一行（package.json scripts 非字母序，按现有位置插入即可）：
 
 ```json
     "build:skills": "npm run build && node scripts/build-skills.mjs",
@@ -258,15 +265,18 @@ Expected: 输出 3 行 `Generated .../godot-mcp-bridge-e2e/SKILL.md` 等 + `Done
 
 - [ ] **Step 5: 加 DRY 一致性测试到 skill-builder.test.ts**
 
-在 `D:\GitHub\godot-mcp-enhanced\test\tools\skill-builder.test.ts` 末尾加新 describe（读磁盘比对派生结果）：
-
+在 `D:\GitHub\godot-mcp-enhanced\test\tools\skill-builder.test.ts` 顶部 import 区加：
 ```typescript
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+```
 
+在文件末尾加新 describe（读磁盘比对派生结果）：
+
+```typescript
 // DRY 一致性（防忘记重跑 build:skills）：磁盘 SKILL.md == buildAllSkills() 派生结果
 describe('SKILL.md DRY 一致性（磁盘 == 派生）', () => {
   it('3 个 SKILL.md 磁盘内容 == buildAllSkills() 派生结果（字符串严格相等）', () => {
@@ -280,21 +290,20 @@ describe('SKILL.md DRY 一致性（磁盘 == 派生）', () => {
 });
 ```
 
-> 注：`import { readFileSync } from 'fs'` 等放文件顶部（与其他 import 一起），上面为可读性放 describe 前；实际写在文件顶部 import 区。
-
 - [ ] **Step 6: 跑全量测试确认 DRY 一致性 PASS + 无回归**
 
 Run: `npx vitest run test/tools/skill-builder.test.ts`
-Expected: PASS（4 个 it：3 派生逻辑 + 1 DRY 一致性）
+Expected: PASS（5 个 it：4 派生逻辑 + 1 DRY 一致性）
 
 Run: `npm test`
 Expected: 全量无新增失败（不少于现有用例数）
 
-- [ ] **Step 7: 验收 spec §7 第 5 条（防忘记重跑机制有效）**
+- [ ] **Step 7: 验收 spec §7 第 5 条（防忘记重跑机制有效）+ 还原确认**
 
-临时改一个 workflow 模板（如 rule-templates.ts 的 bridge-e2e description 末尾加一个字），跑 `npx vitest run test/tools/skill-builder.test.ts`，确认 **DRY 一致性 it 失败**（磁盘 != 派生）——证明机制有效。然后 `git checkout -- src/tools/rule-templates.ts` 还原。
+临时改一个 workflow 模板（如 rule-templates.ts 的 bridge-e2e description 末尾加一个字），跑 `npx vitest run test/tools/skill-builder.test.ts`，确认 **DRY 一致性 it 失败**（磁盘 != 派生）——证明机制有效。然后还原 + 确认工作区干净（防 Task 2 commit 污染 rule-templates.ts）：
 
-Expected: DRY 一致性 it FAIL（证明改 workflow 忘跑 build:skills 会被测试捕获）
+Run: `git checkout -- src/tools/rule-templates.ts && git status src/tools/rule-templates.ts`
+Expected: DRY 一致性 it FAIL（改 workflow 忘跑 build:skills 被捕获）→ 还原后 `nothing to commit, working tree clean`
 
 - [ ] **Step 8: Commit**
 
@@ -326,10 +335,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 | §4 build-skills.mjs wrapper（import 编译产物, writeFileSync 不加 trailing newline） | Task 2 Step 1（注释明确不加 \n） |
 | §4 package.json build:skills script | Task 2 Step 2 |
 | §4 维护流（改 rule-templates → build:skills → commit） | Task 2 Step 3 + 派生方向 |
-| §5 测试（派生逻辑 + DRY 一致性 + frontmatter 合法，放 vitest） | Task 1 Step 2（派生 3 it）+ Task 2 Step 5（DRY 1 it） |
+| §5 测试（派生逻辑 + DRY 一致性 + frontmatter 合法，放 vitest） | Task 1 Step 2（派生 4 it，含 throw 分支）+ Task 2 Step 5（DRY 1 it） |
 | §6 范围边界（不含 setup_project_rules/rules-manifest/CI check/hook） | Global Constraints + File Structure 一致 |
 | §7 验收标准 1-6 | Task 2 Step 3/4/6/7（验收 1-5）+ 全量 npm test（验收 6） |
 | §8 风险（派生 regex / 触发 / 三份漂移） | 测试覆盖派生逻辑 + DRY；三份漂移由 DRY（rule→skill）+ 现有 check-rules-version-bump（rule→.claude/rules）正交守护 |
+
+**改动面说明**：本 plan 只新增 `skill-builder.ts` 派生消费者，**不改 `rule-templates.ts` 模板内容**——`check-rules-version-bump.mjs` 不触发，**无需 version bump**（执行者勿困惑；Task 2 Step 7 的临时改动已 `git checkout` 还原）。
 
 **Gaps：无未覆盖项。**
 
@@ -340,6 +351,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - 3 个 skill name（`godot-mcp-bridge-e2e` / `godot-mcp-verify-loop` / `godot-mcp-safe-edit`）在 WORKFLOW_TO_SKILL + 测试断言 + 生成目录，全程一致。
 - import 路径：测试 `../../src/tools/skill-builder.js`（源，vitest 转译）；wrapper `../build/tools/skill-builder.js`（编译产物，先 build）——两套路径对齐项目惯例（test import src / scripts import build）。
 - DRY 测试 `join(__dirname, '..', '..', '.claude', 'skills', ...)`：`__dirname` = `test/tools/`，`../../.claude/skills` = 仓库根的 `.claude/skills/`（路径正确）。
+
+**4. 审查修正（用户 plan review）**：
+- B-1（BLOCKING，已修）：Task 1 Step 2 "无 H1"断言原用 `indexOf('# ') === indexOf('## ')` 必失败（`## ` 内含子串 `# `，N+1 ≠ N），改用 `expect(skill).not.toMatch(/\n#\s+\S/)`（行首锚定，不误匹配 `## `）。
+- A-1（已修）：Task 1 Step 2 加 throw 分支测试（3 个 `expect().toThrow()`，覆盖 frontmatter/description/## 缺失，保 branches 覆盖率）。
+- A-2（已修）：Task 2 Step 7 加 `git status` 确认还原（防 commit 污染 rule-templates.ts）。
+- A-3（已修）：Task 2 Step 2 删"字母序"措辞（package.json scripts 非字母序）。
+- A-4（已修）：Global Constraints + Self-Review §1 加"无需 version bump"说明。
 
 ---
 
