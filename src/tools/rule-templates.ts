@@ -667,4 +667,83 @@ alwaysApply: false
 - **★ 定位类问题先实测不纸面猜**：调坐标/布局/对齐时第一步用 game bridge 读真实值，不要 headless 截图（空白，见「截图与捕获」段）或纸面推算：(1) \`game_query find_nodes\` 确认真实节点路径与类型；(2) \`game_query get_node_properties\` 读 \`position\`/\`global_position\`/\`size\`/\`offset_*\`；(3) \`game_query take_screenshot\`（GPU 真渲染）+ 视觉确认实际渲染的是哪个元素；(4) 看到真实数据再改。反例：据「偏右上」反馈想当然以为是 lock 按钮、反复改 4 次无果，game bridge 实测发现根本没 lock、偏的是角标——根因就是没第一时间实测。关联：game_query/find_ui_elements、screenshot（headless 空白）；headless 截图根因见 godot-mcp-core.md「Headless 截图限制」。\`get_node_layout\` method 一次返全布局（含 \`global_position\` 成对），优先于手动拼 \`get_node_properties\` 扁平 dump。
 - **★ Node3D.scale 对部分节点无效**：Node3D.xml 原文 "The behavior of some 3D node types is not affected by this property. These include Light3D, Camera3D, AudioStreamPlayer3D"。\`get_node_layout\` 照读这些节点的 scale 值，但引擎忽略——AI 勿用 scale 对这几类节点做布局推断。关联：game_query(get_node_layout) Node3D 分支。
 `,
+
+  'godot-mcp-workflow-bridge-e2e.md': `---
+description: "bridge e2e 运行时验证 game_bridge_install run_project wait_for_bridge game_query ping game_input game_wait take_screenshot frame-verify 录制 回归测试 输入模拟 —— 当你需要验证运行时行为、做 E2E 测试、模拟输入或回归测试时使用"
+alwaysApply: false
+---
+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
+
+## 运行时验证 / E2E 流程
+
+把"安装 Bridge → 启动游戏 → 连接 → 模拟输入 → 留证"串成可遵循的 checklist，避免遗漏前置步骤。工具细节见 \`godot-mcp-bridge.md\` 与 \`godot-mcp-recording.md\`。
+
+**何时用**：需要验证运行时行为、做 E2E 测试、模拟输入、回归测试、Bug 复现时。
+
+**checklist**：
+- [ ] 1. \`game_bridge_install(project_path)\` — 一次性安装 Bridge autoload（端口 9081，写 project.godot）
+- [ ] 2. \`run_project(project_path, wait_for_bridge=true)\` — 启动游戏并等 Bridge 就绪（\`bridge_timeout\` 默认 10s）
+- [ ] 3. \`game_query(method="ping")\` — 确认连接（期望 \`status: "ok"\`）；未连排查：未 install / 游戏没运行 / 密钥权限
+- [ ] 4. 操作 + 验证：\`game_input\`（send_key/send_mouse_click/send_text）模拟输入 → \`game_wait\`（wait_for_node/wait_for_property）等状态变化
+- [ ] 5. 留证：\`take_screenshot\`（**GPU viewport 真渲染**，非 headless 空白）/ 或 \`frame-verify\`（反作弊退化检测）
+
+**常见偏离**：
+- 忘记 \`game_bridge_install\`（query/input 直接报 BRIDGE_NOT_CONNECTED）
+- 游戏没运行就 query（Bridge 只在游戏运行时监听）
+- 用 headless \`screenshot\` 做运行时视觉确认（headless 用 RendererDummy，2D/3D 均空白）→ 必须用 bridge \`take_screenshot\`
+- 节点路径不用绝对路径（\`game_write\`/\`game_wait\` 的 \`path\` 必须以 \`/root/\` 开头）
+`,
+
+  'godot-mcp-workflow-verify.md': `---
+description: "验证闭环 run_and_verify validate_scripts verify_delivery read_scene edit_script 交付门禁 编译 跨文件依赖 parse error 场景树完整性 —— 当你改完代码/场景需要验证或交付前自检时使用"
+alwaysApply: false
+---
+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
+
+## 改 → 跑 → 验证闭环
+
+把"理解 → 改 → 跑 → 编译验证 → 交付门禁"串成 checklist，避免只跑一种验证就交付。工具细节见 \`godot-mcp-core.md\`。
+
+**何时用**：改完代码/场景后需要验证、交付前自检时。
+
+**checklist**：
+- [ ] 1. \`read_scene\` / \`read_script\` — 理解现有结构（属性类型解析）
+- [ ] 2. \`edit_script\`（**search_and_replace 优先**）/ \`write_script\` — 修改
+- [ ] 3. \`run_and_verify(capture_tree=true)\` — headless 跑 + 结构化错误分析（自动识别 autoload 相关 headless_limitation）
+- [ ] 4. \`validate_scripts\` — 触发 Godot 完整 \`load()\` 编译（含**跨文件依赖**，捕 headless 运行遗漏的 Parse Error）
+- [ ] 5. \`verify_delivery\` — 交付门禁（场景树完整性 + 脚本健康 + 性能 + 自定义断言 + GDD 合规）
+
+**常见偏离**：
+- 只跑 \`run_and_verify\` 不跑 \`validate_scripts\`（漏跨文件编译错误——两者可能不一致，以 run_and_verify 实跑为准但 validate_scripts 补跨文件依赖）
+- 运行时工具（signal/tilemap/particles 等）误认为持久化（headless 退出即丢失，持久化须 add_node + save_scene）
+- 忘记 \`_mcp_done()\`（execute_gdscript 片段模式超时）
+`,
+
+  'godot-mcp-workflow-safe-edit.md': `---
+description: "安全编辑 edit_script search_and_replace validate_scripts 确认令牌 remove_node headless 改盘 editor 覆盖 沙箱 防误用 CRLF tab 缩进 —— 当你编辑 .gd/.tscn、删节点或执行危险操作时使用"
+alwaysApply: false
+---
+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
+
+## 安全编辑流
+
+编辑 \`.gd\`/\`.tscn\`、删节点、运行危险操作时的防护 checklist。工具细节见 \`godot-mcp-core.md\` 与 \`godot-mcp-editor.md\`。
+
+**何时用**：编辑 \`.gd\`/\`.tscn\`、删节点、执行危险操作时。
+
+**checklist**：
+- [ ] 1. \`edit_script\` **优先 search_and_replace**（内容匹配、行号偏移鲁棒、CRLF 安全、免确认 token）；**禁用内置 Edit 工具改 .gd**（tab 缩进匹配率极低）
+- [ ] 2. 改 \`.gd\` 后必跑 \`validate_scripts\`（验证语法）
+- [ ] 3. headless 改盘 + editor 开同场景 → Ctrl+S 覆盖风险：建议 editor 内 Reload 场景或关闭该场景后再操作
+- [ ] 4. 危险操作（\`remove_node\` 等）需显式确认令牌
+- [ ] 5. GDScript 沙箱是**防误用层非防对抗**（间接构造可绕过；真正隔离须容器/VM + \`GODOT_MCP_ALLOW_UNSAFE=false\`）
+
+**常见偏离**：
+- 用内置 Edit 工具改 \`.gd\`（tab 缩进失败）
+- 改完不 validate
+- headless 改盘后被 editor 旧版本 Ctrl+S 覆盖（MCP 不可控，须 Reload）
+`,
 };

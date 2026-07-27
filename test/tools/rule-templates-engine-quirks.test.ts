@@ -18,7 +18,7 @@ describe('DETAILED_RULE_TEMPLATES 含 engine-quirks', () => {
     expect(DETAILED_RULE_TEMPLATES['godot-mcp-engine-quirks.md']!).toContain('{{MCP_VERSION}}');
   });
 
-  it('6 个详细模板键齐全', () => {
+  it('9 个详细模板键齐全（6 子系统 + 3 workflow）', () => {
     const keys = Object.keys(DETAILED_RULE_TEMPLATES).sort();
     expect(keys).toEqual([
       'godot-mcp-bridge.md',
@@ -27,6 +27,9 @@ describe('DETAILED_RULE_TEMPLATES 含 engine-quirks', () => {
       'godot-mcp-engine-quirks.md',
       'godot-mcp-recording.md',
       'godot-mcp-ui.md',
+      'godot-mcp-workflow-bridge-e2e.md',
+      'godot-mcp-workflow-safe-edit.md',
+      'godot-mcp-workflow-verify.md',
     ]);
   });
 });

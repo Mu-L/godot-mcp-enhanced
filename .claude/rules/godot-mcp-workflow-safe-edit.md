@@ -1,0 +1,19 @@
+> 适用于 godot-mcp-enhanced v0.25.0+
+
+## 安全编辑流
+
+编辑 `.gd`/`.tscn`、删节点、运行危险操作时的防护 checklist。工具细节见 `godot-mcp-core.md` 与 `godot-mcp-editor.md`。
+
+**何时用**：编辑 `.gd`/`.tscn`、删节点、执行危险操作时。
+
+**checklist**：
+- [ ] 1. `edit_script` **优先 search_and_replace**（内容匹配、行号偏移鲁棒、CRLF 安全、免确认 token）；**禁用内置 Edit 工具改 .gd**（tab 缩进匹配率极低）
+- [ ] 2. 改 `.gd` 后必跑 `validate_scripts`（验证语法）
+- [ ] 3. headless 改盘 + editor 开同场景 → Ctrl+S 覆盖风险：建议 editor 内 Reload 场景或关闭该场景后再操作
+- [ ] 4. 危险操作（`remove_node` 等）需显式确认令牌
+- [ ] 5. GDScript 沙箱是**防误用层非防对抗**（间接构造可绕过；真正隔离须容器/VM + `GODOT_MCP_ALLOW_UNSAFE=false`）
+
+**常见偏离**：
+- 用内置 Edit 工具改 `.gd`（tab 缩进失败）
+- 改完不 validate
+- headless 改盘后被 editor 旧版本 Ctrl+S 覆盖（MCP 不可控，须 Reload）
