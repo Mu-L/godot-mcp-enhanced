@@ -1,6 +1,6 @@
 # Godot MCP Enhanced
 
-> Free · Open Source · Secure — as of 2026-06-28, a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture**.
+> Free · Open Source · Secure — a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture + runtime control**.
 
 An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 28 MCP tools (merged, each with multiple actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
 
@@ -20,6 +20,7 @@ An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool 
 | Tools | **28** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — |
 | Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
+| **Runtime control (engine-level)** | **✅ game bridge: live state / input simulation / record-replay / frame-verify** | ❌ file & editor only | ❌ | ❌ |
 | Godot 4.5–4.7 compat matrix | **✅** | — | — | — |
 | Chinese tool descriptions | **✅** | — | — | ❌ |
 
@@ -28,6 +29,10 @@ An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool 
 [^p3]: https://github.com/Coding-Solo/godot-mcp, fetched 2026-06-27
 
 _"—" means the project's public README does not disclose the capability; not necessarily absent. PRs welcome._
+
+> **Not just a file-level bridge — engine-level runtime control.**
+> Most solutions in the field (including closed-source commercial SaaS) only let AI read/write project files — they **can't see or control a running game**.
+> This project's Game Bridge connects to a live game over TCP: read live node trees & properties, GPU viewport screenshots, property sampling, signal watching, input simulation, record-replay, plus `frame-verify` anti-cheat — closing the loop **change → run → verify**, not just editing files.
 
 > **Upgrading from [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp)?** See the **[migration guide](docs/migration-from-coding-solo.md)** — zero capability loss; gain three-tier architecture / security / verification gates / cross-version matrix.
 

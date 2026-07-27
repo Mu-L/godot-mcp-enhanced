@@ -1,7 +1,7 @@
 # Godot MCP Enhanced
 
-> 免费 · 开源 · 安全 —— 截至 2026-06-28 调研,Godot MCP 赛道里
-> 少见提供「系统化安全防护 + 三层架构」的开源方案。
+> 免费 · 开源 · 安全 —— Godot MCP 赛道里少见提供
+> 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
 工具层:33 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
@@ -22,6 +22,7 @@
 | 工具数 | **33** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
+| **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
 | Godot 4.5–4.7 兼容矩阵 | **✅** | — | — | — |
 | 中文工具描述 | **✅** | — | — | ❌ |
 
@@ -30,6 +31,10 @@
 [^p3]: https://github.com/Coding-Solo/godot-mcp,抓取 2026-06-27
 
 _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;欢迎 PR 修正。_
+
+> **不只是文件级 bridge,而是 engine-level 运行时控制。**
+> 赛道里多数方案(含闭源商业 SaaS)只能让 AI 读写项目文件,**看不到、控不了一个正在运行的游戏**。
+> 本项目的 Game Bridge 通过 TCP 连接运行中的游戏:读运行时节点树与属性、GPU viewport 真实截图、属性采样、信号监听、输入模拟、录制回放,外加 `frame-verify` 反作弊验证——让 AI 真正闭环「改 → 跑 → 验证」,而非停在改文件。
 
 > **从 [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) 升级?** 见 **[迁移指南](docs/migration-from-coding-solo.md)** —— 核心能力零丢失,获得三层架构 / 安全 / 验证门禁 / 跨版本矩阵增强。
 
@@ -600,6 +605,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.24.1** | 2026-07-27 | **文档同步修复**：`rule-templates.ts` 补齐 get_node_layout 同步（独立副本约束 drift，第三方审查发现）+ **AGENTS.md 三段强制流程**（`.claude/rules/` 改后核查 / plan 落地后必出第三方审查文档 / 完成前必登 memory）+ 新增 `docs/reviews/` 目录补 5 条 7 月断档链路审查文档 |
 | **v0.24.0** | 2026-07-25 | **self-update 机制**(Godot AI 追赶 3/3：npm 启动检查 + self_update MCP 工具 addon 检查/更新)+ **5 批审查全闭环**(A 安全 RCE class_path/路径穿越/symlink + B 可靠性降级链路/资源写原子化17处 + C 正确性协议契约/undo/参数校验 + D 工具治理 asset/android TOOL_GROUPS + E 测试缺口加固10/10)+ **batch F 测试覆盖深度**(6 task 假绿修复/纯函数单测/安全动态断言/防回归契约/skip 可见化)+ **CI Godot 4.6.3/4.7.1 版本矩阵** + ZCode 深度支持/AGENTS.md + orphan 扫描会话隔离 + editor key 多实例误删修复 + take_screenshot null guard，4030 测试 |
 | **v0.23.0** | 2026-07-13 | 安全 CRITICAL(零确认 RCE 复合链 `6406de4` + `confirm_and_execute` elicitation out-of-band gate 堵 AI 自确认 token `18ef867` + `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` opt-in 降级)+ editor 路由解锁(editor-method-map 登记 animation_track/export/particles/nav/animtree/ui 21 action `356a061` + scene/node/open_scene/reconnecting)+ bug 修复(path_generator 死循环/scene vector3 coerce/asset color+count/data-import A1-A3)+ HealthMonitor editor stall 检测 `85f5328` + 删 ReconnectionManager 死代码 410 行 `f2773fb` |
 | **v0.22.0** | 2026-07-08 | asset 工具集新工具(11 shape + 路径阵列 discrete/continuous + batch 原子 undo + save 预制件 + 10 材质预设;方案 A 阻塞 continuous ramp 待上游)+ capability-matrix 33 + LICENSE 致谢 AssetForge/Tripo3D |
