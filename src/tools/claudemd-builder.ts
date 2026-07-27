@@ -292,6 +292,9 @@ export function buildMcpMapping(): string {
     '| UI 布局 | .claude/rules/godot-mcp-ui.md |',
     '| 录制回放 | .claude/rules/godot-mcp-recording.md |',
     '| 引擎陷阱 | .claude/rules/godot-mcp-engine-quirks.md |',
+    '| 运行时验证 / E2E | .claude/rules/godot-mcp-workflow-bridge-e2e.md |',
+    '| 改→跑→验证闭环 | .claude/rules/godot-mcp-workflow-verify.md |',
+    '| 安全编辑流 | .claude/rules/godot-mcp-workflow-safe-edit.md |',
   ].join('\n');
 }
 

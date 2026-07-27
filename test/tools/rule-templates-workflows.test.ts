@@ -11,7 +11,7 @@ describe('DETAILED_RULE_TEMPLATES 含 3 个 workflow 文档', () => {
   it('3 个 workflow 键存在且非空', () => {
     for (const key of WORKFLOW_KEYS) {
       expect(DETAILED_RULE_TEMPLATES[key]).toBeTruthy();
-      expect(DETAILED_RULE_TEMPLATES[key]!.length).toBeGreaterThan(300);
+      expect(DETAILED_RULE_TEMPLATES[key]!.length).toBeGreaterThan(500);
     }
   });
 

@@ -425,8 +425,12 @@ describe('project-tools handleTool — setup_project_rules', () => {
     expect(claudeMd).toContain('godot-mcp-editor.md');
     expect(claudeMd).toContain('godot-mcp-ui.md');
     expect(claudeMd).toContain('godot-mcp-recording.md');
+    expect(claudeMd).toContain('godot-mcp-engine-quirks.md');
+    expect(claudeMd).toContain('godot-mcp-workflow-bridge-e2e.md');
+    expect(claudeMd).toContain('godot-mcp-workflow-verify.md');
+    expect(claudeMd).toContain('godot-mcp-workflow-safe-edit.md');
 
-    // Verify all 6 rule files were created
+    // Verify base + 子系统 + workflow rule files were created (engine-quirks tracked in mapping test above)
     const rulesDir = join(dir, '.claude', 'rules');
     expect(existsSync(join(rulesDir, 'godot-mcp.md'))).toBe(true);
     expect(existsSync(join(rulesDir, 'godot-mcp-core.md'))).toBe(true);
