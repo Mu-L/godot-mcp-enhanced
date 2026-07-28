@@ -34,6 +34,7 @@ import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
 import { getLogger } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
+import { record as recordTelemetry, hashProject, safeErrorCategory } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
 import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
 
@@ -449,6 +450,23 @@ export class ToolDispatcher {
           this.healthMonitor.recordSuccess(duration);
           recorder.record(ctx.toolName, true, duration);
         }
+        return result;
+      },
+    });
+
+    // Telemetry after-hook（opt-in，与 healthSample 并列；review B-1 正确包装点）。
+    // endpoint 空（默认）时 record 内部立即 return，零开销。
+    mw.push({
+      name: 'telemetry',
+      before: async () => ({ passed: true }),
+      after: async (ctx, result) => {
+        recordTelemetry({
+          tool: ctx.toolName,
+          success: result.isError !== true,
+          duration_ms: Date.now() - ctx.startTime,
+          error_category: result.isError === true ? safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR') : undefined,
+          project_hash: typeof ctx.args.project_path === 'string' ? hashProject(ctx.args.project_path) : undefined,
+        });
         return result;
       },
     });
