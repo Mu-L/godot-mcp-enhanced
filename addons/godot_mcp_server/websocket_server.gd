@@ -347,9 +347,20 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		return
 
 	_request_counter = (_request_counter + 1) % 1000000
-	var response = _command_handler.handle(parsed.get("method", ""), parsed.get("params", {}), _request_counter)
+	var _method: String = parsed.get("method", "")
+	var response: Dictionary
+	if _method.begins_with("nav_"):
+		# A-lite: nav 走 async 入口（spec §3）。packet 循环不 await 本 coroutine——
+		# 挂起期间循环继续处理下个 packet（非 nav 当帧 reply），nav reply 在 bake 完成后自行恢复发。
+		response = await _command_handler.handle_nav_async(_method, parsed.get("params", {}), _request_counter)
+	else:
+		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)
+	# §10 peer 生命周期守卫：coroutine 恢复时 peer 可能已 CLOSED/被 free
+	if not is_instance_valid(peer) or peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		push_warning("[MCP] nav coroutine resumed but peer gone (method=%s), reply dropped" % _method)
+		return
 	if response == null or not response is Dictionary:
-		push_warning("[MCP] command_handler returned null/non-dict for method: %s" % parsed.get("method", ""))
+		push_warning("[MCP] command_handler returned null/non-dict for method: %s" % _method)
 		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "error": {"code": -32603, "message": "Internal error: handler returned invalid response"}}))
 		return
 	var reply = {"jsonrpc": "2.0", "id": parsed.get("id")}
