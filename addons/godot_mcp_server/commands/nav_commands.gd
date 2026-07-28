@@ -105,10 +105,10 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 	var bake_result: bool = false
 
 	# bake_finished 信号先连接（避 commit/add_child 路径触发 bake 后丢信号）
-	var _baking: bool = want_bake
+	var _bake_state = {"done": false}
 	var _cb: Callable = Callable()
 	if want_bake:
-		_cb = func() -> void: _baking = false
+		_cb = func() -> void: _bake_state["done"] = true
 		nav.bake_finished.connect(_cb)
 
 	# do_ops / 同步 add_child 路径（与同步版一致，bake 作 do_method 入 undo 保 redo 重 bake）
@@ -131,7 +131,7 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 	# §6 fallback: bake_finished 信号 + timer 竞速（替代 is_baking 轮询）
 	if want_bake:
 		var _deadline: int = Time.get_ticks_msec() + BAKE_WAIT_TIMEOUT_MS
-		while _baking and Time.get_ticks_msec() < _deadline:
+		while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 			if not is_instance_valid(nav):
 				if nav.bake_finished.is_connected(_cb):
 					nav.bake_finished.disconnect(_cb)
@@ -174,14 +174,14 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32004, "message": "Node is not a NavigationRegion3D: " + node_path}}
 
 	var nav: NavigationRegion3D = node
-	var _baking: bool = true
-	var _cb: Callable = func() -> void: _baking = false
+	var _bake_state = {"done": false}
+	var _cb: Callable = func() -> void: _bake_state["done"] = true
 	nav.bake_finished.connect(_cb)
 	nav.bake_navigation_mesh()
 
 	# §6 fallback: bake_finished 信号 + timer 竞速（deadline 110000ms 量级）
 	var _deadline: int = Time.get_ticks_msec() + 110000
-	while _baking and Time.get_ticks_msec() < _deadline:
+	while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 		if not is_instance_valid(nav):
 			if nav.bake_finished.is_connected(_cb):
 				nav.bake_finished.disconnect(_cb)
