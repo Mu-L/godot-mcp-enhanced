@@ -242,6 +242,19 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
 
 
+## nav 专用 async 入口（A-lite：nav 走 coroutine，非 nav 走同步 handle）。
+## websocket_server 按 method.begins_with("nav_") 分流到此。spec §8。
+func handle_nav_async(method: String, params: Dictionary, request_id: int) -> Dictionary:
+	match method:
+		"nav_create_region": return await _nav_commands.handle_nav_create_region_async(params, request_id)
+		"nav_bake_mesh":     return await _nav_commands.handle_nav_bake_mesh_async(params)
+		"nav_create_agent":  return _nav_commands.handle_nav_create_agent(params, request_id)
+		"nav_set_params":    return _nav_commands.handle_nav_set_params(params)
+		"nav_create_link":   return _nav_commands.handle_nav_create_link(params, request_id)
+		_:
+			return {"error": {"code": -32601, "message": "Unknown nav method: %s" % method}}
+
+
 func send_notification(method: String, params: Dictionary) -> void:
 	# Forward to plugin's WebSocket/TCP notification channel
 	var plugin = get_parent()
