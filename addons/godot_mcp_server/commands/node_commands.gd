@@ -143,8 +143,8 @@ func handle_remove_node(params: Dictionary, request_id: int) -> Dictionary:
 # editor 内存改节点属性（UndoRedo per-property undo：do=set new / undo=set old）。
 # editor-method-map 登记 edit_node 后，editor 连接时 scene 工具 edit_node 路由到此处（不再 spawnGodot 改盘）。
 # properties coerce 失败累计进返回值（非阻塞，对齐 headless edit_node）。节点找不到返 -32002。
-# old_val 预读：node.get(key)；只读 property 预读 null 时 undo 会 set(key,null)——务实接受（name/class 等
-# 只读多在 BLOCKED_PROPERTIES 已拒），未来加 PROPERTY_USAGE_READ_ONLY 检查记 follow-up。
+# old_val 预读：node.get(key)；只读 property 预读 null 时 undo 会 set(key,null)。
+# C12 已实现 PROPERTY_USAGE_READ_ONLY 检查（下方 _get_property_usage），只读属性跳过 undo 记录。
 func handle_edit_node(params: Dictionary, request_id: int) -> Dictionary:
 	var ei := _get_ei()
 	if ei == null:
