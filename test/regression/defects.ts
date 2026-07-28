@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 97 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1）。
+// FIXED_DEFECTS 99 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1025,6 +1025,26 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasGetImage = /get_image\(\)/.test(body);
       const hasNullGuard = /\b(?:img|tex|viewport)\s*==\s*null\b/.test(body);
       return (hasGetImage && !hasNullGuard) ? 1 : 0;
+    } },
+  // ─── 2026-07-28 detect 补全（2026-07-22 安全/RCE 面审查 P1，防护已在批次 A/B 落地，补 detect 防复发）──
+  { key: 'validation-run-and-verify-scene-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // 2026-07-22 RCE面复审P1: validation.ts run_and_verify 的 args.scene 直接 push 进 godot CLI
+    // 加载项目外场景执行节点脚本(无 GD _sanitize_res_path 兜底)。
+    // fix: normalizeUserProjectPath + resolveWithinRoot(projectPath, normalized) 仅校验(validation.ts:549)。
+    // 复发: 删 resolveWithinRoot 调用 → 窗口无终点 m=undefined → detect=1。
+    detect: () => {
+      const f = readSrc('src/tools/validation.ts');
+      const m = f.match(/case 'run_and_verify'[\s\S]{0,1500}?\bresolveWithinRoot\(projectPath,\s*normalized\)/);
+      return m ? 0 : 1;
+    } },
+  { key: 'workflow-user-protocol-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(reference_path:515 / frames_dir:584 /
+    // bridge.screenshot.path:390), GD Image.load/DirAccess/bridge take_screenshot 任意目录读/写。
+    // fix: 三处调用均加 hasTraversalSegments。复发: 任一处调用删 → raw count<3 detect=1。
+    // 注: :257 函数定义 hasTraversalSegments(p:) 不匹配 raw 前缀, 故不计数。
+    detect: () => {
+      const f = readSrc('src/tools/workflow.ts');
+      return (f.match(/hasTraversalSegments\(raw\w+/g) || []).length >= 3 ? 0 : 1;
     } },
 ];
 

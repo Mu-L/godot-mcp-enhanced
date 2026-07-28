@@ -9,7 +9,7 @@
 2026-07-22 安全/RCE 面专项审查（含复审）登记了两条 P1 路径越权 finding：
 
 - **① `validation.ts:538,543,560` run_and_verify scene 无 root 校验** —— 客户端传 `../../evil.tscn` 让 godot CLI 加载项目外场景执行节点脚本，**无 GD `_sanitize_res_path` 兜底**，路径越权确定 + 潜在 RCE。两轮 5 子代理共同遗漏的最重项。
-- **② `workflow.ts` user:// 路径穿越三处** —— `reference_path`(:514) / `frames_dir`(:583) / `bridge.screenshot.path`(:388) 放行 `user://`/`res://` 不校验 `..` 段，GDScript `Image.load` / `DirAccess` / bridge `take_screenshot` 任意目录读/写。
+- **② `workflow.ts` user:// 路径穿越三处** —— `reference_path`(:515) / `frames_dir`(:584) / `bridge.screenshot.path`(:390) 放行 `user://`/`res://` 不校验 `..` 段，GDScript `Image.load` / `DirAccess` / bridge `take_screenshot` 任意目录读/写。
 
 审查报告原话「修复后须补 defects.ts detect 防复发」。
 
@@ -20,9 +20,9 @@
 | 项 | 防护位置 | 防护实现 |
 |---|---|---|
 | ① scene 越权 | `src/tools/validation.ts:541-551` | `normalizeUserProjectPath(scene)` + `resolveWithinRoot(projectPath, normalized)` 仅校验，注释含 "A2 scene 越权防护" + "I1 fix(2026-07-23 final review)" |
-| ② reference_path | `src/tools/workflow.ts:514-519` | `startsWith('res://')‖startsWith('user://')` 分支内 `hasTraversalSegments(rawReferencePath)` |
-| ② frames_dir | `src/tools/workflow.ts:583-588` | 同款 `hasTraversalSegments(rawFramesDir)` |
-| ② bridge.screenshot.path | `src/tools/workflow.ts:388-392` | `!startsWith('user://') && !startsWith('res://')` 拒绝 + `hasTraversalSegments(rawPath)` |
+| ② reference_path | `src/tools/workflow.ts:515-519` | `startsWith('res://')‖startsWith('user://')` 分支内 `hasTraversalSegments(rawReferencePath)` |
+| ② frames_dir | `src/tools/workflow.ts:584-588` | 同款 `hasTraversalSegments(rawFramesDir)` |
+| ② bridge.screenshot.path | `src/tools/workflow.ts:390-392` | `!startsWith('user://') && !startsWith('res://')` 拒绝 + `hasTraversalSegments(rawPath)` |
 
 defects.ts 现 **97 FIXED + 9 OPEN**（待办旧值 54 滞后），**无这两条的专门 detect**：
 - `rce-create-scene-root-node-type-no-validation` 是 `create_scene` 的，非 run_and_verify scene
