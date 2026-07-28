@@ -139,6 +139,8 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 			await get_tree().process_frame
 		if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
 			nav.bake_finished.disconnect(_cb)  # one-shot 显式断开，避节点复用累积
+		if not _bake_state["done"]:
+			push_warning("[MCP] nav bake deadline exhausted (req:%d) — bake_result 退化乐观" % request_id)
 		bake_result = is_instance_valid(nav) and nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
 
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
@@ -160,7 +162,8 @@ func handle_nav_bake_mesh(params: Dictionary) -> Dictionary:
 	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
 
 # nav_bake_mesh async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
-# bake_mesh 长 timeout（120s 量级，留余量 110s < client 超时）。
+# 110s 是 GD 兜底窗口；client requestTimeoutMs=30s（EditorConnection.ts:152），bake_mesh 110s > 30s
+# 时 client 先 reject，GD coroutine 完成于 orphan 态，§10 peer 守卫兜底丢 reply（spec §17 已知局限）。
 func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
@@ -189,6 +192,8 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 		await get_tree().process_frame
 	if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
 		nav.bake_finished.disconnect(_cb)
+	if not _bake_state["done"]:
+		push_warning("[MCP] nav bake_mesh deadline exhausted — bake_result 退化乐观")
 	var success: bool = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
 	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
 

@@ -88,7 +88,10 @@ export class EditorToolExecutor {
           const result = await this.conn.request(method, finalArgs);
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } finally {
-          await this.conn.endOperation();
+          // I-1 (C4 final review): endOperation 在连接异常态（client 30s REQUEST_TIMEOUT reject 后）
+          // 可能自身 reject（NOT_CONNECTED 等），.catch 防其覆盖 try 抛出的原始错误（保 errCode 可观测性，
+          // 下游 CONN_ERROR_CODES 判定正确）。
+          await this.conn.endOperation().catch(() => {});
         }
       }
 
