@@ -10,6 +10,7 @@ const FEATURES = {
   RESPONSE_LIMIT:  { env: 'GODOT_MCP_RESPONSE_LIMIT',   default: true },
   HEALTH_MONITOR:  { env: 'GODOT_MCP_HEALTH_MONITOR',   default: true },
   ELICITATION:     { env: 'GODOT_MCP_ELICITATION',      default: true },
+  TELEMETRY:       { env: 'GODOT_MCP_TELEMETRY',        default: false },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURES;
