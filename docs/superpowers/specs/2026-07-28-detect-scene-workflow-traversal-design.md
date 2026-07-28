@@ -65,8 +65,8 @@ defects.ts 现 **97 FIXED + 9 OPEN**（待办旧值 54 滞后），**无这两�
 
 ```ts
 { key: 'workflow-user-protocol-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
-  // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(reference_path:515 /
-  // frames_dir:584 / bridge.screenshot.path:390), GD Image.load/DirAccess/bridge take_screenshot
+  // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(bridge.screenshot.path:390 / reference_path:515 /
+  // frames_dir:584), GD bridge take_screenshot/Image.load/DirAccess
   // 任意目录读/写。fix: 三处调用均加 hasTraversalSegments。复发: 任一处调用删 → raw count<3 detect=1。
   // 注: :257 函数定义 hasTraversalSegments(p:) 不匹配 raw 前缀, 故不计数。
   detect: () => {
