@@ -73,6 +73,25 @@ export class EditorToolExecutor {
       const entry = resolveEditorMethod(toolName, args);
       const method = entry?.method ?? toolName;
       const finalArgs = entry?.transformArgs ? entry.transformArgs(args) : args;
+
+      // §7 A-lite: nav bake 长操作包 operation_start/end 暂停心跳（EditorConnection.ts:419-424 已有方法接线）。
+      // 闭环 defects heartbeat-pause-timeout-disconnect（startOperation/endOperation 零生产调用）：
+      // bake_mesh 挂起期心跳阻塞致 editor 误判断开；operation_start 通知 GD heartbeat.gd 暂停。
+      // T_ts 对齐 §6 BAKE_WAIT_TIMEOUT_MS（110s 量级，clamp ≤600）。GD P1#3 hard timeout 兜底（heartbeat.gd:37-46）。
+      const isNavBake = method === 'nav_bake_mesh'
+        || (method === 'nav_create_region' && finalArgs.bake === true);
+      const NAV_BAKE_OP_TIMEOUT_SEC = 110;  // < GD clamp 600，> §6 BAKE_WAIT_TIMEOUT_MS
+
+      if (isNavBake) {
+        await this.conn.startOperation(NAV_BAKE_OP_TIMEOUT_SEC);
+        try {
+          const result = await this.conn.request(method, finalArgs);
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        } finally {
+          await this.conn.endOperation();
+        }
+      }
+
       const result = await this.conn.request(method, finalArgs);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],

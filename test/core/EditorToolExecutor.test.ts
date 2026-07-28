@@ -1,0 +1,132 @@
+// test/core/EditorToolExecutor.test.ts
+// Task 5 (§7): nav bake 长操作接线 operation_start/end 暂停心跳
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
+import { clearRegistry, registerTools } from '../../src/core/tool-registry.js';
+
+interface MockConn {
+  request: ReturnType<typeof vi.fn>;
+  startOperation: ReturnType<typeof vi.fn>;
+  endOperation: ReturnType<typeof vi.fn>;
+  onNotification: ReturnType<typeof vi.fn>;
+  offNotification: ReturnType<typeof vi.fn>;
+  addOnDisconnectHandler: ReturnType<typeof vi.fn>;
+  addOnReconnectHandler: ReturnType<typeof vi.fn>;
+  removeOnDisconnectHandler: ReturnType<typeof vi.fn>;
+  removeOnReconnectHandler: ReturnType<typeof vi.fn>;
+}
+
+function makeMockConn(): MockConn {
+  return {
+    request: vi.fn().mockResolvedValue({ status: 'ok' }),
+    startOperation: vi.fn().mockResolvedValue(undefined),
+    endOperation: vi.fn().mockResolvedValue(undefined),
+    onNotification: vi.fn(),
+    offNotification: vi.fn(),
+    addOnDisconnectHandler: vi.fn(),
+    addOnReconnectHandler: vi.fn(),
+    removeOnDisconnectHandler: vi.fn(),
+    removeOnReconnectHandler: vi.fn(),
+  };
+}
+
+describe('EditorToolExecutor nav bake operation (§7)', () => {
+  let mockConn: MockConn;
+  let executor: EditorToolExecutor;
+
+  beforeEach(() => {
+    clearRegistry();
+    registerTools([{ name: 'nav', readonly: false, long_running: false }]);
+    mockConn = makeMockConn();
+    executor = new EditorToolExecutor(mockConn as unknown as Parameters<typeof EditorToolExecutor>[0]);
+  });
+
+  afterEach(() => {
+    clearRegistry();
+  });
+
+  it('nav bake_mesh: calls startOperation before request and endOperation after (ordered)', async () => {
+    const callOrder: string[] = [];
+    mockConn.startOperation.mockImplementation(async () => { callOrder.push('startOperation'); });
+    mockConn.request.mockImplementation(async () => { callOrder.push('request'); return { baked: true }; });
+    mockConn.endOperation.mockImplementation(async () => { callOrder.push('endOperation'); });
+
+    await executor.execute('nav', { action: 'bake_mesh', region_path: '/root/Nav' });
+
+    expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.startOperation).toHaveBeenCalledWith(expect.any(Number));
+    expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.request).toHaveBeenCalledWith('nav_bake_mesh', expect.objectContaining({ action: 'bake_mesh' }));
+    expect(callOrder).toEqual(['startOperation', 'request', 'endOperation']);
+  });
+
+  it('nav create_region with bake=true: wraps with start/endOperation', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: true });
+
+    expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.request).toHaveBeenCalledWith('nav_create_region', expect.objectContaining({ bake: true }));
+  });
+
+  it('nav create_region with bake=false: does NOT call start/endOperation', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: false });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+    expect(mockConn.request).toHaveBeenCalledWith('nav_create_region', expect.objectContaining({ bake: false }));
+  });
+
+  it('nav create_region without bake flag: does NOT call start/endOperation', async () => {
+    await executor.execute('nav', { action: 'create_region' });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+
+  it('nav create_agent: does NOT call start/endOperation', async () => {
+    await executor.execute('nav', { action: 'create_agent' });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+    expect(mockConn.request).toHaveBeenCalledWith('nav_create_agent', expect.anything());
+  });
+
+  it('nav set_params: does NOT call start/endOperation', async () => {
+    await executor.execute('nav', { action: 'set_params' });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+
+  it('nav create_link: does NOT call start/endOperation', async () => {
+    await executor.execute('nav', { action: 'create_link' });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+
+  it('startOperation timeout ≤ 600 (GD clamp) and > BAKE_WAIT_TIMEOUT_MS (110)', async () => {
+    await executor.execute('nav', { action: 'bake_mesh' });
+
+    const t = mockConn.startOperation.mock.calls[0]![0] as number;
+    expect(t).toBeLessThanOrEqual(600);
+    expect(t).toBeGreaterThan(100);
+  });
+
+  it('finally: endOperation called even when request throws', async () => {
+    mockConn.request.mockRejectedValueOnce(new Error('Plugin bake failed'));
+
+    await executor.execute('nav', { action: 'bake_mesh' });
+
+    expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it('non-nav tool: does NOT call start/endOperation', async () => {
+    registerTools([{ name: 'add_node', readonly: false, long_running: false }]);
+    await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(mockConn.startOperation).not.toHaveBeenCalled();
+    expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+});
