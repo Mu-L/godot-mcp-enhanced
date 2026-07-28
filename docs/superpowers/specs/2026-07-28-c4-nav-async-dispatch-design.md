@@ -104,9 +104,9 @@ var bake_result = _nav.navigation_mesh != null and _nav.navigation_mesh.get_vert
 
 **决策**：选 **(b) TS 侧对 nav bake action 包装 `operation_start/end`**，复用现有协议，GD coroutine 保持纯粹。
 
-**接线点**（editor 路由层，TS 侧）：TS 识别 `bake_mesh` / `create_region(bake=true)`，请求前发 `operation_start`（带 timeout），响应/超时后发 `operation_end`，try/finally 配对。心跳暂停区间 = 请求往返期，覆盖 GD coroutine 挂起期。
+**接线点**（editor 路由层，TS 侧；r4 核实：TS 方法已有，接线非新建）：`D:\GitHub\godot-mcp-enhanced\src\core\EditorConnection.ts:419-424` 已有 `startOperation(timeoutSec)` / `endOperation()`（defects `operation-pause-unwired`「零生产调用」——方法定义了没接线）。plan 的 TS 侧工作是**在 nav bake 调用链接线调用已有方法**（`ToolDispatcher`/`EditorToolExecutor` 识别 `bake_mesh` / `create_region(bake=true)`，请求前 `startOperation`，响应/超时后 `endOperation`，try/finally 配对），非实现新方法。心跳暂停区间 = 请求往返期，覆盖 GD coroutine 挂起期。
 
-**GD 侧服务端超时兜底（心跳命门不能只靠调用方守约）**：`operation_end` 若因 TS 崩溃/网络断/bug 没发，GD 心跳会永久暂停 → 伪断连。try/finally 防不住进程崩溃。GD 侧 `heartbeat.gd:58` `pause_for_operation(timeout_sec: float, peer_id: int = -1)`（`timeout_sec` 必传无默认）须有 **hard timeout 自动恢复**：超过 timeout_sec 仍未收 operation_end → 自动 resume 心跳 + 告警日志。
+**GD 侧服务端超时兜底（r4 核实：已有 P1#3 实现，心跳命门已守）**：`operation_end` 若因 TS 崩溃/网络断/bug 没发，GD 心跳会永久暂停 → 伪断连。try/finally 防不住进程崩溃。**`D:\GitHub\godot-mcp-enhanced\addons\godot_mcp_server\heartbeat.gd:37-46` 已有 P1#3 hard timeout 自动恢复**（2026-07-06 fix：`op_timer > op_timeout` 时 `paused=false` 自动 resume 心跳，注释明确「恢复 normal 心跳而非断连」）——正是本节要求的语义，plan 须验证行为符合预期。**唯一缺口**：现有恢复无 `push_warning` 告警日志，可选 polish 加一行。`heartbeat.gd:58` `pause_for_operation(timeout_sec: float, peer_id: int = -1)`（`timeout_sec` 必传无默认）。
 
 **嵌套 timeout 时间轴（r3 加，统一收口跨层约束）**：
 ```
@@ -116,9 +116,9 @@ t1: bake 完成（t1 < t0+BAKE_WAIT_TIMEOUT_MS）→ coroutine 读 mesh → repl
 t1: TS 收 reply → finally 发 operation_end → GD resume 心跳
 
 异常路径（TS 崩溃不发 operation_end）：
-t0+T_gd: GD hard timeout 触发 → 自动 resume 心跳 + 告警日志
+t0+T_gd: GD hard timeout 触发 → 自动 resume 心跳（P1#3 已实现，无告警日志→可选 polish）
 
-跨层约束：BAKE_WAIT_TIMEOUT_MS ≤ T_ts < T_gd < MCP client 请求超时
+跨层约束：BAKE_WAIT_TIMEOUT_MS ≤ T_ts < T_gd < MCP client 请求超时（r4 注：两端 timeout 被 clamp ≤ 600s——TS `EditorConnection.ts:420` `Math.min(timeoutSec,600)` + GD `heartbeat.gd:69` `min(timeout_sec,600.0)`；故 T_ts/T_gd 实际上限 600s，核实项 6 client 超时须 > 600s 否则约束边界要调）
 ```
 **关键**：所有 GD/TS 侧超时（BAKE_WAIT_TIMEOUT_MS / T_ts / T_gd）都必须 **< MCP client 请求超时**，否则兜底防了死挂但 reply 发了 client 已走。
 
@@ -185,8 +185,8 @@ plan 阶段须先实测/核实以下（不核实就写 task = 假设错误的返
 5. **headless main loop pump**：`godot --headless --script` 模式下 `await signal` / `await get_tree().process_frame` 是否成立（§9 可行性，memory [[godot-mcp-engine-quirks]] headless coroutine 坑）。
 6. **MCP client 请求超时 + response 匹配**：client 侧请求超时值（§6/§7 所有 GD/TS 超时须 < 它）+ response 按 JSON-RPC id 匹配不依赖顺序（§10 乱序）。
 7. **实测假设①（降级为语义确认）**：含 await 的函数，非 await 分支的 body 是否当帧同步执行 return（影响 §8 非 bake 3 method 的 latency，不影响正确性）。验证：`test\fixtures\gdscript-check\` 最小用例。
-8. **【行动项，非疑问】heartbeat hard timeout 当前实现确认**：`heartbeat.gd:58` `pause_for_operation(timeout_sec, peer_id)` **当前实现无 hard timeout 自动恢复**（§7 已决定加）——plan 须确认 delta 并**新增**自动恢复机制（范围扩到 `heartbeat.gd`）。
-9. **editor 路由层 nav 调用链**：`operation_start/end` 接线点位置（`ToolDispatcher` → `EditorConnection` → WS，§7）。
+8. **【确认项，r4 修正：已有】heartbeat hard timeout 行为确认**：`heartbeat.gd:37-46` **已有 P1#3 hard timeout 自动恢复**（`op_timer > op_timeout` → `paused=false`）。plan 须验证：① 行为符合 §7 预期（超时自动 resume 心跳，不断连）；② `timeout_sec` 传值 ≥ bake 最长时间；③ 可选加 `push_warning` 告警（§7 唯一缺口）。**非新增**——与 memory [[godot-mcp-enhanced-defects-status-stale]] 同型模式（spec 信「未实现」假设，未重读代码）。
+9. **editor 路由层 nav 调用链（r4 注：TS 方法已有）**：`EditorConnection.ts:419-424` 已有 `startOperation/endOperation`，plan 须定位 nav bake action 接线点（`ToolDispatcher` / `EditorToolExecutor` 识别 bake_mesh / create_region(bake=true) 处，§7）。
 10. **do_method 启动的 bake 与完成通知联动**：确认 do_method（commit_action 内）启动的 bake 会触发 `bake_finished` / `is_baking` 翻 true（§4/§6 一致性前提；不重调 bake，只等通知）。
 11. **并发 nav bake 行为**（r3）：Godot 对同一 NavigationRegion3D 并发 bake 的行为（§10 非目标，plan 决定加互斥还是标 unsupported）。
 
@@ -210,10 +210,10 @@ plan 阶段须先实测/核实以下（不核实就写 task = 假设错误的返
 ## §15 风险与回退
 
 **最大风险**：§12 核实项 0-3 结论不利。回退预案：
-- **核实项 0 不利（bake 同步阻塞主线程）**：最致命——A-lite 架构需根本重新评估。可能需 NavigationServer3D callback API + 主动异步轮询完全绕开 `bake_navigation_mesh()` coroutine，或接受同步阻塞（限 editor 路径，bake 期间 dispatch 链堵但不崩）。spec 升级 r4
+- **核实项 0 不利（bake 同步阻塞主线程）**：最致命——A-lite 架构需根本重新评估。可能需 NavigationServer3D callback API + 主动异步轮询完全绕开 `bake_navigation_mesh()` coroutine，或接受同步阻塞（限 editor 路径，bake 期间 dispatch 链堵但不崩）。spec 升级 r5
 - **核实项 1-2 不利（bake 不可 await / 返回 void）**：§6 is_baking 轮询为唯一可行方案（fallback 信号方案），spec 局部调整
 - **核实项 3 不利（is_baking 不存在/不可靠/单版本）**：§6 退回 fallback 信号+timer 方案（接受注册竞态靠 timer 兜底，BAKE_WAIT_TIMEOUT_MS 严控 < client 超时）；若仅 4.7 有 is_baking，4.6 走 fallback（版本分叉）
-- **核实项 8（r3 补）不利（pause_for_operation 无 hard timeout）**：范围扩到改 `heartbeat.gd` `pause_for_operation` 实现新增自动恢复
+- ~~**核实项 8 不利（pause_for_operation 无 hard timeout）**~~ **r4 修正：不会发生**——`heartbeat.gd:37-46` 已有 P1#3 hard timeout 自动恢复，核实项 8 降为行为确认
 
 **redo 已知局限不可消除**（editor undo 系统限制），spec 明确接受（§11）。
 
@@ -233,3 +233,9 @@ plan 阶段须先实测/核实以下（不核实就写 task = 假设错误的返
 - §3 补 packet 循环不等挂起 coroutine 语义
 - §2/§10 补并发 nav bake 非目标
 - §15 补核实项 0/8 不利回退
+
+**r4（plan 前准备核实采纳——事实错误修正）**：plan 阶段读 `heartbeat.gd` / `EditorConnection.ts` 发现 spec r3 信了「未实现」假设（与 memory [[godot-mcp-enhanced-defects-status-stale]] 同型模式）：
+- §7/§12 核实项 8：`heartbeat.gd:37-46` **已有 P1#3 hard timeout 自动恢复**（2026-07-06 fix，`op_timer > op_timeout` → `paused=false`），从「行动项新增」降「确认项」（plan Task 1 取消/降级为行为验证）
+- §7/§12 核实项 9：`EditorConnection.ts:419-424` **已有 `startOperation/endOperation`**（plan Task 5 改接线非新建，呼应 defects `operation-pause-unwired`「零生产调用」）
+- §7 时间轴：两端 timeout clamp ≤600s（TS `:420` `Math.min(timeoutSec,600)` + GD `:69` `min(timeout_sec,600.0)`），核实项 6 client 超时须 >600s
+- §15：核实项 8 不利回退删除（不会发生）+ 核实项 0 不利升级改 r5
