@@ -1,0 +1,1 @@
+# C4 Task 0 核实 probe（独立 --script 跑，不参与 fixture --import 编译，防 .uid warning）
