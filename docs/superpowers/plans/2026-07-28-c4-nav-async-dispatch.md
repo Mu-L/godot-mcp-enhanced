@@ -614,12 +614,26 @@ git commit -m "test(nav-bake): C4 async-dispatch 集成测试通过（双版本 
 
 ---
 
-## Task 0 结论（执行时填写）
+## Task 0 结论（2026-07-28 双版本实测，probe.gd 4.7.1 + 4.6.3）
 
-- 核实项 0（bake 异步立即返回）: _PASS / FAIL_
-- 核实项 1（返回值）: _void / coroutine / ___
-- 核实项 2（await 真异步）: _PASS / SKIP / FAIL_
-- 核实项 3（is_baking 存在 + 翻 true 时机 + 双版本）: ___
-- 核实项 5（headless pump）: _PASS / FAIL_
-- 核实项 6（client 超时值，是否 > 600s）: ___
-- **决策:** Task 3/6 用【is_baking 主方案】/【fallback 信号方案】/【spec r5 重新评估】
+**probe 实测（核实项 0-5）**:
+- 核实项 0（bake 异步立即返回）: ✅ **PASS** — BAKE_DELTA 4.7.1=2403usec / 4.6.3=2961usec（~2.4-3ms 立即返回，后台线程异步，非同步阻塞）→ **A-lite 架构成立**
+- 核实项 1（返回值）: **void** — 双版本编译器一致拒赋值（"Cannot get return value... returns void"）
+- 核实项 2（await 真异步）: **SKIP** — void 非 coroutine，裸 `await bake()` 无效（印证 spec r4「不裸 await bake」）
+- 核实项 3（is_baking）: ❌ **不存在** — 双版本 `BAKING_PROPS_BEFORE/AFTER=[]`，NavigationRegion3D 无 is_baking/baking 属性 → **§6 主方案不可用**
+- 核实项 4（bake_finished 信号）: ✅ **存在** — 双版本 `HAS_BAKE_FINISHED_SIGNAL=true` → **fallback 信号方案可行**
+- 核实项 5（headless pump）: ⚠️ **有坑** — bake 启动后台线程致 `quit()` 不退出（`call wait_to_finish()` + NavigationServer RID leak），headless 须处理清理
+
+**额外发现（plan/spec 修正点）**:
+- **判据方法错误**：`navigation_mesh.get_vertices_count()` 双版本 `Nonexistent function` → 改 `get_vertices().size() > 0`（spec §6/§9/§11/§14 + plan Task 3/6 全改）
+- **NavigationRegion3D 须入树**：未入树 bake 报 "root needs inside the SceneTree"（但函数仍立即返回，不影响核实项 0）
+
+- 核实项 6（client 超时 + response 匹配）: `EditorConnection.ts:152` `requestTimeoutMs=30000`（**30s**），`pending=Map<number>` 按 id 匹配（乱序 OK ✅）。**⚠️ client 30s < GD/TS clamp 600s 矛盾 §7 时间轴**——editor 路径 nav bake 受 client 30s 请求超时硬限制：bake > 30s 则 client 先 reject。plan Task 4/5 须处理（bake 专用 `requestTimeout` 调大 > bake 最长时间，或接受 30s 限制 bake 须 < 30s）
+- 核实项 9（editor-method-map nav 登记）: ✅ `editor-method-map.ts:110-115` nav 5 method 全登记（无 transformArgs，bake 直达 `nav_commands.gd`）→ editor 路径不走 headless fallback，spec editor 侧主体（§3/§4/§6/§8）成立
+- 核实项 10（do_method bake 联动）: 待 Task 3 实现确认（do_method 经 commit_action 同步执行已知，启动的 bake 是否触发 bake_finished 信号待验）
+
+**决策: GO**（核实项 0 PASS，A-lite 架构成立）
+- Task 3/6 用 **【fallback 信号方案】**（bake_finished 信号 + timer 竞速 + 循环内 `is_instance_valid` 守卫），非 is_baking 主方案
+- 判据统一改 `get_vertices().size() > 0`
+- headless（Task 6）须处理 bake 后台线程清理（quit 前确保 NavigationServer 不挂起）
+- spec r5 修正: §6 fallback 升主方案 + 判据方法 + §9 headless 清理坑
