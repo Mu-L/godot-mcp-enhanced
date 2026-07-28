@@ -44,7 +44,7 @@ As of 2026-06-28, systematic security features are rare among Godot MCP solution
 - **GDScript injection defense** — dangerous-API pattern scanning + string-concatenation bypass detection
 - **Confirm tokens for dangerous ops** — node deletion etc. require explicit confirmation
 - **Output anti-forgery** — random per-execution marker prevents GDScript from forging MCP output
-- **Local-only** — no remote exposure, no third-party data upload
+- **Local-only** — no remote exposure, no third-party data upload (note: update-checker queries npm registry on startup, see "Anonymous Telemetry" below)
 
 <details>
 <summary><b>⚠️ Honest boundaries (read before relying on this)</b></summary>
@@ -56,6 +56,17 @@ The above is a **mistake-prevention layer**, not an unbreakable security boundar
 - This tool is **for local trusted environments only**; no remote attestation or encryption.
 
 </details>
+
+## Anonymous Telemetry (off by default)
+
+**Opt-in, zero egress by default.** Only enabled when `GODOT_MCP_TELEMETRY=true` is set explicitly; Stage 0 endpoint defaults to empty = **no data leaves the process**.
+
+- **What we collect**: tool name + success bool + duration_ms + error category (whitelist-sanitized, not raw text) + salted sha256 project hash (irreversible)
+- **Never collected**: source code / scene content / file paths / project names / editor logs / email, IP, account
+- **Install UUID lives at**: `~/.godot-mcp/telemetry-uuid.txt` (POSIX 0o600)
+- **CI forced off**: `CI=true` ignores the opt-in even if set
+
+> **⚠️ Honest disclosure — update-checker egress**: every MCP server startup passively fetches `https://registry.npmjs.org/godot-mcp-enhanced/latest` from `src/core/update-checker.ts:13,86` (24h cache). This is unrelated to telemetry but does send data off-host, and **currently has no env gate** (confirmed via `grep GODOT_MCP_UPDATE_CHECK src/` — zero matches). This conflicts with the "zero egress by default" claim; an env gate is deferred to a future PR. Workarounds: pre-seed `~/.godot-mcp/update-cache.json`, or firewall-block. See [`docs/telemetry.md`](docs/telemetry.md).
 
 ## Core Capabilities
 

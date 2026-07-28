@@ -47,7 +47,7 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 - **GDScript 注入防御** — 危险 API 模式扫描 + 字符串拼接绕过检测
 - **危险操作确认令牌** — 删节点等操作需显式确认
 - **输出标记防伪造** — 每次执行随机标记,防 GDScript 伪造 MCP 输出
-- **本地运行** — 无远程暴露,无第三方数据上传
+- **本地运行** — 无远程暴露,无第三方数据上传(注:启动时 update-checker 会查 npm registry,详见下方「匿名遥测」段)
 
 <details>
 <summary><b>⚠️ 诚实的边界(展开必读)</b></summary>
@@ -60,6 +60,17 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 - 本工具**仅限本地可信环境**,不提供远程认证或加密
 
 </details>
+
+## 匿名遥测（默认关闭）
+
+**opt-in,默认零外传**。仅当显式设 `GODOT_MCP_TELEMETRY=true` 时启用,且阶段 0 endpoint 默认空 = **不发任何数据出进程**。
+
+- **收集什么**:tool 名 + success bool + duration_ms + 错误分类(经白名单脱敏,非原始文本)+ 加盐 sha256 项目 hash(不可逆推原路径)
+- **绝不收集**:源码 / 场景内容 / 文件路径 / 项目名 / editor 日志 / 邮箱 IP 账号
+- **install UUID 存哪**:`~/.godot-mcp/telemetry-uuid.txt`(POSIX 0o600)
+- **CI 强制关闭**:`CI=true` 时即使 opt-in 也忽略,防 CI 触发合成事件
+
+> **⚠️ 诚实披露 update-checker 外传点**:本仓库每次 MCP server 启动时,`src/core/update-checker.ts:13,86` 会**被动 fetch** `https://registry.npmjs.org/godot-mcp-enhanced/latest`(24h 缓存)。此行为与遥测无关但涉及「数据离开本机」,且**当前无 env 门控**(已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认)。这与「默认零外传」是冲突的硬伤——补 env 门控属未来 PR 范围。workaround:预置 `~/.godot-mcp/update-cache.json` 或防火墙阻断。详见 [`docs/telemetry.md`](docs/telemetry.md#-诚实披露既有的非遥测外传点)。
 
 ## Blender 建模（execute_bpy）安全模型
 
@@ -513,6 +524,7 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_PROJECT_PATH` | 默认项目路径 | 自动检测 cwd（向上搜索 project.godot） |
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
 | `DEBUG` | 启用详细日志 | `false` |
+| `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
 
 > **注意：** 项目路径有 30 秒缓存。切换项目后等待 30 秒或重启 MCP server 使新路径生效。
 
