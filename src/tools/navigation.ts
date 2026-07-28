@@ -29,6 +29,26 @@ const ACTIONS = [
 
 // ─── GDScript Generators ──────────────────────────────────────────────────
 
+// Task 6 (§9，与 editor §6 同款): NavigationRegion3D 无 is_baking 属性
+// (Task 0 实测 BAKING_PROPS 空) → fallback bake_finished 信号 + dict holder
+// (GDScript 4 lambda by-value，Task 0 实测 LOCAL_CAPTURE=1，与 cf060a8 同款)。
+// 判据用 navigation_mesh.get_vertices().size() > 0（plan 写 get_vertices_count()
+// 错，Task 0 实测 Nonexistent function）。
+const BAKE_WAIT_HELPER = `
+func _wait_bake_done(_nav, _timeout_ms):
+\tvar _state = {"done": false}
+\tvar _cb = func(): _state["done"] = true
+\t_nav.bake_finished.connect(_cb)
+\tawait process_frame
+\tvar _deadline = Time.get_ticks_msec() + _timeout_ms
+\twhile not _state["done"] and Time.get_ticks_msec() < _deadline:
+\t\tif not is_instance_valid(_nav):
+\t\t\treturn false
+\t\tawait process_frame
+\tif is_instance_valid(_nav) and _nav.bake_finished.is_connected(_cb):
+\t\t_nav.bake_finished.disconnect(_cb)
+\treturn true`;
+
 export function genCreateRegionScript(
   nodeName: string,
   parentPath: string,
@@ -36,8 +56,8 @@ export function genCreateRegionScript(
   bake: boolean,
 ): string {
   const bakeBlock = bake
-    ? `\t_nav.bake_navigation_mesh()`
-    : '';
+    ? `\t_nav.bake_navigation_mesh()\n\tvar _bake_wait_ok = await _wait_bake_done(_nav, 110000)\n\tvar _baked = _bake_wait_ok and _nav.navigation_mesh != null and _nav.navigation_mesh.get_vertices().size() > 0`
+    : `\tvar _baked = false`;
 
   return `${SCENE_TREE_HEADER}
 
@@ -58,12 +78,13 @@ func _initialize():
 \tvar _mesh = NavigationMesh.new()
 \t_nav.navigation_mesh = _mesh
 ${bakeBlock}
-\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationRegion3D", "parent": "${gdEscape(parentPath)}", "baked": ${bake}})
+\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationRegion3D", "parent": "${gdEscape(parentPath)}", "baked": _baked})
 \t_mcp_done()
+${BAKE_WAIT_HELPER}
 `;
 }
 
-function genBakeMeshScript(nodePath: string): string {
+export function genBakeMeshScript(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 
 func _initialize():
@@ -78,9 +99,11 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \t_nav.bake_navigation_mesh()
-\tvar _bake_ok = _nav.navigation_mesh != null
+\tvar _bake_wait_ok = await _wait_bake_done(_nav, 110000)
+\tvar _bake_ok = _bake_wait_ok and _nav.navigation_mesh != null and _nav.navigation_mesh.get_vertices().size() > 0
 \t_mcp_output("baked", {"node": "${gdEscape(nodePath)}", "success": _bake_ok})
 \t_mcp_done()
+${BAKE_WAIT_HELPER}
 `;
 }
 
