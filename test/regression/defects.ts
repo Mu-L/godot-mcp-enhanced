@@ -1032,9 +1032,10 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 加载项目外场景执行节点脚本(无 GD _sanitize_res_path 兜底)。
     // fix: normalizeUserProjectPath + resolveWithinRoot(projectPath, normalized) 仅校验(validation.ts:549)。
     // 复发: 删 resolveWithinRoot 调用 → 窗口无终点 m=undefined → detect=1。
+    // 窗口容差: case 体到目标调用当前 ~750 字符,窗口 3000;若 case 'run_and_verify' 体显著增长超窗口需 bump。
     detect: () => {
       const f = readSrc('src/tools/validation.ts');
-      const m = f.match(/case 'run_and_verify'[\s\S]{0,1500}?\bresolveWithinRoot\(projectPath,\s*normalized\)/);
+      const m = f.match(/case 'run_and_verify'[\s\S]{0,3000}?\bresolveWithinRoot\(projectPath,\s*normalized\)/);
       return m ? 0 : 1;
     } },
   { key: 'workflow-user-protocol-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
@@ -1042,6 +1043,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // bridge.screenshot.path:390), GD Image.load/DirAccess/bridge take_screenshot 任意目录读/写。
     // fix: 三处调用均加 hasTraversalSegments。复发: 任一处调用删 → raw count<3 detect=1。
     // 注: :257 函数定义 hasTraversalSegments(p:) 不匹配 raw 前缀, 故不计数。
+    // 局限: 若未来新增第 4 处 user:// 入口,必须同步加 hasTraversalSegments(raw*) 防护,否则 count≥3 仍假绿漏检。
     detect: () => {
       const f = readSrc('src/tools/workflow.ts');
       return (f.match(/hasTraversalSegments\(raw\w+/g) || []).length >= 3 ? 0 : 1;
