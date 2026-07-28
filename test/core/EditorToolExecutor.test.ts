@@ -38,7 +38,7 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
     clearRegistry();
     registerTools([{ name: 'nav', readonly: false, long_running: false }]);
     mockConn = makeMockConn();
-    executor = new EditorToolExecutor(mockConn as unknown as Parameters<typeof EditorToolExecutor>[0]);
+    executor = new EditorToolExecutor(mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0]);
   });
 
   afterEach(() => {
