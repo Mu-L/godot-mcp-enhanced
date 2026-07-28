@@ -188,6 +188,25 @@ describe('ToolDispatcher telemetry middleware', () => {
     expect(typeof errArg === 'string' && errArg.length > 0).toBe(true);
   });
 
+  // final review fix: {success:false} JSON 无 isError:true 时口径对齐 healthSample
+  // （旧实现仅判 isError!==true 会把这种结果记为 success=true，遥测虚高）
+  it('flags failure when result is {success:false} JSON without isError (aligns with healthSample)', async () => {
+    const falseSuccessResult: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'something failed' }) }],
+      // 注意：无 isError: true —— 仅靠 checkJsonSuccessFalse 识别
+    };
+    mockGetModuleForTool.mockReturnValue({ handleTool: vi.fn().mockResolvedValue(falseSuccessResult) });
+
+    const { ToolDispatcher } = await import('../../src/core/ToolDispatcher.js');
+    const dispatcher = new ToolDispatcher(createOptions());
+    await dispatcher.handleCall({ params: { name: 'scene', arguments: { project_path: '/p' } } });
+
+    expect(mockRecord).toHaveBeenCalledTimes(1);
+    const event = mockRecord.mock.calls[0][0];
+    expect(event.success).toBe(false);
+    expect(event.error_category).toBe('TOOL_ERROR');
+  });
+
   // typeof 守卫：project_path 缺失（skipProjectPath=true 跳过注入）→ project_hash undefined
   it('omits project_hash when project_path is not present', async () => {
     mockSkipProjectPath.mockReturnValue(true);

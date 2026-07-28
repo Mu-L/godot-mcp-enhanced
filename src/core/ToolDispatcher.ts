@@ -460,11 +460,14 @@ export class ToolDispatcher {
       name: 'telemetry',
       before: async () => ({ passed: true }),
       after: async (ctx, result) => {
+        // 与 healthSample 判定对齐：{success:false} JSON 无 isError 时也算失败，
+        // 否则 telemetry success 虚高、与 recorder/health 口径不一致。
+        const isError = result.isError === true || this.checkJsonSuccessFalse(result);
         recordTelemetry({
           tool: ctx.toolName,
-          success: result.isError !== true,
+          success: !isError,
           duration_ms: Date.now() - ctx.startTime,
-          error_category: result.isError === true ? safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR') : undefined,
+          error_category: isError ? safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR') : undefined,
           project_hash: typeof ctx.args.project_path === 'string' ? hashProject(ctx.args.project_path) : undefined,
         });
         return result;
