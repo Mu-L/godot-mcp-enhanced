@@ -104,7 +104,7 @@ var bake_result = _nav.navigation_mesh != null and _nav.navigation_mesh.get_vert
 
 **决策**：选 **(b) TS 侧对 nav bake action 包装 `operation_start/end`**，复用现有协议，GD coroutine 保持纯粹。
 
-**接线点**（editor 路由层，TS 侧；r4 核实：TS 方法已有，接线非新建）：`D:\GitHub\godot-mcp-enhanced\src\core\EditorConnection.ts:419-424` 已有 `startOperation(timeoutSec)` / `endOperation()`（defects `operation-pause-unwired`「零生产调用」——方法定义了没接线）。plan 的 TS 侧工作是**在 nav bake 调用链接线调用已有方法**（`ToolDispatcher`/`EditorToolExecutor` 识别 `bake_mesh` / `create_region(bake=true)`，请求前 `startOperation`，响应/超时后 `endOperation`，try/finally 配对），非实现新方法。心跳暂停区间 = 请求往返期，覆盖 GD coroutine 挂起期。
+**接线点**（editor 路由层，TS 侧；r4 核实：TS 方法已有，接线非新建）：`D:\GitHub\godot-mcp-enhanced\src\core\EditorConnection.ts:419-424` 已有 `startOperation(timeoutSec)` / `endOperation()`（零生产调用——方法定义了没接线）。plan 的 TS 侧工作是**在 nav bake 调用链接线调用已有方法**（`ToolDispatcher`/`EditorToolExecutor` 识别 `bake_mesh` / `create_region(bake=true)`，请求前 `startOperation`，响应/超时后 `endOperation`，try/finally 配对），非实现新方法。心跳暂停区间 = 请求往返期，覆盖 GD coroutine 挂起期。
 
 **GD 侧服务端超时兜底（r4 核实：已有 P1#3 实现，心跳命门已守）**：`operation_end` 若因 TS 崩溃/网络断/bug 没发，GD 心跳会永久暂停 → 伪断连。try/finally 防不住进程崩溃。**`D:\GitHub\godot-mcp-enhanced\addons\godot_mcp_server\heartbeat.gd:37-46` 已有 P1#3 hard timeout 自动恢复**（2026-07-06 fix：`op_timer > op_timeout` 时 `paused=false` 自动 resume 心跳，注释明确「恢复 normal 心跳而非断连」）——正是本节要求的语义，plan 须验证行为符合预期。**唯一缺口**：现有恢复无 `push_warning` 告警日志，可选 polish 加一行。`heartbeat.gd:58` `pause_for_operation(timeout_sec: float, peer_id: int = -1)`（`timeout_sec` 必传无默认）。
 
@@ -122,7 +122,7 @@ t0+T_gd: GD hard timeout 触发 → 自动 resume 心跳（P1#3 已实现，无�
 ```
 **关键**：所有 GD/TS 侧超时（BAKE_WAIT_TIMEOUT_MS / T_ts / T_gd）都必须 **< MCP client 请求超时**，否则兜底防了死挂但 reply 发了 client 已走。
 
-**理由**：复用现有协议（`operation_start/end` 已为 TS 主动长操作设计，见 defects `operation-pause-unwired` fix-forward）+ GD `pause_for_operation` 已 per-peer 下沉（defects P1#1 `heartbeat.gd:9` `_peer_activity`）+ GD coroutine 不掺心跳逻辑。
+**理由**：复用现有协议（`operation_start/end` 已为 TS 主动长操作设计，见 defects `heartbeat-pause-timeout-disconnect` P1#3 fix（heartbeat 超时恢复））+ GD `pause_for_operation` 已 per-peer 下沉（defects P1#1 `heartbeat.gd:9` `_peer_activity`）+ GD coroutine 不掺心跳逻辑。
 
 **备选 (a) GD 本地 pause/resume**（coroutine 内 await 前后调）更内聚，但心跳暂停逻辑分散（TS `operation_start` + GD 本地两套）——不选。
 
@@ -236,6 +236,6 @@ plan 阶段须先实测/核实以下（不核实就写 task = 假设错误的返
 
 **r4（plan 前准备核实采纳——事实错误修正）**：plan 阶段读 `heartbeat.gd` / `EditorConnection.ts` 发现 spec r3 信了「未实现」假设（与 memory [[godot-mcp-enhanced-defects-status-stale]] 同型模式）：
 - §7/§12 核实项 8：`heartbeat.gd:37-46` **已有 P1#3 hard timeout 自动恢复**（2026-07-06 fix，`op_timer > op_timeout` → `paused=false`），从「行动项新增」降「确认项」（plan Task 1 取消/降级为行为验证）
-- §7/§12 核实项 9：`EditorConnection.ts:419-424` **已有 `startOperation/endOperation`**（plan Task 5 改接线非新建，呼应 defects `operation-pause-unwired`「零生产调用」）
+- §7/§12 核实项 9：`EditorConnection.ts:419-424` **已有 `startOperation/endOperation`**（plan Task 5 改接线非新建，呼应 `startOperation/endOperation` 零生产调用）
 - §7 时间轴：两端 timeout clamp ≤600s（TS `:420` `Math.min(timeoutSec,600)` + GD `:69` `min(timeout_sec,600.0)`），核实项 6 client 超时须 >600s
 - §15：核实项 8 不利回退删除（不会发生）+ 核实项 0 不利升级改 r5
