@@ -13,12 +13,13 @@ import { TraeAdapter } from './trae.js';
 import { CherryStudioAdapter } from './cherry-studio.js';
 import { GeminiCliAdapter } from './gemini-cli.js';
 import { QwenCodeAdapter } from './qwen-code.js';
+import { ZCodeAdapter } from './zcode.js';
 
 export type { ClientAdapter } from './types.js';
 export {
   ClaudeCodeAdapter, CursorAdapter, OpenCodeAdapter, CodexAdapter,
   ClaudeDesktopAdapter, WindsurfAdapter, ClineAdapter, ZedAdapter,
-  AntigravityAdapter, TraeAdapter, CherryStudioAdapter, GeminiCliAdapter, QwenCodeAdapter,
+  AntigravityAdapter, TraeAdapter, CherryStudioAdapter, GeminiCliAdapter, QwenCodeAdapter, ZCodeAdapter,
 };
 
 export const ALL_ADAPTERS: ClientAdapter[] = [
@@ -37,4 +38,5 @@ export const ALL_ADAPTERS: ClientAdapter[] = [
   new AntigravityAdapter(),
   new TraeAdapter(),
   new CherryStudioAdapter(),
+  new ZCodeAdapter(),
 ];
