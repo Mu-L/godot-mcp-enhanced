@@ -1,0 +1,84 @@
+name: Release
+
+# tag v* 触发 + 手动 dispatch（PR-1 只做 GitHub Release：addon zip + SHA256 sidecar）。
+# npm publish（PR-2）与 RSA 签名（PR-3）不在本 workflow。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # softprops/action-gh-release 创建 release 需写权限
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify ref is a version tag
+        # 防 workflow_dispatch 在分支 ref 上跑（仿 godot-ai release.yml:37-46）
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: release.yml 必须在版本 tag (vX.Y.Z) 上跑，当前: $GITHUB_REF_NAME" >&2
+            echo "手动 dispatch 时请在 ref 下拉选 v* tag。" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - run: npm ci --ignore-scripts
+
+      - name: Verify tag ↔ package.json ↔ plugin.cfg version 三对齐
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          cfg=$(grep '^version=' addons/godot_mcp_server/plugin.cfg | head -1 | cut -d'"' -f2)
+          echo "tag=$tag  package.json=$pkg  plugin.cfg=$cfg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "ERROR: tag ($tag) != package.json version ($pkg)" >&2; exit 1
+          fi
+          if [ "$tag" != "$cfg" ]; then
+            echo "ERROR: tag ($tag) != plugin.cfg version ($cfg)" >&2; exit 1
+          fi
+          echo "三 version 对齐: $tag"
+
+      - name: Build addon zip（多顶层：addons/ + godot-mcp-enhanced-LICENSE.txt）
+        # 多顶层 trick：双顶层让 Godot AssetLib 不弹 "Ignore asset root"
+        # （单顶层会剥 addons/ 致 plugin 落 res://godot_mcp_server/ 而非 res://addons/...）。
+        # LICENSE 命名空间化（非裸 LICENSE）避免覆盖用户项目 LICENSE（godot-ai #450）。
+        # zip -D 剥零字节目录条目（self-update zip-slip 守卫拒路径以 / 结尾的条目）。
+        run: |
+          mkdir -p staging/addons
+          cp -r addons/godot_mcp_server staging/addons/
+          cp LICENSE staging/godot-mcp-enhanced-LICENSE.txt
+          cd staging
+          zip -D -r ../godot-mcp-enhanced-addon.zip addons/ godot-mcp-enhanced-LICENSE.txt
+          cd ..
+          ls -la godot-mcp-enhanced-addon.zip
+
+      - name: Verify zip structure
+        # 用 Task 1 的纯函数脚本校验（unzip -Z1 列 entry → node 校验）
+        run: unzip -Z1 godot-mcp-enhanced-addon.zip | node scripts/verify-addon-zip.mjs
+
+      - name: Generate SHA-256 sidecar
+        # sidecar 供未来 self-updater（PR-3 签名 + PR-4 自更新）校验下载完整性。
+        # sha256sum 的 "<hex>  <name>" 格式是通用解析约定。
+        run: |
+          sha256sum godot-mcp-enhanced-addon.zip > godot-mcp-enhanced-addon.zip.sha256
+          echo "--- sha256 sidecar ---"
+          cat godot-mcp-enhanced-addon.zip.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            godot-mcp-enhanced-addon.zip
+            godot-mcp-enhanced-addon.zip.sha256
+          generate_release_notes: true
+          # name 用 tag 名（默认即 tag，显式更清）
+          name: ${{ github.ref_name }}
