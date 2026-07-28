@@ -14,12 +14,13 @@ func cleanup() -> void:
 	_undo_manager = null
 
 func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary:
-	# C4 deferred: bake_navigation_mesh 是 coroutine，但同步 dispatch 链路（command_handler.gd:144
-	# return _nav_commands.handle_nav_create_region 无 await + websocket_server.gd:350-351
-	# not response is Dictionary 检查）不支持 coroutine handler —— 含 await 会使本函数成 coroutine，
-	# 返 coroutine state 命中 -32603 "Internal error"。需 async-dispatch 重构或 sync-bake API 研究
-	# （架构阻塞，超 batch C bug-fix 范畴）。当前保留 P1 方案（bake 作 do_method 入 do_ops，commit
-	# 同步执行，bake coroutine 异步完成），bake_result 乐观（!=null），原行为保留。
+	# C4 resolved (2026-07-28, A-lite async-dispatch, fallback 信号方案): bake 经
+	# handle_nav_create_region_async coroutine 等 bake_finished 信号完成（Task 0 实测
+	# NavigationRegion3D 无 is_baking/baking 属性，BAKING_PROPS 空，is_baking 轮询不可用；
+	# bake_navigation_mesh 返 void；改用 bake_finished 信号 + 循环内 is_instance_valid 守卫，
+	# 判据 navigation_mesh.get_vertices().size() > 0 —— get_vertices_count() 不存在）。
+	# 原同步 handle_nav_create_region 保留作兜底；websocket_server.gd 分流 nav 到 _async 版。
+	# redo 路径仍乐观（editor undo 系统限制，spec §11）。
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
 		return {"error": {"code": -32003, "message": "No scene currently open in editor"}}
@@ -73,6 +74,75 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
 
+const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；bake_mesh 路径用 110000（见 _async）
+
+# nav_create_region async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
+# Task 0 实测 is_baking/baking 属性不存在（BAKING_PROPS 空），改用 bake_finished 信号 +
+# is_instance_valid 循环内守卫等 bake 完成；判据 navigation_mesh.get_vertices().size() > 0。
+# bake 保留为 do_method 入 undo（保 P1 redo 重 bake）。
+func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dictionary:
+	var root = CommandHelpers.get_edited_scene_root(_plugin)
+	if root == null:
+		return {"error": {"code": -32003, "message": "No scene currently open in editor"}}
+
+	var node_name: String = params.get("name", "NavRegion")
+	var parent_path: String = params.get("parent", "")
+	var parent_node: Node = CommandHelpers.find_node(root, parent_path) if parent_path != "" else root
+	if parent_node == null:
+		return {"error": {"code": -32002, "message": "Parent not found: " + parent_path}}
+
+	var nav = NavigationRegion3D.new()
+	nav.name = node_name
+	var pos = params.get("position")
+	if pos != null and pos is Dictionary:
+		nav.position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
+
+	var mesh = NavigationMesh.new()
+	mesh.geometry_parsed_collision_mask = 0xFFFFFFFF
+	nav.navigation_mesh = mesh
+
+	var want_bake: bool = params.get("bake", false)
+	var bake_result: bool = false
+
+	# bake_finished 信号先连接（避 commit/add_child 路径触发 bake 后丢信号）
+	var _baking: bool = want_bake
+	var _cb: Callable = Callable()
+	if want_bake:
+		_cb = func() -> void: _baking = false
+		nav.bake_finished.connect(_cb)
+
+	# do_ops / 同步 add_child 路径（与同步版一致，bake 作 do_method 入 undo 保 redo 重 bake）
+	if _undo_manager != null:
+		var do_ops: Array = [
+			{"type": "method", "target": parent_node, "method": "add_child", "args": [nav]},
+			{"type": "method", "target": nav, "method": "set_owner", "args": [root]},
+			{"type": "reference", "value": nav}
+		]
+		if want_bake:
+			do_ops.append({"type": "method", "target": nav, "method": "bake_navigation_mesh", "args": []})
+		_undo_manager.create_action_mixed("Create Nav Region (req:%d)" % request_id, do_ops,
+			[{"type": "method", "target": parent_node, "method": "remove_child", "args": [nav]}])
+	else:
+		parent_node.add_child(nav)
+		nav.owner = root
+		if want_bake:
+			nav.bake_navigation_mesh()
+
+	# §6 fallback: bake_finished 信号 + timer 竞速（替代 is_baking 轮询）
+	if want_bake:
+		var _deadline: int = Time.get_ticks_msec() + BAKE_WAIT_TIMEOUT_MS
+		while _baking and Time.get_ticks_msec() < _deadline:
+			if not is_instance_valid(nav):
+				if nav.bake_finished.is_connected(_cb):
+					nav.bake_finished.disconnect(_cb)
+				return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
+			await get_tree().process_frame
+		if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
+			nav.bake_finished.disconnect(_cb)  # one-shot 显式断开，避节点复用累积
+		bake_result = is_instance_valid(nav) and nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
+
+	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
+
 func handle_nav_bake_mesh(params: Dictionary) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
@@ -87,6 +157,39 @@ func handle_nav_bake_mesh(params: Dictionary) -> Dictionary:
 
 	node.bake_navigation_mesh()
 	var success = node.navigation_mesh != null
+	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
+
+# nav_bake_mesh async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
+# bake_mesh 长 timeout（120s 量级，留余量 110s < client 超时）。
+func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
+	var root = CommandHelpers.get_edited_scene_root(_plugin)
+	if root == null:
+		return {"error": {"code": -32003, "message": "No scene currently open in editor"}}
+
+	var node_path: String = params.get("node_path", "")
+	var node = CommandHelpers.find_node(root, node_path)
+	if node == null:
+		return {"error": {"code": -32002, "message": "Node not found: " + node_path}}
+	if not (node is NavigationRegion3D):
+		return {"error": {"code": -32004, "message": "Node is not a NavigationRegion3D: " + node_path}}
+
+	var nav: NavigationRegion3D = node
+	var _baking: bool = true
+	var _cb: Callable = func() -> void: _baking = false
+	nav.bake_finished.connect(_cb)
+	nav.bake_navigation_mesh()
+
+	# §6 fallback: bake_finished 信号 + timer 竞速（deadline 110000ms 量级）
+	var _deadline: int = Time.get_ticks_msec() + 110000
+	while _baking and Time.get_ticks_msec() < _deadline:
+		if not is_instance_valid(nav):
+			if nav.bake_finished.is_connected(_cb):
+				nav.bake_finished.disconnect(_cb)
+			return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
+		await get_tree().process_frame
+	if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
+		nav.bake_finished.disconnect(_cb)
+	var success: bool = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
 	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
 
 func handle_nav_create_agent(params: Dictionary, request_id: int) -> Dictionary:
