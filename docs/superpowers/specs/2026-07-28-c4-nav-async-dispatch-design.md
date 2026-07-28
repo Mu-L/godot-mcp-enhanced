@@ -239,3 +239,20 @@ plan 阶段须先实测/核实以下（不核实就写 task = 假设错误的返
 - §7/§12 核实项 9：`EditorConnection.ts:419-424` **已有 `startOperation/endOperation`**（plan Task 5 改接线非新建，呼应 `startOperation/endOperation` 零生产调用）
 - §7 时间轴：两端 timeout clamp ≤600s（TS `:420` `Math.min(timeoutSec,600)` + GD `:69` `min(timeout_sec,600.0)`），核实项 6 client 超时须 >600s
 - §15：核实项 8 不利回退删除（不会发生）+ 核实项 0 不利升级改 r5
+
+## §17 r5：Task 0 实测结论与实现方案调整（2026-07-28，权威——优先于 §6/§9 r4 旧描述）
+
+Task 0 probe.gd 双版本（4.7.1+4.6.3）实测推翻 spec r4 部分假设，实现方案调整（plan Task 0 结论 + Task 1-7 落地）。**本段权威——§6 is_baking 主方案 / §9 get_tree 等 r4 描述以本段为准**：
+
+1. **核实项 0 PASS（bake 异步）**：`bake_navigation_mesh()` 立即返回（2.4-3ms，后台线程异步），非同步阻塞 → A-lite 架构成立
+2. **核实项 1 void + 核实项 2 SKIP**：`bake_navigation_mesh()` 返回 void（双版本编译器拒赋值），不可 await 返回值
+3. **核实项 3 不利 → §6 改 fallback**：NavigationRegion3D **无 is_baking/baking 属性**（双版本 BAKING_PROPS 空）→ §6 主方案 is_baking 轮询**不可用**，改 fallback bake_finished 信号方案（核实项 4 信号存在）
+4. **判据 `get_vertices().size()`**：`get_vertices_count()` Nonexistent（双版本）→ 全改 `navigation_mesh.get_vertices().size() > 0`
+5. **GDScript 4 lambda by-value**（实测 LOCAL_CAPTURE=1）→ fallback 块用 Dictionary holder `_bake_state = {"done": false}`（非 _baking 局部 bool），lambda 内 `_bake_state["done"] = true`
+6. **§9 headless 用 `await process_frame`**：SCENE_TREE_HEADER extends SceneTree 无 `get_tree()`，用 `await process_frame`（非 `get_tree().process_frame`，对齐 material-ops.ts）
+7. **核实项 5 headless 清理坑**：bake 后台线程致 `quit()` 不退出 → executeGdscript 进程 timeout 兜底杀 + RID leak 无害
+8. **核实项 6 client 30s 硬限制**：EditorConnection `requestTimeoutMs=30000` → editor nav bake 受 30s 限制（BAKE_WAIT_TIMEOUT_MS=28000 < 30s；bake_mesh 110s timeout 超 30s 时 client 先 reject——已知限制，实际 bake 通常 < 30s）
+9. **核实项 9 nav 全登记**：`editor-method-map.ts:110-115` nav 5 method 全登记 → editor 路径直达 nav_commands.gd（spec editor 侧前提成立）
+10. **redo 已知局限**（§11 不变）：redo 路径 bake 仍乐观，workaround nav_bake_mesh MCP 路径
+
+实现 commits：765bf83(Task0) ec7d92d(Task2) 4dc3dc2+cf060a8(Task3) ed41eb7(Task4) d132d38(Task5) 8394cd7(Task6) 252d6a1(Task7)。全门禁绿：tsc 0 / eslint 0 / check:gdscript 0 双版本 / vitest 4115 passed。
