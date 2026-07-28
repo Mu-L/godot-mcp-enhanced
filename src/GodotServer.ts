@@ -61,6 +61,16 @@ export { clearGodotPathCache, getCachedGodotPath };
 const DEBUG = process.env.DEBUG === 'true';
 const EDITOR_SECRET_TIMEOUT_MS = 5000;
 
+// 编辑器重连参数（env 可覆盖，默认对齐 EditorConnection 构造默认）。
+// 运行时读（非 module-level 固化）：连接是低频操作，且避免测试需在 import 前设 env。
+// 主要为集成测试可注入低 attempts/interval 跑真实重连耗尽（默认 20 次 × backoff 到 60s 不可测）。
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function log(...args: unknown[]): void {
   if (!DEBUG) return;
   getLogger().debug('godot-mcp', args.map(a => String(a)).join(' '));
@@ -446,7 +456,14 @@ export class GodotServer {
       try { this.editorConn.disconnect(); } catch { /* best-effort */ }
       this.editorConn = null;
     }
-    this.editorConn = new EditorConnection({ port, reconnect: true, secret });
+    this.editorConn = new EditorConnection({
+      port,
+      reconnect: true,
+      secret,
+      maxReconnectAttempts: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_ATTEMPTS', 20),
+      reconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_INTERVAL', 1000),
+      maxReconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_MAX_INTERVAL', 60000),
+    });
     try {
       await this.editorConn.connect();
       this.editorExecutor = new EditorToolExecutor(this.editorConn);
