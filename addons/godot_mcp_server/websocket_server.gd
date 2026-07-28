@@ -352,6 +352,9 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 	if _method.begins_with("nav_"):
 		# A-lite: nav 走 async 入口（spec §3）。packet 循环不 await 本 coroutine——
 		# 挂起期间循环继续处理下个 packet（非 nav 当帧 reply），nav reply 在 bake 完成后自行恢复发。
+		# 并发 nav 请求允许（packet 循环不串行化）：同 peer 多 nav bake 时，先完成的 coroutine 发的
+		# operation_end 可能抢先于仍在 bake 的其他 coroutine 恢复心跳；heartbeat P1#3 hard timeout
+		# 兜底（heartbeat.gd:37-46）防误断（operation_end 仅递减计数，非强制立即恢复）。
 		response = await _command_handler.handle_nav_async(_method, parsed.get("params", {}), _request_counter)
 	else:
 		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)

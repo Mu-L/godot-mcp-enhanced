@@ -74,7 +74,8 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
 
-const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；bake_mesh 路径用 110000（见 _async）
+const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；nav_create_region 用
+const BAKE_MESH_WAIT_TIMEOUT_MS := 110000  # bake_mesh 长 timeout（> client 30s；GD coroutine orphan 由 §10 peer 守卫兜底）
 
 # nav_create_region async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
 # Task 0 实测 is_baking/baking 属性不存在（BAKING_PROPS 空），改用 bake_finished 信号 +
@@ -106,7 +107,7 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 
 	# bake_finished 信号先连接（避 commit/add_child 路径触发 bake 后丢信号）
 	var _bake_state = {"done": false}
-	var _cb: Callable = Callable()
+	var _cb: Callable  # want_bake=false 时保持默认空 Callable（类型系统隐式默认），不显式赋 Callable()
 	if want_bake:
 		_cb = func() -> void: _bake_state["done"] = true
 		nav.bake_finished.connect(_cb)
@@ -182,8 +183,8 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	nav.bake_finished.connect(_cb)
 	nav.bake_navigation_mesh()
 
-	# §6 fallback: bake_finished 信号 + timer 竞速（deadline 110000ms 量级）
-	var _deadline: int = Time.get_ticks_msec() + 110000
+	# §6 fallback: bake_finished 信号 + timer 竞速（BAKE_MESH_WAIT_TIMEOUT_MS 量级）
+	var _deadline: int = Time.get_ticks_msec() + BAKE_MESH_WAIT_TIMEOUT_MS
 	while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 		if not is_instance_valid(nav):
 			if nav.bake_finished.is_connected(_cb):

@@ -78,6 +78,8 @@ export class EditorToolExecutor {
       // 闭环 defects heartbeat-pause-timeout-disconnect（startOperation/endOperation 零生产调用）：
       // bake_mesh 挂起期心跳阻塞致 editor 误判断开；operation_start 通知 GD heartbeat.gd 暂停。
       // T_ts 对齐 §6 BAKE_WAIT_TIMEOUT_MS（110s 量级，clamp ≤600）。GD P1#3 hard timeout 兜底（heartbeat.gd:37-46）。
+      // finalArgs.bake === true 严格等于依赖 nav 工具 schema 强制 bool（GD 侧 params.get("bake", false) 宽松，
+      // 但 TS schema 校验在 GD 之前保证 bool 入参，故 === true 不会漏 truthy 非 bool 值）。
       const isNavBake = method === 'nav_bake_mesh'
         || (method === 'nav_create_region' && finalArgs.bake === true);
       const NAV_BAKE_OP_TIMEOUT_SEC = 110;  // < GD clamp 600，> §6 BAKE_WAIT_TIMEOUT_MS
