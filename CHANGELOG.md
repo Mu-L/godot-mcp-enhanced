@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — Nav Bake Accuracy (C4 async-dispatch)
+
+- **MCP 调用路径 nav bake_result 准确**：`nav_create_region(bake=true)` / `nav_bake_mesh` 的 bake_result 从乐观 `navigation_mesh != null` 改为 bake 真正完成后 `get_vertices().size() > 0` 判据。
+- 实现：A-lite 精确局部化 async-dispatch——`websocket_server` 按 `method.begins_with("nav_")` 分流到新增 coroutine 入口 `handle_nav_async`，非 nav 仍走同步 `handle`（30+ handler 契约不变，packet 循环不串行化）。
+- bake 完成检测：`bake_finished` 信号 + Dictionary holder（GDScript 4 lambda by-value 实测）+ 循环内 `is_instance_valid` 守卫 + 超时退化兜底（fallback 方案，Task 0 实测 NavigationRegion3D 无 is_baking 属性）。
+- 心跳：nav bake 长操作经 `EditorToolExecutor` 接线 `operation_start/end`（EditorConnection 已有方法）暂停心跳，GD P1#3 hard timeout 兜底。
+- headless 侧：`navigation.ts` 同款 fallback + `get_vertices().size()`（`extends SceneTree` 无 `get_tree()`，用 `await process_frame`）。
+- **已知局限**：redo 路径 bake 仍乐观（editor undo 系统 `commit_action` 同步执行 do_ops，MCP 层插不进 await）。workaround：redo 后调 `nav_bake_mesh` 走 MCP 路径得准确 bake。
+- 详见 `D:\GitHub\godot-mcp-enhanced\docs\superpowers\specs\2026-07-28-c4-nav-async-dispatch-design.md` + plan。
+
 ## [0.24.1] - 2026-07-27
 
 ### Fixed — Documentation Sync
