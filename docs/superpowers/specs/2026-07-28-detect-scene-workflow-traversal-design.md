@@ -41,19 +41,18 @@ defects.ts 现 **97 FIXED + 9 OPEN**（待办旧值 54 滞后），**无这两�
 - dimension: Security / severity: CRITICAL
 - 文件：`src/tools/validation.ts`
 - 逻辑：定位 `case 'run_and_verify'` 到 `safeScene` 窗口（≤600 字符），校验窗口内含 `resolveWithinRoot(projectPath, normalized)`。窗口消失或调用被删 → detect=1。
-- 设计要点：用 `safeScene` 锚定窗口（run_and_verify 独有变量，不会与 validation.ts 其他 resolveWithinRoot 调用混淆）。
+- 设计要点：窗口直达目标调用。**不锚 `safeScene`**——validation.ts:542 注释含 "safeScene" 字样，非贪婪 `{0,600}?safeScene` 会截到注释就停，:549 的 `resolveWithinRoot` 调用落在窗口外致 `.test` 恒 false → return 1（spec r1 假红 bug，审查 CRITICAL ①）。改为以 `resolveWithinRoot(projectPath, normalized)` 作窗口终点；该调用全文仅 :549 一处，入参签名精确限定不误匹配其他 resolveWithinRoot 调用。
 
 ```ts
 { key: 'validation-run-and-verify-scene-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
   // 2026-07-22 RCE面复审P1: validation.ts run_and_verify 的 args.scene 直接 push 进 godot CLI
   // 加载项目外场景执行节点脚本(无 GD _sanitize_res_path 兜底)。
   // fix: normalizeUserProjectPath + resolveWithinRoot(projectPath, normalized) 仅校验。
-  // 复发: 删 resolveWithinRoot 调用或 safeScene 分支结构改变 → detect=1。
+  // 复发: 删 resolveWithinRoot 调用 → 窗口无终点 m=undefined → detect=1。
   detect: () => {
     const f = readSrc('src/tools/validation.ts');
-    const m = f.match(/case 'run_and_verify'[\s\S]{0,600}?safeScene/);
-    if (!m) return 1;
-    return /resolveWithinRoot\(projectPath,\s*normalized\)/.test(m[0]) ? 0 : 1;
+    const m = f.match(/case 'run_and_verify'[\s\S]{0,1500}?\bresolveWithinRoot\(projectPath,\s*normalized\)/);
+    return m ? 0 : 1;
   } },
 ```
 
@@ -62,23 +61,28 @@ defects.ts 现 **97 FIXED + 9 OPEN**（待办旧值 54 滞后），**无这两�
 - dimension: Security / severity: CRITICAL
 - 文件：`src/tools/workflow.ts`
 - 逻辑：`workflow.ts` 中 `hasTraversalSegments(` 出现次数 ≥ 3（对应 reference_path / frames_dir / bridge.screenshot.path 三处防护）。删任一处 → count<3 → detect=1。
-- 设计要点：计数模式对齐既有 detect（如 `health-monitor-error-type-misdegrade` 用 includes、`asset-factory-load-traversal` 用 includes）。三处防护点是 workflow.ts 内 hasTraversalSegments 的全部合法出现，count≥3 不会因未来合法新增而假绿（新增只会让 count>3 仍 PASS）。
+- 设计要点：**只数调用点，排除函数定义**。workflow.ts 中 `hasTraversalSegments(` 实际出现 4 次：`:257` 函数定义 `(p: string)` + `:390(rawPath)`/`:515(rawReferencePath)`/`:584(rawFramesDir)` 三处调用。`hasTraversalSegments\(raw\w+` 用 `raw` 前缀只匹配调用参数，排除定义行。spec r1 的 `hasTraversalSegments\(` count≥3 在删一处调用时仍 count=3（定义+2 调用）假绿（审查 CRITICAL ②）。
 
 ```ts
 { key: 'workflow-user-protocol-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
-  // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(reference_path:514 /
-  // frames_dir:583 / bridge.screenshot.path:388), GD Image.load/DirAccess/bridge take_screenshot
-  // 任意目录读/写。fix: 三处均加 hasTraversalSegments。复发: 任一处删 → count<3 detect=1。
+  // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(reference_path:515 /
+  // frames_dir:584 / bridge.screenshot.path:390), GD Image.load/DirAccess/bridge take_screenshot
+  // 任意目录读/写。fix: 三处调用均加 hasTraversalSegments。复发: 任一处调用删 → raw count<3 detect=1。
+  // 注: :257 函数定义 hasTraversalSegments(p:) 不匹配 raw 前缀, 故不计数。
   detect: () => {
     const f = readSrc('src/tools/workflow.ts');
-    return (f.match(/hasTraversalSegments\(/g) || []).length >= 3 ? 0 : 1;
+    return (f.match(/hasTraversalSegments\(raw\w+/g) || []).length >= 3 ? 0 : 1;
   } },
 ```
 
 ## 5. 计数同步
 
-- `test/regression/fixed.test.ts`：FIXED 期望值 97 → 99（OPEN 9 不变）
-- `test/regression/defects.ts` 顶部注释计数同步（若有自述计数）
+- `test/regression/defects-fixed.test.ts`（spec r1 误写 `fixed.test.ts`，审查 IMPORTANT 1）：
+  - `:113` `expect(FIXED_DEFECTS.length).toBe(97)` → `toBe(99)`
+  - `:115` `expect(new Set(keys).size, '存在重名 key').toBe(97)` → `toBe(99)`
+  - `:2` 注释「FIXED_DEFECTS 94 条」→ 99（顺手，纯文档）
+  - `:20` it 名「覆盖 80 条」历史停更，**不影响断言**（:113/:115 才是真计数），defer 不改
+- `test/regression/defects.ts` 分节注释（如 `:37`「FIXED（33 条）」`:1069`「OPEN（10 条）」）滞后但纯文档不影响功能，**可选清理不阻塞**（避免追兔子，审查 IMPORTANT 2 已知）
 
 ## 6. 文档勾选（Obsidian，非代码）
 
@@ -94,7 +98,10 @@ defects.ts 全是静态 grep（memory `[[defects-static-grep-limit]]` 已知局�
 
 1. 写两条 detect（status: 'fixed'）
 2. 跑 `defects-fixed.test` → 应 PASS（防护已在）→ GREEN
-3. **RED 验证**：临时注释掉 `validation.ts:549` 的 `resolveWithinRoot` 调用 → 跑 detect ① 应 = 1（触发）；临时删 `workflow.ts` 一处 `hasTraversalSegments` → detect ② 应 = 1；确认后还原
+3. **RED 验证（两条 detect 必须各自能触发，否则假绿）**：
+   - detect ①：临时注释 `validation.ts:549` 的 `resolveWithinRoot(projectPath, normalized)` 调用 → 正则窗口无终点 → `m=undefined` → `return 1`（触发）
+   - detect ②：临时删 `workflow.ts:390` 的 `hasTraversalSegments(rawPath)` 调用 → raw 调用 count 3→2 < 3 → `return 1`（触发）
+   - 两条各自确认 RED 后还原，重跑 GREEN
 4. 全量 `vitest run` 绿 + `tsc --noEmit` 0
 
 ## 8. 非目标（YAGNI）
