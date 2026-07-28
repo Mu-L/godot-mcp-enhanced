@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL } from '../../src/tools/skill-builder.js';
+import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL } from '../../src/skills/skill-builder.js';
 import { DETAILED_RULE_TEMPLATES } from '../../src/tools/rule-templates.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +30,23 @@ describe('skill-builder 派生逻辑', () => {
     expect(skill).not.toMatch(/\n#\s+\S/);  // 无独立 H1（\n 后单 # + 空格 + 非空白；## 的 # 后是 # 非空格，不匹配）
     // description 含触发短语
     expect(skill).toContain('—— 当你');
+  });
+
+  it('description 含内嵌双引号时正确派生（行尾锚定回溯保护，spec §8）', () => {
+    // description 值内含 " 对（如术语引用）。正则 ^description:\s*"([\s\S]*?)"\s*$ 的 \s*$ 行尾锚定
+    // 迫使引擎回溯到行内最后一个 " —— 单行约定下内嵌引号被完整保留，不提前截断
+    const tpl = [
+      '---',
+      'description: "bridge e2e "运行时" 验证 —— 当你需要验证时使用"',
+      'alwaysApply: false',
+      '---',
+      '',
+      '## 概述',
+      '正文',
+    ].join('\n');
+    const skill = deriveSkillFromWorkflow(tpl, 'test-embed-quote');
+    const expectedDesc = 'bridge e2e "运行时" 验证 —— 当你需要验证时使用';
+    expect(skill).toBe(`---\nname: test-embed-quote\ndescription: "${expectedDesc}"\n---\n\n## 概述\n正文`);
   });
 
   it('deriveSkillFromWorkflow 缺 frontmatter / description / ## 时 throw', () => {

@@ -1,9 +1,9 @@
-// src/tools/skill-builder.ts
+// src/skills/skill-builder.ts
 // 从 rule-templates.ts 的 workflow 模板派生 Claude Code SKILL.md（仓库自身开发用）
 // 单一内容源 = DETAILED_RULE_TEMPLATES 的 3 个 workflow 模板；改 workflow 只改 rule-templates.ts
 // 然后跑 npm run build:skills 重生成 .claude/skills/<name>/SKILL.md
 
-import { DETAILED_RULE_TEMPLATES } from './rule-templates.js';
+import { DETAILED_RULE_TEMPLATES } from '../tools/rule-templates.js';
 
 /** workflow 模板 key → skill name 映射（去 workflow- 中缀，verify 特例 -loop） */
 export const WORKFLOW_TO_SKILL: Record<string, string> = {

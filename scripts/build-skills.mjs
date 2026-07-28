@@ -9,7 +9,7 @@
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { buildAllSkills } from '../build/tools/skill-builder.js';
+import { buildAllSkills } from '../build/skills/skill-builder.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
