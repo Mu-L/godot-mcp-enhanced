@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 
 /**
  * ZCodeAdapter — 智谱 ZCode (GLM ADE) 客户端配置 adapter。
@@ -57,7 +57,8 @@ export class ZCodeAdapter implements ClientAdapter {
       type: 'stdio', // ZCode schema：每条 server 必填 type(stdio|http)，缺则传输协商失败
       command: mcpCommand,
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: { GODOT_PATH: godotPath },
+      // C1: 保留旧 entry.env 的白名单前缀（嵌套 mcp.servers.godot.env）
+      env: buildEnv(godotPath, oldEntry.env as Record<string, unknown> | undefined),
     };
     // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
     writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');

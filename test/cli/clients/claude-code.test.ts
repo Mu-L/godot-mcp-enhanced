@@ -123,4 +123,40 @@ describe('ClaudeCodeAdapter', () => {
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
     expect(settings.mcpServers.godot.command).toBe('npx');
   });
+
+  // C1 (cli-configure-env-field-overwrite): reconfigure 必须保留白名单前缀的用户 env,
+  // 过滤脏值。旧实现 env:{GODOT_PATH} 完全覆盖 oldEntry.env。
+  it('configure preserves whitelisted user env on reconfigure (C1)', async () => {
+    const claudeDir = join(testDir, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    const settingsPath = join(claudeDir, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({
+      mcpServers: {
+        godot: {
+          command: 'old',
+          env: {
+            GODOT_PATH: '/old',
+            ALLOWED_PROJECT_PATHS: '/projects;/other',
+            GODOT_MCP_BRIDGE_PERSISTENT_SECRET: 'true',
+            GODOT_MCP_EDITOR_PERSISTENT_SECRET: 'true',
+            // 脏值/非白名单 — 必须过滤
+            GODOT_MCP_UNRESTRICTED: 'true',
+            PATH: '/usr/bin',
+            HACKER_INJECTED: 'evil',
+          },
+        },
+      },
+    }));
+    await adapter.configure(testDir, '/new/godot', 'npx', ['godot-mcp-enhanced']);
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    const env = settings.mcpServers.godot.env;
+    expect(env.GODOT_PATH).toBe('/new/godot');                       // 新值覆写
+    expect(env.ALLOWED_PROJECT_PATHS).toBe('/projects;/other');      // 白名单保留
+    expect(env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET).toBe('true');     // 白名单保留
+    expect(env.GODOT_MCP_EDITOR_PERSISTENT_SECRET).toBe('true');     // 白名单保留
+    // 脏值过滤
+    expect(env.GODOT_MCP_UNRESTRICTED).toBeUndefined();
+    expect(env.PATH).toBeUndefined();
+    expect(env.HACKER_INJECTED).toBeUndefined();
+  });
 });

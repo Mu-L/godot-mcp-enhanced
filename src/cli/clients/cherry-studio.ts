@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 import { globalConfigRoot } from './paths.js';
 
 export class CherryStudioAdapter implements ClientAdapter {
@@ -44,7 +44,8 @@ export class CherryStudioAdapter implements ClientAdapter {
       type: 'stdio', // Cherry Studio schema enum 强制（缺 type 破坏传输协商）
       command: mcpCommand,
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: { GODOT_PATH: godotPath },
+      // C1: 保留旧 entry.env 的白名单前缀
+      env: buildEnv(godotPath, oldEntry.env as Record<string, unknown> | undefined),
     };
     // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
     writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');

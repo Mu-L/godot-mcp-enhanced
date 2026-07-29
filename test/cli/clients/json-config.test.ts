@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync, readFileSync, mkdtempSync, readdirSync, statSync, chmodSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { readJsonConfigWithBackup, readJsonForCheck, stripBom, writeFileAtomicWithMode } from '../../../src/cli/clients/json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, stripBom, writeFileAtomicWithMode, buildEnv } from '../../../src/cli/clients/json-config.js';
 
 const BOM = String.fromCharCode(0xFEFF);
 
@@ -109,5 +109,63 @@ describe('writeFileAtomicWithMode', () => {
     expect(files.filter(f => f.endsWith('.tmp'))).toHaveLength(0);
     expect(files).toContain('atomic.json');
     expect(readFileSync(targetPath, 'utf-8')).toBe('{"v":2}');
+  });
+});
+
+describe('buildEnv (C1 env 白名单合并)', () => {
+  it('只含 GODOT_PATH 当 oldEnv 为 undefined', () => {
+    expect(buildEnv('/godot')).toEqual({ GODOT_PATH: '/godot' });
+  });
+
+  it('保留白名单前缀的 string 值（ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_* / GODOT_MCP_EDITOR_*）', () => {
+    const oldEnv = {
+      ALLOWED_PROJECT_PATHS: '/projects;/other',
+      GODOT_MCP_BRIDGE_PERSISTENT_SECRET: 'true',
+      GODOT_MCP_EDITOR_PERSISTENT_SECRET: 'true',
+      GODOT_MCP_BRIDGE_EXTRA_METHODS: 'emit_signal,foo',
+    };
+    expect(buildEnv('/g', oldEnv)).toEqual({
+      GODOT_PATH: '/g',
+      ALLOWED_PROJECT_PATHS: '/projects;/other',
+      GODOT_MCP_BRIDGE_PERSISTENT_SECRET: 'true',
+      GODOT_MCP_EDITOR_PERSISTENT_SECRET: 'true',
+      GODOT_MCP_BRIDGE_EXTRA_METHODS: 'emit_signal,foo',
+    });
+  });
+
+  it('过滤脏值与非白名单键（防子进程自行解锁限制）', () => {
+    const oldEnv = {
+      GODOT_MCP_UNRESTRICTED: 'true',    // 服务端安全开关,刻意不在白名单
+      GODOT_MCP_ALLOW_UNSAFE: 'true',    // 同上
+      ALLOW_EXECUTE_GDSCRIPT: 'true',    // 同上
+      PATH: '/usr/bin',                   // 系统变量,不在白名单
+      HACKER_INJECTED: 'evil',            // 脏值
+    };
+    expect(buildEnv('/g', oldEnv)).toEqual({ GODOT_PATH: '/g' });
+  });
+
+  it('过滤非 string 值（数字/对象/布尔均跳过,只保留 string）', () => {
+    const oldEnv = {
+      ALLOWED_PROJECT_PATHS: '/p',        // 保留
+      GODOT_MCP_BRIDGE_PORT: 9081,        // 数字 → 跳过
+      GODOT_MCP_EDITOR_FLAG: true,        // 布尔 → 跳过
+      GODOT_MCP_BRIDGE_OPTS: { a: 1 },    // 对象 → 跳过
+    };
+    expect(buildEnv('/g', oldEnv)).toEqual({
+      GODOT_PATH: '/g',
+      ALLOWED_PROJECT_PATHS: '/p',
+    });
+  });
+
+  it('GODOT_PATH 始终用新值（即使 oldEnv 含旧 GODOT_PATH 也覆写）', () => {
+    const oldEnv = { GODOT_PATH: '/old', ALLOWED_PROJECT_PATHS: '/p' };
+    expect(buildEnv('/new', oldEnv)).toEqual({
+      GODOT_PATH: '/new',
+      ALLOWED_PROJECT_PATHS: '/p',
+    });
+  });
+
+  it('空 oldEnv 对象 → 只含 GODOT_PATH', () => {
+    expect(buildEnv('/g', {})).toEqual({ GODOT_PATH: '/g' });
   });
 });

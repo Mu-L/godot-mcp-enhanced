@@ -87,4 +87,35 @@ describe('ZCodeAdapter', () => {
     await adapter.configure('/ignored', '/godot', 'npx', []);
     expect(await adapter.isConfigured('/ignored')).toBe(true);
   });
+
+  // C1: 嵌套 mcp.servers.godot.env 也必须保留白名单用户 env
+  it('configure preserves whitelisted user env on reconfigure (C1, 嵌套键)', async () => {
+    const filePath = join(fakeHome, '.zcode', 'cli', 'config.json');
+    mkdirSync(join(filePath, '..'), { recursive: true });
+    writeFileSync(filePath, JSON.stringify({
+      mcp: {
+        servers: {
+          godot: {
+            type: 'stdio',
+            command: 'old',
+            enable: true,
+            env: {
+              GODOT_PATH: '/old',
+              ALLOWED_PROJECT_PATHS: '/projects',
+              GODOT_MCP_EDITOR_PERSISTENT_SECRET: 'true',
+              HACKER_INJECTED: 'evil',
+            },
+          },
+        },
+      },
+    }));
+    const ZCodeAdapter = await importAdapter();
+    await new ZCodeAdapter().configure('/ignored', '/new/godot', 'npx', ['-y', 'godot-mcp-enhanced']);
+    const config = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const env = config.mcp.servers.godot.env;
+    expect(env.GODOT_PATH).toBe('/new/godot');
+    expect(env.ALLOWED_PROJECT_PATHS).toBe('/projects');
+    expect(env.GODOT_MCP_EDITOR_PERSISTENT_SECRET).toBe('true');
+    expect(env.HACKER_INJECTED).toBeUndefined();
+  });
 });

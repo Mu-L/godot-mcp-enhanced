@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { join } from 'path';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -48,7 +48,8 @@ export class OpenCodeAdapter implements ClientAdapter {
       ...preserved,
       type: 'local',
       command: [mcpCommand, ...mcpArgs],
-      environment: { GODOT_PATH: godotPath },
+      // C1: opencode 用 environment 字段(非 env),同样保留白名单前缀用户配置
+      environment: buildEnv(godotPath, oldEntry.environment as Record<string, unknown> | undefined),
     };
     // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
     writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');

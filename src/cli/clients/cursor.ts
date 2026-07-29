@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 
 export class CursorAdapter implements ClientAdapter {
   name = 'Cursor';
@@ -26,10 +26,12 @@ export class CursorAdapter implements ClientAdapter {
     // F3: 损坏 JSON 时备份原文件 + warn,不静默覆盖用户配置
     const config = readJsonConfigWithBackup(mcpPath);
     if (!config.mcpServers) config.mcpServers = {};
+    // C1: 保留旧 entry 的白名单 env
+    const oldEntry = (config.mcpServers as Record<string, unknown>).godot as Record<string, unknown> | undefined;
     (config.mcpServers as Record<string, unknown>).godot = {
       command: mcpCommand,
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: { GODOT_PATH: godotPath },
+      env: buildEnv(godotPath, oldEntry?.env as Record<string, unknown> | undefined),
     };
     // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
     writeFileAtomicWithMode(mcpPath, JSON.stringify(config, null, 2) + '\n');
