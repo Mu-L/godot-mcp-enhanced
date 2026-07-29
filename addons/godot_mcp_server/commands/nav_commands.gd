@@ -134,8 +134,7 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 		var _deadline: int = Time.get_ticks_msec() + BAKE_WAIT_TIMEOUT_MS
 		while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 			if not is_instance_valid(nav):
-				if nav.bake_finished.is_connected(_cb):
-					nav.bake_finished.disconnect(_cb)
+				# N1: freed 对象不碰信号（信号随对象释放自动断开），直接 return（对齐 headless navigation.ts:45）
 				return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
 			await get_tree().process_frame
 		if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
@@ -187,8 +186,7 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	var _deadline: int = Time.get_ticks_msec() + BAKE_MESH_WAIT_TIMEOUT_MS
 	while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 		if not is_instance_valid(nav):
-			if nav.bake_finished.is_connected(_cb):
-				nav.bake_finished.disconnect(_cb)
+			# N1: freed 对象不碰信号（信号随对象释放自动断开），直接 return（对齐 headless navigation.ts:45）
 			return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
 		await get_tree().process_frame
 	if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
