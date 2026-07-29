@@ -60,7 +60,8 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // fix: scanBpySandbox(os/subprocess/eval/exec/__import__), warnings 非空 BLOCK。
       const blender = readSrc('src/tools/blender.ts');
       const hasExec = /execute_bpy|buildBlenderScript/.test(blender);
-      const hasScan = /scanBpySandbox/.test(blender);
+      // Minor-4 (review): 查带括号调用点,防删调用留 import 的伪绿。
+      const hasScan = /scanBpySandbox\s*\(/.test(blender);
       return hasExec && !hasScan ? 1 : 0;
     } },
   { key: 'gdscript-template-injection', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',

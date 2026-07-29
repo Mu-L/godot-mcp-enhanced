@@ -29,4 +29,18 @@ describe('scanBpySandbox', () => {
     // 对齐 stripLiterals 精神：字符串里的 API 名不应误报
     expect(scanBpySandbox('# use os.system here\nbpy.ops.mesh.primitive_cube_add()')).toEqual([]);
   });
+
+  it('does not flag dangerous name inside real string literal (double-quoted)', () => {
+    // Minor-3: 既有 it 只测注释,补真字符串字面量（验证 stripPythonLiterals 双引号剥离生效）
+    expect(scanBpySandbox('msg = "use os.system to shell out"\nbpy.ops.mesh.primitive_cube_add()')).toEqual([]);
+  });
+
+  it('does not flag legitimate bpy .open() / .load() method calls', () => {
+    // Important-2: 旧 /\bopen\s*\(/ 误报 bpy.ops.image.open() 合法 API。
+    // 新 negative lookbehind 排除 `word.open(`/`xopen(`，仅匹配裸 builtin open(。
+    expect(scanBpySandbox('bpy.ops.image.open(filepath="x.png")')).toEqual([]);
+    expect(scanBpySandbox('bpy.data.libraries.load("x.blend")')).toEqual([]);
+    // 裸 builtin open( 仍 block
+    expect(scanBpySandbox('open("/etc/passwd")').length).toBeGreaterThan(0);
+  });
 });

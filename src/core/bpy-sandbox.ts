@@ -10,7 +10,9 @@ const DANGEROUS_BPY_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bos\.exec/, label: 'os.exec* (system command)' },
   { pattern: /\bsubprocess\b/, label: 'subprocess (system command)' },
   { pattern: /\bos\.remove\b|\bos\.unlink\b|\bshutil\.rmtree\b/, label: 'file/dir deletion' },
-  { pattern: /\bopen\s*\(/, label: 'file open (host fs access)' },
+  // negative lookbehind 排除方法调用(`bpy.ops.image.open(...)`/`x.open(...)`)与标识符拼接(`xopen(`)，
+  // 仅匹配裸 builtin `open(`（host fs 访问面）。JS lookbehind ES2018+ Node 支持。
+  { pattern: /(?<![\w.])open\s*\(/, label: 'file open (host fs access)' },
   { pattern: /\beval\s*\(/, label: 'eval (arbitrary code)' },
   { pattern: /\bexec\s*\(/, label: 'exec (arbitrary code)' },
   { pattern: /\b__import__\s*\(/, label: '__import__ (dynamic import bypass)' },
