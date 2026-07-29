@@ -1,7 +1,7 @@
 // src/core/update-checker.ts
 // npm registry 最新版查询 + 24h 缓存 + 网络容错。
 // 启动被动提示（index.ts）与 check_update 工具共用同一函数。
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createRequire } from 'module';
@@ -38,11 +38,15 @@ function getCachePath(cacheDir?: string): string {
 
 interface CacheData { lastCheck: number; latest: string; }
 
-function readCache(cachePath: string): CacheData | null {
+export function readCache(cachePath: string): CacheData | null {
   try {
     if (!existsSync(cachePath)) return null;
+    // S2: 防大文件 OOM（64KB 上限）
+    if (statSync(cachePath).size > 64 * 1024) return null;
     const obj = JSON.parse(readFileSync(cachePath, 'utf-8'));
-    if (typeof obj.lastCheck === 'number' && typeof obj.latest === 'string') return obj;
+    // S2: latest 长度上限（64 字符）
+    if (typeof obj.lastCheck === 'number' && typeof obj.latest === 'string'
+        && obj.latest.length <= 64) return obj;
     return null;
   } catch { return null; }  // 损坏当 miss
 }
