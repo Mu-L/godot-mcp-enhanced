@@ -110,9 +110,16 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   edit-node-readonly-undo-null-set(C12) / ui-set-params-no-key-check-load-null(C13),
 //   合计 93。（C4 accurate bake_result deferred——架构阻塞 coroutine vs 同步 dispatch,见 nav-bake-in-undo-action 注释）
 //   +1(2026-07-24 批次 D): asset-android-tool-orphan(D1 asset/android TOOL_GROUPS 补组,消除 isToolAllowed 恒 false 游离),合计 94。
-    expect(FIXED_DEFECTS.length).toBe(100);
+//   +5(2026-07-24~28 批次 E/Bridge/scene-workflow traversal): D2 nodepath-traversal-category-error /
+//   批次 E animation-track-destructive-confirmation / Bridge take_screenshot-null-crash-swallow /
+//   2026-07-28 scene/workflow traversal detect×2,合计 99（见 defects.ts:2 顶部权威登记）。
+//   +1(2026-07-29 A-telemetry T1): telemetry-error-category-pii-leak(error_category 固定 'TOOL_ERROR' 枚举,
+//   不再 safeErrorCategory 派生泄漏 PII),合计 100。
+//   +1(2026-07-29 A-telemetry T2): telemetry-afterhook-no-optout-guard(after-hook 第一行加 isTelemetryEnabled
+//   前置守卫,堵 opt-out 下 hashProject 参数求值期创建 telemetry-uuid.txt),合计 101。
+    expect(FIXED_DEFECTS.length).toBe(101);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(100);
+    expect(new Set(keys).size, '存在重名 key').toBe(101);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

@@ -23,6 +23,7 @@ const {
   mockRecord,
   mockHashProject,
   mockSafeErrorCategory,
+  mockIsTelemetryEnabled,
 } = vi.hoisted(() => ({
   mockGetAllToolDefinitions: vi.fn<() => Tool[]>(),
   mockGetModuleForTool: vi.fn(),
@@ -34,13 +35,16 @@ const {
   mockRecord: vi.fn(),
   mockHashProject: vi.fn().mockReturnValue('deadbeef'),
   mockSafeErrorCategory: vi.fn().mockReturnValue('TOOL_ERROR'),
+  // T2: 可控 isTelemetryEnabled——T1 默认 true（保持 record 被调），T2 测试中切 false
+  // 验证 opt-out 守卫拦截 hashProject 参数求值（堵 telemetry-uuid.txt 创建）。
+  mockIsTelemetryEnabled: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../../src/telemetry/index.js', () => ({
   record: mockRecord,
   hashProject: mockHashProject,
   safeErrorCategory: mockSafeErrorCategory,
-  isTelemetryEnabled: () => true,
+  isTelemetryEnabled: mockIsTelemetryEnabled,
   getInstallUUID: () => 'salt',
   cleanupLocalFiles: vi.fn(),
 }));
@@ -143,6 +147,9 @@ describe('ToolDispatcher telemetry middleware', () => {
     // 路径片段（home/wgt/secret/tscn）原样保留进 error_category。若 ToolDispatcher
     // 仍走 safeErrorCategory 派生，下方断言 error_category==='TOOL_ERROR' 必 RED。
     mockSafeErrorCategory.mockReturnValue('Failed_to_load__home_wgt_secret_Main_tscn');
+    // T2: 默认 opt-in（isTelemetryEnabled=true）保持 T1 各用例 record 被调；
+    // T2 opt-out 用例在 it 内 mockReturnValue(false) 覆盖。
+    mockIsTelemetryEnabled.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -247,5 +254,26 @@ describe('ToolDispatcher telemetry middleware', () => {
     const event = mockRecord.mock.calls[0][0];
     expect(event.project_hash).toBeUndefined();
     expect(mockHashProject).not.toHaveBeenCalled();
+  });
+
+  // T2: opt-out（isTelemetryEnabled=false）时 after-hook 第一行守卫早 return，
+  // 阻断 recordTelemetry 参数求值 → hashProject 不被调 → getInstallUUID 不触发
+  // （config.ts:28 首次 mint 会创建 ~/.godot/mcp/telemetry-uuid.txt，违反 docs/telemetry.md
+  // 「零副作用」承诺）。根因 [[feature-gate-inside-callee-defeated-by-arg-eval]]：
+  // 守卫必须在调用方参数求值前（after-hook 第一行），非 callee（record）内部——
+  // 否则 hashProject(ctx.args.project_path) 在 record() 入口前已求值，副作用已落盘。
+  it('T2: opt-out（isTelemetryEnabled=false）时 after-hook 不触发 hashProject/record（堵 telemetry-uuid.txt 创建）', async () => {
+    mockIsTelemetryEnabled.mockReturnValue(false);
+
+    const { ToolDispatcher } = await import('../../src/core/ToolDispatcher.js');
+    const dispatcher = new ToolDispatcher(createOptions());
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { project_path: '/opt/out/proj' } },
+    });
+
+    // 守卫在 recordTelemetry 参数求值前——hashProject 不应被调（参数表达式未求值）。
+    expect(mockHashProject, 'opt-out 时 hashProject 不应被调用（守卫须在参数求值前）').not.toHaveBeenCalled();
+    // 整个 after-hook 早 return，record 也不应被调。
+    expect(mockRecord, 'opt-out 时 record 不应被调用').not.toHaveBeenCalled();
   });
 });

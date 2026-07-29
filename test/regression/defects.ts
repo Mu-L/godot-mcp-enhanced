@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 100 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1）。
+// FIXED_DEFECTS 100 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1065,6 +1065,28 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // 字面量紧跟 `?`，故不匹配 → detect=1。注释里的旧代码字面量不带 `error_category:` 前缀，不会误命中。
       const m = f.match(/error_category:\s*isError\s*\?\s*['"]TOOL_ERROR['"]\s*:\s*undefined/);
       return m ? 0 : 1;
+    } },
+  // ─── 2026-07-29 A-telemetry 批次 Task 2：opt-out 守卫缺失 → telemetry-uuid.txt 副作用 ───
+  // telemetry after-hook(:462) 原无 isTelemetryEnabled() 前置守卫，recordTelemetry 参数求值期
+  // hashProject(ctx.args.project_path) 先跑 → getInstallUUID（config.ts:28 首次 mint 创建
+  // ~/.godot/mcp/telemetry-uuid.txt）发生在 record() 内部守卫之前 → opt-out（默认）下首次带
+  // project_path 调用仍创建 UUID 文件，违反 docs/telemetry.md「零副作用」承诺。
+  // fix: after-hook 第一行（构造 recordTelemetry 参数之前）加 `if (!isTelemetryEnabled()) return result`。
+  // 根因 [[feature-gate-inside-callee-defeated-by-arg-eval]]：守卫须在调用方参数求值前，非 callee 内部。
+  // detect: 位置契约（参 godot-server-degrade.test.ts:27-34 indexOf 模式）——切 telemetry after-hook 块，
+  // isTelemetryEnabled 必须出现在 recordTelemetry( 之前（守卫被删或挪到 record 之后 → detect=1）。
+  { key: 'telemetry-afterhook-no-optout-guard', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/core/ToolDispatcher.ts');
+      // 切片：name: 'telemetry' mw.push 块到 createRateLimitMiddleware（紧随其后的 mw.push）。
+      const start = f.indexOf("name: 'telemetry'");
+      if (start < 0) return 1;
+      const end = f.indexOf('createRateLimitMiddleware()', start);
+      const slice = end > 0 ? f.slice(start, end) : f.slice(start, start + 800);
+      const guardIdx = slice.indexOf('isTelemetryEnabled');
+      const recordIdx = slice.indexOf('recordTelemetry(');
+      // 两处必须都存在，且守卫在 record 调用之前（guardIdx < recordIdx）。
+      return guardIdx >= 0 && recordIdx >= 0 && guardIdx < recordIdx ? 0 : 1;
     } },
 ];
 
