@@ -1091,13 +1091,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   { key: 'addon-update-dest-symlink-bypass', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     // addon-version.ts updateAddon cpSync 前只 realpath projectPath 本体, dest 子段 addons/ 符号链接
     // 未校验 → cpSync 跟随写出 allowlist 外(monorepo 共享 addon 常见, 非 TOCTOU 预存即触发)。
-    // fix: cpSync 前 safeRealPath(dest) + isPathInAllowedRoots(realDest) 校验。
+    // 同源 readAddonVersion readFileSync 同样路径未校验 → 越界读（信息泄漏）。
+    // fix: updateAddon(dest) + readAddonVersion(cfg) 两处 safeRealPath + isPathInAllowedRoots 校验。
     detect: () => {
       const f = readSrc('src/core/addon-version.ts');
-      // 命中「updateAddon 内 cpSync 但无 dest realpath 校验」即复发
+      // 命中「cpSync 但无 dest realpath 校验」或「readFileSync 路径但无 cfg realpath 校验」即复发
       const hasCp = /cpSync\(/.test(f);
       const hasDestCheck = /safeRealPath\(dest\)[\s\S]{0,120}isPathInAllowedRoots\(realDest\)/.test(f);
-      return hasCp && !hasDestCheck ? 1 : 0;
+      const hasCfgCheck = /safeRealPath\(cfg\)[\s\S]{0,120}isPathInAllowedRoots\(realCfg\)/.test(f);
+      return hasCp && (!hasDestCheck || !hasCfgCheck) ? 1 : 0;
     } },
 ];
 

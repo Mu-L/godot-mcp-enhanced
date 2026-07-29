@@ -56,6 +56,34 @@ describe('readAddonVersion', () => {
       _resetPathAllowWarned();
     }
   });
+
+  it('S1: rejects cfg symlink escaping allowed roots (readAddonVersion)', () => {
+    // 清除 UNRESTRICTED 使路径校验生效（beforeEach 设 'true' 旁路，不清则恒 true 平凡通过）
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+    _resetPathAllowWarned();
+
+    const allowedRoot = mkdtempSync(join(tmpdir(), 'allowed-rd-'));
+    const outside = mkdtempSync(join(tmpdir(), 'outside-rd-'));
+
+    try {
+      mkdirSync(join(outside, 'godot_mcp_server'), { recursive: true });
+      writeFileSync(join(outside, 'godot_mcp_server', 'plugin.cfg'),
+        'config_version=5\n[plugin]\nversion="9.9.9"\nscript="plugin.gd"');
+
+      const projectDir = join(allowedRoot, 'proj');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.godot'), 'config_version=5');
+
+      // addons → outside (symlink 越界)：readAddonVersion 的 cfg 路径解析跟随到 allowlist 外
+      symlinkSync(outside, join(projectDir, 'addons'), process.platform === 'win32' ? 'junction' : 'dir');
+      vi.stubEnv('ALLOWED_PROJECT_PATHS', allowedRoot); // allowlist 仅 allowedRoot，outside 在其外
+
+      expect(() => readAddonVersion(projectDir)).toThrow(/escapes allowed roots|not.*allowed|越界|outside/i);
+    } finally {
+      rmSync(allowedRoot, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('updateAddon', () => {
@@ -98,7 +126,7 @@ describe('updateAddon', () => {
       symlinkSync(outside, join(projectDir, 'addons'), process.platform === 'win32' ? 'junction' : 'dir');
       vi.stubEnv('ALLOWED_PROJECT_PATHS', allowedRoot); // allowlist 仅 allowedRoot，outside 在其外
 
-      expect(() => updateAddon(projectDir)).toThrow(/not.*allowed|越界|outside/i);
+      expect(() => updateAddon(projectDir)).toThrow(/escapes allowed roots|not.*allowed|越界|outside/i);
     } finally {
       rmSync(allowedRoot, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
@@ -107,11 +135,15 @@ describe('updateAddon', () => {
 
   it('S1: first-install (dest not exist) still resolves and writes within root', () => {
     const projectDir = join(tmpdir(), 'proj-clean');
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(join(projectDir, 'project.godot'), 'config_version=5');
-    // 无 addons/ 目录（首装），dest 不存在
-    const r = updateAddon(projectDir);
-    expect(r.verifyOk).toBe(true);
-    expect(existsSync(join(projectDir, 'addons', 'godot_mcp_server', 'plugin.cfg'))).toBe(true);
+    try {
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.godot'), 'config_version=5');
+      // 无 addons/ 目录（首装），dest 不存在
+      const r = updateAddon(projectDir);
+      expect(r.verifyOk).toBe(true);
+      expect(existsSync(join(projectDir, 'addons', 'godot_mcp_server', 'plugin.cfg'))).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });
