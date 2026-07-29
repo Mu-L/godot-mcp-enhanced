@@ -139,9 +139,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +7(2026-07-29 C-Correctness detect 补全 T8: nav-freed-access-signal / nav-status-hardcoded /
 //   doctor-no-stripbom / readcache-no-byte-limit / addon-update-nonatomic / adapter-no-mode-preserve /
 //   adapter-env-field-overwrite;fixes 在 commits 35dd8b9..c04a6b0,detect 统一 T8 补),合计 117。
-    expect(FIXED_DEFECTS.length).toBe(120);
+    expect(FIXED_DEFECTS.length).toBe(121);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(120);
+    expect(new Set(keys).size, '存在重名 key').toBe(121);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

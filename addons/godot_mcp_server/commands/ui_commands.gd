@@ -265,14 +265,24 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 
 	match action:
 		"create":
-			var theme = Theme.new()
-			ctrl.theme = theme
+			# F2(2026-07-29 报告5): ctrl.theme 改走 create_action_mixed（property op），Ctrl+Z 回滚旧 theme。
+			var new_theme = Theme.new()
+			if _undo_manager != null:
+				_undo_manager.create_action_mixed("UI Theme Create",
+					[{"type": "property", "target": ctrl, "property": "theme", "value": new_theme}],
+					[{"type": "property", "target": ctrl, "property": "theme", "value": ctrl.theme}])
+			else:
+				ctrl.theme = new_theme
 		"set_params":
 			var theme = ctrl.theme
 			if theme == null:
 				return {"error": {"code": -32004, "message": "Node has no theme assigned"}}
 			var p = params.get("params")
 			if p != null and p is Dictionary:
+				# F2(2026-07-29 报告5): theme.set(key,val) 累积 method op，循环后一次 create_action_mixed，
+				# undo 记 theme.get(key) 旧值；Ctrl+Z 回滚每个 set。未设时 get 返默认值（ADVISORY 级可接受）。
+				var t_do: Array = []
+				var t_undo: Array = []
 				for key in p:
 					if not key is String:
 						continue
@@ -284,7 +294,13 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 					# C13: 校验 key 是 Theme 有效属性（避免 silent no-op / 动态属性污染）
 					if not _theme_has_property(theme, String(key)):
 						continue
-					theme.set(key, val)
+					t_undo.append({"type": "method", "target": theme, "method": "set", "args": [String(key), theme.get(key)]})
+					t_do.append({"type": "method", "target": theme, "method": "set", "args": [String(key), val]})
+				if not t_do.is_empty() and _undo_manager != null:
+					_undo_manager.create_action_mixed("UI Theme Set Params", t_do, t_undo)
+				else:
+					for op in t_do:
+						op["target"].callv("set", op["args"])
 		"save":
 			var theme = ctrl.theme
 			if theme == null:
@@ -306,7 +322,13 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 			var res = load(load_path)
 			if res == null:
 				return {"error": {"code": -32000, "message": "Failed to load theme from: " + load_path}}
-			ctrl.theme = res
+			# F2(2026-07-29 报告5): ctrl.theme=res 改走 create_action_mixed（property op），Ctrl+Z 回滚旧 theme。
+			if _undo_manager != null:
+				_undo_manager.create_action_mixed("UI Theme Load",
+					[{"type": "property", "target": ctrl, "property": "theme", "value": res}],
+					[{"type": "property", "target": ctrl, "property": "theme", "value": ctrl.theme}])
+			else:
+				ctrl.theme = res
 		_:
 			return {"error": {"code": -32004, "message": "Invalid action: " + action + ". Must be: set_params, create, save, load"}}
 
@@ -369,6 +391,8 @@ func handle_ui_container_add(params: Dictionary, request_id: int) -> Dictionary:
 
 # ─── theme_create ───────────────────────────────────────────────────────────
 
+# F2(2026-07-29): theme_create 只 Theme.new()+可选 save 文件，不赋给节点 ctrl.theme（不改场景树持久属性），
+# 故不需 undo（Ctrl+Z 无意义）。报告5 F2 列其为误判，本批排除。
 func handle_theme_create(params: Dictionary) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
@@ -446,6 +470,10 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 	var prop_name: String = params.get("name", "")
 	var theme_type: String = params.get("theme_type", "")
 	var value = params.get("value")
+	# F2(2026-07-29 报告5): 各 theme.set_xxx 累积 method op（do+旧值 undo），match 后一次 create_action_mixed。
+	# 旧值取法：theme.get_color/get_constant/get_default_font/get_stylebox；未设时返默认值（ADVISORY 级可接受）。
+	var t_do: Array = []
+	var t_undo: Array = []
 
 	match item_type:
 		"default_font":
@@ -456,16 +484,20 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var font = load(font_path)
 			if font == null:
 				return {"error": {"code": -32004, "message": "Failed to load font: " + font_path}}
-			theme.set_default_font(font)
+			t_do.append({"type": "method", "target": theme, "method": "set_default_font", "args": [font]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_default_font", "args": [theme.get_default_font()]})
 		"color":
 			var c = value
 			if c is Array and c.size() >= 3:
 				var a = float(c[3]) if c.size() >= 4 else 1.0
-				theme.set_color(prop_name, theme_type, Color(float(c[0]), float(c[1]), float(c[2]), a))
+				var new_col = Color(float(c[0]), float(c[1]), float(c[2]), a)
+				t_do.append({"type": "method", "target": theme, "method": "set_color", "args": [prop_name, theme_type, new_col]})
+				t_undo.append({"type": "method", "target": theme, "method": "set_color", "args": [prop_name, theme_type, theme.get_color(prop_name, theme_type)]})
 			else:
 				return {"error": {"code": -32004, "message": "Color value must be array [r, g, b] or [r, g, b, a]"}}
 		"constant":
-			theme.set_constant(prop_name, theme_type, int(value))
+			t_do.append({"type": "method", "target": theme, "method": "set_constant", "args": [prop_name, theme_type, int(value)]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_constant", "args": [prop_name, theme_type, theme.get_constant(prop_name, theme_type)]})
 		"stylebox":
 			var sb_path: String = str(value)
 			if not _validate_resource_path(sb_path):
@@ -474,8 +506,16 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var sb = load(sb_path)
 			if sb == null:
 				return {"error": {"code": -32004, "message": "Failed to load stylebox: " + sb_path}}
-			theme.set_stylebox(prop_name, theme_type, sb)
+			# F2(2026-07-29): 对称追加 set_stylebox method op + theme.get_stylebox 旧值（保持资源路径校验）。
+			t_do.append({"type": "method", "target": theme, "method": "set_stylebox", "args": [prop_name, theme_type, sb]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_stylebox", "args": [prop_name, theme_type, theme.get_stylebox(prop_name, theme_type)]})
 		_:
 			return {"error": {"code": -32004, "message": "Invalid item_type: " + item_type + ". Must be: default_font, color, constant, stylebox"}}
 
+	if not t_do.is_empty():
+		if _undo_manager != null:
+			_undo_manager.create_action_mixed("UI Theme Set Property", t_do, t_undo)
+		else:
+			for op in t_do:
+				op["target"].callv(op["method"], op["args"])
 	return {"result": {"node": theme_node_path, "item_type": item_type, "name": prop_name, "status": "property_set"}}
