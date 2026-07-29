@@ -252,39 +252,49 @@ func handle_nav_set_params(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32004, "message": "params must be a dictionary"}}
 
 	var agent: NavigationAgent3D = node
+	var do_ops: Array = []
+	var undo_ops: Array = []
 	var updated = []
 
 	if raw_params.has("path_desired_distance"):
-		agent.path_desired_distance = float(raw_params["path_desired_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "path_desired_distance", float(raw_params["path_desired_distance"]))
 		updated.append("path_desired_distance")
 	if raw_params.has("target_desired_distance"):
-		agent.target_desired_distance = float(raw_params["target_desired_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "target_desired_distance", float(raw_params["target_desired_distance"]))
 		updated.append("target_desired_distance")
 	if raw_params.has("radius"):
-		agent.radius = float(raw_params["radius"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "radius", float(raw_params["radius"]))
 		updated.append("radius")
 	if raw_params.has("height"):
-		agent.height = float(raw_params["height"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "height", float(raw_params["height"]))
 		updated.append("height")
 	if raw_params.has("max_speed"):
-		agent.max_speed = float(raw_params["max_speed"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "max_speed", float(raw_params["max_speed"]))
 		updated.append("max_speed")
 	if raw_params.has("avoidance_enabled"):
-		agent.avoidance_enabled = raw_params["avoidance_enabled"]
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "avoidance_enabled", raw_params["avoidance_enabled"])
 		updated.append("avoidance_enabled")
 	if raw_params.has("neighbor_distance"):
-		agent.neighbor_distance = float(raw_params["neighbor_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "neighbor_distance", float(raw_params["neighbor_distance"]))
 		updated.append("neighbor_distance")
 	if raw_params.has("max_neighbors"):
-		agent.max_neighbors = int(raw_params["max_neighbors"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "max_neighbors", int(raw_params["max_neighbors"]))
 		updated.append("max_neighbors")
 	if raw_params.has("time_horizon_agents"):
-		agent.time_horizon_agents = float(raw_params["time_horizon_agents"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "time_horizon_agents", float(raw_params["time_horizon_agents"]))
 		updated.append("time_horizon_agents")
 	if raw_params.has("time_horizon_obstacles"):
-		agent.time_horizon_obstacles = float(raw_params["time_horizon_obstacles"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "time_horizon_obstacles", float(raw_params["time_horizon_obstacles"]))
 		updated.append("time_horizon_obstacles")
 
+	if do_ops.is_empty():
+		return {"error": {"code": -32004, "message": "no valid nav params to set"}}
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Set NavAgent Params", do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			op["target"].set(op["property"], op["value"])
 	return {"result": {"node": node_path, "updated": updated, "status": "params_set"}}
 
 func handle_nav_create_link(params: Dictionary, request_id: int) -> Dictionary:

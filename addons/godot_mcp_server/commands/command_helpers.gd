@@ -213,3 +213,10 @@ static func coerce_property_value(obj: Object, prop: String, val: Variant) -> Di
 		# 非 TYPE_OBJECT：Array 走数学类型 coerce（Vector2/3/Color...），非 Array 透传
 		coerced = coerce_value_for_property(obj, prop, val)
 	return {"ok": true, "value": coerced, "error": ""}
+
+
+## F2(2026-07-29): property op undo 记录 helper（对齐 particle_commands.gd:19，抽到共享层供 nav/ui 复用）。
+## do=set new_val / undo=set old=target.get(prop)。append 进 do_ops/undo_ops，由 create_action_mixed commit。
+static func _record_prop(do_ops: Array, undo_ops: Array, target: Object, prop: String, new_val) -> void:
+	undo_ops.append({"type": "property", "target": target, "property": prop, "value": target.get(prop)})
+	do_ops.append({"type": "property", "target": target, "property": prop, "value": new_val})
