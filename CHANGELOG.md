@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **detect 假绿修正**：`rce-script-branch-no-node-check` 不再把 is_parent_class 当充分守卫（+反向 Node 不在白名单）；`set-prop-no-type-whitelist` 扩扫 headless。
 - **Docs**：update-checker 披露 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 遵守（刻意不设 `trustEnv=false`，避免断企业代理用户）。
 
+### Fixed — Reliability (B 批次)
+
+- **P1 nav bake 请求超时对齐**：`EditorToolExecutor` nav bake `conn.request` 传 `{timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC*1000}`（原默认 30s），消除 >30s 烘焙误报 `editor_disconnected/do_not_retry`（GD 实际烘成但客户端禁重试）。
+- **P1 headless gdscript spawn orphan 清理**：`gdscript-executor` spawn 注册 `_spawnedGodotPids`（exit/error/timeout 三路径 unregister）；`GodotServer.close` 遍历活跃 spawn `killPidTree` best-effort 清理 in-flight（原只 kill run_project 长进程，挂起脚本+关闭→孤儿无兜底）。
+- **P1 心跳降级区分 timeout/refused**：pingFn catch 保留 err.code；`REQUEST_TIMEOUT`（TCP OPEN 主线程卡死）→ `handleEditorStall` 降级；`NOT_CONNECTED/CONNECTION_LOST`（下线/重启）→ 不 `disconnect` 抢占，让 EditorConnection 20 次退避自动重连兜底。重连成功 `hm.reset()` 复位 connected；重连耗尽 `reconnectExhausted` 兜底降级。
+- **P2 半开 HOL 预检**：`EditorToolExecutor._executeInner` 入口查 `healthMonitor.getState()`，reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
+- **P2 全系统扫跳过 --editor**：`fullSystemScanGodot` Windows PowerShell + POSIX sh 过滤加 `--editor` 排除，opt-in 开启时不误杀同项目编辑器。
+- 5 条 defects detect 补全（nav-bake/HOL/spawn/heartbeat/fullsystem-scan；#1/#2/#4 原零 detect）。
+
 ### Added — Telemetry Skeleton (Stage 0, zero egress)
 
 - **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
