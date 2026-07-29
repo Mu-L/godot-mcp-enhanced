@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 110 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 117 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -136,9 +136,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   err.code + onStateChange 分流 REQUEST_TIMEOUT(降级)vs NOT_CONNECTED/CONNECTION_LOST(让
 //   EditorConnection 自动重连兜底,不 disconnect 抢占)+ addOnReconnectHandler 触发 hm.reset()
 //   即刻复位 connected;堵编辑器重启/瞬时不可达也强制降级须手动 reconnect),合计 108。
-    expect(FIXED_DEFECTS.length).toBe(110);
+//   +7(2026-07-29 C-Correctness detect 补全 T8: nav-freed-access-signal / nav-status-hardcoded /
+//   doctor-no-stripbom / readcache-no-byte-limit / addon-update-nonatomic / adapter-no-mode-preserve /
+//   adapter-env-field-overwrite;fixes 在 commits 35dd8b9..c04a6b0,detect 统一 T8 补),合计 117。
+    expect(FIXED_DEFECTS.length).toBe(117);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(110);
+    expect(new Set(keys).size, '存在重名 key').toBe(117);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

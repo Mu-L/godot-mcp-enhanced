@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 110 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1）。
+// FIXED_DEFECTS 117 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1260,6 +1260,87 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasBlanketCatch = /\.catch\(\s*\(\)\s*=>\s*false\s*\)/.test(src);
       return hasField && hasCatch && hasRequestTimeoutBranch && hasHandleStall
         && hasElse && hasNoDegradeLog && hasResetOnReconnect && !hasBlanketCatch ? 0 : 1;
+    } },
+  // ─── 2026-07-29 C-Correctness 批次 detect 补全（fixes 在 commits 35dd8b9..c04a6b0，detect 统一 T8 补）──
+  { key: 'nav-freed-access-signal', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T1 (N1, commit 6c974a5): nav_commands.gd bake 等 bake_finished 信号循环内,freed 对象(nav 被 free)
+    // 再访问 nav.bake_finished（disconnect/is_connected）→ nil access SCRIPT ERROR 中断 await 循环。
+    // fix: if not is_instance_valid(nav): 分支直接 return（不碰信号,信号随对象释放自动断开,对齐 headless navigation.ts:45）。
+    // detect: 两处 freed 分支(if not is_instance_valid(nav): 到 return)不含 nav.bake_finished（复发→>0）。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
+      // 两处 freed 分支：if not is_instance_valid(nav): 到 return {（含），窗口 300 字符覆盖注释+return
+      const branches = f.match(/if not is_instance_valid\(nav\):[\s\S]{0,300}?return\s*\{/g) ?? [];
+      if (branches.length !== 2) return 1; // 结构变移强制复核
+      return branches.filter(b => /nav\.bake_finished/.test(b)).length;
+    } },
+  { key: 'nav-status-hardcoded', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T2 (N2, commit e78cf39): handle_nav_bake_mesh / _async 的 return status 原硬编码 "bake_completed"
+    // (无视 actual bake 结果),烘焙失败/超时仍谎报 completed。fix: 改派生 "bake_completed" if cond else "bake_failed"/"bake_timeout"。
+    // detect: "status": "bake_completed" 字面量后无 if 三元(裸硬编码)= 复发；fixed 形态紧跟 if 三元。
+    detect: () =>
+      countMatchesInFile('addons/godot_mcp_server/commands/nav_commands.gd', /"status":\s*"bake_completed"(?!\s+if)/g) },
+  { key: 'doctor-no-stripbom', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T3 (F5, commit d149d9f): doctor.ts 内联 JSON.parse(readFileSync(...)) 不 stripBOM,带 BOM 的合法
+    // mcp-godot.json JSON.parse throw → adapter.isConfigured catch return false → doctor 误报 + setup 破坏幂等。
+    // fix: 改 readJsonForCheck（stripBom + 容错 null,与 adapter isConfigured 同源）。
+    // detect: doctor.ts 含 readJsonForCheck 调用（删调用或回内联 JSON.parse(readFileSync → detect=1）。
+    detect: () => /readJsonForCheck\s*\(/.test(readSrc('src/cli/doctor.ts')) ? 0 : 1 },
+  { key: 'readcache-no-byte-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // C-T4 (S2, commit fc8e8bc): update-checker.ts readCache 无字节上限,恶意/损坏大缓存文件 readFileSync 全量载入 OOM。
+    // fix: statSync(cachePath).size > 64KB 上限 + obj.latest.length <= 64（version 字段合理上限）双守卫。
+    // detect: readCache 函数体含 statSync().size + .length 上限（删任一→detect=1 复发）。
+    detect: () => {
+      const f = readSrc('src/core/update-checker.ts');
+      const start = f.indexOf('function readCache(');
+      if (start < 0) return 1;
+      const body = f.slice(start, start + 800);
+      const hasSizeGuard = /statSync\([^)]+\)\.size\s*>/.test(body);
+      const hasLengthGuard = /\.length\s*<=?\s*\d+/.test(body);
+      return hasSizeGuard && hasLengthGuard ? 0 : 1;
+    } },
+  { key: 'addon-update-nonatomic', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // C-T5 (S3, commit 0fb465b): addon-version.ts updateAddon 裸 cpSync(addonSource, dest) 中途失败（断电/磁盘满）
+    // 留破损 addon → Godot 启动 parse error 阻塞。fix: staging 目录 cp + 校验 + rename 原子替换 + 备份回滚。
+    // detect: updateAddon 含 staging + renameSync(staging, dest) + 无裸 cpSync(addonSource, dest)（回退裸 cpSync→detect=1）。
+    detect: () => {
+      const f = readSrc('src/core/addon-version.ts');
+      const start = f.indexOf('export function updateAddon(');
+      if (start < 0) return 1;
+      const body = f.slice(start, start + 3000);
+      const hasStaging = /\bstaging\b/.test(body);
+      const hasRename = /renameSync\(staging,\s*dest\)/.test(body);
+      const hasBareCp = /cpSync\(addonSource,\s*dest[\s,)]/.test(body);
+      return hasStaging && hasRename && !hasBareCp ? 0 : 1;
+    } },
+  { key: 'adapter-no-mode-preserve', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T6 (F3, commit 10f0cc1): 13 adapter writeFileSync(tmpPath, data, 'utf-8') 第三参 encoding 非 mode,
+    // tmp 默认 0o666, rename 后覆盖用户 chmod 0o600 的配置 mode（Unix 权限丢失,敏感配置变组可读）。
+    // fix: json-config.ts 抽 writeFileAtomicWithMode helper（stat 原文件 mode → write tmp 显式传 mode → rename 保持）。
+    // detect: json-config export writeFileAtomicWithMode + ≥1 adapter 调用（删 export 或调用全删回 writeFileSync→detect=1）。
+    detect: () => {
+      const cfg = readSrc('src/cli/clients/json-config.ts');
+      const hasExport = /export function writeFileAtomicWithMode/.test(cfg);
+      // adapter 调用点（json-config 自身定义算1,adapter 调用至少1处 = 总计 - 自身 ≥ 1）
+      const allCalls = countMatchesInDir('src/cli/clients', /\bwriteFileAtomicWithMode\s*\(/g, /\.ts$/);
+      const selfCount = (cfg.match(/\bwriteFileAtomicWithMode\s*\(/g) ?? []).length;
+      return hasExport && allCalls - selfCount >= 1 ? 0 : 1;
+    } },
+  { key: 'adapter-env-field-overwrite', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T7 (C1, commit c04a6b0): 13 adapter `env: { GODOT_PATH: godotPath }` 完全覆盖 oldEntry.env,
+    // 用户配的 ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_* 重跑 setup 静默丢失,复发 MCP 服务器定位不到项目。
+    // fix: 抽 buildEnv(godotPath, oldEnv) helper 保留白名单前缀（ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_ / GODOT_MCP_EDITOR_）。
+    // detect: 14 adapter 无裸 env/environment: { GODOT_PATH:（全覆盖字面量 = 复发；fixed 走 buildEnv）。
+    //   排除 json-config.ts（其 doc 注释含旧模式字样,非代码复发）。
+    detect: () => {
+      const adapters = ['claude-code','cursor','claude-desktop','trae','windsurf','zed','antigravity',
+        'cherry-studio','cline','gemini-cli','qwen-code','zcode','opencode','codex'];
+      let n = 0;
+      for (const name of adapters) {
+        const f = readSrc(`src/cli/clients/${name}.ts`);
+        n += (f.match(/\b(?:env|environment):\s*\{\s*GODOT_PATH\s*:/g) ?? []).length;
+      }
+      return n;
     } },
 ];
 
