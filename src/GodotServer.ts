@@ -96,6 +96,10 @@ export class GodotServer {
   private editorConn: EditorConnection | null = null;
   private editorExecutor: EditorToolExecutor | null = null;
   private connectionMode: 'headless' | 'editor';
+  /** B-T5: pingFn catch 保留 err.code,供 onStateChange 分流——
+   *  REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ 降级;
+   *  NOT_CONNECTED/CONNECTION_LOST(下线)→ 让 EditorConnection 自动重连兜底,不抢占。 */
+  private _lastPingErrCode: string | undefined;
   // 方案B: 供 rebuildEditorConnection() 重建降级后的 editor 连接(port 存实例,secret 重建时重读)
   private editorPort: number | null = null;
   private editorProjectPath: string | null = null;
@@ -475,19 +479,43 @@ export class GodotServer {
         getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
         this.handleEditorStall();
       });
+      // B-T5: 编辑器重连成功 → 即刻复位 hm state=connected + 清 heartbeat 失败计数。
+      // 避免 refused 不抢占后 hm 卡 reconnecting(下次 ping 要等 probeIntervalMs=60s 才纠正),
+      // 期间 B-T3 半开 HOL 预检(_executeInner getState===reconnecting)会拦所有 editor 工具致卡顿。
+      // 链完整性:refused→hm reconnecting 但不降级→EditorConnection 20 次退避重连→重连成功→
+      // 本 handler 复位 hm→恢复;重连耗尽→上面 reconnectExhausted handler→handleEditorStall 兜底降级。
+      this.editorConn.addOnReconnectHandler(() => {
+        if (hm) hm.reset();
+      });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
       if (hm) {
         hm.startHeartbeat(
-          () => (this.editorConn ? this.editorConn.request('ping', {}, { timeoutMs: 5000 }).then(() => true).catch(() => false) : Promise.resolve(false)),
+          () => (this.editorConn
+            ? this.editorConn.request('ping', {}, { timeoutMs: 5000 })
+                .then(() => { this._lastPingErrCode = undefined; return true; })
+                .catch((err: unknown) => {
+                  // B-T5: 保留 err.code 供 onStateChange 分流(旧实现毯式 catch `() => false` 丢 code)。
+                  const e = err as { code?: string } | null | undefined;
+                  this._lastPingErrCode = e?.code;
+                  return false;
+                })
+            : Promise.resolve(false)),
         );
-        // 2026-07-12 P0 控制回路接线：心跳检测编辑器卡死（连续 ping 失败进 reconnecting）时主动降级。
-        // 堵 HealthMonitor 纯仪表盘缺口：编辑器主线程卡死但 TCP OPEN 时 WS 不 close →
-        // reconnectExhausted handler 不触发 → 此回路兜底（复用 handleEditorStall 统一降级动作）。
+        // 2026-07-12 P0 控制回路接线 + B-T5 分流:
+        // - REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ handleEditorStall 降级。WS 不 close, ws.on('close')→scheduleReconnect
+        //   不触发,自动重连救不了;必须主动降级让用户用 headless 工作 + 手动 reconnect。
+        // - NOT_CONNECTED/CONNECTION_LOST(下线/重启/瞬时不可达)→ 不降级,让 EditorConnection ws.close 已触发的
+        //   scheduleReconnect(20 次退避)自动兜底。disconnect 会杀重连(reconnectEnabled=false),抢占致用户须手动 reconnect。
+        //   重连成功后 addOnReconnectHandler 即时复位 hm;重连耗尽 reconnectExhausted handler 最终兜底降级。
         hm.onStateChange((_from, to) => {
           if (to === 'reconnecting' && this.connectionMode === 'editor') {
-            getLogger().warn('godot-mcp', 'Heartbeat detected editor stall (TCP open but main thread blocked) — degrading to headless.');
-            this.handleEditorStall();
+            if (this._lastPingErrCode === 'REQUEST_TIMEOUT') {
+              getLogger().warn('godot-mcp', 'Heartbeat REQUEST_TIMEOUT (editor main thread blocked) — degrading to headless.');
+              this.handleEditorStall();
+            } else {
+              getLogger().info('godot-mcp', `Heartbeat ${this._lastPingErrCode || 'unknown'} (editor down/refused) — letting auto-reconnect handle, not degrading.`);
+            }
           }
         });
         // B6: 重建(rebuild)成功后 hm.state 可能残留 'reconnecting'(上次 stall 留下),

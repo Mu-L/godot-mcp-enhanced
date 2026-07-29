@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 108 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1）。
+// FIXED_DEFECTS 109 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1214,6 +1214,42 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const allCovered = fktIndices.length >= 3 && fktIndices.every(idx =>
         /unregisterSpawn|unregisterSpawnedGodotPid/.test(exec.slice(idx, idx + 120)));
       return hasRegister && hasCloseCleanup && allCovered ? 0 : 1;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 5：心跳降级区分 timeout/refused 不抢占重连 ──
+  { key: 'heartbeat-blanket-catch-no-distinguish', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // GodotServer.ts:482 pingFn `.catch(() => false)` 毯式 catch 丢 err.code,
+    // 两种失败(REQUEST_TIMEOUT 主线程卡死 / NOT_CONNECTED+CONNECTION_LOST 下线)都 recordFailure
+    // → reconnecting → 旧 onStateChange 无差别调 handleEditorStall → disconnect() 杀 20 次退避自动重连。
+    // 编辑器重启/瞬时不可达也强制降级,用户须手动 reconnect。
+    // fix: pingFn catch 保留 err.code 到 _lastPingErrCode; onStateChange 分流
+    //      REQUEST_TIMEOUT(TCP OPEN 主线程卡死→降级,自动重连救不了)
+    //      vs NOT_CONNECTED/CONNECTION_LOST(下线→让 EditorConnection scheduleReconnect 兜底,不抢占);
+    //      addOnReconnectHandler 触发 hm.reset() 即刻复位 connected(避免卡 reconnecting)。
+    //      状态机链完整:refused→不降级→自动重连→成功→复位;重连耗尽→reconnectExhausted→handleEditorStall 兜底。
+    // detect: 五特征齐备(_lastPingErrCode 字段 + catch 保留 err.code + onStateChange 分流 REQUEST_TIMEOUT
+    //         + 非 REQUEST_TIMEOUT else 分支不调 handleEditorStall + addOnReconnectHandler 调 hm.reset())。
+    detect: () => {
+      const src = readSrc('src/GodotServer.ts');
+      // 1. 声明 _lastPingErrCode 字段
+      const hasField = /private\s+_lastPingErrCode\s*:\s*string\s*\|\s*undefined/.test(src);
+      // 2. pingFn catch 保留 err.code 到 _lastPingErrCode(非毯式 () => false)
+      const hasCatch = /_lastPingErrCode\s*=\s*(?:err|e)\??\.code/.test(src);
+      // 3. onStateChange 分流 REQUEST_TIMEOUT
+      const onStateIdx = src.indexOf('hm.onStateChange(');
+      const onStateSlice = onStateIdx > 0 ? src.slice(onStateIdx, onStateIdx + 1500) : '';
+      const hasRequestTimeoutBranch = /REQUEST_TIMEOUT/.test(onStateSlice);
+      const hasHandleStall = /this\.handleEditorStall\(\)/.test(onStateSlice);
+      // 4. 非 REQUEST_TIMEOUT 分支不调 handleEditorStall(含 else / letting / not degrading 语义)
+      const hasElse = /\belse\b/.test(onStateSlice);
+      const hasNoDegradeLog = /not degrading|letting|auto-reconnect/.test(onStateSlice);
+      // 5. addOnReconnectHandler 调 hm.reset()(重连成功复位,链关键节点)
+      const recIdx = src.indexOf('addOnReconnectHandler(');
+      const recSlice = recIdx > 0 ? src.slice(recIdx, recIdx + 400) : '';
+      const hasResetOnReconnect = /hm\.reset\(\)/.test(recSlice);
+      // 反向:毯式 catch 复发即红
+      const hasBlanketCatch = /\.catch\(\s*\(\)\s*=>\s*false\s*\)/.test(src);
+      return hasField && hasCatch && hasRequestTimeoutBranch && hasHandleStall
+        && hasElse && hasNoDegradeLog && hasResetOnReconnect && !hasBlanketCatch ? 0 : 1;
     } },
 ];
 

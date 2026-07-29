@@ -206,6 +206,7 @@ describe('GodotServer', () => {
         connect: vi.fn().mockResolvedValue(undefined),
         disconnect: vi.fn(),
         isConnected: vi.fn().mockReturnValue(true),
+        addOnReconnectHandler: vi.fn(),
         addOnReconnectExhaustedHandler: vi.fn((handler) => {
           exhaustedHandlers.push(handler);
         }),
@@ -244,6 +245,7 @@ describe('GodotServer', () => {
         addOnDisconnectHandler: vi.fn((handler) => {
           disconnectHandlers.push(handler);
         }),
+        addOnReconnectHandler: vi.fn(),
         addOnReconnectExhaustedHandler: vi.fn(),
       };
 

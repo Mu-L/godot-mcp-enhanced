@@ -140,14 +140,18 @@ describe('editor fallback end-to-end (P0-1)', () => {
     expect(server.editorConn).toBeNull();
   });
 
-  // ── Path B: 半开心跳降级接线（onStateChange → handleEditorStall）──────────
+  // ── Path B: 半开心跳降级接线（onStateChange REQUEST_TIMEOUT → handleEditorStall）──
+  // B-T5: ping 失败分流。REQUEST_TIMEOUT(TCP OPEN 但主线程卡死)→降级,自动重连救不了(ws 不 close,
+  // scheduleReconnect 不触发)。NOT_CONNECTED/CONNECTION_LOST(下线)→不降级,让 EditorConnection
+  // 自动重连兜底(见 Path C)。本测试覆盖 REQUEST_TIMEOUT 分支的真实降级接线。
+  //
   // 注：真实半开 ping-timeout 端到端（ping 不响应 → 5s timeout × 5 → reconnecting）
   // 在 fakeTimers + 真实 ws 下不稳定（request 超时虽是 setTimeout 受控，但心跳 async 链
   // + 真实 I/O 事件不被 fake timer 推进），且生产心跳参数硬编码（heartbeatIntervalMs=15000 /
   // maxConsecutiveFailures=5 / pingTimeout=5000）不可 env 注入。降级为接线断言：
-  // 直接驱动 health-monitor 进 'reconnecting'，触发 GodotServer.ts:468-473 的
-  // onStateChange 回调 → handleEditorStall（此前零覆盖的真实降级接线）。
-  it('degrades to headless when health-monitor enters reconnecting (path B wiring)', async () => {
+  // 直接驱动 health-monitor 进 'reconnecting' + 预置 _lastPingErrCode='REQUEST_TIMEOUT',
+  // 触发 GodotServer.ts onStateChange 回调 REQUEST_TIMEOUT 分支 → handleEditorStall。
+  it('degrades to headless when hm enters reconnecting via REQUEST_TIMEOUT (path B: half-open stall)', async () => {
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
@@ -159,16 +163,83 @@ describe('editor fallback end-to-end (P0-1)', () => {
     await server.run();
     expect(server.connectionMode).toBe('editor');
 
-    // establishEditorConnection 连接成功后 hm 复位为 'connected'（GodotServer.ts:479）
+    // establishEditorConnection 连接成功后 hm 复位为 'connected'（GodotServer.ts B6）
     const hm = server.dispatcher.getHealthMonitor();
     expect(hm.getState()).toBe('connected');
 
-    // 模拟心跳检测到卡死：hm 进 'reconnecting' → onStateChange(:468) → handleEditorStall(:471)
+    // 模拟心跳检测到卡死：预置 err.code=REQUEST_TIMEOUT(TCP OPEN 主线程阻塞,ws 不 close)
+    // + hm 进 'reconnecting' → onStateChange REQUEST_TIMEOUT 分支 → handleEditorStall
+    server._lastPingErrCode = 'REQUEST_TIMEOUT';
     hm.setState('reconnecting');
     // onStateChange listener 同步触发 handleEditorStall；flush 兜底异步 listener
     await new Promise((r) => setTimeout(r, 50));
 
     expect(server.connectionMode).toBe('headless');
     expect(server.editorConn).toBeNull();
+  });
+
+  // ── Path C: 编辑器下线不抢占自动重连（B-T5 核心修复点）─────────────────────
+  // CONNECTION_LOST/NOT_CONNECTED: 编辑器重启/瞬时不可达,ws.close 已触发 scheduleReconnect
+  // (20 次退避)。旧实现无差别 handleEditorStall → disconnect() 杀自动重连(reconnectEnabled=false),
+  // 用户须手动 reconnect。修复:onStateChange 分流,非 REQUEST_TIMEOUT 不降级,让自动重连兜底;
+  // 重连成功 addOnReconnectHandler 触发 hm.reset();重连耗尽 reconnectExhausted 兜底降级(Path A)。
+  it('does NOT degrade when hm enters reconnecting via CONNECTION_LOST (path C: editor offline, let auto-reconnect)', async () => {
+    wss.on('connection', (ws) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+      });
+    });
+
+    server = new GodotServer('/fake/ops.gd', { connectionMode: 'editor' });
+    await server.run();
+    expect(server.connectionMode).toBe('editor');
+
+    const hm = server.dispatcher.getHealthMonitor();
+    expect(hm.getState()).toBe('connected');
+
+    // 模拟编辑器下线:ws 已 close,ping 失败返 CONNECTION_LOST err.code;hm 进 reconnecting
+    server._lastPingErrCode = 'CONNECTION_LOST';
+    hm.setState('reconnecting');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 反向断言:不抢占自动重连——editorConn 保持非 null(reconnectEnabled 保持 true),
+    // connectionMode 保持 'editor',等 EditorConnection scheduleReconnect 兜底恢复/耗尽降级
+    expect(server.connectionMode).toBe('editor');
+    expect(server.editorConn).not.toBeNull();
+  });
+
+  // ── Path D: 重连成功复位 hm（B-T5 状态机链关键节点）──────────────────────────
+  // refused 后 hm 卡 reconnecting(下次 ping 要等 probeIntervalMs=60s 才纠正),
+  // 期间 B-T3 半开 HOL 预检(_executeInner getState===reconnecting)拦所有 editor 工具。
+  // 修复:addOnReconnectHandler 触发 hm.reset() 即刻复位 connected + 清 consecutiveHeartbeatFails。
+  it('resets health-monitor to connected on editor reconnect (path D: state machine chain)', async () => {
+    wss.on('connection', (ws) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+      });
+    });
+
+    server = new GodotServer('/fake/ops.gd', { connectionMode: 'editor' });
+    await server.run();
+    expect(server.connectionMode).toBe('editor');
+
+    const hm = server.dispatcher.getHealthMonitor();
+    // 模拟 refused 后卡 reconnecting
+    server._lastPingErrCode = 'CONNECTION_LOST';
+    hm.setState('reconnecting');
+    expect(hm.getState()).toBe('reconnecting');
+
+    // 模拟 EditorConnection 自动重连成功:触发 addOnReconnectHandler → hm.reset()
+    // 通过 reconnectHandlers Set(JS test 可访问 TS private 字段)调用所有注册的 handler,
+    // 包括本任务接线的 hm.reset() handler 和 EditorToolExecutor 的 _reconnectHandler。
+    for (const h of server.editorConn.reconnectHandlers) {
+      try { h(); } catch { /* best-effort,同生产 fireReconnect 容错 */ }
+    }
+    // 兜底 flush
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(hm.getState()).toBe('connected'); // 即刻复位,避免 60s 卡顿窗口
   });
 });
