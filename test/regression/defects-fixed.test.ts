@@ -129,9 +129,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-29 B-Reliability T3): editor-halfopen-no-precheck(EditorToolExecutor 构造器注入
 //   healthMonitor,_executeInner 入口 reconnecting 时即时返 NOT_CONNECTED,跳过 30s conn.request
 //   半开 HOL 等待,避免串行 executeChain ×30s 放大),合计 106。
-    expect(FIXED_DEFECTS.length).toBe(107);
+//   +1(2026-07-29 B-Reliability T4): gdscript-spawn-not-registered(gdscript-executor spawn
+//   后注册 _spawnedGodotPids,exit/error/三 forceKillTree 路径 unregister;GodotServer.close
+//   遍历活跃 PID 调 killPidTree best-effort 清理,堵挂起脚本 + close → 孤儿无兜底),合计 107。
+    expect(FIXED_DEFECTS.length).toBe(108);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(107);
+    expect(new Set(keys).size, '存在重名 key').toBe(108);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

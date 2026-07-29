@@ -555,6 +555,16 @@ export class GodotServer {
       ps.setRunningProcess(null);
       log('Running Godot process killed');
     }
+    // B-T4: 清理 in-flight short-running gdscript spawn（gdscript-executor 注册）。
+    // 原 close 只 kill run_project 长进程,挂起脚本 + close → 孤儿无兜底。
+    // getSpawnedGodotPids 此时通常已空（exit/error/timeout 三路径均 unregister），
+    // 仅异常路径（注册后 close 抢占 / forceKillTree 后 exit 未触发）残留 PID → best-effort kill。
+    for (const pid of ps.getSpawnedGodotPids()) {
+      try {
+        ps.killPidTree(pid);
+        ps.unregisterSpawnedGodotPid(pid);
+      } catch { /* best-effort: 已退出 / killPidTree 内部吞错 */ }
+    }
     // Clean up guard cleanup timer and pending tokens
     guard.cleanup();
     // Stop health monitor heartbeat

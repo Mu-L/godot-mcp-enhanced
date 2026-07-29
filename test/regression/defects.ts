@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 107 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1）。
+// FIXED_DEFECTS 108 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1180,6 +1180,40 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasPrecheck = /healthMonitor\.getState\(\)\s*===\s*['"]reconnecting['"]/.test(f);
       const hasShortCircuit = /NOT_CONNECTED/.test(f);
       return hasPrecheck && hasShortCircuit ? 0 : 1;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 4：headless gdscript spawn orphan 清理 ──
+  { key: 'gdscript-spawn-not-registered', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // gdscript-executor.ts:1192 spawn(godotPath, godotArgs) 不入 _spawnedGodotPids
+    // （仅 runtime.ts:224 run_project 注册）。GodotServer.close 只 kill run_project 长进程，
+    // 挂起脚本 + close → 孤儿无兜底；orphan 扫描默认只扫 run_project PID。
+    // fix: gdscript-executor spawn 后 registerSpawnedGodotPid(proc.pid) + exit/error/
+    //      三 forceKillTree 分支(timeout/stdout溢出/stderr溢出)调 unregister；
+    //      GodotServer.close 遍历 ps.getSpawnedGodotPids() 调 ps.killPidTree best-effort 清理。
+    // detect: 三特征齐备（spawn 后 register + close 含 getSpawnedGodotIds+killPidTree + 三 forceKillTree 路径 unregister）。
+    detect: () => {
+      const exec = readSrc('src/gdscript-executor.ts');
+      const srv = readSrc('src/GodotServer.ts');
+      // 1. spawn 后注册
+      const spawnIdx = exec.indexOf('spawn(godotPath, godotArgs');
+      const afterSpawn = spawnIdx > 0 ? exec.slice(spawnIdx, spawnIdx + 400) : '';
+      const hasRegister = /registerSpawnedGodotPid\s*\(\s*proc\.pid\s*\)/.test(afterSpawn);
+      // 2. close 含 getSpawnedGodotPids + killPidTree 遍历
+      const closeStart = srv.indexOf('async close(): Promise<void>');
+      const closeEnd = srv.indexOf("log('Server shut down')", closeStart);
+      const closeBody = closeStart > 0 && closeEnd > 0 ? srv.slice(closeStart, closeEnd) : '';
+      const hasCloseCleanup = /getSpawnedGodotPids\s*\(\s*\)/.test(closeBody) && /killPidTree|forceKillTree/.test(closeBody);
+      // 3. 三 forceKillTree 分支后 unregister（120 字符窗口）
+      const fktIndices: number[] = [];
+      let searchFrom = 0;
+      while (true) {
+        const idx = exec.indexOf('forceKillTree(proc)', searchFrom);
+        if (idx < 0) break;
+        fktIndices.push(idx);
+        searchFrom = idx + 1;
+      }
+      const allCovered = fktIndices.length >= 3 && fktIndices.every(idx =>
+        /unregisterSpawn|unregisterSpawnedGodotPid/.test(exec.slice(idx, idx + 120)));
+      return hasRegister && hasCloseCleanup && allCovered ? 0 : 1;
     } },
 ];
 

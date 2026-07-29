@@ -53,6 +53,9 @@ vi.mock('../src/core/process-state.js', () => ({
   getRunningProcess: () => null,
   getProjectDir: () => '',
   forceKillTree: () => {},
+  // B-T4: spawn 注册/注销 PID（无需真实跟踪，no-op 即可）
+  registerSpawnedGodotPid: () => {},
+  unregisterSpawnedGodotPid: () => {},
 }));
 
 // ─── mock fs/promises.readdir 返空：跳过 cleanupOldSessions 扫描 ────────────
