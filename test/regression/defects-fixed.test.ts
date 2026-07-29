@@ -136,9 +136,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   err.code + onStateChange 分流 REQUEST_TIMEOUT(降级)vs NOT_CONNECTED/CONNECTION_LOST(让
 //   EditorConnection 自动重连兜底,不 disconnect 抢占)+ addOnReconnectHandler 触发 hm.reset()
 //   即刻复位 connected;堵编辑器重启/瞬时不可达也强制降级须手动 reconnect),合计 108。
-    expect(FIXED_DEFECTS.length).toBe(109);
+    expect(FIXED_DEFECTS.length).toBe(110);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(109);
+    expect(new Set(keys).size, '存在重名 key').toBe(110);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
