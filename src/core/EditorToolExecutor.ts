@@ -2,6 +2,8 @@
 import type { EditorConnection } from './EditorConnection.js';
 import type { ToolResult } from '../types.js';
 import { resolveEditorMethod } from './editor-method-map.js';
+import type { HealthMonitor } from './health-monitor.js';
+import { opsErrorResult } from '../tools/shared.js';
 
 export class EditorToolExecutor {
   private syncActive = false;
@@ -11,6 +13,10 @@ export class EditorToolExecutor {
   private treeChangeCount = 0;
   private static readonly MAX_BUFFER_SIZE = 10000;
   private readonly conn: EditorConnection;
+  // B-T3: 半开 HOL 预检——_executeInner 入口据 healthMonitor.getState() === 'reconnecting'
+  // 即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
+  // 可选：未注入时不预检（向后兼容既有 new EditorToolExecutor(conn) 调用点）。
+  private readonly healthMonitor?: HealthMonitor;
   // security P1#2: editor 工具串行化链(防并发 ws.send 致 undo 栈 LIFO 错乱)
   private executeChain: Promise<unknown> = Promise.resolve();
 
@@ -28,8 +34,9 @@ export class EditorToolExecutor {
     }
   };
 
-  constructor(conn: EditorConnection) {
+  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor) {
     this.conn = conn;
+    this.healthMonitor = healthMonitor;
     this.conn.addOnDisconnectHandler(this._disconnectHandler);
     this.conn.addOnReconnectHandler(this._reconnectHandler);
   }
@@ -56,6 +63,15 @@ export class EditorToolExecutor {
   }
 
   private async _executeInner(toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // B-T3: 半开 HOL 预检——TCP 半开时 conn.connected=true 但 editor 主线程卡死，
+    // conn.request 挂满 30s（串行 executeChain ×30s HOL 放大）。
+    // healthMonitor 心跳已检测到 reconnecting 时，入口即时返 NOT_CONNECTED 跳过等待。
+    if (this.healthMonitor && this.healthMonitor.getState() === 'reconnecting') {
+      return opsErrorResult(
+        'NOT_CONNECTED',
+        'Editor is reconnecting (half-open precheck). Retry shortly.',
+      );
+    }
     try {
       if (toolName === 'editor') {
         const action = args.action as string;

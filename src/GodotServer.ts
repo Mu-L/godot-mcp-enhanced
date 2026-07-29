@@ -466,7 +466,10 @@ export class GodotServer {
     });
     try {
       await this.editorConn.connect();
-      this.editorExecutor = new EditorToolExecutor(this.editorConn);
+      // B-T3: hm 提前到 EditorToolExecutor 构造前复用，注入 _executeInner 半开 HOL 预检
+      // （reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待，避免串行 executeChain ×30s 放大）。
+      const hm = this.dispatcher?.getHealthMonitor();
+      this.editorExecutor = new EditorToolExecutor(this.editorConn, hm);
       this.dispatcher?.setEditorExecutor(this.editorExecutor);
       this.editorConn.addOnReconnectExhaustedHandler(() => {
         getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
@@ -474,7 +477,6 @@ export class GodotServer {
       });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
-      const hm = this.dispatcher?.getHealthMonitor();
       if (hm) {
         hm.startHeartbeat(
           () => (this.editorConn ? this.editorConn.request('ping', {}, { timeoutMs: 5000 }).then(() => true).catch(() => false) : Promise.resolve(false)),

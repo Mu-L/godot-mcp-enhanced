@@ -188,3 +188,62 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
     );
   });
 });
+
+// B-T3: 半开 HOL 预检（_executeInner healthMonitor.getState）
+// TCP 半开时 conn.connected=true 但 editor 卡死，conn.request 挂满 30s；
+// 串行 executeChain ×30s HOL 放大。注入 healthMonitor，reconnecting 即时返 NOT_CONNECTED。
+describe('EditorToolExecutor HOL precheck (B-T3)', () => {
+  let mockConn: MockConn;
+
+  beforeEach(() => {
+    clearRegistry();
+    registerTools([{ name: 'add_node', readonly: false, long_running: false }]);
+    mockConn = makeMockConn();
+  });
+
+  afterEach(() => {
+    clearRegistry();
+  });
+
+  it('reconnecting state returns NOT_CONNECTED immediately, skips conn.request (no 30s HOL wait)', async () => {
+    const hm = { getState: () => 'reconnecting' } as any;
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      hm,
+    );
+    // 若预检生效，conn.request 不应被调用；这里用 spy 兜底：一旦调用立即 fail
+    mockConn.request.mockImplementation(async () => { throw new Error('should not reach — HOL precheck must short-circuit'); });
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeTruthy();
+    expect(JSON.stringify(r)).toMatch(/NOT_CONNECTED|reconnecting/i);
+    // 反向断言：conn.request 未被调用（跳过 30s 等待）
+    expect(mockConn.request).not.toHaveBeenCalled();
+  });
+
+  it('connected state dispatches normally (no false reject)', async () => {
+    const hm = { getState: () => 'connected' } as any;
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      hm,
+    );
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeFalsy();
+    expect(mockConn.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('undefined healthMonitor (backward compat) dispatches normally', async () => {
+    // 不注入 hm 的既有调用点（如测试 fixture）必须保持向后兼容
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+    );
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeFalsy();
+    expect(mockConn.request).toHaveBeenCalledTimes(1);
+  });
+});
