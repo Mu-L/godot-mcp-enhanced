@@ -8,6 +8,7 @@ import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensure
 import { opsErrorResult, validateTimeout } from './shared.js';
 import { findBlender } from '../core/blender-finder.js';
 import { runBlenderHeadless } from '../core/blender-spawn.js';
+import { scanBpySandbox } from '../core/bpy-sandbox.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 
 const HEADER = `import bpy, bmesh, mathutils, math, sys
@@ -85,6 +86,12 @@ export async function handleTool(
       'Blender not found. Set GODOT_BLENDER_PATH env or install Blender on PATH.');
   }
 
+  // 写临时脚本前:对齐 execute_gdscript 纵深防御,扫描危险 Python API。
+  const sandboxWarnings = scanBpySandbox(code);
+  if (sandboxWarnings.length > 0) {
+    return opsErrorResult('SANDBOX_BLOCKED',
+      `execute_bpy code blocked by sandbox (set GODOT_MCP_DISABLE_SAFETY=true for local trust override):\n${sandboxWarnings.join('\n')}`);
+  }
   // 写临时脚本（系统 temp，非项目内）
   const tmpScript = join(tmpdir(), `mcp-blender-${process.pid}-${Date.now()}.py`);
   writeFileSync(tmpScript, buildBlenderScript(code), 'utf-8');
