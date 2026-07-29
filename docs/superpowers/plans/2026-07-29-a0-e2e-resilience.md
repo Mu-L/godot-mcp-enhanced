@@ -190,7 +190,7 @@ git commit -m "ci(E2E): godot-matrix 白名单加 e2e-resilience-headless（韧�
 - 参考: `test/e2e-asset-tools.test.ts:60-121`（E2E_EDITOR opt-in + readEditorSecret + EditorConnection harness）
 
 **Interfaces:**
-- Consumes: `EditorConnection`（`requestReconnect`/`connect`/`disconnect`/`getState`）、`readEditorSecret` from `../src/core/editor-auth.js`、`EditorToolExecutor`
+- Consumes: `EditorConnection`（`requestReconnect`/`connect`/`disconnect`/`isConnected`）、`readEditorSecret` from `../src/core/editor-auth.js`、`EditorToolExecutor`
 - Produces: editor 崩溃重连真进程验证（report4 P0-1① + P0-2 mock 鸿沟）
 
 - [ ] **Step 0: Spike — editor spawn/就绪/secret harness 可行性（必须先做）**
@@ -274,14 +274,14 @@ describe.skipIf(!canRun)('e2e-resilience (editor): 崩溃后 EditorConnection �
       reconnect: false, secret, connectTimeout: 10_000, requestTimeout: 30_000,
     });
     await conn.connect();
-    expect(conn.getState()).toBe('connected');
+    expect(conn.isConnected()).toBe(true);
 
     // 崩溃注入：kill -9 editor（非 detached，pid 可控）
     const deadPid = editor.pid!;
     editor.kill('SIGKILL');
     editor = null;
     await new Promise((r) => setTimeout(r, 1000)); // 等 ws close 传播
-    expect(conn.getState(), 'editor 死后应断连').not.toBe('connected');
+    expect(conn.isConnected(), 'editor 死后应断连').toBe(false);
 
     // 重启 editor + 手动触发重连（manage_tools(reconnect) 路径）
     editor = await startEditor();
@@ -290,10 +290,10 @@ describe.skipIf(!canRun)('e2e-resilience (editor): 崩溃后 EditorConnection �
 
     // 轮询重连成功（reconnect:false 时 requestReconnect 内部 scheduleReconnect，等回连）
     const reconDeadline = Date.now() + 30_000;
-    while (Date.now() < reconDeadline && conn.getState() !== 'connected') {
+    while (Date.now() < reconDeadline && !conn.isConnected()) {
       await new Promise((r) => setTimeout(r, 500));
     }
-    expect(conn.getState(), '重启后应重连成功').toBe('connected');
+    expect(conn.isConnected(), '重启后应重连成功').toBe(true);
   }, 120_000);
 });
 ```
@@ -306,7 +306,7 @@ Expected: 1 passed
 **⚠ Spike 风险（Step 2 大概率首次红）**：
 - `reconnect:false` + `requestReconnect` 组合是否真能重连（`requestReconnect:557` 调 `resetReconnectState` + `scheduleReconnect`，但 `reconnect:false` 是构造参数——需核实它是否禁用 scheduleReconnect；若是，测试要改 `reconnect:true` 或重建 conn）。**这是 Task 3 最关键核实点**，先读 `EditorConnection` 构造函数确认 `reconnect` 参数语义。
 - secret 重生（PERSISTENT_SECRET=false 时重启重生）→ `newSecret` ≠ 旧 secret，conn 的 secret 过期 → 需设 `GODOT_MCP_EDITOR_PERSISTENT_SECRET=true` 或重建 conn。spike 确认。
-- `query_scene_tree 恢复` 断言本 task 先省略（避免 open_scene 依赖），重连 getState 即可；query_scene_tree 留 follow-up。
+- `query_scene_tree 恢复` 断言本 task 先省略（避免 open_scene 依赖），重连 isConnected 即可；query_scene_tree 留 follow-up。
 
 - [ ] **Step 3: Commit（即便只有重连断言，无 query_scene_tree）**
 
@@ -352,7 +352,7 @@ git commit -am "test(e2e): A0-editor executeChain 串行不变量（report4 P0-1
 
 **2. Placeholder scan**：Task 4 Step 1 标注「代码待 spike 结果定」——这是**有意的 spike 占位**（非偷懒），因 executeChain 串行观测方式未定。Task 1/2/3 均有完整代码。可接受（Task 4 是 A0 最不确定项，诚实标注优于瞎写）。
 
-**3. Type consistency**：`EditorConnection` 构造参数（port/host/reconnect/secret/connectTimeout/requestTimeout）与 e2e-asset-tools:108 一致；`getState()` 返回 `'connected'|'reconnecting'|...`（Step 2 Spike 需核实 `reconnect:false` 下 `requestReconnect` 行为——这是类型/行为一致性的关键核实点，已标注）。
+**3. Type consistency**：`EditorConnection` 构造参数（port/host/reconnect/secret/connectTimeout/requestTimeout）与 e2e-asset-tools:108 一致；`isConnected(): boolean`（Step 2 Spike 需核实 `reconnect:false` 下 `requestReconnect` 行为——这是类型/行为一致性的关键核实点，已标注）。
 
 **4. 关键风险（plan 诚实标注，非阻塞）**：
 - Task 1 Step 2：headless Godot 驻留行为（fixture 选择）

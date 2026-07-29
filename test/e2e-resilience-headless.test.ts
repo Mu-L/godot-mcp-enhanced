@@ -90,7 +90,7 @@ describe.skipIf(!hasGodot)('e2e-resilience (headless): 孤儿进程清理真进�
     expect(killed).toBeGreaterThanOrEqual(1);
   }, 30_000);
 
-  it('killOrphanGodotProcesses 幂等：二次调用清理 0', async () => {
+  it('killOrphanGodotProcesses 幂等：二次调用清 0（resetState 清 throttle 后，集合空→语义幂等）', async () => {
     const proc = spawnHeadlessGodot();
     children.push(proc);
     const pid = proc.pid!;
@@ -100,8 +100,13 @@ describe.skipIf(!hasGodot)('e2e-resilience (headless): 孤儿进程清理真进�
     await killOrphanGodotProcesses();
     // 等首杀完成（taskkill 异步），保证二次调用读到的状态稳定
     await waitForPidDeath(pid);
+    // 关键：清 _lastOrphanScanTime（否则二次调用命中 process-state.ts:378 的 30s throttle 短路
+    // → return 0，测的是"节流短路"非"集合空→语义幂等"，与 A0 防假绿使命相悖）。
+    // resetState 同时清 _spawnedGodotPids（首杀已清空，再清为 no-op）+ _lastOrphanScanTime=0
+    // → Date.now()-0 远 > 30s，二次调用进扫描 → 集合已空 → 循环不进 → return 0（真语义幂等）。
+    resetState();
     const secondCall = await killOrphanGodotProcesses();
-    expect(secondCall, '二次调用应清 0（幂等）').toBe(0);
+    expect(secondCall, '二次调用应清 0（集合空→语义幂等，非 throttle 短路）').toBe(0);
     expect(getSpawnedGodotPids()).not.toContain(pid);
   }, 30_000);
 });
