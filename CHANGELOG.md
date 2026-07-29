@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security — A-RCE 批次（headless RCE + 沙箱硬化）
+
+- **P1 headless instantiate_class 合并白名单**：`src/scripts/godot_operations.gd` 移除 `is_parent_class("Node")` 兜底（Node 是 Node 的父类 → `extends Node` 恶意脚本绕过 → `_ready` RCE，不经 execute_gdscript 沙箱），改 `ALLOWED_HEADLESS_TYPES`（NODE_TYPES ∪ CONTROL_TYPES ∪ Control − Node）双分支∈检查，对齐 editor `node_commands.gd` 纯白名单。**BREAKING**：`create_scene(root_node_type="Node")` / `add_node(node_type="Node")` 被拒（罕见，用 Node2D/Node3D/Control 或 execute_gdscript）。
+- **P1 self_update dest 符号链接校验**：`src/core/addon-version.ts` updateAddon/readAddonVersion 补 `safeRealPath(dest)+isPathInAllowedRoots`，堵 `addons/` 子段符号链接 cpSync/readFileSync 跟随写出/读出 allowlist 外（monorepo 共享 addon 常见）。
+- **P2 execute_bpy 危险 API 扫描**：新增 `src/core/bpy-sandbox.ts` `scanBpySandbox`（os/subprocess/eval/exec/__import__/ctypes，negative lookbehind 避免误报 `bpy.ops.image.open()`），对齐 execute_gdscript `scanGdscriptSandbox` 纵深防御；warnings 非空 BLOCK（除非 `GODOT_MCP_DISABLE_SAFETY=true`）。
+- **P2 profile 硬隔离**：`src/core/ToolDispatcher.ts` `executeToolCall` 入口加 `isToolAllowed` 强制检查（原仅 getFilteredTools 广告层），堵被转发 MCP 客户端调用 TOOL_GROUPS/slim 过滤工具。
+- **ADVISORY godot_path 白名单**：实现 `GODOT_MCP_ALLOWED_GODOT_PATHS` env（分号分隔，realpath 归一），接入 validateGodotBinary/detectGodotVersion/findGodot 全出口，签名校验之上的硬隔离。
+- **detect 假绿修正**：`rce-script-branch-no-node-check` 不再把 is_parent_class 当充分守卫（+反向 Node 不在白名单）；`set-prop-no-type-whitelist` 扩扫 headless。
+- **Docs**：update-checker 披露 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 遵守（刻意不设 `trustEnv=false`，避免断企业代理用户）。
+
 ### Added — Telemetry Skeleton (Stage 0, zero egress)
 
 - **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
