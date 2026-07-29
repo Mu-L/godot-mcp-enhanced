@@ -126,9 +126,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +1(2026-07-29 A-RCE T4): godotpath-allowed-paths-unimplemented(GODOT_MCP_ALLOWED_GODOT_PATHS
 //   env 白名单 isGodotPathAllowed 接入 validateGodotBinary/detectGodotVersion/findGodot 全出口,
 //   堵 AI 可控 godot_path 参数指向任意二进制被 spawn),合计 105。
-    expect(FIXED_DEFECTS.length).toBe(105);
+    expect(FIXED_DEFECTS.length).toBe(106);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(105);
+    expect(new Set(keys).size, '存在重名 key').toBe(106);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
