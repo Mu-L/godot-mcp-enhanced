@@ -224,6 +224,15 @@ export class ToolDispatcher {
   }
 
   private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter): Promise<ToolResult> {
+    // ── Task 3 (A-RCE #3): profile 硬隔离入口强制 ──
+    // isToolAllowed 原只在 getFilteredTools 广告层(:183),被转发 MCP 客户端(拿完整
+    // tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/slim 过滤的工具。此处对称补强:
+    // 主路径也强制。非 RCE(ReadOnlyGuard 兜底),是隔离弱。默认 activeGroups 全激活,
+    // 对所有已知顶层工具名返 true,零误拒;manage_tools deactivate 收窄后才生效。
+    if (!isToolAllowed(name)) {
+      log('executeToolCall: tool %s not in active groups (profile enforcement)', name);
+      return opsErrorResult('TOOL_NOT_ALLOWED', `Tool "${name}" is not available in the active tool groups (TOOL_GROUPS/slim profile).`);
+    }
     // Snapshot current mode + executor for consistent routing throughout this call
     const currentMode = this.connectionMode;
     const currentExecutor = this.editorExecutor;

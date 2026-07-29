@@ -121,9 +121,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +isPathInAllowedRoots 校验,堵 addons/ 子段符号链接越界读写),合计 102。
 //   +1(2026-07-29 A-RCE T2): bpy-no-dangerous-scan(execute_bpy 补 scanBpySandbox 静态扫描,
 //   对齐 execute_gdscript 纵深防御,堵 os/subprocess/eval/exec/__import__/ctypes/open),合计 103。
-    expect(FIXED_DEFECTS.length).toBe(103);
+//   +1(2026-07-29 A-RCE T3): profile-executeToolCall-isToolAllowed-enforce(isToolAllowed 从
+//   getFilteredTools 广告层补到 executeToolCall 主路径入口,堵被转发 MCP 客户端调过滤工具),合计 104。
+    expect(FIXED_DEFECTS.length).toBe(104);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(103);
+    expect(new Set(keys).size, '存在重名 key').toBe(104);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
