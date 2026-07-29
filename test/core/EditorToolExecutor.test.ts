@@ -56,7 +56,11 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
     expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
     expect(mockConn.startOperation).toHaveBeenCalledWith(expect.any(Number));
     expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
-    expect(mockConn.request).toHaveBeenCalledWith('nav_bake_mesh', expect.objectContaining({ action: 'bake_mesh' }));
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_bake_mesh',
+      expect.objectContaining({ action: 'bake_mesh' }),
+      { timeoutMs: 110000 }
+    );
     expect(callOrder).toEqual(['startOperation', 'request', 'endOperation']);
   });
 
@@ -65,7 +69,11 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
 
     expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
     expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
-    expect(mockConn.request).toHaveBeenCalledWith('nav_create_region', expect.objectContaining({ bake: true }));
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: true }),
+      { timeoutMs: 110000 }
+    );
   });
 
   it('nav create_region with bake=false: does NOT call start/endOperation', async () => {
@@ -128,5 +136,55 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
 
     expect(mockConn.startOperation).not.toHaveBeenCalled();
     expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+
+  // B-T1: nav bake 请求超时对齐
+  it('nav bake_mesh: request includes timeoutMs 110000 (110s)', async () => {
+    await executor.execute('nav', { action: 'bake_mesh', region_path: '/root/Nav' });
+
+    // 验证 request 调用第三参包含 timeoutMs: 110000
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_bake_mesh',
+      expect.objectContaining({ action: 'bake_mesh' }),
+      { timeoutMs: 110000 }
+    );
+  });
+
+  it('nav create_region with bake=true: request includes timeoutMs 110000', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: true });
+
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: true }),
+      { timeoutMs: 110000 }
+    );
+  });
+
+  it('nav create_region with bake=false: request does NOT include custom timeoutMs', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: false });
+
+    // 非 bake 调用不传第三参（使用默认 30s）
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: false })
+    );
+    expect(mockConn.request).not.toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
+    );
+  });
+
+  it('non-nav tool: request does NOT include custom timeoutMs', async () => {
+    registerTools([{ name: 'add_node', readonly: false, long_running: false }]);
+    await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    // 非 nav 工具不传第三参
+    expect(mockConn.request).toHaveBeenCalledWith('add_node', expect.anything());
+    expect(mockConn.request).not.toHaveBeenCalledWith(
+      'add_node',
+      expect.anything(),
+      expect.anything()
+    );
   });
 });

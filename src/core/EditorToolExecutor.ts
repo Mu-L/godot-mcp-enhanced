@@ -87,7 +87,7 @@ export class EditorToolExecutor {
       if (isNavBake) {
         await this.conn.startOperation(NAV_BAKE_OP_TIMEOUT_SEC);
         try {
-          const result = await this.conn.request(method, finalArgs);
+          const result = await this.conn.request(method, finalArgs, { timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC * 1000 });
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } finally {
           // I-1 (C4 final review): endOperation 在连接异常态（client 30s REQUEST_TIMEOUT reject 后）
