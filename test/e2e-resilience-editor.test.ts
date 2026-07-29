@@ -41,13 +41,16 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync } from 'fs';
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import net from 'net';
 import { EditorConnection } from '../src/core/EditorConnection.js';
+import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';
 import { readEditorSecret } from '../src/core/editor-auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '..');
 
 // ─── 守卫条件 ────────────────────────────────────────────────────────────────
 const GODOT_PATH = process.env.GODOT_PATH || '';
@@ -88,8 +91,23 @@ const RECONNECT_INTERVAL_MS = 300;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 /**
+ * TCP probe 9090 是否 LISTEN（真实 WS 就绪信号）。
+ *
+ * 比 secret 文件存在更可靠：PERSISTENT_SECRET=true 模式下残留的 secret 文件让
+ * 旧的「secret 存在 = _ready 跑完」假设失效（_ready:48 在 PERSISTENT+残留时立即 return，
+ * 但 _start_server:49 还没 LISTEN）。直接探端口避开这个陷阱。
+ */
+function isPortOpen(port: number, host: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ port, host });
+    sock.once('connect', () => { sock.destroy(); resolve(true); });
+    sock.once('error', () => { sock.destroy(); resolve(false); });
+  });
+}
+
+/**
  * spawn editor 非 detached(拿可 kill 的 pid)+ 等就绪。
- * 就绪信号:mcp_editor.key 生成 = plugin _ready 跑完 + WS 9090 LISTEN。
+ * 就绪信号:WS 9090 LISTEN(TCP probe)= plugin _ready 跑完 + _start_server 监听。
  * PERSISTENT_SECRET=true 让 secret 文件不被重生(kill 重启后 conn 复用旧 secret)。
  */
 async function startEditor(): Promise<ChildProcess> {
@@ -108,18 +126,18 @@ async function startEditor(): Promise<ChildProcess> {
       );
     }
   });
-  // 轮询 secret 文件 = plugin _ready 已跑 + WS 监听
+  // 轮询 WS 9090 LISTEN = plugin _ready 跑完（_ready:48 secret → :49 _start_server）
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (readEditorSecret(REAL_PROJECT)) return child;
-    // 子进程可能在 secret 生成前就崩溃(端口冲突/插件编译失败)——提早失败
+    if (await isPortOpen(EDITOR_PORT, '127.0.0.1')) return child;
+    // 子进程可能在 WS LISTEN 前就崩溃(端口冲突/插件编译失败)——提早失败
     if (child.exitCode !== null) {
       throw new Error(`editor 启动后立即退出(exitCode=${child.exitCode}),检查插件编译/端口占用`);
     }
     await new Promise((r) => setTimeout(r, 500));
   }
   child.kill('SIGKILL');
-  throw new Error('editor 30s 内未就绪(mcp_editor.key 未生成)');
+  throw new Error('editor 30s 内未就绪(WS 9090 未 LISTEN)');
 }
 
 /** 等待 conn 断开(isConnected() === false),最多 timeoutMs。 */
@@ -218,5 +236,127 @@ describe.skipIf(!canRun)('e2e-resilience (editor): 崩溃后 EditorConnection �
     expect(reconnected, '重启后应自动重连成功(reconnect:true + 300ms 间隔)').toBe(true);
     expect(reconnectFired, 'onReconnect handler 应触发(证明 fireReconnect 调用)').toBe(true);
     expect(conn.isConnected(), '重连后 isConnected()=true').toBe(true);
+  }, 120_000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// E2E: executeChain 串行不变量 — N 个并发 execute 的 conn.request 区间两两不相交
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// 补 report4 P0-1②: EditorToolExecutor.execute (src/core/EditorToolExecutor.ts:47-54)
+// 用 Promise 链把每个 _executeInner 接到 this.executeChain.then(...)，故 N 个并发 execute
+// 的 conn.request 不重叠（串行）。这是性能/正确性不变量——防并发 ws.send 到达 GDScript 顺序
+// 不可靠致 undo 栈 LIFO 错乱（security P1#2 fix）。
+//
+// 观测方式（主控 spike 结论，勿另寻）: wrap conn.request 记录每个 request 的 [start,end]
+// 时序区间，N=5 个并发 edit_node 后验证区间两两不相交（排序后相邻 end ≤ 下一个 start）。
+//
+// 真实 editor（非 mock ws）— 补 report4 P0-2 mock 鸿沟。edit_node 经 editor-method-map 路由
+// 到 GDScript handle_edit_node（node_commands.gd:148），改 ei.get_edited_scene_root() 活动场景
+// 的节点属性 + undo_manager commit。先 open_scene 把 main_3d.tscn 设为活动场景。
+//
+// A0 TDD 形态：测现有串行契约不写生产代码；绿=契约正确，红=bug 记录归批次不修。
+describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量（N=5 并发 edit_node）', () => {
+  let editor: ChildProcess | null = null;
+  let conn: EditorConnection | null = null;
+  let exec: EditorToolExecutor | null = null;
+
+  afterEach(async () => {
+    if (exec) { try { exec.destroy(); } catch { /* best effort */ } exec = null; }
+    if (conn) { try { conn.disconnect(); } catch { /* best effort */ } conn = null; }
+    if (editor) {
+      try { editor.kill('SIGKILL'); } catch { /* best effort */ }
+      // 给 OS 回收端口的时间
+      await new Promise((r) => setTimeout(r, 500));
+      editor = null;
+    }
+    // 防御性还原 fixture（edit_node 改的是 editor 内存场景不落盘，但意外 save_scene 时兜底）。
+    // real-project 测试可脏（e2e-asset-tools 同模式），但本测试不应改盘——此为 no-op safety net。
+    try {
+      spawnSync('git', ['-C', REPO_ROOT, 'checkout', '--', 'test/fixtures/real-project/scenes/'], { stdio: 'ignore' });
+    } catch { /* best effort */ }
+  }, 60_000);
+
+  it('N=5 并发 edit_node → conn.request 区间两两不相交（串行证据）', async () => {
+    // ─── 1. 启动 editor + 建立 conn（reconnect:false，此测试不涉及重连）──────────
+    editor = await startEditor();
+    const secret = readEditorSecret(REAL_PROJECT);
+    if (!secret) throw new Error('startEditor 返回后 secret 仍为 null(不应发生)');
+
+    conn = new EditorConnection({
+      port: EDITOR_PORT,
+      host: '127.0.0.1',
+      reconnect: false,                  // 此测试不 kill editor，无需重连
+      secret,
+      connectTimeout: 10_000,
+      requestTimeout: 30_000,
+    });
+    await conn.connect();
+    expect(conn.isConnected(), '初始连接应成功').toBe(true);
+
+    // ─── 2. wrap conn.request 记录时序（在 new EditorToolExecutor 之前）──────────
+    // 每次 conn.request 调用记 [start,end]；区间相交 = 并发重叠，不相交 = 串行。
+    const times: Array<{ start: number; end: number }> = [];
+    const origRequest = conn.request.bind(conn);
+    (conn as unknown as { request: typeof origRequest }).request = (
+      method: string,
+      params: Record<string, unknown>,
+      options?: { timeoutMs?: number },
+    ) => {
+      const start = Date.now();
+      return origRequest(method, params, options).finally(() => {
+        times.push({ start, end: Date.now() });
+      });
+    };
+
+    exec = new EditorToolExecutor(conn);
+
+    // ─── 3. open_scene 把 main_3d.tscn 设为活动场景（edit_node 操作 get_edited_scene_root）───
+    const openRes = await exec.execute('scene', {
+      project_path: REAL_PROJECT,
+      action: 'open_scene',
+      scene_path: 'res://scenes/3d/main_3d.tscn',
+    });
+    // 不强断言 open_scene 成功文本（实现可能微调文案）；失败时下面 edit_node 会自然报错暴露
+    expect(openRes.isError, `open_scene 不应失败: ${openRes.content[0]?.text ?? ''}`).not.toBe(true);
+
+    // 清空 times — open_scene 的 request 不参与 N=5 串行断言（只计 edit_node）
+    times.length = 0;
+
+    // ─── 4. 并发 N=5 个 edit_node（改 Camera3D position，每个不同 value 防互覆盖平凡）───
+    // node_path="Camera3D"（find_node 识别 root 子名）；position 用 Array 格式（coerce_value_for_property
+    // 只转 Array→Vector3，Dictionary 不支持，见 command_helpers.gd:99-128）。
+    const N = 5;
+    const promises: Array<Promise<ReturnType<typeof exec.execute>>> = [];
+    for (let i = 0; i < N; i++) {
+      promises.push(exec.execute('scene', {
+        project_path: REAL_PROJECT,
+        action: 'edit_node',
+        scene_path: 'res://scenes/3d/main_3d.tscn',
+        node_path: 'Camera3D',
+        properties: { position: [i, 2, 8] },
+      }));
+    }
+    const results = await Promise.all(promises);
+
+    // ─── 5a. 反假绿断言：N 个 edit_node 都应成功（防 UNKNOWN_ACTION / 笔误假绿，P1-10 教训）───
+    expect(results.length, '应收到 N 个结果').toBe(N);
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      expect(r.isError, `edit_node[${i}] 不应失败: ${r.content[0]?.text ?? ''}`).not.toBe(true);
+    }
+
+    // ─── 5b. 核心断言：times 区间两两不相交 = 串行证据 ─────────────────────────────
+    expect(times.length, `应记录 ${N} 个 request 时序（实际 ${times.length}，可能 open_scene 未清或 edit_node 未走 conn.request）`).toBe(N);
+    const sorted = [...times].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1]!;
+      const curr = sorted[i]!;
+      // 串行 = 前一个 end ≤ 下一个 start（区间不相交）。并行重叠会 curr.start < prev.end。
+      expect(
+        curr.start,
+        `request[${i}] start(${curr.start}) 应 >= 前一个 end(${prev.end})（串行证据；delta=${prev.end - curr.start}ms 重叠）`,
+      ).toBeGreaterThanOrEqual(prev.end);
+    }
   }, 120_000);
 });
