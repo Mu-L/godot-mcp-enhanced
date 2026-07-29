@@ -117,9 +117,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   不再 safeErrorCategory 派生泄漏 PII),合计 100。
 //   +1(2026-07-29 A-telemetry T2): telemetry-afterhook-no-optout-guard(after-hook 第一行加 isTelemetryEnabled
 //   前置守卫,堵 opt-out 下 hashProject 参数求值期创建 telemetry-uuid.txt),合计 101。
-    expect(FIXED_DEFECTS.length).toBe(101);
+//   +1(2026-07-29 A-RCE S1): addon-update-dest-symlink-bypass(updateAddon/readAddonVersion 补 safeRealPath(dest)
+//   +isPathInAllowedRoots 校验,堵 addons/ 子段符号链接越界读写),合计 102。
+    expect(FIXED_DEFECTS.length).toBe(102);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(101);
+    expect(new Set(keys).size, '存在重名 key').toBe(102);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

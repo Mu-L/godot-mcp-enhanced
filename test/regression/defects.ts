@@ -1088,6 +1088,17 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // 两处必须都存在，且守卫在 record 调用之前（guardIdx < recordIdx）。
       return guardIdx >= 0 && recordIdx >= 0 && guardIdx < recordIdx ? 0 : 1;
     } },
+  { key: 'addon-update-dest-symlink-bypass', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // addon-version.ts updateAddon cpSync 前只 realpath projectPath 本体, dest 子段 addons/ 符号链接
+    // 未校验 → cpSync 跟随写出 allowlist 外(monorepo 共享 addon 常见, 非 TOCTOU 预存即触发)。
+    // fix: cpSync 前 safeRealPath(dest) + isPathInAllowedRoots(realDest) 校验。
+    detect: () => {
+      const f = readSrc('src/core/addon-version.ts');
+      // 命中「updateAddon 内 cpSync 但无 dest realpath 校验」即复发
+      const hasCp = /cpSync\(/.test(f);
+      const hasDestCheck = /safeRealPath\(dest\)[\s\S]{0,120}isPathInAllowedRoots\(realDest\)/.test(f);
+      return hasCp && !hasDestCheck ? 1 : 0;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

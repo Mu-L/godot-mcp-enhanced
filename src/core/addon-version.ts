@@ -17,8 +17,13 @@ export function readAddonVersion(projectPath: string): { version: string | null;
     throw new Error('projectPath 不在 ALLOWED_PROJECT_PATHS（deny-by-default）');
   }
   const cfg = join(projectPath, ...ADDON_REL, 'plugin.cfg');
-  if (!existsSync(cfg)) return { version: null, installed: false };
-  const m = readFileSync(cfg, 'utf-8').match(/^version="([^"\r]*)"/m);
+  // S1: 校验 cfg 真实路径在 allowlist 内——堵 addons/ 子段符号链接越界读（信息泄漏）。
+  const realCfg = safeRealPath(cfg);
+  if (!isPathInAllowedRoots(realCfg)) {
+    throw new Error(`readAddonVersion path escapes allowed roots: ${realCfg}`);
+  }
+  if (!existsSync(realCfg)) return { version: null, installed: false };
+  const m = readFileSync(realCfg, 'utf-8').match(/^version="([^"\r]*)"/m);
   return { version: m?.[1] ?? null, installed: true };
 }
 
@@ -29,8 +34,15 @@ export function updateAddon(projectPath: string): { dest: string; verifyOk: bool
   }
   const real = safeRealPath(validateProjectRoot(projectPath));  // project.godot 检查 + symlink 归一
   const dest = join(real, ...ADDON_REL);
+  // S1: 校验 dest 真实路径在 allowlist 内——堵 addons/ 子段符号链接越界写。
+  // safeRealPath 对不存在路径 walk-up 找存在祖先再 realpath（首装 dest 不存在安全）。
+  const realDest = safeRealPath(dest);
+  if (!isPathInAllowedRoots(realDest)) {
+    throw new Error(`updateAddon dest escapes allowed roots (symlink?): ${realDest}`);
+  }
+  // cpSync 目标始终用 dest（逻辑路径），避免写到 symlink 解析目标反而固化越界。
   cpSync(addonSource, dest, { recursive: true });
   const content = readFileSync(join(dest, 'plugin.cfg'), 'utf-8');
   const verifyOk = content.includes('[plugin]') && content.includes('script="plugin.gd"');
-  return { dest, verifyOk };
+  return { dest, verifyOk: verifyOk && isPathInAllowedRoots(safeRealPath(join(dest, 'plugin.cfg'))) };
 }

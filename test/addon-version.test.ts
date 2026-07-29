@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { readAddonVersion, updateAddon } from '../src/core/addon-version.js';
@@ -76,5 +76,42 @@ describe('updateAddon', () => {
     } finally {
       rmSync(noGodotDir, { recursive: true, force: true });
     }
+  });
+
+  it('S1: rejects dest symlink escaping allowed roots (updateAddon)', () => {
+    // 清除 UNRESTRICTED 使路径校验生效
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+    _resetPathAllowWarned();
+
+    const allowedRoot = mkdtempSync(join(tmpdir(), 'allowed-'));
+    const outside = mkdtempSync(join(tmpdir(), 'outside-'));
+
+    try {
+      mkdirSync(join(outside, 'godot_mcp_server'), { recursive: true });
+      writeFileSync(join(outside, 'godot_mcp_server', 'plugin.cfg'), '[plugin]\nscript="plugin.gd"');
+
+      const projectDir = join(allowedRoot, 'proj');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.godot'), 'config_version=5');
+
+      // addons → outside (symlink 越界)
+      symlinkSync(outside, join(projectDir, 'addons'), process.platform === 'win32' ? 'junction' : 'dir');
+      vi.stubEnv('ALLOWED_PROJECT_PATHS', allowedRoot); // allowlist 仅 allowedRoot，outside 在其外
+
+      expect(() => updateAddon(projectDir)).toThrow(/not.*allowed|越界|outside/i);
+    } finally {
+      rmSync(allowedRoot, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('S1: first-install (dest not exist) still resolves and writes within root', () => {
+    const projectDir = join(tmpdir(), 'proj-clean');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, 'project.godot'), 'config_version=5');
+    // 无 addons/ 目录（首装），dest 不存在
+    const r = updateAddon(projectDir);
+    expect(r.verifyOk).toBe(true);
+    expect(existsSync(join(projectDir, 'addons', 'godot_mcp_server', 'plugin.cfg'))).toBe(true);
   });
 });
