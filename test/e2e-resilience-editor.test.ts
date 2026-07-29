@@ -318,7 +318,11 @@ describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量�
       scene_path: 'res://scenes/3d/main_3d.tscn',
     });
     // 不强断言 open_scene 成功文本（实现可能微调文案）；失败时下面 edit_node 会自然报错暴露
-    expect(openRes.isError, `open_scene 不应失败: ${openRes.content[0]?.text ?? ''}`).not.toBe(true);
+    // content 是 Array<TextContent|ImageContent|AudioContent|EmbeddedResource> union，
+    // 直接 .text TS 报错（只 TextContent 有），用 type 守卫窄化。
+    const c0 = openRes.content[0];
+    const openMsg = c0 && c0.type === 'text' ? c0.text : JSON.stringify(c0);
+    expect(openRes.isError, `open_scene 不应失败: ${openMsg}`).not.toBe(true);
 
     // 清空 times — open_scene 的 request 不参与 N=5 串行断言（只计 edit_node）
     times.length = 0;
@@ -327,7 +331,9 @@ describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量�
     // node_path="Camera3D"（find_node 识别 root 子名）；position 用 Array 格式（coerce_value_for_property
     // 只转 Array→Vector3，Dictionary 不支持，见 command_helpers.gd:99-128）。
     const N = 5;
-    const promises: Array<Promise<ReturnType<typeof exec.execute>>> = [];
+    // ReturnType<typeof exec.execute> 已是 Promise<ToolResult>，再包 Promise 变双层；
+    // 用单层 Array<ReturnType<typeof exec.execute>>。
+    const promises: Array<ReturnType<typeof exec.execute>> = [];
     for (let i = 0; i < N; i++) {
       promises.push(exec.execute('scene', {
         project_path: REAL_PROJECT,
@@ -343,7 +349,10 @@ describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量�
     expect(results.length, '应收到 N 个结果').toBe(N);
     for (let i = 0; i < results.length; i++) {
       const r = results[i]!;
-      expect(r.isError, `edit_node[${i}] 不应失败: ${r.content[0]?.text ?? ''}`).not.toBe(true);
+      // 同 open_scene：content union 窄化后取 .text（变量名 c1 避免与外层 c0 冲突）。
+      const c1 = r.content[0];
+      const rmsg = c1 && c1.type === 'text' ? c1.text : JSON.stringify(c1);
+      expect(r.isError, `edit_node[${i}] 不应失败: ${rmsg}`).not.toBe(true);
     }
 
     // ─── 5b. 核心断言：times 区间两两不相交 = 串行证据 ─────────────────────────────
