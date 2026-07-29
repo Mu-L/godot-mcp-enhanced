@@ -142,7 +142,7 @@ jobs:
       - name: Gate gdscript（errors/incomplete → fail；真 blocking 在此，非 check:gdscript 退出码）
         run: node -e "const r=require('./coverage/gdscript-report.json'); if(r.incomplete||r.errors>0){console.error('gdscript gate FAIL',JSON.stringify(r));process.exit(1)}"
       - name: E2E (real Godot ${{ matrix.name }})
-        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: Upload e2e-report
