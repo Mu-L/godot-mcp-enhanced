@@ -25,6 +25,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **P2 全系统扫跳过 --editor**：`fullSystemScanGodot` Windows PowerShell + POSIX sh 过滤加 `--editor` 排除，opt-in 开启时不误杀同项目编辑器。
 - 5 条 defects detect 补全（nav-bake/HOL/spawn/heartbeat/fullsystem-scan；#1/#2/#4 原零 detect）。
 
+### Fixed — Correctness (C 批次)
+
+- **P1 adapter env 白名单合并**：14 adapter（含 codex TOML / opencode environment）env 写入抽 `buildEnv(godotPath, oldEnv?)` 共享 helper，reconfigure 时白名单保留 `ALLOWED_PROJECT_PATHS` / `GODOT_MCP_BRIDGE_*` / `GODOT_MCP_EDITOR_*`（原覆盖致用户配置重跑 setup 静默丢失；复发 cli-configure-env-field-overwrite）。
+- **P2 nav freed 对象访问**：`nav_commands.gd` 两处 freed 分支删 `nav.bake_finished` 访问，直接 return（对齐 headless navigation.ts:45；freed 对象属性访问致 -32003 丢失）。
+- **P2 nav status 动态**：bake status 按 success/`_bake_state["done"]` 派生（bake_completed/bake_failed/bake_timeout），非硬编码（原 success:false 与 status:bake_completed 矛盾）。
+- **P2 doctor stripBom**：`doctor.ts` 改用 `readJsonForCheck`（含 stripBom），带 BOM 的 mcp-godot.json 不再静默吞错。
+- **P2 readCache 字节上限**：`update-checker.ts` readCache 加 `statSync` 64KB + `latest.length<=64`（防大文件/恶意文件启动期 OOM）。
+- **P2 updateAddon 原子化**：`addon-version.ts` 裸 cpSync 改 staging+校验+备份+平台 rename（POSIX rename 原子 / Windows rm+rename+dest.bak 备份回滚），中断不留破损 addon。
+- **P2 adapter 文件权限保持**：13 adapter 原子写抽 `writeFileAtomicWithMode`（statSync 旧 mode + writeFileSync{mode}），Unix 保持 0o600 / Windows no-op。
+- 7 条 defects detect 补全。
+
 ### Added — Telemetry Skeleton (Stage 0, zero egress)
 
 - **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
