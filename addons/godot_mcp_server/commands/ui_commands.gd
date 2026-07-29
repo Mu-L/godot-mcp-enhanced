@@ -95,59 +95,70 @@ func handle_ui_set_layout(params: Dictionary, request_id: int = 0) -> Dictionary
 		return {"error": {"code": -32004, "message": "Node is not a Control: " + node.get_class()}}
 
 	var ctrl: Control = node
+	# F2(2026-07-29 报告5): anchors/offsets/min_size/grow_direction 改 _record_prop 聚合 property op
+	# 进 create_action_mixed，Ctrl+Z 可撤销（原直接赋值无 undo）。
+	var do_ops: Array = []
+	var undo_ops: Array = []
 
 	var anchors = params.get("anchors")
 	if anchors != null and anchors is Dictionary:
 		if anchors.has("left"):
-			ctrl.anchor_left = float(anchors["left"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_left", float(anchors["left"]))
 		if anchors.has("right"):
-			ctrl.anchor_right = float(anchors["right"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_right", float(anchors["right"]))
 		if anchors.has("top"):
-			ctrl.anchor_top = float(anchors["top"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_top", float(anchors["top"]))
 		if anchors.has("bottom"):
-			ctrl.anchor_bottom = float(anchors["bottom"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_bottom", float(anchors["bottom"]))
 
 	var offsets = params.get("offsets")
 	if offsets != null and offsets is Dictionary:
 		if offsets.has("left"):
-			ctrl.offset_left = float(offsets["left"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_left", float(offsets["left"]))
 		if offsets.has("right"):
-			ctrl.offset_right = float(offsets["right"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_right", float(offsets["right"]))
 		if offsets.has("top"):
-			ctrl.offset_top = float(offsets["top"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_top", float(offsets["top"]))
 		if offsets.has("bottom"):
-			ctrl.offset_bottom = float(offsets["bottom"])
-
-	var min_size = params.get("min_size")
-	if min_size != null and min_size is Dictionary:
-		if min_size.has("x"):
-			ctrl.custom_minimum_size = Vector2(float(min_size["x"]), ctrl.custom_minimum_size.y)
-		if min_size.has("y"):
-			ctrl.custom_minimum_size = Vector2(ctrl.custom_minimum_size.x, float(min_size["y"]))
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_bottom", float(offsets["bottom"]))
 
 	var custom_minimum_size = params.get("custom_minimum_size")
 	if custom_minimum_size != null and custom_minimum_size is Dictionary:
 		var cx = float(custom_minimum_size.get("x", ctrl.custom_minimum_size.x))
 		var cy = float(custom_minimum_size.get("y", ctrl.custom_minimum_size.y))
-		ctrl.custom_minimum_size = Vector2(cx, cy)
+		CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "custom_minimum_size", Vector2(cx, cy))
+	else:
+		var min_size = params.get("min_size")
+		if min_size != null and min_size is Dictionary:
+			var nx = float(min_size.get("x", ctrl.custom_minimum_size.x))
+			var ny = float(min_size.get("y", ctrl.custom_minimum_size.y))
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "custom_minimum_size", Vector2(nx, ny))
 
 	var grow_direction: String = params.get("grow_direction", "")
 	if grow_direction != "":
 		match grow_direction:
 			"both":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_BOTH
-				ctrl.grow_vertical = Control.GROW_DIRECTION_BOTH
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_BOTH)
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_BOTH)
 			"up":
-				ctrl.grow_vertical = Control.GROW_DIRECTION_BEGIN
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_BEGIN)
 			"down":
-				ctrl.grow_vertical = Control.GROW_DIRECTION_END
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_END)
 			"left":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_BEGIN)
 			"right":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_END
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_END)
 			_:
 				return {"error": {"code": -32004, "message": "Invalid grow_direction: " + grow_direction}}
 
+	if do_ops.is_empty():
+		return {"error": {"code": -32004, "message": "no layout params to set"}}
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("UI Set Layout", do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			op["target"].set(op["property"], op["value"])
 	return {"result": {"node": node_path, "status": "layout_set"}}
 
 # ─── ui_get_layout ──────────────────────────────────────────────────────────
@@ -217,8 +228,22 @@ func handle_ui_anchor_preset(params: Dictionary, request_id: int = 0) -> Diction
 		return {"error": {"code": -32004, "message": "Unknown preset: " + preset + ". Available: " + str(preset_map.keys())}}
 
 	var ctrl: Control = node
-	ctrl.set_anchors_preset(preset_map[preset])
-
+	# F2(2026-07-29 报告5): set_anchors_preset 改 method op 进 create_action_mixed，
+	# undo 记旧 4 anchors property op；Ctrl+Z 回滚（原直接调用无 undo）。
+	# anchor preset 改 anchor_left/right/top/bottom 四属性；记旧值供 undo
+	var do_ops: Array = [
+		{"type": "method", "target": ctrl, "method": "set_anchors_preset", "args": [preset_map[preset]]},
+	]
+	var undo_ops: Array = [
+		{"type": "property", "target": ctrl, "property": "anchor_left", "value": ctrl.anchor_left},
+		{"type": "property", "target": ctrl, "property": "anchor_right", "value": ctrl.anchor_right},
+		{"type": "property", "target": ctrl, "property": "anchor_top", "value": ctrl.anchor_top},
+		{"type": "property", "target": ctrl, "property": "anchor_bottom", "value": ctrl.anchor_bottom},
+	]
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("UI Anchor Preset", do_ops, undo_ops)
+	else:
+		ctrl.set_anchors_preset(preset_map[preset])
 	return {"result": {"node": node_path, "preset": preset, "status": "preset_applied"}}
 
 # ─── ui_set_theme ───────────────────────────────────────────────────────────
