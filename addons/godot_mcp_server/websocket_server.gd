@@ -229,6 +229,7 @@ func _process(delta: float) -> void:
 
 		var ws_peer = WebSocketPeer.new()
 		ws_peer.set_inbound_buffer_size(MAX_MESSAGE_SIZE)
+		ws_peer.set_outbound_buffer_size(4 * 1024 * 1024)  # F4(2026-07-29): 4MB outbound 上限防慢消费者堆积 OOM
 		ws_peer.accept_stream(tcp_peer)
 		_peers.append(ws_peer)
 		print("[MCP] Client connected (total: %d)" % _peers.size())
