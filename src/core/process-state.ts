@@ -419,7 +419,7 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
         //         (-and short-circuits before .Contains so null CommandLine won't throw).
         `$path = '${safePath}'; ` +
         `Get-CimInstance Win32_Process -Filter "Name LIKE 'Godot%'" | ` +
-        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) } | ` +
+        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) -and -not ($_.CommandLine -like '*--editor*') } | ` +
         `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -466,7 +466,7 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
     return new Promise((resolve) => {
       let settled = false;
       const ps = spawn('sh', ['-c',
-        `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -F -- '${safeDir}' && echo {}'`
+        `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -v -- "--editor" | grep -F -- '${safeDir}' && echo {}'`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
       const timer = setTimeout(() => {

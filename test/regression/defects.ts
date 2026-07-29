@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 105 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless)）。
+// FIXED_DEFECTS 106 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T2 fullsystem-scan-kills-editor×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1152,6 +1152,21 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasExport = /export function isGodotPathAllowed/.test(f);
       const hasCallSite = /isGodotPathAllowed\s*\(/.test(f);
       return hasEnvMention && (!hasExport || !hasCallSite) ? 1 : 0;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 2：全系统扫误杀编辑器进程 ──────────────────
+  { key: 'fullsystem-scan-kills-editor', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // fullSystemScanGodot(opt-in GODOT_MCP_FULL_SYSTEM_SCAN=true) Windows PowerShell/POSIX sh 过滤只查
+    // --path 路径匹配，不跳 --editor 进程 → 同项目 godot --path /proj --editor 被误杀。
+    // fix: 两分支加 --editor 排除（Windows: -not ($_.CommandLine -like '*--editor*')，
+    //       POSIX: grep -v -- '--editor'）。
+    // detect: 两分支都含 --editor 排除条件（PowerShell -not + POSIX grep -v）。
+    detect: () => {
+      const f = readSrc('src/core/process-state.ts');
+      const psBlock = f.match(/Where-Object \{[\s\S]*?CommandLine\.Contains[\s\S]*?\}/s);
+      const shBlock = f.match(/pgrep -f godot[\s\S]*?grep -F/s);
+      const psHasExclude = psBlock ? /-not.*\*--editor\*|--editor.*-not/i.test(psBlock[0]) : false;
+      const shHasExclude = shBlock ? /grep.*-v.*--editor|--editor.*exclude/i.test(shBlock[0]) : false;
+      return psHasExclude && shHasExclude ? 0 : 1;
     } },
 ];
 
