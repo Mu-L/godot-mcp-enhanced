@@ -67,6 +67,8 @@ The above is a **mistake-prevention layer**, not an unbreakable security boundar
 - **CI forced off**: `CI=true` ignores the opt-in even if set
 
 > **⚠️ Honest disclosure — update-checker egress**: every MCP server startup passively fetches `https://registry.npmjs.org/godot-mcp-enhanced/latest` from `src/core/update-checker.ts:13,86` (24h cache). This is unrelated to telemetry but does send data off-host, and **currently has no env gate** (confirmed via `grep GODOT_MCP_UPDATE_CHECK src/` — zero matches). This conflicts with the "zero egress by default" claim; an env gate is deferred to a future PR. Workarounds: pre-seed `~/.godot-mcp/update-cache.json`, or firewall-block. See [`docs/telemetry.md`](docs/telemetry.md).
+>
+> **Proxy environment variables**: update-checker's npm registry fetch respects `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment variables (Node's default `trustEnv`). In enterprise proxy environments, requests go through the proxy; to fully block, set `NO_PROXY=registry.npmjs.org` or use firewall rules. **Intentionally not setting `trustEnv: false`**—doing so would break update checks for legitimate enterprise proxy users.
 
 ## Core Capabilities
 

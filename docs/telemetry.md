@@ -134,6 +134,10 @@ import('./core/update-checker.js')
 >
 > 以上均为 workaround，**非官方支持的 opt-out**。未来 PR 补 env 门控后会同步更新本段。
 
+### 代理环境变量遵守
+
+> **代理环境**：update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 `trustEnv`）。这意味着：(1) 企业代理环境下请求经代理；(2) 完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
+
 ---
 
 ## 相关代码

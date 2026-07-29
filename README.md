@@ -72,6 +72,8 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 - **CI 强制关闭**:`CI=true` 时即使 opt-in 也忽略,防 CI 触发合成事件
 
 > **⚠️ 诚实披露 update-checker 外传点**:本仓库每次 MCP server 启动时,`src/core/update-checker.ts:13,86` 会**被动 fetch** `https://registry.npmjs.org/godot-mcp-enhanced/latest`(24h 缓存)。此行为与遥测无关但涉及「数据离开本机」,且**当前无 env 门控**(已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认)。这与「默认零外传」是冲突的硬伤——补 env 门控属未来 PR 范围。workaround:预置 `~/.godot-mcp/update-cache.json` 或防火墙阻断。详见 [`docs/telemetry.md`](docs/telemetry.md#-诚实披露既有的非遥测外传点)。
+>
+> **代理环境变量**:update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 trustEnv）。企业代理环境下请求经代理；完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
 
 ## Blender 建模（execute_bpy）安全模型
 
