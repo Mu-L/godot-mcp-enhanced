@@ -1,9 +1,8 @@
-import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
 
 export class ClaudeCodeAdapter implements ClientAdapter {
   name = 'Claude Code';
@@ -32,9 +31,7 @@ export class ClaudeCodeAdapter implements ClientAdapter {
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
       env: { GODOT_PATH: godotPath },
     };
-    // 原子写入：先写临时文件再 rename，防止并发竞态
-    const tmpPath = join(claudeDir, `.settings.${randomUUID()}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-    renameSync(tmpPath, settingsPath);
+    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
+    writeFileAtomicWithMode(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   }
 }

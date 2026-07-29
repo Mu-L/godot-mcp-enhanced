@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, statSync, renameSync } from 'fs';
 import { randomUUID } from 'crypto';
+import { dirname, basename, join } from 'path';
 
 /** 去除 UTF-8 BOM（Windows 工具有时写入 BOM，会破坏 JSON.parse）。 */
 export function stripBom(raw: string): string {
@@ -50,4 +51,29 @@ export function readJsonForCheck(filePath: string): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+/**
+ * 原子写入配置文件并保持原有文件 mode（F3: adapter-no-mode-preserve）。
+ *
+ * 13 adapter 旧实现 `writeFileSync(tmpPath, data, 'utf-8')` 第三参是 encoding 非 mode，
+ * tmp 默认 0o666 & ~umask，rename 后覆盖原文件 mode（用户 `chmod 0o600` 的配置被破坏）。
+ *
+ * 本 helper 先读原文件 mode，显式传给 writeFileSync：
+ * - 原文件存在 → mode & 0o777 传给 tmp，rename 后保持
+ * - 原文件不存在（首次创建）→ statSync 抛 ENOENT，fallback 用 writeFileSync 默认 mode
+ *
+ * 跨平台：Windows stat.mode 无业务意义（仅只读位生效），mode 保持等于 no-op，无副作用；
+ * Unix 修复 mode 丢失。
+ */
+export function writeFileAtomicWithMode(configPath: string, data: string): void {
+  const tmpPath = join(dirname(configPath), `.${basename(configPath)}.${randomUUID()}.tmp`);
+  let mode: number | undefined;
+  try {
+    mode = statSync(configPath).mode & 0o777;
+  } catch {
+    // 文件不存在(首次写入) → 跳过 mode 保持,用 writeFileSync 默认 mode
+  }
+  writeFileSync(tmpPath, data, mode !== undefined ? { mode, encoding: 'utf-8' } : 'utf-8');
+  renameSync(tmpPath, configPath);
 }

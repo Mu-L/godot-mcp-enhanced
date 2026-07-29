@@ -1,8 +1,7 @@
-import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
 
 export class GeminiCliAdapter implements ClientAdapter {
   name = 'Gemini CLI';
@@ -39,8 +38,7 @@ export class GeminiCliAdapter implements ClientAdapter {
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
       env: { GODOT_PATH: godotPath },
     };
-    const tmpPath = join(geminiDir, `.settings.${randomUUID()}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    renameSync(tmpPath, configPath);
+    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
+    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
   }
 }

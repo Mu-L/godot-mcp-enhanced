@@ -1,10 +1,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
-import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode } from './json-config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,9 +50,7 @@ export class OpenCodeAdapter implements ClientAdapter {
       command: [mcpCommand, ...mcpArgs],
       environment: { GODOT_PATH: godotPath },
     };
-    // 原子写入:先写临时文件再 rename,防止并发竞态
-    const tmpPath = join(projectDir, `.opencode.${randomUUID()}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    renameSync(tmpPath, configPath);
+    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
+    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
   }
 }

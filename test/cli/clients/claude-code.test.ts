@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, mkdtempSync, readdirSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, mkdtempSync, readdirSync, statSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { ClaudeCodeAdapter } from '../../../src/cli/clients/claude-code.js';
@@ -98,5 +98,29 @@ describe('ClaudeCodeAdapter', () => {
       mcpServers: { godot: { command: 'npx' } },
     }));
     expect(await adapter.isConfigured(testDir)).toBe(true);
+  });
+
+  it('configure preserves existing settings.json mode (F3 adapter-no-mode-preserve)', async () => {
+    // F3: adapter 旧实现 writeFileSync(tmp, data, 'utf-8') 第三参 encoding 非 mode,
+    // rename 后 mode 被默认 0o666 覆盖。改用 writeFileAtomicWithMode 后应保持原 mode。
+    const claudeDir = join(testDir, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    const settingsPath = join(claudeDir, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ mcpServers: {} }));
+    try { chmodSync(settingsPath, 0o600); } catch { /* Windows chmod no-op */ }
+    const beforeMode = statSync(settingsPath).mode & 0o777;
+    await adapter.configure(testDir, '/godot', 'npx', ['godot-mcp-enhanced']);
+    const afterMode = statSync(settingsPath).mode & 0o777;
+    if (process.platform !== 'win32') {
+      // Unix: 用户 chmod 0o600 必须保持(修复核心断言)
+      expect(beforeMode).toBe(0o600);
+      expect(afterMode).toBe(0o600);
+    } else {
+      // Windows: stat.mode 无业务意义,helper no-op 不破坏(after === before)
+      expect(afterMode).toBe(beforeMode);
+    }
+    // 内容正确 + godot entry 写入
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    expect(settings.mcpServers.godot.command).toBe('npx');
   });
 });
