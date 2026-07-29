@@ -123,9 +123,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   对齐 execute_gdscript 纵深防御,堵 os/subprocess/eval/exec/__import__/ctypes/open),合计 103。
 //   +1(2026-07-29 A-RCE T3): profile-executeToolCall-isToolAllowed-enforce(isToolAllowed 从
 //   getFilteredTools 广告层补到 executeToolCall 主路径入口,堵被转发 MCP 客户端调过滤工具),合计 104。
-    expect(FIXED_DEFECTS.length).toBe(104);
+//   +1(2026-07-29 A-RCE T4): godotpath-allowed-paths-unimplemented(GODOT_MCP_ALLOWED_GODOT_PATHS
+//   env 白名单 isGodotPathAllowed 接入 validateGodotBinary/detectGodotVersion/findGodot 全出口,
+//   堵 AI 可控 godot_path 参数指向任意二进制被 spawn),合计 105。
+    expect(FIXED_DEFECTS.length).toBe(105);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(104);
+    expect(new Set(keys).size, '存在重名 key').toBe(105);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

@@ -19,6 +19,7 @@ import {
   getCachedGodotPath,
   findGodot,
   validateGodotBinary,
+  isGodotPathAllowed,
 } from '../src/core/godot-finder.js';
 
 const execFileMock = vi.mocked(execFile);
@@ -414,5 +415,42 @@ describe('detectGodotVersion', () => {
     mockExecFileError();
     const { detectGodotVersion } = await import('../src/core/godot-finder.js');
     await expect(detectGodotVersion('/fake/godot')).rejects.toThrow(/godot --version failed/);
+  });
+});
+
+// ─── isGodotPathAllowed / GODOT_MCP_ALLOWED_GODOT_PATHS (A-RCE #4) ───────────
+//
+// Task 4 (ADVISORY): godot_path 白名单。签名校验(isGodotVersionSignature)之上的
+// 硬隔离——防 AI 可控的 godot_path 工具参数/project override/env 指向任意二进制被 spawn。
+// 注意:test/setup.js:6 全局设 GODOT_MCP_UNRESTRICTED=true,本 describe 用 beforeEach
+// 显式清空才能测白名单逻辑(否则恒 true 平凡通过)。
+
+describe('GODOT_MCP_ALLOWED_GODOT_PATHS', () => {
+  beforeEach(() => {
+    vi.stubEnv('GODOT_MCP_ALLOWED_GODOT_PATHS', '');
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+  });
+
+  it('when set, rejects godot path outside whitelist', () => {
+    vi.stubEnv('GODOT_MCP_ALLOWED_GODOT_PATHS', 'C:\\Godot\\bin;D:\\godot');
+    expect(isGodotPathAllowed('C:\\malware\\fake-godot.exe')).toBe(false);
+  });
+
+  it('when set, allows whitelisted path (realpath normalized)', () => {
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = os.tmpdir();
+    vi.stubEnv('GODOT_MCP_ALLOWED_GODOT_PATHS', path.join(tmpDir, 'godot'));
+    expect(isGodotPathAllowed(path.join(tmpDir, 'godot', 'godot.exe'))).toBe(true);
+  });
+
+  it('when unset (empty), allows any (back-compat,签名校验仍兜底)', () => {
+    expect(isGodotPathAllowed('C:\\any\\godot.exe')).toBe(true);
+  });
+
+  it('UNRESTRICTED=true bypasses', () => {
+    vi.stubEnv('GODOT_MCP_ALLOWED_GODOT_PATHS', 'D:\\only');
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
+    expect(isGodotPathAllowed('C:\\other')).toBe(true);
   });
 });

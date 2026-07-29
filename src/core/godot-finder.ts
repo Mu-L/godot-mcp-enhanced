@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from './logger.js';
 import { buildSafeEnv } from '../helpers.js';
+import { safeRealPath } from './path-utils.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -66,8 +67,34 @@ function isGodotVersionSignature(stdout: string): boolean {
   return (hasGodotWord && hasMajorMinor) || hasThreePartVersion || hasVersionStatus;
 }
 
+/**
+ * C-SEC-godotpath: GODOT_MCP_ALLOWED_GODOT_PATHS 路径白名单(分号分隔)。
+ * 签名校验(isGodotVersionSignature)之上的硬隔离——防 AI 可控的 godot_path
+ * 工具参数/project override/env 指向任意二进制被 spawn(任意代码执行)。
+ * 空 env = back-compat 放行(签名校验仍兜底);UNRESTRICTED=true 旁路。
+ * realpath 归一化(堵 symlink 绕过)。
+ */
+export function isGodotPathAllowed(candidatePath: string): boolean {
+  if (process.env.GODOT_MCP_UNRESTRICTED === 'true') return true;
+  const raw = process.env.GODOT_MCP_ALLOWED_GODOT_PATHS;
+  if (!raw || raw.trim() === '') return true;  // 未设 = back-compat 放行
+  const allowed = raw.split(/[;]+/).map(s => s.trim()).filter(Boolean);
+  let realCandidate: string;
+  try { realCandidate = safeRealPath(candidatePath); } catch { realCandidate = candidatePath; }
+  const isAllowed = allowed.some(a => {
+    let realA: string;
+    try { realA = safeRealPath(a); } catch { realA = a; }
+    return realCandidate === realA || realCandidate.startsWith(realA + sep) || realCandidate.startsWith(realA + '/');
+  });
+  if (!isAllowed) {
+    getLogger().warn('security', `godot path "${candidatePath}" rejected by GODOT_MCP_ALLOWED_GODOT_PATHS whitelist`);
+  }
+  return isAllowed;
+}
+
 /** Validate a candidate binary by running --version and checking for Godot signature. */
 export async function validateGodotBinary(candidatePath: string): Promise<boolean> {
+  if (!isGodotPathAllowed(candidatePath)) return false;
   try {
     const { stdout } = await execFileAsync(candidatePath, ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     return isGodotVersionSignature(stdout);
@@ -84,6 +111,9 @@ export async function validateGodotBinary(candidatePath: string): Promise<boolea
  * 消费方:check_template(提取 major.minor)、get_godot_version(optional refactor)。
  */
 export async function detectGodotVersion(godotPath: string): Promise<string> {
+  if (!isGodotPathAllowed(godotPath)) {
+    throw new Error(`godot path not in GODOT_MCP_ALLOWED_GODOT_PATHS: ${godotPath}`);
+  }
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync(godotPath, ['--version'], { encoding: 'utf-8', timeout: 10000, env: buildSafeEnv() }));
@@ -273,7 +303,8 @@ export async function findGodot(projectPath?: string): Promise<string> {
 
   // 1. Check cache
   const cached = _pathCache.get(cacheKey);
-  if (cached && (cached === 'godot' || existsSync(cached))) return cached;
+  // 缓存命中仍须通过白名单——env 运行时变更后 stale cache 不应绕过新策略
+  if (cached && (cached === 'godot' || existsSync(cached)) && isGodotPathAllowed(cached)) return cached;
   _pathCache.delete(cacheKey);
 
   const tried: string[] = [];
@@ -301,8 +332,13 @@ export async function findGodot(projectPath?: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync('godot', ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     if (isGodotVersionSignature(stdout)) {
-      _pathCache.set(cacheKey, 'godot');
-      return 'godot';
+      // PATH 解析的 'godot' 字面量在白名单启用时通常无法匹配绝对路径条目——
+      // 视为不可校验,记入 tried 让用户显式设 GODOT_PATH 或扩充白名单(含 PATH 目录)。
+      if (isGodotPathAllowed('godot')) {
+        _pathCache.set(cacheKey, 'godot');
+        return 'godot';
+      }
+      tried.push('godot (PATH) rejected by GODOT_MCP_ALLOWED_GODOT_PATHS whitelist');
     }
   } catch (err) { getLogger().debug('godot-finder', `PATH godot failed: ${err instanceof Error ? err.message : err}`); tried.push('godot (PATH)'); }
 

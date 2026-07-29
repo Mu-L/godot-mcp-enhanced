@@ -44,6 +44,7 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 适合对可信边界有要求的开发场景:
 
 - **路径访问控制** — `ALLOWED_PROJECT_PATHS` 白名单(deny-by-default),防 junction / 符号链接绕过
+- **Godot 二进制白名单** — `GODOT_MCP_ALLOWED_GODOT_PATHS`（分号分隔,realpath 归一）在 `godot --version` 签名校验之上加硬隔离,防 AI 可控的 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行)。空 env = back-compat 放行(本地信任场景,签名校验仍兜底);多用户/不可信环境显式列可信路径
 - **GDScript 注入防御** — 危险 API 模式扫描 + 字符串拼接绕过检测
 - **危险操作确认令牌** — 删节点等操作需显式确认
 - **输出标记防伪造** — 每次执行随机标记,防 GDScript 伪造 MCP 输出
@@ -523,6 +524,7 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_PATH` | Godot 可执行文件路径 | 自动搜索（PATH/注册表/Scoop/Downloads） |
 | `GODOT_PROJECT_PATH` | 默认项目路径 | 自动检测 cwd（向上搜索 project.godot） |
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
+| `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
 | `DEBUG` | 启用详细日志 | `false` |
 | `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
 

@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 104 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE S2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1）。
+// FIXED_DEFECTS 105 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE S2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1122,6 +1122,22 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasDestCheck = /safeRealPath\(dest\)[\s\S]{0,120}isPathInAllowedRoots\(realDest\)/.test(f);
       const hasCfgCheck = /safeRealPath\(cfg\)[\s\S]{0,120}isPathInAllowedRoots\(realCfg\)/.test(f);
       return hasCp && (!hasDestCheck || !hasCfgCheck) ? 1 : 0;
+    } },
+  { key: 'godotpath-allowed-paths-unimplemented', status: 'fixed', severity: 'ADVISORY', dimension: 'Security',
+    // A-RCE #4: godot-finder.ts:55-56 注释自承 GODOT_MCP_ALLOWED_GODOT_PATHS 未实现。
+    // validateGodotBinary --version 签名校验之上的硬隔离缺失——AI 可控的 godot_path 工具参数/
+    // project override/env 指向任意二进制(伪造形如 Godot 版本签名的输出)被 spawn = 任意代码执行。
+    // fix: isGodotPathAllowed(env 分号分隔, realpath 归一, 空 env back-compat 放行, UNRESTRICTED 旁路)
+    // 接入 validateGodotBinary / detectGodotVersion / findGodot 全部最终出口。
+    // detect: 文件含 env 名但缺 isGodotPathAllowed 定义/导出 = 复发(注释自承未实现形态)。
+    detect: () => {
+      const f = readSrc('src/core/godot-finder.ts');
+      // 含 env 名(说明知晓该机制)但无 isGodotPathAllowed 调用 = 未实现;两者都存在 = fixed。
+      // 注意 export 必须存在(防定义留注释,调用全删的伪绿)。
+      const hasEnvMention = /GODOT_MCP_ALLOWED_GODOT_PATHS/.test(f);
+      const hasExport = /export function isGodotPathAllowed/.test(f);
+      const hasCallSite = /isGodotPathAllowed\s*\(/.test(f);
+      return hasEnvMention && (!hasExport || !hasCallSite) ? 1 : 0;
     } },
 ];
 
