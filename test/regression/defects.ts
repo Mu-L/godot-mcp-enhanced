@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 99 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2）。
+// FIXED_DEFECTS 100 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1047,6 +1047,24 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => {
       const f = readSrc('src/tools/workflow.ts');
       return (f.match(/hasTraversalSegments\(raw\w+/g) || []).length >= 3 ? 0 : 1;
+    } },
+  // ─── 2026-07-29 A-telemetry 批次 Task 1：error_category PII 泄漏 ──────────────
+  // ToolDispatcher telemetry after-hook(:466-474) error_category 原传
+  // safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR')。extractErrorMessage 返原始错误文本
+  // （含路径/项目名 PII），safeErrorCategory 只替标点不删字母数字 → 路径片段入 error_category 字段，
+  // Stage 1 接 endpoint 即外传 PII。result 无结构化 code，按文本推断 category 主观且 YAGNI。
+  // fix: 改固定枚举 'TOOL_ERROR' + 删 safeErrorCategory（ToolDispatcher import + telemetry/index 导出 +
+  // sanitize.ts 定义）。recorder.record(:448) 仍用 extractErrorMessage 是本地记录经 sanitizeMsg，不外传，未动。
+  // detect: ToolDispatcher.ts telemetry hook 内 error_category 为固定 'TOOL_ERROR' 字面量且不含
+  // extractErrorMessage/safeErrorCategory 派生（任一回退 → detect=1）。
+  { key: 'telemetry-error-category-pii-leak', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/core/ToolDispatcher.ts');
+      // error_category 赋值必为固定枚举 'TOOL_ERROR'（ToolDispatcher 全文件唯一 error_category 赋值点）。
+      // 正向匹配即可排除一切派生回退：safeErrorCategory(...) 或 extractErrorMessage(...) 形式均无 'TOOL_ERROR'
+      // 字面量紧跟 `?`，故不匹配 → detect=1。注释里的旧代码字面量不带 `error_category:` 前缀，不会误命中。
+      const m = f.match(/error_category:\s*isError\s*\?\s*['"]TOOL_ERROR['"]\s*:\s*undefined/);
+      return m ? 0 : 1;
     } },
 ];
 

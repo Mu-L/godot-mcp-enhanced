@@ -139,6 +139,10 @@ describe('ToolDispatcher telemetry middleware', () => {
     vi.clearAllMocks();
     mockGetAllToolDefinitions.mockReturnValue([FIXTURE_TOOL]);
     mockGetModuleForTool.mockReturnValue({ handleTool: vi.fn().mockResolvedValue(okResult) });
+    // T1: 模拟真实 safeErrorCategory 的 PII 泄漏行为——只替标点不删字母数字，
+    // 路径片段（home/wgt/secret/tscn）原样保留进 error_category。若 ToolDispatcher
+    // 仍走 safeErrorCategory 派生，下方断言 error_category==='TOOL_ERROR' 必 RED。
+    mockSafeErrorCategory.mockReturnValue('Failed_to_load__home_wgt_secret_Main_tscn');
   });
 
   afterEach(() => {
@@ -164,8 +168,9 @@ describe('ToolDispatcher telemetry middleware', () => {
     expect(mockHashProject).toHaveBeenCalledWith('/test/proj');
   });
 
-  // 失败路径：success=false，error_category 由 safeErrorCategory 计算
-  it('flags failure and derives error_category when tool returns isError', async () => {
+  // T1: 失败路径 success=false，error_category 固定 'TOOL_ERROR' 枚举（不再由 safeErrorCategory 派生）。
+  // 原 safeErrorCategory 派生会泄漏 PII（见下条专项测试），现已改为固定枚举。
+  it('flags failure with fixed error_category=TOOL_ERROR (T1: no PII derivation)', async () => {
     const failResult: ToolResult = {
       content: [{ type: 'text', text: JSON.stringify({ error: { code: -32603, message: 'boom' } }) }],
       isError: true,
@@ -182,10 +187,33 @@ describe('ToolDispatcher telemetry middleware', () => {
     const event = mockRecord.mock.calls[0][0];
     expect(event.success).toBe(false);
     expect(event.error_category).toBe('TOOL_ERROR');
-    expect(mockSafeErrorCategory).toHaveBeenCalled();
-    // extractErrorMessage 提取错误文本（非空字符串），传入 safeErrorCategory
-    const [errArg] = mockSafeErrorCategory.mock.calls[0];
-    expect(typeof errArg === 'string' && errArg.length > 0).toBe(true);
+    // 反假绿：safeErrorCategory 不得被调用（防回退到文本派生）
+    expect(mockSafeErrorCategory).not.toHaveBeenCalled();
+  });
+
+  // T1 专项（PII 泄漏防复发）：错误文本含路径/项目名时，error_category 必须是固定枚举，
+  // 整个 telemetry event 的 JSON 不得含路径片段。
+  it('T1: telemetry error_category 固定 TOOL_ERROR，error 文本含路径时 event 零 PII 外泄', async () => {
+    // 构造失败 ToolResult，content text 含路径（模拟 PII：home/wgt/secret/tscn）
+    const piiResult: ToolResult = {
+      isError: true,
+      content: [{ type: 'text', text: '{"success":false,"error":"Failed to load /home/wgt/secret/Main.tscn"}' }],
+    };
+    mockGetModuleForTool.mockReturnValue({ handleTool: vi.fn().mockResolvedValue(piiResult) });
+
+    const { ToolDispatcher } = await import('../../src/core/ToolDispatcher.js');
+    const dispatcher = new ToolDispatcher(createOptions());
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { project_path: '/home/wgt/secret/proj' } },
+    });
+
+    expect(mockRecord).toHaveBeenCalledTimes(1);
+    const event = mockRecord.mock.calls[0][0];
+    expect(event.success).toBe(false);
+    expect(event.error_category).toBe('TOOL_ERROR');
+    expect(mockSafeErrorCategory).not.toHaveBeenCalled();
+    // 反假绿：整个 event 序列化不得含原始路径片段（防 extractErrorMessage/safeErrorCategory 回退）
+    expect(JSON.stringify(event)).not.toMatch(/home|wgt|secret|tscn|Main/i);
   });
 
   // final review fix: {success:false} JSON 无 isError:true 时口径对齐 healthSample

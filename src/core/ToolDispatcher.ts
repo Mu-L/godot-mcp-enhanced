@@ -34,7 +34,7 @@ import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
 import { getLogger } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
-import { record as recordTelemetry, hashProject, safeErrorCategory } from '../telemetry/index.js';
+import { record as recordTelemetry, hashProject } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
 import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
 
@@ -467,7 +467,10 @@ export class ToolDispatcher {
           tool: ctx.toolName,
           success: !isError,
           duration_ms: Date.now() - ctx.startTime,
-          error_category: isError ? safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR') : undefined,
+          // T1: 固定枚举 'TOOL_ERROR'。原 safeErrorCategory(extractErrorMessage(result)) 会把
+          // 原始错误文本（含路径/项目名 PII）仅替标点后塞进 error_category，Stage 1 接 endpoint
+          // 即外传 PII。result 无结构化 code，按错误文本推断 category 主观且 YAGNI，故固定枚举。
+          error_category: isError ? 'TOOL_ERROR' : undefined,
           project_hash: typeof ctx.args.project_path === 'string' ? hashProject(ctx.args.project_path) : undefined,
         });
         return result;

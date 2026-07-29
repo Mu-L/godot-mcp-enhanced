@@ -22,25 +22,6 @@ describe('telemetry/sanitize', () => {
     expect(a).not.toBe(b);
   });
 
-  it('safeErrorCategory 取 Error.name 非原始 message', async () => {
-    vi.doMock('../../src/telemetry/config.js', () => ({ getInstallUUID: () => 's' }));
-    const { safeErrorCategory } = await import('../../src/telemetry/sanitize.js');
-    const err = new Error("ENOENT: /secret/path/leak");
-    expect(safeErrorCategory(err)).toBe('Error');  // 只 name，不含路径
-  });
-
-  it('safeErrorCategory 脱敏非白名单字符（/ 不在字母表）', async () => {
-    vi.doMock('../../src/telemetry/config.js', () => ({ getInstallUUID: () => 's' }));
-    const { safeErrorCategory } = await import('../../src/telemetry/sanitize.js');
-    expect(safeErrorCategory('a/b\\c d')).toBe('a_b_c_d');  // / \ 空格 → _
-  });
-
-  it('safeErrorCategory 截断 64', async () => {
-    vi.doMock('../../src/telemetry/config.js', () => ({ getInstallUUID: () => 's' }));
-    const { safeErrorCategory } = await import('../../src/telemetry/sanitize.js');
-    expect(safeErrorCategory('X'.repeat(100)).length).toBe(64);
-  });
-
   it('sanitizeVersion 白名单通过合法，拒含路径/特殊', async () => {
     vi.doMock('../../src/telemetry/config.js', () => ({ getInstallUUID: () => 's' }));
     const { sanitizeVersion } = await import('../../src/telemetry/sanitize.js');
