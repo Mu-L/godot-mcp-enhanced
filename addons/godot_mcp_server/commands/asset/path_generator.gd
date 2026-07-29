@@ -52,6 +52,9 @@ static func sample(
 	points: Array, mode: String, spacing: float, count: int, align: String,
 	align_vertices: bool, include_endpoints := true
 ) -> Array:
+	# F1(2026-07-29): count 采样数上限防 OOM（每采样点实例化一个节点）。
+	if count is int and count > 10000:
+		return []
 	if mode == "continuous":
 		return _sample_continuous(points, spacing, count, include_endpoints, align_vertices)
 	var last: int = points.size() - 1

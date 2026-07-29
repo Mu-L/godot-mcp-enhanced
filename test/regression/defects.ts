@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 117 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite）。
+// FIXED_DEFECTS 118 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -1341,6 +1341,18 @@ export const FIXED_DEFECTS: DefectEntry[] = [
         n += (f.match(/\b(?:env|environment):\s*\{\s*GODOT_PATH\s*:/g) ?? []).length;
       }
       return n;
+    } },
+  { key: 'custom-mesh-segments-no-upper-cap', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P2(2026-07-29 报告5 F1): custom_meshes 细分参数 max(int(...),N) 只取下限不取上限 → 认证客户端传超大值
+    // 在 @tool 编辑器主线程同步建顶点 → 卡死/OOM。fix: 改 clampi(int(...),N,CAP)。path_generator sample count 同理加上限。
+    // detect: custom_meshes 含裸 max(int(params.get 且无 clampi 覆盖 = 复发。
+    detect: () => {
+      const cm = readSrc('addons/godot_mcp_server/commands/asset/custom_meshes.gd');
+      const bareMax = (cm.match(/max\(int\(params\.get/g) || []).length;
+      const clampi = (cm.match(/clampi\(int\(params\.get/g) || []).length;
+      const pg = readSrc('addons/godot_mcp_server/commands/asset/path_generator.gd');
+      const pathCountCap = /count\s*>\s*\d{4,}|count exceeds maximum/i.test(pg);
+      return (bareMax === 0 && clampi >= 6 && pathCountCap) ? 0 : 1;
     } },
 ];
 
