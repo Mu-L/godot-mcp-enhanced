@@ -163,10 +163,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'set-prop-no-type-whitelist', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      // fixed：ClassDB.instantiate 加类型白名单。命中「ClassDB.instantiate( 吃用户串无白名单」即复发
+      // fixed：ClassDB.instantiate 加类型白名单。命中「ClassDB.instantiate( 吃用户串无白名单」即复发。
+      // headless src/scripts/godot_operations.gd 同样有 ClassDB.instantiate, 须同扫(P1 RCE, 对齐 addons)。
       const addons = countMatchesInDir('addons', /ClassDB\.instantiate\s*\(/g, /\.gd$/);
-      const whitelist = countMatchesInDir('addons', /_validate_node_type|ALLOWED_BASE_TYPES|ALLOWED_CONTROL_TYPES|is_safe_class/g, /\.gd$/);
-      return addons > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
+      const headless = (readSrc('src/scripts/godot_operations.gd').match(/ClassDB\.instantiate\s*\(/g) || []).length;
+      const total = addons + headless;
+      const whitelist = countMatchesInDir('addons', /_validate_node_type|ALLOWED_BASE_TYPES|ALLOWED_CONTROL_TYPES|is_safe_class/g, /\.gd$/)
+        + (/_is_headless_allowed|ALLOWED_HEADLESS_TYPES/.test(readSrc('src/scripts/godot_operations.gd')) ? 1 : 0);
+      return total > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
     } },
   // ── IMPORTANT 架构/安全（行 282-381）──
   { key: 'allow-by-default-missing-config', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
@@ -628,16 +632,26 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       return /rootNodeType[\s\S]{0,300}invalid characters/.test(m[0]) ? 0 : 1;
     } },
   { key: 'rce-script-branch-no-node-check', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
-    // godot_operations.gd:177-179 脚本分支 script.new() 无 is_parent_class("Node") 校验
-    // （ClassDB 分支 :160-175 有 IMPORTANT-13 修，脚本分支漏了）。
-    // fix: script.new() 前补 script.get_instance_base_type() + is_parent_class("Node") 校验。
-    // detect: godot_operations.gd 脚本分支含 is_parent_class(base_type, "Node")（缺则复发）。
+    // headless instantiate_class 两分支曾用 is_parent_class("Node") 兜底, 但 Node 自身是 Node 的父类
+    // → extends Node 恶意脚本(base_type="Node")通过 → script.new() _ready RCE(不经 execute_gdscript 沙箱)。
+    // fix: 合并白名单双分支 ∈ 检查(ALLOWED_HEADLESS_TYPES, 移除裸 Node), 对齐 editor I-4 / IMPORTANT-14。
+    // detect: 不再把 is_parent_class 当充分守卫——须验证白名单 ∈ 检查存在 + 反向裸 Node 不在白名单数组。
     detect: () => {
       const f = readSrc('src/scripts/godot_operations.gd');
-      // 定位脚本分支（script is GDScript 到 return script.new() 之间，窗口放宽容纳修复注释）
-      const m = f.match(/if script is GDScript:[\s\S]{0,800}?return script\.new\(\)/);
-      if (!m) return 1; // 分支结构改变 → 复发
-      return /is_parent_class\(\s*base_type\s*,\s*"Node"\s*\)/.test(m[0]) ? 0 : 1;
+      const hasWhitelist = /ALLOWED_HEADLESS_TYPES/.test(f);
+      // script 分支须用 base_type ∈ 白名单 helper(非 is_parent_class 兜底)
+      const scriptBranch = f.match(/if script is GDScript:[\s\S]{0,900}?return script\.new\(\)/);
+      const scriptUsesWhitelist = !!scriptBranch &&
+        /_is_headless_allowed\(base_type\)/.test(scriptBranch[0]);
+      if (!hasWhitelist || !scriptUsesWhitelist) return 1;
+      // 反向:确认裸 "Node" 不在白名单数组(防误加回 → extends Node 绕过复发)
+      const wlBlock = f.match(/const ALLOWED_HEADLESS_TYPES[\s\S]{0,1200}?\]/);
+      if (wlBlock) {
+        if (/^[\t ]*"Node",/m.test(wlBlock[0]) || /,\s*"Node"\s*,/.test(wlBlock[0])) {
+          return 1;
+        }
+      }
+      return 0;
     } },
   // ─── 2026-07-12 进程通信 P0：HealthMonitor 控制回路 ──────────────────────────
   // HealthMonitor 原为纯仪表盘：evaluateState 进 reconnecting 仅 setState 打日志改字段，
