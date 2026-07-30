@@ -52,6 +52,7 @@
     "build-matrix": "npm run build && node build/capability/build-matrix.js",
     "diff-matrix": "npm run build && node build/capability/diff-matrix.js",
     "check:budget": "node scripts/check-token-budget.mjs",
+    "check:test-quality": "node scripts/check-test-quality.mjs",
     "smoke": "vitest run test/e2e-full-tool-verification.test.ts"
   },
   "dependencies": {
