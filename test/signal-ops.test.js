@@ -52,13 +52,13 @@ describe('signal-ops TOOL_META', () => {
 describe('genSignalConnectScript', () => {
   it('generates GDScript with connect call', () => {
     const script = genSignalConnectScript('/root/Player', 'hit', '/root/UI', 'on_hit');
-    expect(script.includes('source.connect("hit"')).toBeTruthy();
-    expect(script.includes('Callable(target, "on_hit")')).toBeTruthy();
-    expect(script.includes('_mcp_get_node')).toBeTruthy();
+    expect(script).toContain('source.connect("hit"');
+    expect(script).toContain('Callable(target, "on_hit")');
+    expect(script).toContain('_mcp_get_node');
   });
   it('includes flags when provided', () => {
     const script = genSignalConnectScript('/root/A', 'sig', '/root/B', 'fn', 4);
-    expect(script.includes('4)')).toBeTruthy();
+    expect(script).toContain('4)');
   });
 });
 
@@ -67,9 +67,9 @@ describe('genSignalConnectScript', () => {
 describe('genSignalDisconnectScript', () => {
   it('generates GDScript with disconnect call', () => {
     const script = genSignalDisconnectScript('/root/Player', 'hit', '/root/UI', 'on_hit');
-    expect(script.includes('source.disconnect("hit"')).toBeTruthy();
-    expect(script.includes('Callable(target, "on_hit")')).toBeTruthy();
-    expect(script.includes('_mcp_output("disconnected"')).toBeTruthy();
+    expect(script).toContain('source.disconnect("hit"');
+    expect(script).toContain('Callable(target, "on_hit")');
+    expect(script).toContain('_mcp_output("disconnected"');
   });
 });
 
@@ -78,24 +78,24 @@ describe('genSignalDisconnectScript', () => {
 describe('genSignalEmitScript', () => {
   it('generates GDScript with emit_signal call (no args)', () => {
     const script = genSignalEmitScript('/root/Player', 'died');
-    expect(script.includes('source.emit_signal("died")')).toBeTruthy();
-    expect(script.includes('_mcp_output("emitted"')).toBeTruthy();
+    expect(script).toContain('source.emit_signal("died")');
+    expect(script).toContain('_mcp_output("emitted"');
   });
   it('serializes string args', () => {
     const script = genSignalEmitScript('/root/Player', 'msg', ['hello']);
-    expect(script.includes('"hello"')).toBeTruthy();
+    expect(script).toContain('"hello"');
   });
   it('serializes number args', () => {
     const script = genSignalEmitScript('/root/Player', 'damage', [42]);
-    expect(script.includes('42')).toBeTruthy();
+    expect(script).toContain('42');
   });
   it('serializes boolean args', () => {
     const script = genSignalEmitScript('/root/Player', 'toggle', [true]);
-    expect(script.includes('source.emit_signal("toggle", true)')).toBeTruthy();
+    expect(script).toContain('source.emit_signal("toggle", true)');
   });
   it('serializes null args', () => {
     const script = genSignalEmitScript('/root/Player', 'reset', [null]);
-    expect(script.includes('source.emit_signal("reset", null)')).toBeTruthy();
+    expect(script).toContain('source.emit_signal("reset", null)');
   });
   it('throws on unsupported arg types', () => {
     expect(() => genSignalEmitScript('/root/A', 'sig', [{}])).toThrow(/basic types/);
@@ -107,8 +107,8 @@ describe('genSignalEmitScript', () => {
 describe('genSignalListScript', () => {
   it('generates GDScript with get_signal_list call', () => {
     const script = genSignalListScript('/root/Player');
-    expect(script.includes('node.get_signal_list()')).toBeTruthy();
-    expect(script.includes('_mcp_output("signals"')).toBeTruthy();
-    expect(script.includes('_mcp_get_node')).toBeTruthy();
+    expect(script).toContain('node.get_signal_list()');
+    expect(script).toContain('_mcp_output("signals"');
+    expect(script).toContain('_mcp_get_node');
   });
 });

@@ -144,8 +144,8 @@ describe('genNavQueryScript', () => {
       { x: 1, y: 2, z: 3 },
       { x: 4, y: 5, z: 6 },
     );
-    expect(script.includes('NavigationServer3D')).toBeTruthy();
-    expect(script.includes('map_get_path')).toBeTruthy();
+    expect(script).toContain('NavigationServer3D');
+    expect(script).toContain('map_get_path');
   });
 
   it('includes start_pos coordinates', () => {
@@ -153,8 +153,8 @@ describe('genNavQueryScript', () => {
       { x: 10, y: 20, z: 30 },
       { x: 40, y: 50, z: 60 },
     );
-    expect(script.includes('Vector3(10, 20, 30)')).toBeTruthy();
-    expect(script.includes('Vector3(40, 50, 60)')).toBeTruthy();
+    expect(script).toContain('Vector3(10, 20, 30)');
+    expect(script).toContain('Vector3(40, 50, 60)');
   });
 
   it('includes default map resolution when no region', () => {
@@ -162,7 +162,7 @@ describe('genNavQueryScript', () => {
       { x: 0, y: 0, z: 0 },
       { x: 1, y: 1, z: 1 },
     );
-    expect(script.includes('NavigationServer3D.get_maps()')).toBeTruthy();
+    expect(script).toContain('NavigationServer3D.get_maps()');
   });
 
   it('includes region lookup when navigationRegion is provided', () => {
@@ -171,8 +171,8 @@ describe('genNavQueryScript', () => {
       { x: 1, y: 1, z: 1 },
       'root/Level/NavRegion',
     );
-    expect(script.includes('root/Level/NavRegion')).toBeTruthy();
-    expect(script.includes('region_get_map')).toBeTruthy();
+    expect(script).toContain('root/Level/NavRegion');
+    expect(script).toContain('region_get_map');
   });
 
   it('outputs path data and length', () => {
@@ -180,8 +180,8 @@ describe('genNavQueryScript', () => {
       { x: 0, y: 0, z: 0 },
       { x: 1, y: 1, z: 1 },
     );
-    expect(script.includes('_mcp_output("path"')).toBeTruthy();
-    expect(script.includes('_mcp_output("path_length"')).toBeTruthy();
+    expect(script).toContain('_mcp_output("path"');
+    expect(script).toContain('_mcp_output("path_length"');
   });
 
   it('handles zero coordinates', () => {
@@ -189,7 +189,7 @@ describe('genNavQueryScript', () => {
       { x: 0, y: 0, z: 0 },
       { x: 0, y: 0, z: 0 },
     );
-    expect(script.includes('Vector3(0, 0, 0)')).toBeTruthy();
+    expect(script).toContain('Vector3(0, 0, 0)');
   });
 });
 
@@ -200,19 +200,19 @@ describe('genNavQueryScript', () => {
 describe('gen scripts — _mcp_get_root() null guard before set_owner', () => {
   it('genCreateRegionScript 判空 root(不裸链 set_owner(_mcp_get_root()))', () => {
     const script = genCreateRegionScript('NavReg', 'root', { x: 0, y: 0, z: 0 }, false);
-    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
   });
 
   it('genCreateAgentScript 判空 root', () => {
     const script = genCreateAgentScript('Agent', 'root', { x: 0, y: 0, z: 0 }, 0.5, 1.0, false);
-    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
   });
 
   it('genCreateLinkScript 判空 root', () => {
     const script = genCreateLinkScript('Link', 'root', { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, true);
-    expect(script.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(script).toContain('var _root: Node = _mcp_get_root()');
     expect(script.includes('set_owner(_mcp_get_root())')).toBe(false);
   });
 });

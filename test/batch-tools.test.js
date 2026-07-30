@@ -19,7 +19,7 @@ describe('batch-tools getToolDefinitions', () => {
   it('includes batch tool', () => {
     const defs = getToolDefinitions();
     const names = defs.map(d => d.name);
-    expect(names.includes('batch')).toBeTruthy();
+    expect(names).toContain('batch');
   });
   it('batch tool has action enum with create_files, run_verify, diff_scenes', () => {
     const defs = getToolDefinitions();

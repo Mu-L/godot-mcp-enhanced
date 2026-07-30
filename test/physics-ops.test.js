@@ -50,20 +50,20 @@ describe('physics-ops TOOL_META', () => {
 describe('genRaycastScript', () => {
   it('contains PhysicsRayQueryParameters3D.create', () => {
     const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0});
-    expect(script.includes('PhysicsRayQueryParameters3D.create')).toBeTruthy();
-    expect(script.includes('Vector3(0, 0, 0)')).toBeTruthy();
-    expect(script.includes('Vector3(10, 0, 0)')).toBeTruthy();
-    expect(script.includes('root.get_world_3d()')).toBeTruthy();
+    expect(script).toContain('PhysicsRayQueryParameters3D.create');
+    expect(script).toContain('Vector3(0, 0, 0)');
+    expect(script).toContain('Vector3(10, 0, 0)');
+    expect(script).toContain('root.get_world_3d()');
   });
   it('includes collision_mask when provided', () => {
     const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0}, 0b111);
-    expect(script.includes('collision_mask = 7')).toBeTruthy();
+    expect(script).toContain('collision_mask = 7');
   });
   it('includes exclude logic when paths provided', () => {
     const script = genRaycastScript({x:0,y:0,z:0}, {x:10,y:0,z:0}, undefined, ['/root/Wall', '/root/Floor']);
-    expect(script.includes('exclude')).toBeTruthy();
-    expect(script.includes('/root/Wall')).toBeTruthy();
-    expect(script.includes('/root/Floor')).toBeTruthy();
+    expect(script).toContain('exclude');
+    expect(script).toContain('/root/Wall');
+    expect(script).toContain('/root/Floor');
   });
 });
 
@@ -72,14 +72,14 @@ describe('genRaycastScript', () => {
 describe('genBodyInfoScript', () => {
   it('contains CollisionShape3D scan', () => {
     const script = genBodyInfoScript('/root/Player');
-    expect(script.includes('CollisionShape3D')).toBeTruthy();
-    expect(script.includes('_mcp_get_node("/root/Player")')).toBeTruthy();
-    expect(script.includes('has_collision')).toBeTruthy();
+    expect(script).toContain('CollisionShape3D');
+    expect(script).toContain('_mcp_get_node("/root/Player")');
+    expect(script).toContain('has_collision');
   });
   it('contains collision_layer and collision_mask', () => {
     const script = genBodyInfoScript('/root/Player');
-    expect(script.includes('collision_layer')).toBeTruthy();
-    expect(script.includes('collision_mask')).toBeTruthy();
+    expect(script).toContain('collision_layer');
+    expect(script).toContain('collision_mask');
   });
 });
 
@@ -88,13 +88,13 @@ describe('genBodyInfoScript', () => {
 describe('genDiagnosePhysicsScript', () => {
   it('contains move_and_collide', () => {
     const script = genDiagnosePhysicsScript('/root/Player');
-    expect(script.includes('move_and_collide')).toBeTruthy();
-    expect(script.includes('ConcavePolygonShape3D')).toBeTruthy();
+    expect(script).toContain('move_and_collide');
+    expect(script).toContain('ConcavePolygonShape3D');
   });
   it('contains velocity and position info', () => {
     const script = genDiagnosePhysicsScript('/root/Player');
-    expect(script.includes('velocity')).toBeTruthy();
-    expect(script.includes('position')).toBeTruthy();
+    expect(script).toContain('velocity');
+    expect(script).toContain('position');
   });
 });
 
@@ -103,13 +103,13 @@ describe('genDiagnosePhysicsScript', () => {
 describe('genQuerySpatialScript', () => {
   it('contains intersect_shape', () => {
     const script = genQuerySpatialScript({x:0,y:0,z:0}, 10);
-    expect(script.includes('intersect_shape')).toBeTruthy();
-    expect(script.includes('SphereShape3D')).toBeTruthy();
-    expect(script.includes('radius = 10')).toBeTruthy();
+    expect(script).toContain('intersect_shape');
+    expect(script).toContain('SphereShape3D');
+    expect(script).toContain('radius = 10');
   });
   it('includes collision_mask when provided', () => {
     const script = genQuerySpatialScript({x:0,y:0,z:0}, 10, 0xFF);
-    expect(script.includes('collision_mask')).toBeTruthy();
+    expect(script).toContain('collision_mask');
   });
 });
 
@@ -118,18 +118,18 @@ describe('genQuerySpatialScript', () => {
 describe('genCollisionOverlayScript', () => {
   it('generates overlay script', () => {
     const script = genCollisionOverlayScript('/root/Level');
-    expect(script.includes('CollisionShape3D')).toBeTruthy();
-    expect(script.includes('_MCP_CollisionOverlay')).toBeTruthy();
-    expect(script.includes('StandardMaterial3D')).toBeTruthy();
+    expect(script).toContain('CollisionShape3D');
+    expect(script).toContain('_MCP_CollisionOverlay');
+    expect(script).toContain('StandardMaterial3D');
   });
   it('includes color override when provided', () => {
     const script = genCollisionOverlayScript('/root/Level', '1,0,0,0.5');
-    expect(script.includes('Color(1,0,0,0.5)')).toBeTruthy();
+    expect(script).toContain('Color(1,0,0,0.5)');
   });
   it('uses auto-detection when no color override', () => {
     const script = genCollisionOverlayScript('/root/Level');
-    expect(script.includes('StaticBody3D')).toBeTruthy();
-    expect(script.includes('CharacterBody3D')).toBeTruthy();
+    expect(script).toContain('StaticBody3D');
+    expect(script).toContain('CharacterBody3D');
   });
 });
 

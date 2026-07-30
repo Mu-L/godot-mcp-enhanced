@@ -84,7 +84,7 @@ describe('resolveWithinRoot iterative decoding', () => {
     // Just verifying no throw for a legit encoded path
     // The actual resolved path may not exist, but traversal check should pass
     const result = resolveWithinRoot(root, 'my%20file.txt');
-    expect(result.includes('my file.txt')).toBeTruthy();
+    expect(result).toContain('my file.txt');
   });
 
   it('does NOT reject filenames containing ".." (F-4: segment-level match, not substring)', () => {

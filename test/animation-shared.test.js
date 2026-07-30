@@ -34,16 +34,16 @@ describe('TRACK_TYPES', () => {
     expect(TRACK_TYPES.length).toBeGreaterThan(0);
   });
   it('contains "value"', () => {
-    expect(TRACK_TYPES.includes('value')).toBeTruthy();
+    expect(TRACK_TYPES).toContain('value');
   });
   it('contains "position_3d"', () => {
-    expect(TRACK_TYPES.includes('position_3d')).toBeTruthy();
+    expect(TRACK_TYPES).toContain('position_3d');
   });
   it('contains "method"', () => {
-    expect(TRACK_TYPES.includes('method')).toBeTruthy();
+    expect(TRACK_TYPES).toContain('method');
   });
   it('contains "bezier"', () => {
-    expect(TRACK_TYPES.includes('bezier')).toBeTruthy();
+    expect(TRACK_TYPES).toContain('bezier');
   });
   it('has 9 track types', () => {
     expect(TRACK_TYPES.length).toBe(9);
@@ -54,9 +54,9 @@ describe('TRACK_TYPES', () => {
 
 describe('LOOP_MODES', () => {
   it('contains none, linear, pingpong', () => {
-    expect(LOOP_MODES.includes('none')).toBeTruthy();
-    expect(LOOP_MODES.includes('linear')).toBeTruthy();
-    expect(LOOP_MODES.includes('pingpong')).toBeTruthy();
+    expect(LOOP_MODES).toContain('none');
+    expect(LOOP_MODES).toContain('linear');
+    expect(LOOP_MODES).toContain('pingpong');
   });
   it('has exactly 3 modes', () => {
     expect(LOOP_MODES.length).toBe(3);

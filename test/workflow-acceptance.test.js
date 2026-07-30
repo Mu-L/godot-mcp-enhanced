@@ -21,7 +21,7 @@ describe('dev_loop acceptance parameter', () => {
     expect(items.properties.description).toBeTruthy();
     expect(items.properties.gdscript).toBeTruthy();
     expect(items.properties.expect).toBeTruthy();
-    expect(items.required.includes('description')).toBeTruthy();
+    expect(items.required).toContain('description');
     // gdscript is optional — screenshot_diff assertions don't need it
     expect(items.required.includes('gdscript')).toBeFalsy();
   });

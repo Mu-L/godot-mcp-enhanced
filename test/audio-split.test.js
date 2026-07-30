@@ -54,21 +54,21 @@ describe('audio-ops TOOL_META', () => {
 describe('genAudioPlayScript', () => {
   it('generates play script with stream_path', () => {
     const script = genAudioPlayScript('/root/BGMPlayer', 'res://audio/bgm.ogg', -10, 1.0, 'Master');
-    expect(script.includes('get_node("/root/BGMPlayer")')).toBeTruthy();
-    expect(script.includes('res://audio/bgm.ogg')).toBeTruthy();
-    expect(script.includes('volume_db = -10')).toBeTruthy();
-    expect(script.includes('pitch_scale = 1.0')).toBeTruthy();
-    expect(script.includes('AudioStreamPlayer')).toBeTruthy();
-    expect(script.includes('.play()')).toBeTruthy();
+    expect(script).toContain('get_node("/root/BGMPlayer")');
+    expect(script).toContain('res://audio/bgm.ogg');
+    expect(script).toContain('volume_db = -10');
+    expect(script).toContain('pitch_scale = 1.0');
+    expect(script).toContain('AudioStreamPlayer');
+    expect(script).toContain('.play()');
   });
   it('generates play script without stream_path', () => {
     const script = genAudioPlayScript('/root/SFX');
-    expect(script.includes('.play()')).toBeTruthy();
+    expect(script).toContain('.play()');
     expect(script.includes('node.stream =')).toBeFalsy();
   });
   it('generates play script with from_position', () => {
     const script = genAudioPlayScript('/root/BGM', undefined, undefined, undefined, undefined, 5.0);
-    expect(script.includes('.play(5.0)')).toBeTruthy();
+    expect(script).toContain('.play(5.0)');
   });
 });
 
@@ -77,8 +77,8 @@ describe('genAudioPlayScript', () => {
 describe('genAudioStopScript', () => {
   it('generates stop script', () => {
     const script = genAudioStopScript('/root/BGMPlayer');
-    expect(script.includes('get_node("/root/BGMPlayer")')).toBeTruthy();
-    expect(script.includes('.stop()')).toBeTruthy();
+    expect(script).toContain('get_node("/root/BGMPlayer")');
+    expect(script).toContain('.stop()');
   });
 });
 
@@ -87,15 +87,15 @@ describe('genAudioStopScript', () => {
 describe('genAudioSetParamScript', () => {
   it('generates volume_db param script', () => {
     const script = genAudioSetParamScript('/root/BGM', 'volume_db', -5);
-    expect(script.includes('volume_db = -5')).toBeTruthy();
+    expect(script).toContain('volume_db = -5');
   });
   it('generates pitch_scale param script', () => {
     const script = genAudioSetParamScript('/root/BGM', 'pitch_scale', 1.5);
-    expect(script.includes('pitch_scale = 1.5')).toBeTruthy();
+    expect(script).toContain('pitch_scale = 1.5');
   });
   it('generates bus param script', () => {
     const script = genAudioSetParamScript('/root/BGM', 'bus', 'SFX');
-    expect(script.includes('bus = "SFX"')).toBeTruthy();
+    expect(script).toContain('bus = "SFX"');
   });
 });
 
@@ -104,11 +104,11 @@ describe('genAudioSetParamScript', () => {
 describe('genAudioQueryScript', () => {
   it('generates query script', () => {
     const script = genAudioQueryScript('/root/BGM');
-    expect(script.includes('get_node("/root/BGM")')).toBeTruthy();
-    expect(script.includes('playing')).toBeTruthy();
-    expect(script.includes('volume_db')).toBeTruthy();
-    expect(script.includes('pitch_scale')).toBeTruthy();
-    expect(script.includes('bus')).toBeTruthy();
-    expect(script.includes('get_playback_position')).toBeTruthy();
+    expect(script).toContain('get_node("/root/BGM")');
+    expect(script).toContain('playing');
+    expect(script).toContain('volume_db');
+    expect(script).toContain('pitch_scale');
+    expect(script).toContain('bus');
+    expect(script).toContain('get_playback_position');
   });
 });

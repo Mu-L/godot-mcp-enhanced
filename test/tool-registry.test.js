@@ -40,8 +40,8 @@ describe('tool-registry', () => {
       { name: 'get_project_info', readonly: true, long_running: false },
     ]);
     const ro = getReadOnlyTools();
-    expect(ro.includes('read_scene')).toBeTruthy();
-    expect(ro.includes('get_project_info')).toBeTruthy();
+    expect(ro).toContain('read_scene');
+    expect(ro).toContain('get_project_info');
     expect(!ro.includes('add_node')).toBeTruthy();
   });
 
@@ -52,8 +52,8 @@ describe('tool-registry', () => {
       { name: 'write_script', readonly: false, long_running: false },
     ]);
     const wr = getWriteTools();
-    expect(wr.includes('add_node')).toBeTruthy();
-    expect(wr.includes('write_script')).toBeTruthy();
+    expect(wr).toContain('add_node');
+    expect(wr).toContain('write_script');
     expect(!wr.includes('read_scene')).toBeTruthy();
   });
 

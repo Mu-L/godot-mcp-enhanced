@@ -60,57 +60,57 @@ describe('validateRect2i', () => {
 describe('genTilemapReadScript', () => {
   it('contains TileMap and TileMapLayer branches', () => {
     const script = genTilemapReadScript('/root/Map', { x: 0, y: 0, w: 5, h: 5 }, 0);
-    expect(script.includes('TileMap')).toBeTruthy();
-    expect(script.includes('TileMapLayer')).toBeTruthy();
-    expect(script.includes('get_cell_source_id')).toBeTruthy();
+    expect(script).toContain('TileMap');
+    expect(script).toContain('TileMapLayer');
+    expect(script).toContain('get_cell_source_id');
   });
   it('works without region', () => {
     const script = genTilemapReadScript('/root/Map');
-    expect(script.includes('get_used_cells')).toBeTruthy();
+    expect(script).toContain('get_used_cells');
   });
 });
 
 describe('genTilemapSetCellScript', () => {
   it('contains set_cell with coords and source_id', () => {
     const script = genTilemapSetCellScript('/root/Map', { x: 3, y: 4 }, 1, { x: 0, y: 0 }, 0, 0);
-    expect(script.includes('set_cell')).toBeTruthy();
-    expect(script.includes('Vector2i(3, 4)')).toBeTruthy();
-    expect(script.includes('TileMap')).toBeTruthy();
-    expect(script.includes('TileMapLayer')).toBeTruthy();
+    expect(script).toContain('set_cell');
+    expect(script).toContain('Vector2i(3, 4)');
+    expect(script).toContain('TileMap');
+    expect(script).toContain('TileMapLayer');
   });
 });
 
 describe('genTilemapEraseCellScript', () => {
   it('contains erase_cell', () => {
     const script = genTilemapEraseCellScript('/root/Map', { x: 1, y: 2 }, 0);
-    expect(script.includes('erase_cell')).toBeTruthy();
-    expect(script.includes('Vector2i(1, 2)')).toBeTruthy();
+    expect(script).toContain('erase_cell');
+    expect(script).toContain('Vector2i(1, 2)');
   });
 });
 
 describe('genTilemapFillRectScript', () => {
   it('contains fill rect loop', () => {
     const script = genTilemapFillRectScript('/root/Map', { x: 0, y: 0, w: 3, h: 2 }, 1, { x: 0, y: 0 }, 0, 0);
-    expect(script.includes('range(3)')).toBeTruthy();
-    expect(script.includes('range(2)')).toBeTruthy();
-    expect(script.includes('set_cell')).toBeTruthy();
+    expect(script).toContain('range(3)');
+    expect(script).toContain('range(2)');
+    expect(script).toContain('set_cell');
   });
 });
 
 describe('genTilemapClearScript', () => {
   it('contains clear', () => {
     const script = genTilemapClearScript('/root/Map', 0);
-    expect(script.includes('.clear()')).toBeTruthy();
-    expect(script.includes('TileMap')).toBeTruthy();
-    expect(script.includes('TileMapLayer')).toBeTruthy();
+    expect(script).toContain('.clear()');
+    expect(script).toContain('TileMap');
+    expect(script).toContain('TileMapLayer');
   });
 });
 
 describe('genTilemapCopyScript', () => {
   it('contains cell reading', () => {
     const script = genTilemapCopyScript('/root/Map', { x: 0, y: 0, w: 2, h: 2 }, 0);
-    expect(script.includes('get_cell_source_id')).toBeTruthy();
-    expect(script.includes('cells')).toBeTruthy();
+    expect(script).toContain('get_cell_source_id');
+    expect(script).toContain('cells');
   });
 });
 
@@ -118,50 +118,50 @@ describe('genTilemapPasteScript', () => {
   it('contains set_cell with target offset', () => {
     const pattern = { cells: [{ coords: [0, 0], source_id: 1, atlas_coords: [0, 0], alternative_tile: 0 }], size: { w: 1, h: 1 } };
     const script = genTilemapPasteScript('/root/Map', { x: 5, y: 5 }, pattern, 0);
-    expect(script.includes('set_cell')).toBeTruthy();
+    expect(script).toContain('set_cell');
   });
 });
 
 describe('genTilemapSetTransformScript', () => {
   it('contains flip_h', () => {
     const script = genTilemapSetTransformScript('/root/Map', { x: 1, y: 1 }, true, false, false, 0);
-    expect(script.includes('flip_h')).toBeTruthy();
-    expect(script.includes('set_cell')).toBeTruthy();
+    expect(script).toContain('flip_h');
+    expect(script).toContain('set_cell');
   });
   it('handles combined transforms (flip_h + flip_v + transpose)', () => {
     const script = genTilemapSetTransformScript('/root/Map', { x: 2, y: 3 }, true, true, true, 0);
-    expect(script.includes('new_alt = new_alt | 1')).toBeTruthy();
-    expect(script.includes('new_alt = new_alt | 2')).toBeTruthy();
-    expect(script.includes('new_alt = new_alt | 4')).toBeTruthy();
+    expect(script).toContain('new_alt = new_alt | 1');
+    expect(script).toContain('new_alt = new_alt | 2');
+    expect(script).toContain('new_alt = new_alt | 4');
   });
   it('uses get_class for both node types', () => {
     const script = genTilemapSetTransformScript('/root/Map', { x: 0, y: 0 }, false, false, false, 0);
-    expect(script.includes('node.get_class() == "TileMap"')).toBeTruthy();
-    expect(script.includes('node.get_class() == "TileMapLayer"')).toBeTruthy();
+    expect(script).toContain('node.get_class() == "TileMap"');
+    expect(script).toContain('node.get_class() == "TileMapLayer"');
   });
 });
 
 describe('genTilemapClearScript clearAll', () => {
   it('uses clear() when clearAll is true', () => {
     const script = genTilemapClearScript('/root/Map', undefined, true);
-    expect(script.includes('node.clear()')).toBeTruthy();
+    expect(script).toContain('node.clear()');
     expect(script.includes('clear_layer')).toBeFalsy();
   });
   it('uses clear_layer when clearAll is false', () => {
     const script = genTilemapClearScript('/root/Map', 2, false);
-    expect(script.includes('clear_layer(2)')).toBeTruthy();
+    expect(script).toContain('clear_layer(2)');
   });
 });
 
 describe('genTilemapReadScript empty region', () => {
   it('reads used cells without region', () => {
     const script = genTilemapReadScript('/root/Map');
-    expect(script.includes('get_used_cells')).toBeTruthy();
+    expect(script).toContain('get_used_cells');
     expect(script.includes('range(')).toBeFalsy();
   });
   it('uses get_class for node type checks', () => {
     const script = genTilemapReadScript('/root/Map', { x: 0, y: 0, w: 3, h: 3 }, 0);
-    expect(script.includes('node.get_class() == "TileMap"')).toBeTruthy();
-    expect(script.includes('node.get_class() == "TileMapLayer"')).toBeTruthy();
+    expect(script).toContain('node.get_class() == "TileMap"');
+    expect(script).toContain('node.get_class() == "TileMapLayer"');
   });
 });

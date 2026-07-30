@@ -87,7 +87,7 @@ describe('delivery tool definitions', () => {
   it('verify_delivery is in tool definitions', async () => {
     const tools = getToolDefinitions();
     const names = tools.map(t => t.name);
-    expect(names.includes('verify_delivery')).toBeTruthy();
+    expect(names).toContain('verify_delivery');
     expect(tools.length).toBe(1);
   });
 
@@ -96,7 +96,7 @@ describe('delivery tool definitions', () => {
     expect(tool.inputSchema).toBeTruthy();
     expect(tool.description).toBeTruthy();
     const required = tool.inputSchema.required;
-    expect(required.includes('scope')).toBeTruthy();
+    expect(required).toContain('scope');
   });
 
   it('scope accepts scene, script, full', async () => {

@@ -71,37 +71,37 @@ describe('UI actions (via tool schema)', () => {
 describe('genUiCreateControlScript', () => {
   it('generates GDScript that creates a Control node', () => {
     const script = genUiCreateControlScript('/path/to/scene.tscn', 'Button', 'MyButton', '/root');
-    expect(script.includes('ClassDB.instantiate("Button")')).toBeTruthy();
-    expect(script.includes('node.name = "MyButton"')).toBeTruthy();
-    expect(script.includes('parent.add_child(node)')).toBeTruthy();
-    expect(script.includes('_mcp_load_scene')).toBeTruthy();
-    expect(script.includes('_mcp_get_scene_node')).toBeTruthy();
-    expect(script.includes('_mcp_output("created"')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('node.name = "MyButton"');
+    expect(script).toContain('parent.add_child(node)');
+    expect(script).toContain('_mcp_load_scene');
+    expect(script).toContain('_mcp_get_scene_node');
+    expect(script).toContain('_mcp_output("created"');
   });
 
   it('includes property assignments when provided', () => {
     const props = { text: 'Click Me', disabled: true, size: 42 };
     const script = genUiCreateControlScript('/scene.tscn', 'Label', 'Lbl', '/root', props);
-    expect(script.includes('node.set("text", "Click Me")')).toBeTruthy();
-    expect(script.includes('node.set("disabled", true)')).toBeTruthy();
-    expect(script.includes('node.set("size", 42)')).toBeTruthy();
+    expect(script).toContain('node.set("text", "Click Me")');
+    expect(script).toContain('node.set("disabled", true)');
+    expect(script).toContain('node.set("size", 42)');
   });
 
   it('handles null property value', () => {
     const props = { icon: null };
     const script = genUiCreateControlScript('/scene.tscn', 'Button', 'Btn', '/root', props);
-    expect(script.includes('node.set("icon", null)')).toBeTruthy();
+    expect(script).toContain('node.set("icon", null)');
   });
 
   it('escapes special characters in strings', () => {
     const props = { text: 'Hello "World"' };
     const script = genUiCreateControlScript('/scene.tscn', 'Label', 'Lbl', '/root', props);
-    expect(script.includes('node.set("text", "Hello \\"World\\"")')).toBeTruthy();
+    expect(script).toContain('node.set("text", "Hello \\"World\\"")');
   });
 
   it('uses provided parent path', () => {
     const script = genUiCreateControlScript('/scene.tscn', 'Panel', 'MyPanel', '/root/UI');
-    expect(script.includes('_mcp_get_scene_node("/root/UI")')).toBeTruthy();
+    expect(script).toContain('_mcp_get_scene_node("/root/UI")');
   });
 });
 
@@ -110,52 +110,52 @@ describe('genUiCreateControlScript', () => {
 describe('genUiSetLayoutScript', () => {
   it('generates GDScript that checks Control type', () => {
     const script = genUiSetLayoutScript('/scene.tscn', '/root/UI/Panel');
-    expect(script.includes('if not node is Control:')).toBeTruthy();
-    expect(script.includes('_mcp_output("layout_set"')).toBeTruthy();
+    expect(script).toContain('if not node is Control:');
+    expect(script).toContain('_mcp_output("layout_set"');
   });
 
   it('includes anchor settings', () => {
     const anchors = { left: 0, right: 1, top: 0, bottom: 1 };
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel', anchors);
-    expect(script.includes('node.anchor_left = 0')).toBeTruthy();
-    expect(script.includes('node.anchor_right = 1')).toBeTruthy();
-    expect(script.includes('node.anchor_top = 0')).toBeTruthy();
-    expect(script.includes('node.anchor_bottom = 1')).toBeTruthy();
+    expect(script).toContain('node.anchor_left = 0');
+    expect(script).toContain('node.anchor_right = 1');
+    expect(script).toContain('node.anchor_top = 0');
+    expect(script).toContain('node.anchor_bottom = 1');
   });
 
   it('includes offset settings', () => {
     const offsets = { left: 10, right: -10, top: 5, bottom: -5 };
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel', undefined, offsets);
-    expect(script.includes('node.offset_left = 10')).toBeTruthy();
-    expect(script.includes('node.offset_right = -10')).toBeTruthy();
-    expect(script.includes('node.offset_top = 5')).toBeTruthy();
-    expect(script.includes('node.offset_bottom = -5')).toBeTruthy();
+    expect(script).toContain('node.offset_left = 10');
+    expect(script).toContain('node.offset_right = -10');
+    expect(script).toContain('node.offset_top = 5');
+    expect(script).toContain('node.offset_bottom = -5');
   });
 
   it('includes min_size settings', () => {
     const minSize = { x: 100, y: 50 };
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel', undefined, undefined, minSize);
-    expect(script.includes('custom_minimum_size')).toBeTruthy();
-    expect(script.includes('100')).toBeTruthy();
-    expect(script.includes('50')).toBeTruthy();
+    expect(script).toContain('custom_minimum_size');
+    expect(script).toContain('100');
+    expect(script).toContain('50');
   });
 
   it('includes custom_minimum_size settings', () => {
     const customMinSize = { x: 200, y: 100 };
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel', undefined, undefined, undefined, customMinSize);
-    expect(script.includes('node.custom_minimum_size = Vector2(200, 100)')).toBeTruthy();
+    expect(script).toContain('node.custom_minimum_size = Vector2(200, 100)');
   });
 
   it('includes grow_direction', () => {
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel', undefined, undefined, undefined, undefined, 'both');
-    expect(script.includes('Control.GROW_DIRECTION_BOTH')).toBeTruthy();
+    expect(script).toContain('Control.GROW_DIRECTION_BOTH');
   });
 
   it('generates minimal script with no optional params', () => {
     const script = genUiSetLayoutScript('/scene.tscn', '/root/Panel');
-    expect(script.includes('_mcp_load_scene')).toBeTruthy();
-    expect(script.includes('_mcp_get_scene_node("/root/Panel")')).toBeTruthy();
-    expect(script.includes('if not node is Control:')).toBeTruthy();
+    expect(script).toContain('_mcp_load_scene');
+    expect(script).toContain('_mcp_get_scene_node("/root/Panel")');
+    expect(script).toContain('if not node is Control:');
   });
 });
 
@@ -164,22 +164,22 @@ describe('genUiSetLayoutScript', () => {
 describe('genUiGetLayoutScript', () => {
   it('generates GDScript that reads layout properties', () => {
     const script = genUiGetLayoutScript('/scene.tscn', '/root/UI/Button');
-    expect(script.includes('node.anchor_left')).toBeTruthy();
-    expect(script.includes('node.anchor_right')).toBeTruthy();
-    expect(script.includes('node.anchor_top')).toBeTruthy();
-    expect(script.includes('node.anchor_bottom')).toBeTruthy();
-    expect(script.includes('node.offset_left')).toBeTruthy();
-    expect(script.includes('node.offset_right')).toBeTruthy();
-    expect(script.includes('node.offset_top')).toBeTruthy();
-    expect(script.includes('node.offset_bottom')).toBeTruthy();
-    expect(script.includes('node.global_position')).toBeTruthy();
-    expect(script.includes('node.size')).toBeTruthy();
-    expect(script.includes('_mcp_output("layout"')).toBeTruthy();
+    expect(script).toContain('node.anchor_left');
+    expect(script).toContain('node.anchor_right');
+    expect(script).toContain('node.anchor_top');
+    expect(script).toContain('node.anchor_bottom');
+    expect(script).toContain('node.offset_left');
+    expect(script).toContain('node.offset_right');
+    expect(script).toContain('node.offset_top');
+    expect(script).toContain('node.offset_bottom');
+    expect(script).toContain('node.global_position');
+    expect(script).toContain('node.size');
+    expect(script).toContain('_mcp_output("layout"');
   });
 
   it('checks Control type', () => {
     const script = genUiGetLayoutScript('/scene.tscn', '/root/Button');
-    expect(script.includes('if not node is Control:')).toBeTruthy();
+    expect(script).toContain('if not node is Control:');
   });
 });
 
@@ -188,25 +188,25 @@ describe('genUiGetLayoutScript', () => {
 describe('genUiAnchorPresetScript', () => {
   it('generates GDScript that calls set_anchors_preset', () => {
     const script = genUiAnchorPresetScript('/scene.tscn', '/root/Panel', 15, 'full_rect');
-    expect(script.includes('node.set_anchors_preset(15)')).toBeTruthy();
-    expect(script.includes('_mcp_output("preset_applied"')).toBeTruthy();
-    expect(script.includes('"preset": "full_rect"')).toBeTruthy();
-    expect(script.includes('"value": 15')).toBeTruthy();
+    expect(script).toContain('node.set_anchors_preset(15)');
+    expect(script).toContain('_mcp_output("preset_applied"');
+    expect(script).toContain('"preset": "full_rect"');
+    expect(script).toContain('"value": 15');
   });
 
   it('checks Control type', () => {
     const script = genUiAnchorPresetScript('/scene.tscn', '/root/Label', 0, 'top_left');
-    expect(script.includes('if not node is Control:')).toBeTruthy();
+    expect(script).toContain('if not node is Control:');
   });
 
   it('uses correct preset value for top_left (0)', () => {
     const script = genUiAnchorPresetScript('/scene.tscn', '/root/Label', 0, 'top_left');
-    expect(script.includes('node.set_anchors_preset(0)')).toBeTruthy();
+    expect(script).toContain('node.set_anchors_preset(0)');
   });
 
   it('uses correct preset value for center (8)', () => {
     const script = genUiAnchorPresetScript('/scene.tscn', '/root/Label', 8, 'center');
-    expect(script.includes('node.set_anchors_preset(8)')).toBeTruthy();
+    expect(script).toContain('node.set_anchors_preset(8)');
   });
 });
 
@@ -215,31 +215,31 @@ describe('genUiAnchorPresetScript', () => {
 describe('genUiSetThemeScript', () => {
   it('generates create action script', () => {
     const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'create');
-    expect(script.includes('Theme.new()')).toBeTruthy();
-    expect(script.includes('node.theme = theme')).toBeTruthy();
-    expect(script.includes('_mcp_output("theme_set"')).toBeTruthy();
+    expect(script).toContain('Theme.new()');
+    expect(script).toContain('node.theme = theme');
+    expect(script).toContain('_mcp_output("theme_set"');
   });
 
   it('generates set_params action script', () => {
     const params = { default_font_size: 16, font_color: [1, 0, 0, 1] };
     const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'set_params', undefined, params);
-    expect(script.includes('node.theme')).toBeTruthy();
-    expect(script.includes('theme.set("default_font_size", 16)')).toBeTruthy();
-    expect(script.includes('Color(1, 0, 0, 1)')).toBeTruthy();
+    expect(script).toContain('node.theme');
+    expect(script).toContain('theme.set("default_font_size", 16)');
+    expect(script).toContain('Color(1, 0, 0, 1)');
   });
 
   it('generates save action script with ResourceSaver', () => {
     const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save', 'res://themes/my_theme.tres');
-    expect(script.includes('ResourceSaver.save')).toBeTruthy();
-    expect(script.includes('res://themes/my_theme.tres')).toBeTruthy();
-    expect(script.includes('_mcp_output("saved"')).toBeTruthy();
+    expect(script).toContain('ResourceSaver.save');
+    expect(script).toContain('res://themes/my_theme.tres');
+    expect(script).toContain('_mcp_output("saved"');
   });
 
   it('generates load action script', () => {
     const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'load', 'res://themes/my_theme.tres');
-    expect(script.includes('load("res://themes/my_theme.tres")')).toBeTruthy();
-    expect(script.includes('node.theme = res')).toBeTruthy();
-    expect(script.includes('_mcp_output("loaded"')).toBeTruthy();
+    expect(script).toContain('load("res://themes/my_theme.tres")');
+    expect(script).toContain('node.theme = res');
+    expect(script).toContain('_mcp_output("loaded"');
   });
 
   it('throws for save without theme_path', () => {
@@ -252,7 +252,7 @@ describe('genUiSetThemeScript', () => {
 
   it('checks Control type', () => {
     const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'create');
-    expect(script.includes('if not node is Control:')).toBeTruthy();
+    expect(script).toContain('if not node is Control:');
   });
 });
 
@@ -261,23 +261,23 @@ describe('genUiSetThemeScript', () => {
 describe('genUiContainerAddScript', () => {
   it('generates GDScript that adds child to container', () => {
     const script = genUiContainerAddScript('/scene.tscn', '/root/VBox', 'Button', 'MyBtn');
-    expect(script.includes('ClassDB.instantiate("Button")')).toBeTruthy();
-    expect(script.includes('child.name = "MyBtn"')).toBeTruthy();
-    expect(script.includes('container.add_child(child)')).toBeTruthy();
-    expect(script.includes('child.owner =')).toBeTruthy();
-    expect(script.includes('_mcp_output("child_added"')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('child.name = "MyBtn"');
+    expect(script).toContain('container.add_child(child)');
+    expect(script).toContain('child.owner =');
+    expect(script).toContain('_mcp_output("child_added"');
   });
 
   it('includes child properties when provided', () => {
     const props = { text: 'Hello', disabled: true };
     const script = genUiContainerAddScript('/scene.tscn', '/root/HBox', 'Label', 'Lbl', props);
-    expect(script.includes('child.set("text", "Hello")')).toBeTruthy();
-    expect(script.includes('child.set("disabled", true)')).toBeTruthy();
+    expect(script).toContain('child.set("text", "Hello")');
+    expect(script).toContain('child.set("disabled", true)');
   });
 
   it('handles node path correctly', () => {
     const script = genUiContainerAddScript('/scene.tscn', '/root/UI/VBox', 'Panel', 'MyPanel');
-    expect(script.includes('_mcp_get_scene_node("/root/UI/VBox")')).toBeTruthy();
+    expect(script).toContain('_mcp_get_scene_node("/root/UI/VBox")');
   });
 });
 
@@ -287,79 +287,79 @@ describe('genUiDrawRecipeScript', () => {
   it('generates rect draw op', () => {
     const ops = [{ kind: 'rect', position: [10, 20], size: [100, 50], color: [1, 0, 0, 1] }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_rect')).toBeTruthy();
-    expect(script.includes('Rect2(10, 20, 100, 50)')).toBeTruthy();
-    expect(script.includes('Color(1, 0, 0, 1)')).toBeTruthy();
-    expect(script.includes('_mcp_load_scene')).toBeTruthy();
-    expect(script.includes('_mcp_output("draw_recipe_attached"')).toBeTruthy();
+    expect(script).toContain('draw_rect');
+    expect(script).toContain('Rect2(10, 20, 100, 50)');
+    expect(script).toContain('Color(1, 0, 0, 1)');
+    expect(script).toContain('_mcp_load_scene');
+    expect(script).toContain('_mcp_output("draw_recipe_attached"');
   });
 
   it('generates circle draw op', () => {
     const ops = [{ kind: 'circle', center: [50, 50], radius: 30, color: [0, 1, 0] }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Circle', ops);
-    expect(script.includes('draw_circle')).toBeTruthy();
-    expect(script.includes('Vector2(50, 50)')).toBeTruthy();
-    expect(script.includes('Color(0, 1, 0, 1)')).toBeTruthy();
+    expect(script).toContain('draw_circle');
+    expect(script).toContain('Vector2(50, 50)');
+    expect(script).toContain('Color(0, 1, 0, 1)');
   });
 
   it('generates line draw op', () => {
     const ops = [{ kind: 'line', from: [0, 0], to: [100, 100], color: [0, 0, 1, 0.8], width: 2 }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_line')).toBeTruthy();
-    expect(script.includes('Vector2(0, 0)')).toBeTruthy();
-    expect(script.includes('Vector2(100, 100)')).toBeTruthy();
-    expect(script.includes('Color(0, 0, 1, 0.8)')).toBeTruthy();
-    expect(script.includes(', 2)')).toBeTruthy();
+    expect(script).toContain('draw_line');
+    expect(script).toContain('Vector2(0, 0)');
+    expect(script).toContain('Vector2(100, 100)');
+    expect(script).toContain('Color(0, 0, 1, 0.8)');
+    expect(script).toContain(', 2)');
   });
 
   it('generates arc draw op', () => {
     const ops = [{ kind: 'arc', center: [50, 50], radius: 25, start_angle: 0, end_angle: 3.14, color: [1, 1, 0, 1], width: 1.5 }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_arc')).toBeTruthy();
-    expect(script.includes('25')).toBeTruthy();
-    expect(script.includes('3.14')).toBeTruthy();
-    expect(script.includes('Color(1, 1, 0, 1)')).toBeTruthy();
-    expect(script.includes(', 1.5)')).toBeTruthy();
+    expect(script).toContain('draw_arc');
+    expect(script).toContain('25');
+    expect(script).toContain('3.14');
+    expect(script).toContain('Color(1, 1, 0, 1)');
+    expect(script).toContain(', 1.5)');
   });
 
   it('generates polygon draw op (filled)', () => {
     const ops = [{ kind: 'polygon', points: [[0, 0], [100, 0], [50, 80]], color: [0.5, 0.5, 0.5], filled: true }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_colored_polygon')).toBeTruthy();
-    expect(script.includes('PackedVector2Array')).toBeTruthy();
-    expect(script.includes('Color(0.5, 0.5, 0.5, 1)')).toBeTruthy();
+    expect(script).toContain('draw_colored_polygon');
+    expect(script).toContain('PackedVector2Array');
+    expect(script).toContain('Color(0.5, 0.5, 0.5, 1)');
   });
 
   it('generates polygon draw op (unfilled)', () => {
     const ops = [{ kind: 'polygon', points: [[0, 0], [100, 0], [50, 80]], color: [1, 0, 0], filled: false }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_polyline')).toBeTruthy();
-    expect(script.includes('PackedVector2Array')).toBeTruthy();
+    expect(script).toContain('draw_polyline');
+    expect(script).toContain('PackedVector2Array');
   });
 
   it('generates polyline draw op', () => {
     const ops = [{ kind: 'polyline', points: [[10, 10], [20, 30], [30, 10]], color: [1, 1, 1, 1], width: 3 }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_polyline')).toBeTruthy();
-    expect(script.includes('PackedVector2Array')).toBeTruthy();
-    expect(script.includes(', 3)')).toBeTruthy();
+    expect(script).toContain('draw_polyline');
+    expect(script).toContain('PackedVector2Array');
+    expect(script).toContain(', 3)');
   });
 
   it('generates string draw op', () => {
     const ops = [{ kind: 'string', text: 'Hello World', position: [10, 30], color: [1, 1, 1, 1], font_size: 24 }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_string')).toBeTruthy();
-    expect(script.includes('"Hello World"')).toBeTruthy();
-    expect(script.includes('Vector2(10, 30)')).toBeTruthy();
-    expect(script.includes('24')).toBeTruthy();
-    expect(script.includes('ThemeDB.fallback_font')).toBeTruthy();
+    expect(script).toContain('draw_string');
+    expect(script).toContain('"Hello World"');
+    expect(script).toContain('Vector2(10, 30)');
+    expect(script).toContain('24');
+    expect(script).toContain('ThemeDB.fallback_font');
   });
 
   it('generates string draw op with default font_size', () => {
     const ops = [{ kind: 'string', text: 'Test', position: [0, 0] }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_string')).toBeTruthy();
-    expect(script.includes('16')).toBeTruthy();
+    expect(script).toContain('draw_string');
+    expect(script).toContain('16');
   });
 
   it('generates multiple ops in sequence', () => {
@@ -368,8 +368,8 @@ describe('genUiDrawRecipeScript', () => {
       { kind: 'line', from: [0, 0], to: [200, 100], color: [1, 1, 1, 1] },
     ];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('draw_rect')).toBeTruthy();
-    expect(script.includes('draw_line')).toBeTruthy();
+    expect(script).toContain('draw_rect');
+    expect(script).toContain('draw_line');
   });
 
   it('throws for unknown kind', () => {
@@ -383,14 +383,14 @@ describe('genUiDrawRecipeScript', () => {
 
   it('handles empty ops array', () => {
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', []);
-    expect(script.includes('_mcp_output("draw_recipe_attached"')).toBeTruthy();
-    expect(script.includes('"ops_count": 0')).toBeTruthy();
+    expect(script).toContain('_mcp_output("draw_recipe_attached"');
+    expect(script).toContain('"ops_count": 0');
   });
 
   it('validates node is Control', () => {
     const ops = [{ kind: 'rect', position: [0, 0], size: [1, 1], color: [1, 1, 1] }];
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
-    expect(script.includes('if not node is Control:')).toBeTruthy();
+    expect(script).toContain('if not node is Control:');
   });
 });
 
@@ -400,10 +400,10 @@ describe('genUiBuildLayoutScript', () => {
   it('generates single node creation', () => {
     const tree = { type: 'Button', name: 'MyButton' };
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("Button")')).toBeTruthy();
-    expect(script.includes('node.name = "MyButton"')).toBeTruthy();
-    expect(script.includes('parent.add_child(node)')).toBeTruthy();
-    expect(script.includes('_mcp_output("layout_built"')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('node.name = "MyButton"');
+    expect(script).toContain('parent.add_child(node)');
+    expect(script).toContain('_mcp_output("layout_built"');
   });
 
   it('generates nested children', () => {
@@ -415,23 +415,23 @@ describe('genUiBuildLayoutScript', () => {
       ],
     };
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VBoxContainer")')).toBeTruthy();
-    expect(script.includes('ClassDB.instantiate("Button")')).toBeTruthy();
-    expect(script.includes('ClassDB.instantiate("Label")')).toBeTruthy();
-    expect(script.includes('node.name = "Btn1"')).toBeTruthy();
-    expect(script.includes('node.name = "Lbl1"')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('ClassDB.instantiate("Label")');
+    expect(script).toContain('node.name = "Btn1"');
+    expect(script).toContain('node.name = "Lbl1"');
   });
 
   it('includes anchor_preset', () => {
     const tree = { type: 'Panel', name: 'Bg', anchor_preset: 'full_rect' };
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('set_anchors_preset(15)')).toBeTruthy();
+    expect(script).toContain('set_anchors_preset(15)');
   });
 
   it('includes properties', () => {
     const tree = { type: 'Label', name: 'Title', properties: { text: 'Hello' } };
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('node.set("text", "Hello")')).toBeTruthy();
+    expect(script).toContain('node.set("text", "Hello")');
   });
 
   it('throws for type not in whitelist', () => {
@@ -464,7 +464,7 @@ describe('genUiBuildLayoutScript', () => {
       current = current.children[0];
     }
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate');
   });
 });
 
@@ -473,24 +473,24 @@ describe('genUiBuildLayoutScript', () => {
 describe('genThemeCreateScript', () => {
   it('generates create action script', () => {
     const script = genThemeCreateScript('/scene.tscn', 'create');
-    expect(script.includes('Theme.new()')).toBeTruthy();
-    expect(script.includes('_mcp_output("theme_created"')).toBeTruthy();
-    expect(script.includes('"action": "create"')).toBeTruthy();
+    expect(script).toContain('Theme.new()');
+    expect(script).toContain('_mcp_output("theme_created"');
+    expect(script).toContain('"action": "create"');
   });
 
   it('generates extract action script with source node', () => {
     const script = genThemeCreateScript('/scene.tscn', 'extract', '/root/Panel');
-    expect(script.includes('_mcp_get_scene_node("/root/Panel")')).toBeTruthy();
-    expect(script.includes('source.theme')).toBeTruthy();
-    expect(script.includes('if not source is Control:')).toBeTruthy();
-    expect(script.includes('"action": "extract"')).toBeTruthy();
+    expect(script).toContain('_mcp_get_scene_node("/root/Panel")');
+    expect(script).toContain('source.theme');
+    expect(script).toContain('if not source is Control:');
+    expect(script).toContain('"action": "extract"');
   });
 
   it('generates script with save_path', () => {
     const script = genThemeCreateScript('/scene.tscn', 'create', undefined, 'res://themes/new.tres');
-    expect(script.includes('ResourceSaver.save')).toBeTruthy();
-    expect(script.includes('res://themes/new.tres')).toBeTruthy();
-    expect(script.includes('_mcp_output("saved"')).toBeTruthy();
+    expect(script).toContain('ResourceSaver.save');
+    expect(script).toContain('res://themes/new.tres');
+    expect(script).toContain('_mcp_output("saved"');
   });
 
   it('throws for extract without source_node_path', () => {
@@ -503,44 +503,44 @@ describe('genThemeCreateScript', () => {
 describe('genThemeSetPropertyScript', () => {
   it('generates default_font script', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'default_font', 'font', 'res://font.ttf');
-    expect(script.includes('theme.set_default_font')).toBeTruthy();
-    expect(script.includes('load("res://font.ttf")')).toBeTruthy();
-    expect(script.includes('_mcp_output("property_set"')).toBeTruthy();
-    expect(script.includes('"item_type": "default_font"')).toBeTruthy();
+    expect(script).toContain('theme.set_default_font');
+    expect(script).toContain('load("res://font.ttf")');
+    expect(script).toContain('_mcp_output("property_set"');
+    expect(script).toContain('"item_type": "default_font"');
   });
 
   it('generates color script with RGBA array', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'font_color', [1, 0.5, 0, 0.8], 'Button');
-    expect(script.includes('theme.set_color')).toBeTruthy();
-    expect(script.includes('Color(1, 0.5, 0, 0.8)')).toBeTruthy();
-    expect(script.includes('"Button"')).toBeTruthy();
-    expect(script.includes('"name": "font_color"')).toBeTruthy();
+    expect(script).toContain('theme.set_color');
+    expect(script).toContain('Color(1, 0.5, 0, 0.8)');
+    expect(script).toContain('"Button"');
+    expect(script).toContain('"name": "font_color"');
   });
 
   it('generates color script with RGB array (alpha defaults to 1)', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'color', 'bg', [0.2, 0.3, 0.4]);
-    expect(script.includes('Color(0.2, 0.3, 0.4, 1)')).toBeTruthy();
+    expect(script).toContain('Color(0.2, 0.3, 0.4, 1)');
   });
 
   it('generates constant script', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'font_size', 16, 'Label');
-    expect(script.includes('theme.set_constant')).toBeTruthy();
-    expect(script.includes('"font_size"')).toBeTruthy();
-    expect(script.includes('16')).toBeTruthy();
-    expect(script.includes('"Label"')).toBeTruthy();
+    expect(script).toContain('theme.set_constant');
+    expect(script).toContain('"font_size"');
+    expect(script).toContain('16');
+    expect(script).toContain('"Label"');
   });
 
   it('generates stylebox script', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'stylebox', 'panel', 'res://styles/panel.tres', 'Button');
-    expect(script.includes('theme.set_stylebox')).toBeTruthy();
-    expect(script.includes('load("res://styles/panel.tres")')).toBeTruthy();
+    expect(script).toContain('theme.set_stylebox');
+    expect(script).toContain('load("res://styles/panel.tres")');
   });
 
   it('validates theme node exists', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 4);
-    expect(script.includes('_mcp_get_scene_node')).toBeTruthy();
-    expect(script.includes('if theme == null:')).toBeTruthy();
-    expect(script.includes('if not theme is Theme:')).toBeTruthy();
+    expect(script).toContain('_mcp_get_scene_node');
+    expect(script).toContain('if theme == null:');
+    expect(script).toContain('if not theme is Theme:');
   });
 
   it('throws for color with invalid value', () => {
@@ -571,7 +571,7 @@ describe('genThemeSetPropertyScript', () => {
 
   it('includes scene loading when scene_path provided', () => {
     const script = genThemeSetPropertyScript('/project', '/root/Panel', 'constant', 'sep', 4, undefined, '/scene.tscn');
-    expect(script.includes('_mcp_load_scene("/scene.tscn")')).toBeTruthy();
+    expect(script).toContain('_mcp_load_scene("/scene.tscn")');
   });
 });
 
@@ -603,66 +603,66 @@ describe('getToolDefinitions', () => {
     const enumValues = defs[0].inputSchema.properties.node_type.enum;
     expect(enumValues).toBeTruthy();
     expect(enumValues.length).toBe(29);
-    expect(enumValues.includes('Button')).toBeTruthy();
-    expect(enumValues.includes('Label')).toBeTruthy();
-    expect(enumValues.includes('NinePatchRect')).toBeTruthy();
+    expect(enumValues).toContain('Button');
+    expect(enumValues).toContain('Label');
+    expect(enumValues).toContain('NinePatchRect');
   });
   it('preset enum has all 16 anchor presets', () => {
     const defs = getToolDefinitions();
     const enumValues = defs[0].inputSchema.properties.preset.enum;
     expect(enumValues).toBeTruthy();
     expect(enumValues.length).toBe(16);
-    expect(enumValues.includes('top_left')).toBeTruthy();
-    expect(enumValues.includes('full_rect')).toBeTruthy();
-    expect(enumValues.includes('center')).toBeTruthy();
+    expect(enumValues).toContain('top_left');
+    expect(enumValues).toContain('full_rect');
+    expect(enumValues).toContain('center');
   });
   it('theme_action enum has set_params/create/save/load', () => {
     const defs = getToolDefinitions();
     const enumValues = defs[0].inputSchema.properties.theme_action.enum;
     expect(enumValues).toBeTruthy();
     expect(enumValues.length).toBe(4);
-    expect(enumValues.includes('set_params')).toBeTruthy();
-    expect(enumValues.includes('create')).toBeTruthy();
-    expect(enumValues.includes('save')).toBeTruthy();
-    expect(enumValues.includes('load')).toBeTruthy();
+    expect(enumValues).toContain('set_params');
+    expect(enumValues).toContain('create');
+    expect(enumValues).toContain('save');
+    expect(enumValues).toContain('load');
   });
   it('child_type enum has all Control types', () => {
     const defs = getToolDefinitions();
     const enumValues = defs[0].inputSchema.properties.child_type.enum;
     expect(enumValues).toBeTruthy();
-    expect(enumValues.includes('Button')).toBeTruthy();
-    expect(enumValues.includes('Label')).toBeTruthy();
+    expect(enumValues).toContain('Button');
+    expect(enumValues).toContain('Label');
   });
   it('theme_create_action enum has create and extract', () => {
     const defs = getToolDefinitions();
     const enumValues = defs[0].inputSchema.properties.theme_create_action.enum;
     expect(enumValues).toBeTruthy();
     expect(enumValues.length).toBe(2);
-    expect(enumValues.includes('create')).toBeTruthy();
-    expect(enumValues.includes('extract')).toBeTruthy();
+    expect(enumValues).toContain('create');
+    expect(enumValues).toContain('extract');
   });
   it('item_type enum has 4 values', () => {
     const defs = getToolDefinitions();
     const enumValues = defs[0].inputSchema.properties.item_type.enum;
     expect(enumValues).toBeTruthy();
     expect(enumValues.length).toBe(4);
-    expect(enumValues.includes('default_font')).toBeTruthy();
-    expect(enumValues.includes('color')).toBeTruthy();
-    expect(enumValues.includes('constant')).toBeTruthy();
-    expect(enumValues.includes('stylebox')).toBeTruthy();
+    expect(enumValues).toContain('default_font');
+    expect(enumValues).toContain('color');
+    expect(enumValues).toContain('constant');
+    expect(enumValues).toContain('stylebox');
   });
   it('ops items have kind enum with 7 draw op kinds', () => {
     const defs = getToolDefinitions();
     const kindEnum = defs[0].inputSchema.properties.ops.items.properties.kind.enum;
     expect(kindEnum.length).toBe(7);
-    expect(kindEnum.includes('rect')).toBeTruthy();
-    expect(kindEnum.includes('string')).toBeTruthy();
+    expect(kindEnum).toContain('rect');
+    expect(kindEnum).toContain('string');
   });
   it('tree.type enum has Control types', () => {
     const defs = getToolDefinitions();
     const typeEnum = defs[0].inputSchema.properties.tree.properties.type.enum;
-    expect(typeEnum.includes('Button')).toBeTruthy();
-    expect(typeEnum.includes('VBoxContainer')).toBeTruthy();
+    expect(typeEnum).toContain('Button');
+    expect(typeEnum).toContain('VBoxContainer');
   });
 });
 
@@ -693,14 +693,14 @@ describe('Flex Layout: direction', () => {
   it('direction: row -> HBoxContainer', () => {
     const tree = { type: 'Panel', name: 'Root', layout: { direction: 'row' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("HBoxContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("HBoxContainer")');
     expect(script.includes('ClassDB.instantiate("Panel")')).toBeFalsy();
   });
 
   it('direction: column -> VBoxContainer', () => {
     const tree = { type: 'Panel', name: 'Root', layout: { direction: 'column' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VBoxContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
     expect(script.includes('ClassDB.instantiate("Panel")')).toBeFalsy();
   });
 
@@ -713,7 +713,7 @@ describe('Flex Layout: direction', () => {
       ],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("HBoxContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("HBoxContainer")');
     const idxB = script.indexOf('node.name = "B"');
     const idxA = script.indexOf('node.name = "A"');
     expect(idxB < idxA).toBeTruthy();
@@ -728,7 +728,7 @@ describe('Flex Layout: direction', () => {
       ],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VBoxContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
     const idxY = script.indexOf('node.name = "Y"');
     const idxX = script.indexOf('node.name = "X"');
     expect(idxY < idxX).toBeTruthy();
@@ -739,26 +739,26 @@ describe('Flex Layout: justify', () => {
   it('justify: center -> alignment = 1', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'center' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('node.alignment = 1')).toBeTruthy();
+    expect(script).toContain('node.alignment = 1');
   });
 
   it('justify: flex-start -> alignment = 0', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'flex-start' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('node.alignment = 0')).toBeTruthy();
+    expect(script).toContain('node.alignment = 0');
   });
 
   it('justify: flex-end -> alignment = 2', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'flex-end' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('node.alignment = 2')).toBeTruthy();
+    expect(script).toContain('node.alignment = 2');
   });
 
   it('justify: space-between -> approximated with warning', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'space-between' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('node.alignment = 0')).toBeTruthy();
-    expect(script.includes('approximated')).toBeTruthy();
+    expect(script).toContain('node.alignment = 0');
+    expect(script).toContain('approximated');
   });
 });
 
@@ -769,7 +769,7 @@ describe('Flex Layout: align', () => {
       children: [{ type: 'Button', name: 'Btn' }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('SIZE_EXPAND_FILL')).toBeTruthy();
+    expect(script).toContain('SIZE_EXPAND_FILL');
   });
 
   it('align: center -> SIZE_SHRINK_CENTER', () => {
@@ -778,7 +778,7 @@ describe('Flex Layout: align', () => {
       children: [{ type: 'Button', name: 'Btn' }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('SIZE_SHRINK_CENTER')).toBeTruthy();
+    expect(script).toContain('SIZE_SHRINK_CENTER');
   });
 });
 
@@ -786,13 +786,13 @@ describe('Flex Layout: wrap', () => {
   it('wrap: wrap + row -> HFlowContainer', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', wrap: 'wrap' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("HFlowContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("HFlowContainer")');
   });
 
   it('wrap: wrap + column -> VFlowContainer', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'column', wrap: 'wrap' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VFlowContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VFlowContainer")');
   });
 });
 
@@ -800,27 +800,27 @@ describe('Flex Layout: gap', () => {
   it('BoxContainer gap -> separation', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', gap: 10 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('add_theme_constant_override("separation", 10)')).toBeTruthy();
+    expect(script).toContain('add_theme_constant_override("separation", 10)');
   });
 
   it('HFlowContainer gap -> h_separation + v_separation', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', wrap: 'wrap', gap: 8 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('add_theme_constant_override("h_separation", 8)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("v_separation", 8)')).toBeTruthy();
+    expect(script).toContain('add_theme_constant_override("h_separation", 8)');
+    expect(script).toContain('add_theme_constant_override("v_separation", 8)');
   });
 
   it('row_gap in wrap mode', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', wrap: 'wrap', gap: 8, row_gap: 5 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('add_theme_constant_override("h_separation", 8)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("v_separation", 5)')).toBeTruthy();
+    expect(script).toContain('add_theme_constant_override("h_separation", 8)');
+    expect(script).toContain('add_theme_constant_override("v_separation", 5)');
   });
 
   it('row_gap without wrap -> warning', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', row_gap: 5 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('row_gap')).toBeTruthy();
+    expect(script).toContain('row_gap');
   });
 });
 
@@ -828,27 +828,27 @@ describe('Flex Layout: padding', () => {
   it('BoxContainer padding -> theme override margin_*', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', padding: 10 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('add_theme_constant_override("margin_top", 10)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_right", 10)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_bottom", 10)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_left", 10)')).toBeTruthy();
+    expect(script).toContain('add_theme_constant_override("margin_top", 10)');
+    expect(script).toContain('add_theme_constant_override("margin_right", 10)');
+    expect(script).toContain('add_theme_constant_override("margin_bottom", 10)');
+    expect(script).toContain('add_theme_constant_override("margin_left", 10)');
     expect(script.includes('MarginContainer')).toBeFalsy();
   });
 
   it('BoxContainer padding array -> individual margins', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', padding: [1, 2, 3, 4] } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('add_theme_constant_override("margin_top", 1)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_right", 2)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_bottom", 3)')).toBeTruthy();
-    expect(script.includes('add_theme_constant_override("margin_left", 4)')).toBeTruthy();
+    expect(script).toContain('add_theme_constant_override("margin_top", 1)');
+    expect(script).toContain('add_theme_constant_override("margin_right", 2)');
+    expect(script).toContain('add_theme_constant_override("margin_bottom", 3)');
+    expect(script).toContain('add_theme_constant_override("margin_left", 4)');
   });
 
   it('FlowContainer padding -> MarginContainer wrapper', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', wrap: 'wrap', padding: 5 } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("MarginContainer")')).toBeTruthy();
-    expect(script.includes('R_margin')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("MarginContainer")');
+    expect(script).toContain('R_margin');
   });
 });
 
@@ -859,8 +859,8 @@ describe('Flex Layout: flex child properties', () => {
       children: [{ type: 'Button', name: 'Btn', flex: { grow: 2 } }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('size_flags_stretch_ratio = 2')).toBeTruthy();
-    expect(script.includes('SIZE_EXPAND')).toBeTruthy();
+    expect(script).toContain('size_flags_stretch_ratio = 2');
+    expect(script).toContain('SIZE_EXPAND');
   });
 
   it('flex.align_self: center -> SIZE_SHRINK_CENTER', () => {
@@ -869,7 +869,7 @@ describe('Flex Layout: flex child properties', () => {
       children: [{ type: 'Button', name: 'Btn', flex: { align_self: 'center' } }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('SIZE_SHRINK_CENTER')).toBeTruthy();
+    expect(script).toContain('SIZE_SHRINK_CENTER');
   });
 
   it('flex.min_width -> custom_minimum_size', () => {
@@ -878,7 +878,7 @@ describe('Flex Layout: flex child properties', () => {
       children: [{ type: 'Button', name: 'Btn', flex: { min_width: 200 } }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('custom_minimum_size = Vector2(200')).toBeTruthy();
+    expect(script).toContain('custom_minimum_size = Vector2(200');
   });
 
   it('flex.shrink -> warning', () => {
@@ -887,7 +887,7 @@ describe('Flex Layout: flex child properties', () => {
       children: [{ type: 'Button', name: 'Btn', flex: { shrink: 1 } }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('shrink')).toBeTruthy();
+    expect(script).toContain('shrink');
   });
 
   it('flex.max_width -> warning', () => {
@@ -896,7 +896,7 @@ describe('Flex Layout: flex child properties', () => {
       children: [{ type: 'Button', name: 'Btn', flex: { max_width: 300 } }],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('max_width')).toBeTruthy();
+    expect(script).toContain('max_width');
   });
 });
 
@@ -904,8 +904,8 @@ describe('Flex Layout: backward compatibility', () => {
   it('no layout field -> existing behavior unchanged', () => {
     const tree = { type: 'Button', name: 'MyButton' };
     const script = genUiBuildLayoutScript('/scene.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("Button")')).toBeTruthy();
-    expect(script.includes('node.name = "MyButton"')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('node.name = "MyButton"');
     expect(script.includes('HBoxContainer')).toBeFalsy();
     expect(script.includes('VBoxContainer')).toBeFalsy();
   });
@@ -913,7 +913,7 @@ describe('Flex Layout: backward compatibility', () => {
   it('layout overrides type', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'column' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VBoxContainer")')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
     expect(script.includes('ClassDB.instantiate("Panel")')).toBeFalsy();
   });
 
@@ -932,10 +932,10 @@ describe('Flex Layout: backward compatibility', () => {
       ],
     };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script.includes('ClassDB.instantiate("VBoxContainer")')).toBeTruthy();
-    expect(script.includes('ClassDB.instantiate("HBoxContainer")')).toBeTruthy();
-    expect(script.includes('separation", 10)')).toBeTruthy();
-    expect(script.includes('separation", 5)')).toBeTruthy();
+    expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
+    expect(script).toContain('ClassDB.instantiate("HBoxContainer")');
+    expect(script).toContain('separation", 10)');
+    expect(script).toContain('separation", 5)');
   });
 });
 

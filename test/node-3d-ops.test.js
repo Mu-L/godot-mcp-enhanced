@@ -16,7 +16,7 @@ describe('node-3d-ops TOOL_NAMES', () => {
     expect(TOOL_NAMES.length).toBe(1);
   });
   it('includes node_create_3d', () => {
-    expect(TOOL_NAMES.includes('node_create_3d')).toBeTruthy();
+    expect(TOOL_NAMES).toContain('node_create_3d');
   });
 });
 
@@ -53,18 +53,18 @@ describe('node-3d-ops TOOL_META', () => {
 describe('genCollisionOverlayScript', () => {
   it('generates overlay script', () => {
     const script = genCollisionOverlayScript('/root/Level');
-    expect(script.includes('CollisionShape3D')).toBeTruthy();
-    expect(script.includes('_MCP_CollisionOverlay')).toBeTruthy();
-    expect(script.includes('StandardMaterial3D')).toBeTruthy();
+    expect(script).toContain('CollisionShape3D');
+    expect(script).toContain('_MCP_CollisionOverlay');
+    expect(script).toContain('StandardMaterial3D');
   });
   it('includes color override when provided', () => {
     const script = genCollisionOverlayScript('/root/Level', '1,0,0,0.5');
-    expect(script.includes('Color(1,0,0,0.5)')).toBeTruthy();
+    expect(script).toContain('Color(1,0,0,0.5)');
   });
   it('uses auto-detection when no color override', () => {
     const script = genCollisionOverlayScript('/root/Level');
-    expect(script.includes('StaticBody3D')).toBeTruthy();
-    expect(script.includes('CharacterBody3D')).toBeTruthy();
+    expect(script).toContain('StaticBody3D');
+    expect(script).toContain('CharacterBody3D');
   });
 });
 
@@ -73,20 +73,20 @@ describe('genCollisionOverlayScript', () => {
 describe('genCreate3DScript', () => {
   it('creates node with position', () => {
     const script = genCreate3DScript('MeshInstance3D', 'MyMesh', '/root/Scene', {x:1,y:2,z:3});
-    expect(script.includes('MeshInstance3D.new()')).toBeTruthy();
-    expect(script.includes('MyMesh')).toBeTruthy();
-    expect(script.includes('position = Vector3(1, 2, 3)')).toBeTruthy();
+    expect(script).toContain('MeshInstance3D.new()');
+    expect(script).toContain('MyMesh');
+    expect(script).toContain('position = Vector3(1, 2, 3)');
   });
   it('creates node with scale', () => {
     const script = genCreate3DScript('Camera3D', 'MainCam', '/root/Scene', undefined, undefined, {x:2,y:2,z:2});
-    expect(script.includes('Camera3D.new()')).toBeTruthy();
-    expect(script.includes('scale = Vector3(2, 2, 2)')).toBeTruthy();
+    expect(script).toContain('Camera3D.new()');
+    expect(script).toContain('scale = Vector3(2, 2, 2)');
     expect(script.includes('position =')).toBeFalsy();
   });
   it('sets custom properties', () => {
     const script = genCreate3DScript('OmniLight3D', 'Light1', '/root/Scene', undefined, undefined, undefined, { light_energy: 2.5, light_color: '"red"' });
-    expect(script.includes('light_energy')).toBeTruthy();
-    expect(script.includes('2.5')).toBeTruthy();
+    expect(script).toContain('light_energy');
+    expect(script).toContain('2.5');
   });
   it('rejects invalid property names', () => {
     expect(() => genCreate3DScript('Node3D', 'X', '/root', undefined, undefined, undefined, { 'a;b': 1 })).toThrow(/Invalid property name/);
@@ -94,7 +94,7 @@ describe('genCreate3DScript', () => {
   });
   it('accepts valid property names', () => {
     const script = genCreate3DScript('Node3D', 'X', '/root', undefined, undefined, undefined, { _private: 1, camelCase: 2 });
-    expect(script.includes('_private')).toBeTruthy();
-    expect(script.includes('camelCase')).toBeTruthy();
+    expect(script).toContain('_private');
+    expect(script).toContain('camelCase');
   });
 });

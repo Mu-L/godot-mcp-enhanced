@@ -112,7 +112,7 @@ describe('Level B: Scene Operations', () => {
     }, ctx);
     expect(isSuccessful(result)).toBeTruthy();
     const text = result.content[0].text;
-    expect(text.includes('Root')).toBeTruthy();
+    expect(text).toContain('Root');
   });
 
   // --- 用例 4: full CRUD cycle — 创建 → 编辑 → 删除 ---

@@ -12,10 +12,10 @@ describe('shared verify utilities', () => {
       'var _v = 42\n_mcp_output("count", str(_v))',
       'test assertion'
     );
-    expect(code.includes('extends SceneTree')).toBeTruthy();
-    expect(code.includes('_mcp_output')).toBeTruthy();
-    expect(code.includes('var _v = 42')).toBeTruthy();
-    expect(code.includes('_mcp_done')).toBeTruthy();
+    expect(code).toContain('extends SceneTree');
+    expect(code).toContain('_mcp_output');
+    expect(code).toContain('var _v = 42');
+    expect(code).toContain('_mcp_done');
   });
 
   it('wrapAssertionCode preserves dollar signs in description', async () => {
@@ -24,6 +24,6 @@ describe('shared verify utilities', () => {
     // $ is NOT escaped — it has no special meaning in GDScript string literals
     const descLine = code.split('\n').find(l => l.includes('_desc'));
     expect(descLine).toBeTruthy();
-    expect(descLine.includes('$var')).toBeTruthy();
+    expect(descLine).toContain('$var');
   });
 });

@@ -53,8 +53,8 @@ describe('tscn-editor findInstanceNode', () => {
     expect(info.instanceId).toBe(1);
     expect(info.sourcePath).toBe('res://scenes/player.tscn');
     expect(info.propertyOverrides.length).toBe(2);
-    expect(info.propertyOverrides[0].includes('position')).toBe(true);
-    expect(info.propertyOverrides[1].includes('visible')).toBe(true);
+    expect(info.propertyOverrides[0]).toContain('position');
+    expect(info.propertyOverrides[1]).toContain('visible');
   });
 
   it('should return null for non-instance node', () => {
@@ -106,13 +106,13 @@ describe('tscn-editor detachInstance', () => {
     const result = detachInstance(TARGET_TSCN, SOURCE_TSCN, 'Player', '.');
 
     // Should contain the expanded root node (CharacterBody2D) instead of instance=ExtResource
-    expect(result.includes('[node name="Player" type="CharacterBody2D"')).toBe(true);
+    expect(result).toContain('[node name="Player" type="CharacterBody2D"');
     expect(result.includes('instance=ExtResource')).toBe(false);
 
     // Should contain child nodes with adjusted parent
-    expect(result.includes('parent="Player"')).toBe(true);
-    expect(result.includes('Sprite2D')).toBe(true);
-    expect(result.includes('CollisionShape2D')).toBe(true);
+    expect(result).toContain('parent="Player"');
+    expect(result).toContain('Sprite2D');
+    expect(result).toContain('CollisionShape2D');
     expect(result).toMatchSnapshot('detach-instance-basic');
   });
 
@@ -151,12 +151,12 @@ describe('tscn-editor detachInstance', () => {
     const result = detachInstance(TARGET_TSCN, SOURCE_TSCN, 'Player', '.');
 
     // Property overrides should be present
-    expect(result.includes('position = Vector2(100, 200)')).toBe(true);
-    expect(result.includes('visible = false')).toBe(true);
+    expect(result).toContain('position = Vector2(100, 200)');
+    expect(result).toContain('visible = false');
 
     // Source properties should also be present
-    expect(result.includes('speed = 200.0')).toBe(true);
-    expect(result.includes('script = ExtResource')).toBe(true);
+    expect(result).toContain('speed = 200.0');
+    expect(result).toContain('script = ExtResource');
   });
 
   it('should remap ext_resource IDs to avoid conflicts', () => {
@@ -174,10 +174,10 @@ describe('tscn-editor detachInstance', () => {
     const result = detachInstance(targetWithHighIds, SOURCE_WITH_EXT_CONFLICT, 'Player', '.');
 
     // Source had id="1" and id="2" — should be remapped to 6, 7 (target max was 5)
-    expect(result.includes('id="6"')).toBe(true);
-    expect(result.includes('id="7"')).toBe(true);
+    expect(result).toContain('id="6"');
+    expect(result).toContain('id="7"');
     // ExtResource("6") and ExtResource("7") should appear in node property lines
-    expect(result.includes('ExtResource("6")')).toBe(true);
+    expect(result).toContain('ExtResource("6")');
   });
 
   it('should remove unused ext_resource for the instance', () => {
@@ -202,7 +202,7 @@ position = Vector2(100, 200)
     const result = detachInstance(targetMultiRef, SOURCE_TSCN, 'Player', '.');
 
     // The PackedScene ext_resource should be kept because Player2 still references it
-    expect(result.includes('path="res://scenes/player.tscn"')).toBe(true);
+    expect(result).toContain('path="res://scenes/player.tscn"');
   });
 
   it('should update load_steps in header', () => {
@@ -239,12 +239,12 @@ theme_override_styles/panel = SubResource("1")
     const result = detachInstance(targetFirstIsInstance, sourceWithSub, 'UI', '.');
 
     // 修复前: sub_resource 丢失(输出含 SubResource 引用却无 [sub_resource] 段)
-    expect(result.includes('[sub_resource')).toBe(true);
+    expect(result).toContain('[sub_resource');
     // SubResource 引用 id 应与 remapped [sub_resource] id 对得上(target 无 sub_resource, remap 从 1 起)
     const subMatch = result.match(/\[sub_resource type="StyleBoxFlat" id="(\d+)"\]/);
     expect(subMatch).not.toBeNull();
     const subId = subMatch[1];
-    expect(result.includes(`SubResource("${subId}")`)).toBe(true);
+    expect(result).toContain(`SubResource("${subId}")`);
   });
 
   it('CRITICAL-2 regression: sub_resources precede all [node] sections in normal case (guards :497)', () => {
@@ -285,9 +285,9 @@ speed = 100.0
 [node name="Sprite2D" type="Sprite2D" parent="."]
 `;
     const result = detachInstance(TARGET_TSCN, sourceNoExt, 'Player', '.');
-    expect(result.includes('speed = 100.0')).toBe(true);
-    expect(result.includes('Sprite2D')).toBe(true);
-    expect(result.includes('parent="Player"')).toBe(true);
+    expect(result).toContain('speed = 100.0');
+    expect(result).toContain('Sprite2D');
+    expect(result).toContain('parent="Player"');
   });
 
   it('should handle nested parent paths', () => {
@@ -303,10 +303,10 @@ speed = 100.0
 `;
     const result = detachInstance(targetNested, SOURCE_TSCN, 'Enemy', 'Level');
     // Root of source should have parent="Level" and name="Enemy"
-    expect(result.includes('name="Enemy"')).toBe(true);
-    expect(result.includes('parent="Level"')).toBe(true);
+    expect(result).toContain('name="Enemy"');
+    expect(result).toContain('parent="Level"');
     // Child nodes should have parent="Enemy"
-    expect(result.includes('parent="Enemy"')).toBe(true);
+    expect(result).toContain('parent="Enemy"');
   });
 });
 
@@ -333,11 +333,11 @@ health = 100.0
     const result = detachInstance(target, source, 'Player', '.');
 
     // The override value should be present
-    expect(result.includes('speed = 300.0')).toBe(true);
+    expect(result).toContain('speed = 300.0');
     // The source value should NOT be present (deduplicated)
     expect(result.includes('speed = 200.0')).toBe(false);
     // Non-overridden source property should still be present
-    expect(result.includes('health = 100.0')).toBe(true);
+    expect(result).toContain('health = 100.0');
   });
 
   it('should keep source properties that are not overridden', () => {
@@ -359,10 +359,10 @@ health = 100.0
     const result = detachInstance(target, source, 'Player', '.');
 
     // Both source properties should remain since neither is overridden
-    expect(result.includes('speed = 200.0')).toBe(true);
-    expect(result.includes('health = 100.0')).toBe(true);
+    expect(result).toContain('speed = 200.0');
+    expect(result).toContain('health = 100.0');
     // Override should also be present
-    expect(result.includes('position = Vector2(100, 200)')).toBe(true);
+    expect(result).toContain('position = Vector2(100, 200)');
   });
 });
 
@@ -394,8 +394,8 @@ shape = SubResource("1")
     const result = detachInstance(target, source, 'Player', '.');
 
     // sub_resource should be preserved
-    expect(result.includes('[sub_resource type="RectangleShape2D"')).toBe(true);
-    expect(result.includes('size = Vector2(50, 50)')).toBe(true);
+    expect(result).toContain('[sub_resource type="RectangleShape2D"');
+    expect(result).toContain('size = Vector2(50, 50)');
   });
 
   it('should remap sub_resource IDs to avoid conflicts with target', () => {
@@ -423,11 +423,11 @@ shape = SubResource("1")
     const result = detachInstance(target, source, 'Player', '.');
 
     // Target has sub_resource id="1", source id="1" should be remapped to id="2"
-    expect(result.includes('[sub_resource type="RectangleShape2D" id="2"]')).toBe(true);
+    expect(result).toContain('[sub_resource type="RectangleShape2D" id="2"]');
     // Node reference should be updated to match
-    expect(result.includes('SubResource("2")')).toBe(true);
+    expect(result).toContain('SubResource("2")');
     // Target sub_resource should be untouched
-    expect(result.includes('[sub_resource type="CircleShape2D" id="1"]')).toBe(true);
+    expect(result).toContain('[sub_resource type="CircleShape2D" id="1"]');
     expect(result).toMatchSnapshot('detach-with-sub-resources');
   });
 
@@ -465,10 +465,10 @@ shape = SubResource("2")
     const result = detachInstance(target, source, 'Player', '.');
 
     // Target max sub_resource id is 2, source ids 1,2 should become 3,4
-    expect(result.includes('[sub_resource type="RectangleShape2D" id="3"]')).toBe(true);
-    expect(result.includes('[sub_resource type="ConvexPolygonShape2D" id="4"]')).toBe(true);
-    expect(result.includes('SubResource("3")')).toBe(true);
-    expect(result.includes('SubResource("4")')).toBe(true);
+    expect(result).toContain('[sub_resource type="RectangleShape2D" id="3"]');
+    expect(result).toContain('[sub_resource type="ConvexPolygonShape2D" id="4"]');
+    expect(result).toContain('SubResource("3")');
+    expect(result).toContain('SubResource("4")');
   });
 });
 
@@ -496,9 +496,9 @@ script = ExtResource("1")
     const result = detachInstance(target, source, 'Player', '.');
 
     // Connection should be present with remapped paths
-    expect(result.includes('signal="pressed"')).toBe(true);
-    expect(result.includes('from="Player/Button"')).toBe(true);
-    expect(result.includes('to="Player"')).toBe(true);
+    expect(result).toContain('signal="pressed"');
+    expect(result).toContain('from="Player/Button"');
+    expect(result).toContain('to="Player"');
     expect(result).toMatchSnapshot('detach-with-connections');
   });
 
@@ -526,7 +526,7 @@ script = ExtResource("1")
 `;
     const result = detachInstance(target, source, 'UI', '.');
 
-    expect(result.includes('from="UI/Panel/CloseBtn"')).toBe(true);
-    expect(result.includes('to="UI"')).toBe(true);
+    expect(result).toContain('from="UI/Panel/CloseBtn"');
+    expect(result).toContain('to="UI"');
   });
 });

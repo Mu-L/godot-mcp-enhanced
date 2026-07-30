@@ -53,7 +53,7 @@ describe('instance_scene tool definition', () => {
       instance_path: 'res://scenes/main.tscn',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('CIRCULAR')).toBeTruthy();
+    expect(result.content[0].text).toContain('CIRCULAR');
   });
 });
 
@@ -107,7 +107,7 @@ describe('set_instance_property tool definition', () => {
       value: 'test',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('BLOCKED_PROP')).toBeTruthy();
+    expect(result.content[0].text).toContain('BLOCKED_PROP');
   });
 
   it('should reject invalid property names', async () => {
