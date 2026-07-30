@@ -3,7 +3,8 @@ import { resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
-import { validatePath, resolveWithinRoot, ensureDir, normalizeUserProjectPath, parseConfigValue, isPathInAllowedRoots, allowOutsideProjectPaths, buildSafeEnv, _resetPathAllowWarned } from '../src/helpers.js';
+import { validatePath, resolveWithinRoot, ensureDir, normalizeUserProjectPath, parseConfigValue, isPathInAllowedRoots, allowOutsideProjectPaths, buildSafeEnv } from '../src/helpers.js';
+import { isolatePathEnv } from './helpers/path-isolation.js';
 import { getLogger, resetLogger } from '../src/core/logger.js';
 
 // I-01: Reset logger singleton between tests to prevent state leakage
@@ -189,17 +190,12 @@ describe('parseConfigValue (I-06)', () => {
 // ─── allowOutsideProjectPaths ──────────────────────────────────────────────
 
 describe('allowOutsideProjectPaths', () => {
-  const originalEnv = process.env;
+  let restore = () => {};
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    delete process.env.ALLOWED_PROJECT_PATHS;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
+    restore = isolatePathEnv();   // 清 UNRESTRICTED + 删 ALLOWED + reset
   });
-
-  afterAll(() => {
-    process.env = originalEnv;
-  });
+  afterEach(() => restore());
 
   it('should return true when GODOT_MCP_UNRESTRICTED=true', () => {
     process.env.GODOT_MCP_UNRESTRICTED = 'true';
@@ -224,19 +220,13 @@ describe('allowOutsideProjectPaths', () => {
 // ─── isPathInAllowedRoots ──────────────────────────────────────────────────
 
 describe('isPathInAllowedRoots', () => {
-  const originalEnv = process.env;
+  let restore = () => {};
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    delete process.env.ALLOWED_PROJECT_PATHS;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
-    delete process.env.ALLOW_OUTSIDE_PROJECT_PATHS;
-    _resetPathAllowWarned();
+    restore = isolatePathEnv();   // 清 UNRESTRICTED + 删 ALLOWED + reset
+    delete process.env.ALLOW_OUTSIDE_PROJECT_PATHS;   // helper 不管此变量，保留手动
   });
-
-  afterAll(() => {
-    process.env = originalEnv;
-  });
+  afterEach(() => restore());
 
   it('should allow all paths when GODOT_MCP_UNRESTRICTED=true', () => {
     // C-07: deny-by-default — unrestricted flag is the only way to allow all paths
@@ -248,7 +238,6 @@ describe('isPathInAllowedRoots', () => {
 
   it('should restrict to cwd when no whitelist set (deny-by-default)', () => {
     // C-07: deny-by-default — all unconfigured environments restrict to cwd
-    _resetPathAllowWarned();
     expect(isPathInAllowedRoots(process.cwd())).toBe(true);
     expect(isPathInAllowedRoots('/definitely/outside/path')).toBe(false);
   });
@@ -274,7 +263,6 @@ describe('isPathInAllowedRoots', () => {
   it('should log warning only once when no whitelist set', () => {
     // In test environment (non-TTY, no CI env), the code uses warn level
     const warnSpy = vi.spyOn(getLogger(), 'warn').mockImplementation(() => {});
-    _resetPathAllowWarned();
     isPathInAllowedRoots('/a');
     isPathInAllowedRoots('/b');
     expect(warnSpy).toHaveBeenCalledTimes(1);
