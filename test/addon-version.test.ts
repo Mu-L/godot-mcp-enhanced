@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { readAddonVersion, updateAddon } from '../src/core/addon-version.js';
-import { _resetPathAllowWarned } from '../src/core/path-utils.js';
+import { isolatePathEnv, asUnrestrictedPath, expectPathDenied } from './helpers/path-isolation.js';
 
 // S3 原子化测试需要 mock fs.cpSync。ESM 命名空间 import 不可 spyOn（property non-configurable），
 // 改用 vi.mock 工厂替换 cpSync，默认透传 actual.cpSync；通过全局标志触发 "拷贝后抛错" 语义。
@@ -24,20 +24,16 @@ vi.mock('fs', async (importActual) => {
 });
 
 let tmpProject: string;
-let savedUnrestricted: string | undefined;
+let restore: () => void = () => {};
 
 beforeEach(() => {
-  savedUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
-  process.env.GODOT_MCP_UNRESTRICTED = 'true';  // 测试绕白名单（memory: test-setup 全局 UNRESTRICTED）
-  _resetPathAllowWarned();
+  restore = asUnrestrictedPath();   // 刻意 UNRESTRICTED=true（多数测试绕白名单用 tmpProject）
   tmpProject = mkdtempSync(join(tmpdir(), 'av-'));
   // updateAddon → validateProjectRoot 检查 project.godot 存在（brief ⚠️ 注释）
   writeFileSync(join(tmpProject, 'project.godot'), '');
 });
 afterEach(() => {
-  if (savedUnrestricted === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
-  else process.env.GODOT_MCP_UNRESTRICTED = savedUnrestricted;
-  _resetPathAllowWarned();
+  restore();
   rmSync(tmpProject, { recursive: true, force: true });
 });
 
@@ -62,26 +58,21 @@ describe('readAddonVersion', () => {
   });
 
   it('isPathInAllowedRoots 拒绝时 throw（UNRESTRICTED 未设）', () => {
-    // 临时清空 UNRESTRICTED 触发 deny-by-default，测后恢复
-    const saved = process.env.GODOT_MCP_UNRESTRICTED;
-    process.env.GODOT_MCP_UNRESTRICTED = '';
-    _resetPathAllowWarned();
+    // 临时清空 UNRESTRICTED 触发 deny-by-default（it 内 isolatePathEnv 自包含 + finally restore）
+    const r = isolatePathEnv();
     try {
       // tmpProject 在 os.tmpdir()，不在 cwd（包根）子树 → deny-by-default 拒绝
-      expect(() => readAddonVersion(tmpProject)).toThrow(/不在 ALLOWED_PROJECT_PATHS/);
+      expectPathDenied(() => readAddonVersion(tmpProject));
     } finally {
-      process.env.GODOT_MCP_UNRESTRICTED = saved;
-      _resetPathAllowWarned();
+      r();
     }
   });
 
   it('S1: rejects cfg symlink escaping allowed roots (readAddonVersion)', () => {
-    // 清除 UNRESTRICTED 使路径校验生效（beforeEach 设 'true' 旁路，不清则恒 true 平凡通过）
-    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
-    _resetPathAllowWarned();
-
     const allowedRoot = mkdtempSync(join(tmpdir(), 'allowed-rd-'));
     const outside = mkdtempSync(join(tmpdir(), 'outside-rd-'));
+    // 清 UNRESTRICTED 使路径校验生效 + 设 ALLOWED=allowedRoot（allowlist 仅 allowedRoot，outside 在其外）
+    const r = isolatePathEnv({ allowed: [allowedRoot] });
 
     try {
       mkdirSync(join(outside, 'godot_mcp_server'), { recursive: true });
@@ -94,10 +85,10 @@ describe('readAddonVersion', () => {
 
       // addons → outside (symlink 越界)：readAddonVersion 的 cfg 路径解析跟随到 allowlist 外
       symlinkSync(outside, join(projectDir, 'addons'), process.platform === 'win32' ? 'junction' : 'dir');
-      vi.stubEnv('ALLOWED_PROJECT_PATHS', allowedRoot); // allowlist 仅 allowedRoot，outside 在其外
 
-      expect(() => readAddonVersion(projectDir)).toThrow(/escapes allowed roots|not.*allowed|越界|outside/i);
+      expectPathDenied(() => readAddonVersion(projectDir));
     } finally {
+      r();
       rmSync(allowedRoot, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
     }
@@ -125,12 +116,10 @@ describe('updateAddon', () => {
   });
 
   it('S1: rejects dest symlink escaping allowed roots (updateAddon)', () => {
-    // 清除 UNRESTRICTED 使路径校验生效
-    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
-    _resetPathAllowWarned();
-
+    // 清 UNRESTRICTED 使路径校验生效 + 设 ALLOWED=allowedRoot
     const allowedRoot = mkdtempSync(join(tmpdir(), 'allowed-'));
     const outside = mkdtempSync(join(tmpdir(), 'outside-'));
+    const r = isolatePathEnv({ allowed: [allowedRoot] });
 
     try {
       mkdirSync(join(outside, 'godot_mcp_server'), { recursive: true });
@@ -142,10 +131,10 @@ describe('updateAddon', () => {
 
       // addons → outside (symlink 越界)
       symlinkSync(outside, join(projectDir, 'addons'), process.platform === 'win32' ? 'junction' : 'dir');
-      vi.stubEnv('ALLOWED_PROJECT_PATHS', allowedRoot); // allowlist 仅 allowedRoot，outside 在其外
 
-      expect(() => updateAddon(projectDir)).toThrow(/escapes allowed roots|not.*allowed|越界|outside/i);
+      expectPathDenied(() => updateAddon(projectDir));
     } finally {
+      r();
       rmSync(allowedRoot, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
     }
