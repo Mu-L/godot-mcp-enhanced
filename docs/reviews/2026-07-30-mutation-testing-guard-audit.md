@@ -8,6 +8,9 @@
 
 ---
 
+> [!warning] 勘误（2026-07-30 跨会话交叉验证）
+> 原 G7b 判定（"F-7 假保护/测试无效"）经独立 delete-red 复核**推翻**（实为真覆盖，原审计漏 neuter 冗余守卫 `:356`）；G8 经复核**确认并已修**（commit `e1225f1`）。详见文末「§七 勘误」。
+
 ## 一、Stryker 可行性结论
 
 ### 1.1 全量 Stryker:**不可行**
@@ -121,4 +124,27 @@
 - **GDScript 侧 guard**(沙箱运行时、godot_operations.gd 路由):需 headless/Godot,另立项。
 - **全量 Stryker**:见 §一,不可行。
 - **data-import/workflow 等 Godot-spawn guard 审计**:慢,可选追加,本次未做。
-- **G7b 归因深挖**:本文给出初步线索,完整定论需单独 trace handleTool 执行路径(建议作为独立小任务)。
+- **G7b 归因深挖**:已由「§七 勘误」定论（真覆盖，原审计误判，无需修测试）。
+
+---
+
+## 七、勘误（跨会话交叉验证，2026-07-30）
+
+原审计（另一会话）G7b/G8 经本会话独立 delete-red 复核：
+
+### G7b：原判"假保护" → 实为真覆盖（原审计误判，**无需修测试**）
+
+- **原判**：neuter `data-import.ts:334` → F-7 仍绿 → "假保护"。
+- **复核**：csv_content 字节上限有 **3 个冗余守卫**——`:334`（handleTool 前置）+ `:356`（handleTool 不变量复核，**同款错误文本**）+ `:250`（writeTmpCsv P3，throw）。原审计只 neuter `:334`，**漏了 `:356`** → `:356` 接住 → 仍绿 → 误判"假保护"。
+- **决定性实测**：neuter **全部**守卫（`:334`+`:356`+`:250`+csv_path `:346`）→ F-7 **2 failed**（`findGodotCalled===false` 断言正确触发：超限输入未被拦、走到了 findGodot）→ **真覆盖**。
+- **结论**：F-7 测试断言的是行为（超限 → findGodot 前拒绝），被冗余守卫充分覆盖，设计正确，**无需修**。原 G7b 是假阳性。
+
+### G8：原判"零覆盖" → 确认，**已修**
+
+- **复核确认**：`batch-tools.test.js` 确无 `MAX_FILE_COUNT`/`MAX_FILE_SIZE` 拒绝测试（仅 empty/missing/non-existent 校验）。
+- **已修**（commit `e1225f1`）：补 2 条拒绝测试——51 文件 → `Too many files ... Maximum is 50`；单文件 >1MB → `exceeds maximum size`。断言绑定守卫专属错误文本。delete-red 验证：neuter 两守卫 → 2 测试红（有效，非假绿）。全量 4279 passed / 24 skipped，无回归。
+
+### 补充方法论教训（增补 §四）
+
+5. **单守卫 neuter 会产假阳性**：当 guard 有冗余备份（多个守卫产生同款错误文本，如本例 `:334`+`:356`），只 neuter 一个会让测试仍绿 → 误判"假保护"。判据应改为 **"neuter 该行为的全部拦截路径 → 测试应红"**，而非单点 neuter。
+6. **跨会话交叉验证捕获假阳性**：本勘误即由第二会话独立复核（neuter 全部守卫）推翻原审计 G7b。delete-red 审计的负面发现（"假保护"）须经独立复核方可据以行动。
