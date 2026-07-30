@@ -1,5 +1,5 @@
 import { expect } from 'vitest';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolveWithinRoot } from '../src/helpers.js';

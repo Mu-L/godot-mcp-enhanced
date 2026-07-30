@@ -224,7 +224,6 @@ describe('isPathInAllowedRoots', () => {
 
   beforeEach(() => {
     restore = isolatePathEnv();   // 清 UNRESTRICTED + 删 ALLOWED + reset
-    delete process.env.ALLOW_OUTSIDE_PROJECT_PATHS;   // helper 不管此变量，保留手动
   });
   afterEach(() => restore());
 
