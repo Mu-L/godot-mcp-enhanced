@@ -38,6 +38,19 @@ describe('isolatePathEnv allowed', () => {
   });
 });
 
+describe('isolatePathEnv allowed:undefined（不动 ALLOWED）', () => {
+  let restore: () => void = () => {};
+  beforeEach(() => {
+    process.env.ALLOWED_PROJECT_PATHS = '/preset-by-caller';
+    restore = isolatePathEnv();   // allowed:undefined → 不应删 /preset
+  });
+  afterEach(() => restore());
+
+  it('不覆盖调用方预设的 ALLOWED_PROJECT_PATHS', () => {
+    expect(process.env.ALLOWED_PROJECT_PATHS).toBe('/preset-by-caller');
+  });
+});
+
 describe('isolatePathEnv cwd', () => {
   let restore: () => void = () => {};
   beforeEach(() => { restore = isolatePathEnv({ cwd: tmpdir() }); });
