@@ -1,6 +1,6 @@
 # E-99 弱断言精确化 设计（报告4 P2-7）
 
-> **状态**：待审
+> **状态**：待审（v2，吸收审查 4 点修正）
 > **日期**：2026-07-30
 > **范围**：`test/**/*.test.{js,ts}` 弱断言精确化（机械转换 + 鉴权语义强化）
 > **基线方法**：括号/引言感知解析器 + 严格 receiver 正向白名单，与 `check-test-quality.mjs` gate 运行结果（1349）四方交叉自洽
@@ -29,15 +29,17 @@
 
 **其他**：`toBe(true)` safe includes = **45**（gate 中性，`toBe(true)` 不在 gate 口径）；toBeDefined 194、not.toBeNull 134（合法存在性检查居多，不在本批机械转换）。
 
+> **注**：576 为**全仓**计数，已含 `test/readonly-guard.test.js:26`（`result.message.includes('read-only')`）。故该条归 Stream A（codemod 自动转）、不入 B，A 计数不另加（非 577）。
+>
 > **验证历程**：初版启发式分类器（贪婪正则）报 includes-truthy=587、漏 toBe(true)；独立第二解析器（非贪婪）报 583（含 4 条复合布尔）；严格 receiver 正向白名单收敛到 **576**（排除 3 条 `!includes` 误归类 + 4 条复合布尔 + 嵌套）。分歧样本均定位到具体行，且分歧本身即 codemod 守卫的需求来源。
 
 ## 三、范围
 
 ### 做
-- **Stream A（机械转换，降 gate 弱计数 576）**：safe includes-truthy → `toContain`，全 576 条（无任意截断，含长尾小文件）。
+- **Stream A（机械转换，降 gate 弱计数 576）**：safe includes-truthy → `toContain`，全 576 条（无任意截断，含长尾小文件，含 readonly-guard:26）。
 - **Stream A 卫生转换（gate 中性 45）**：safe includes-`toBe(true)` → `toContain`（诊断升级，gate 计数不变；同一 codemod 顺手做）。
-- **Stream B（鉴权/安全语义强化，~30 条）**：见 §五。
-- **门禁对齐**：`check-test-quality.mjs` 上限 1400 → ~780；注释 `:207` 基线对齐到新实测。
+- **Stream B（鉴权/安全语义强化，~12-14 条）**：见 §五。
+- **门禁对齐**：`check-test-quality.mjs` 上限 1400 → ~800；注释 `:207` 基线对齐到新实测。
 - **CHANGELOG**：`### Fixed — Test Quality` 段（对齐 :101 惯例）。
 
 ### 不做（留后续批）
@@ -70,11 +72,27 @@
 
 ## 五、Stream B — 鉴权/安全语义强化（手工 + delete-red）
 
-### 5.1 文件集（triage 后只转「松散结果检查应绑定具体值」的，预计 ~30 条）
-`test/guard.test.js`、`test/game-bridge.test.{js,ts}`、`test/game-bridge-monitor.test.js`、`test/game-bridge-ui-discover.test.js`、`test/game-bridge-signal-watch.test.js`、`test/editor-connection.test.js`、`test/editor-auth.test.js`、`test/core/instance-api-auth.test.ts`、`test/security-path-traversal-task2.test.ts`、`test/readonly-guard.test.js`。
+### 5.1 文件集与实测分布（B 集弱断言合计 55，经括号感知实测）
+55 条分布：**safe includes-truthy 1**（readonly-guard:26，归 A，不入 B）、**plain toBeTruthy 16**（强化池，但含 editor-connection:79/81 两条嵌套 `.some` 需排除）、**toBeDefined 31 + not.toBeNull 7**（多为合法存在性，保留）。
 
-### 5.2 方法
-逐条读工具实际返回 → 绑定具体值（`toBe('specific')` / `toMatch(/pattern/)` / `toContain('msg')`）。合法「存在性检查」（如 `expect(def).toBeDefined()` 验证工具注册）保留。
+**B 真正强化目标 ≈ 12-14 条**（16 plainTruthy − 2 嵌套 `.some` − triage 排除的合法存在性）。实际目标文件：
+- `test/guard.test.js`（plainTruthy 5）
+- `test/game-bridge.test.js`（plainTruthy 7）
+- `test/game-bridge.test.ts`（plainTruthy 2）
+
+其余文件弱断言均为 `toBeDefined`/`not.toBeNull` 合法存在性，**不入 B**：
+- monitor(10)/ui-discover(9)/signal-watch(7) = 26 条 `toBeDefined`（验证工具注册/返回结构）
+- editor-auth(1)/instance-api-auth(1)/security-path-traversal(2) = 4 条 `toBeDefined`
+- game-bridge.test.ts 的 6 条 `not.toBeNull`（result 非空前置）
+- **`editor-connection.test.js`**：仅 2 条嵌套 `.some(m=>m.method===...)`，排除后 0 条，**整文件移出 B**。
+
+### 5.2 方法 + triage 分流规则
+逐条读工具实际返回 → 绑定具体值（`toBe('specific')` / `toMatch(/pattern/)` / `toContain('msg')`）。
+
+**分流规则（实测样本归纳）**：
+- **强化**：松散结果检查 `expect(result).toBeTruthy()` / `expect(x.suggestion).toBeTruthy()` → 绑定 `content[0].text` 具体值或 `suggestion` 模式。
+- **保留**：① 验证工具注册 `expect(def).toBeDefined()`；② 验证返回结构有字段 `expect(x.inputSchema).toBeDefined()`；③ `expect(result).not.toBeNull()` 作后续字段访问的存在性前置。
+- **排除**：嵌套 `.some(m=>...)`（editor-connection:79/81，非松散结果检查，形态不符）；复合布尔 `expect(typeof x==='string' && ...)`（guard:181，强化会裂为多断言，triage 个案定）。
 
 ### 5.3 验证（delete-red，:100 教训，不可省）
 每条强化后，临时破坏底层行为（改返回值/短路 guard），确认**新断言变红**（证明绑定真实行为，非假强化）；还原后全量绿。鉴权维度是假绿高发区，此验证是本 stream 的核心交付。
@@ -84,10 +102,10 @@
 | 项 | 标准 |
 |---|---|
 | Stream A 后 gate 弱计数 | 773 ± 5（1349 − 576）|
-| Stream B 后 gate 弱计数 | ~743（再 − ~30）|
-| 全量 `npm test` | 4279 passed 基线（Stream A 行为等价，不增不减）|
+| Stream B 后 gate 弱计数 | ~759-761（再 − ~12-14）|
+| 全量 `npm test` | 4279 passed 基线（Stream A 行为等价；Stream B 1:1 强化不增减测试数）|
 | Stream B delete-red | 每条强化经「破坏→红→还原→绿」双向证 |
-| 门禁上限 | `WEAK_ASSERTION_LIMIT` 1400 → 据实下调（~780），注释 `:207` 基线对齐 |
+| 门禁上限 | `WEAK_ASSERTION_LIMIT` 1400 → 据实下调（~800，新基线 ~760 + 5% 容差），注释 `:207` 基线对齐 |
 | tsc / eslint | 0 |
 
 ## 七、风险与缓解
@@ -97,6 +115,7 @@
 | codemod 误转（复合/嵌套/反转）| 正向白名单守卫（§4.2）+ 全量 suite 绿兜底 |
 | LITERAL 提取破括号/引号 | 括号/引言感知提取（复用解析器 matchArg 逻辑）|
 | Stream B 过度收紧致假红 | 从实际返回推 expected，不臆测；delete-red 双向证 |
+| Stream B 目标数高估 | 已实测上界 14（非初估 30），triage 规则（§5.2）显式分流 |
 | codemod 脚本正确性 | 一次性脚本，验证 = diff 审查 + suite 绿 + 跌数核对（三重）|
 
 ## 八、提交策略
