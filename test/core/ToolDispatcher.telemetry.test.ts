@@ -22,7 +22,6 @@ const {
   mockValidateGodotBinary,
   mockRecord,
   mockHashProject,
-  mockSafeErrorCategory,
   mockIsTelemetryEnabled,
 } = vi.hoisted(() => ({
   mockGetAllToolDefinitions: vi.fn<() => Tool[]>(),
@@ -34,7 +33,6 @@ const {
   mockValidateGodotBinary: vi.fn().mockResolvedValue(true),
   mockRecord: vi.fn(),
   mockHashProject: vi.fn().mockReturnValue('deadbeef'),
-  mockSafeErrorCategory: vi.fn().mockReturnValue('TOOL_ERROR'),
   // T2: 可控 isTelemetryEnabled——T1 默认 true（保持 record 被调），T2 测试中切 false
   // 验证 opt-out 守卫拦截 hashProject 参数求值（堵 telemetry-uuid.txt 创建）。
   mockIsTelemetryEnabled: vi.fn().mockReturnValue(true),
@@ -43,7 +41,6 @@ const {
 vi.mock('../../src/telemetry/index.js', () => ({
   record: mockRecord,
   hashProject: mockHashProject,
-  safeErrorCategory: mockSafeErrorCategory,
   isTelemetryEnabled: mockIsTelemetryEnabled,
   getInstallUUID: () => 'salt',
   cleanupLocalFiles: vi.fn(),
@@ -143,10 +140,6 @@ describe('ToolDispatcher telemetry middleware', () => {
     vi.clearAllMocks();
     mockGetAllToolDefinitions.mockReturnValue([FIXTURE_TOOL]);
     mockGetModuleForTool.mockReturnValue({ handleTool: vi.fn().mockResolvedValue(okResult) });
-    // T1: 模拟真实 safeErrorCategory 的 PII 泄漏行为——只替标点不删字母数字，
-    // 路径片段（home/wgt/secret/tscn）原样保留进 error_category。若 ToolDispatcher
-    // 仍走 safeErrorCategory 派生，下方断言 error_category==='TOOL_ERROR' 必 RED。
-    mockSafeErrorCategory.mockReturnValue('Failed_to_load__home_wgt_secret_Main_tscn');
     // T2: 默认 opt-in（isTelemetryEnabled=true）保持 T1 各用例 record 被调；
     // T2 opt-out 用例在 it 内 mockReturnValue(false) 覆盖。
     mockIsTelemetryEnabled.mockReturnValue(true);
@@ -194,8 +187,6 @@ describe('ToolDispatcher telemetry middleware', () => {
     const event = mockRecord.mock.calls[0][0];
     expect(event.success).toBe(false);
     expect(event.error_category).toBe('TOOL_ERROR');
-    // 反假绿：safeErrorCategory 不得被调用（防回退到文本派生）
-    expect(mockSafeErrorCategory).not.toHaveBeenCalled();
   });
 
   // T1 专项（PII 泄漏防复发）：错误文本含路径/项目名时，error_category 必须是固定枚举，
@@ -218,7 +209,6 @@ describe('ToolDispatcher telemetry middleware', () => {
     const event = mockRecord.mock.calls[0][0];
     expect(event.success).toBe(false);
     expect(event.error_category).toBe('TOOL_ERROR');
-    expect(mockSafeErrorCategory).not.toHaveBeenCalled();
     // 反假绿：整个 event 序列化不得含原始路径片段（防 extractErrorMessage/safeErrorCategory 回退）
     expect(JSON.stringify(event)).not.toMatch(/home|wgt|secret|tscn|Main/i);
   });
