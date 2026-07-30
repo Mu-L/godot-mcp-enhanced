@@ -51,6 +51,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **已知局限**：redo 路径 bake 仍乐观（editor undo 系统 `commit_action` 同步执行 do_ops，MCP 层插不进 await）。workaround：redo 后调 `nav_bake_mesh` 走 MCP 路径得准确 bake。
 - 详见 `D:\GitHub\godot-mcp-enhanced\docs\superpowers\specs\2026-07-28-c4-nav-async-dispatch-design.md` + plan。
 
+### Fixed — Test Quality
+
+- **e2e beforeAll 清理 `.godot` 缓存**：`test/e2e-p1-p5.test.ts` 的 `beforeAll` 加 `rmSync(test/e2e-scene/.godot, recursive)`，本地运行以 CI fresh-checkout 干净状态起步，防过期导入缓存致 P3-import 的 `.godot/imported` 存在断言命中残留目录而假绿（:101，报告4 P2-10）。
+
 ## [0.24.1] - 2026-07-27
 
 ### Fixed — Documentation Sync
