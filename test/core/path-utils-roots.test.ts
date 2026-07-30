@@ -7,20 +7,17 @@ import {
   hasDynamicRoots,
   parseFileRootUris,
 } from '../../src/core/path-utils.js';
+import { isolatePathEnv } from '../helpers/path-isolation.js';
 
 describe('path-utils dynamic roots (Task 1)', () => {
-  const origEnv = process.env.ALLOWED_PROJECT_PATHS;
-  const origUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
+  let restore = () => {};
 
   beforeEach(() => {
-    delete process.env.ALLOWED_PROJECT_PATHS;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
-    setAllowedRootsFromClient(null);
+    restore = isolatePathEnv({ allowed: [] });   // 清 UNRESTRICTED + 删 ALLOWED + reset（补 reset，spec 审阅偏差1）
+    setAllowedRootsFromClient(null);    // dynamic roots 状态 helper 不管，保留手动
   });
   afterEach(() => {
-    if (origEnv !== undefined) process.env.ALLOWED_PROJECT_PATHS = origEnv;
-    else delete process.env.ALLOWED_PROJECT_PATHS;
-    if (origUnrestricted !== undefined) process.env.GODOT_MCP_UNRESTRICTED = origUnrestricted;
+    restore();
     setAllowedRootsFromClient(null);
   });
 
@@ -79,17 +76,14 @@ describe('path-utils dynamic roots (Task 1)', () => {
 });
 
 describe('path-utils roots security contracts (Task 2)', () => {
-  const origEnv = process.env.ALLOWED_PROJECT_PATHS;
-  const origUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
+  let restore = () => {};
+
   beforeEach(() => {
-    delete process.env.ALLOWED_PROJECT_PATHS;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
+    restore = isolatePathEnv({ allowed: [] });
     setAllowedRootsFromClient(null);
   });
   afterEach(() => {
-    if (origEnv !== undefined) process.env.ALLOWED_PROJECT_PATHS = origEnv;
-    else delete process.env.ALLOWED_PROJECT_PATHS;
-    if (origUnrestricted !== undefined) process.env.GODOT_MCP_UNRESTRICTED = origUnrestricted;
+    restore();
     setAllowedRootsFromClient(null);
   });
 
