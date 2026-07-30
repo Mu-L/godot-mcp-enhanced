@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 123 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 126 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -143,6 +143,10 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   nav-set-params-no-undo / ui-layout-anchor-no-undo / ui-theme-no-undo(F2 nav_set_params/ui-layout+anchor_preset/ui-theme 补 create_action_mixed undo×3) +
 //   animation-keyframe-index-no-bound(F3 ki 三分支 remove/update/curve 边界守卫) + websocket-outbound-no-buffer-limit(F4 ws_peer outbound 4MB 上限防慢消费者堆积 OOM);
 //   fixes 在 commits 4e1e979..0ba9021(D-P2 Task1-6),合计 123。
+//   +3(2026-07-30 D-ADV 报告5 ADVISORY): animtree-conditions-no-dict-guard(F5 conditions Dictionary 守卫防 SCRIPT ERROR) +
+//   undo-manager-dead-create-action(F6 删 create_action+create_action_with_props 死代码,YAGNI) +
+//   asset-placer-no-undo-mgr-null-guard(F9 place_one/place_batch undo_mgr null 守卫+callv fallback 对齐 node_commands);
+//   F7 stale(node_commands C11 孤儿扫描已闭环)/ F8 won't-fix(EditorPlugin 虚函数禁 super);fixes 在 commits d7c4485..132b1af(D-ADV Task1-3),合计 126。
     expect(FIXED_DEFECTS.length).toBe(126);
     const keys = FIXED_DEFECTS.map(d => d.key);
     expect(new Set(keys).size, '存在重名 key').toBe(126);
