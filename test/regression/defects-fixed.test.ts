@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 117 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 123 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -139,6 +139,10 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +7(2026-07-29 C-Correctness detect 补全 T8: nav-freed-access-signal / nav-status-hardcoded /
 //   doctor-no-stripbom / readcache-no-byte-limit / addon-update-nonatomic / adapter-no-mode-preserve /
 //   adapter-env-field-overwrite;fixes 在 commits 35dd8b9..c04a6b0,detect 统一 T8 补),合计 117。
+//   +6(2026-07-29 D-P2 报告5 addons GDScript): custom-mesh-segments-no-upper-cap(F1 clampi 上限防编辑器主线程 OOM,Security) +
+//   nav-set-params-no-undo / ui-layout-anchor-no-undo / ui-theme-no-undo(F2 nav_set_params/ui-layout+anchor_preset/ui-theme 补 create_action_mixed undo×3) +
+//   animation-keyframe-index-no-bound(F3 ki 三分支 remove/update/curve 边界守卫) + websocket-outbound-no-buffer-limit(F4 ws_peer outbound 4MB 上限防慢消费者堆积 OOM);
+//   fixes 在 commits 4e1e979..0ba9021(D-P2 Task1-6),合计 123。
     expect(FIXED_DEFECTS.length).toBe(123);
     const keys = FIXED_DEFECTS.map(d => d.key);
     expect(new Set(keys).size, '存在重名 key').toBe(123);
