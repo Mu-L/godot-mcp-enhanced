@@ -204,11 +204,10 @@ function detectMockDrift() {
 // ─── 检测器 3：弱断言占比上限（防恶化） ─────────────────────────────────────
 
 /**
- * 基线 2026-07-30 实测 1347（.test.js 1163 + .test.ts 184）。
- * 阈值：基线 + ~4% 容差 = 1400。粗 grep 含合理用法，作"防恶化上限"非"消除目标"。
- * 改善后下调上限（注释说明新基线）。
+ * 基线 2026-07-30 实测 768（E-99 后：机械转 576 includes→toContain + 鉴权强化 5）。
+ * 阈值：基线 + ~5% 容差 = 810。粗 grep 含合理用法（字段访问前存在性前置等），作"防恶化上限"非"消除目标"。
  */
-const WEAK_ASSERTION_LIMIT = 1400;
+const WEAK_ASSERTION_LIMIT = 810;
 const WEAK_RE = /(\.toBeTruthy\(\)|\.toBeDefined\(\)|\.not\.toBeNull\(\))/g;
 
 /**

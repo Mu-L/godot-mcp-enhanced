@@ -54,6 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed — Test Quality
 
 - **e2e beforeAll 清理 `.godot` 缓存**：`test/e2e-p1-p5.test.ts` 的 `beforeAll` 加 `rmSync(test/e2e-scene/.godot, recursive)`，本地运行以 CI fresh-checkout 干净状态起步，防过期导入缓存致 P3-import 的 `.godot/imported` 存在断言命中残留目录而假绿（:101，报告4 P2-10）。
+- **弱断言精确化**：机械转 576 条 `includes().toBeTruthy()` → `toContain`（括号感知 codemod，贪婪切分 + receiver 白名单守卫，排除复合 `||` / 函数调用 / negation）+ 鉴权维度 5 条语义强化（inputSchema 形状 / suggestion 类型，delete-red）。gate 弱计数 1349 → 768，上限 1400 → 810（:99，报告4 P2-7）。
 
 ## [0.24.1] - 2026-07-27
 
