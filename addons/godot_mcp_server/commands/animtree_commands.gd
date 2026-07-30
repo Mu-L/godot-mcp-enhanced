@@ -134,6 +134,9 @@ func handle_animtree_add_transition(params: Dictionary) -> Dictionary:
 	var conditions = params.get("conditions", [])
 	if conditions != null and conditions is Array:
 		for cond in conditions:
+			# F5(2026-07-29 报告5): conditions 元素须为 Dictionary，否则 cond.get() SCRIPT ERROR 中断 transition。
+			if not (cond is Dictionary):
+				continue
 			var cond_name: String = str(cond.get("name", ""))
 			var cond_value = cond.get("value")
 			if cond_name != "":
