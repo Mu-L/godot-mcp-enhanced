@@ -42,7 +42,13 @@ static func place_one(
 		{"type": "reference", "value": node},
 	]
 	var undo_ops := [{"type": "method", "target": parent, "method": "remove_child", "args": [node]}]
-	undo_mgr.create_action_mixed("asset_create_%d" % request_id, do_ops, undo_ops)
+	if undo_mgr != null:
+		undo_mgr.create_action_mixed("asset_create_%d" % request_id, do_ops, undo_ops)
+	else:
+		# F9(2026-07-29 报告5): headless 无 undo_mgr，直接执行 do_ops 落地节点（对齐 node_commands:262-265）。
+		for op in do_ops:
+			if String(op.get("type", "method")) == "method":
+				op["target"].callv(op["method"], op["args"])
 	return {"result": {"node_path": str(node.get_path())}}
 
 
@@ -82,7 +88,13 @@ static func place_batch(root: Node, undo_mgr: Node, items: Array, request_id: in
 		])
 		undo_ops.append({"type": "method", "target": parent, "method": "remove_child", "args": [node]})
 		nodes.append(node)
-	undo_mgr.create_action_mixed("asset_batch_%d" % request_id, do_ops, undo_ops)
+	if undo_mgr != null:
+		undo_mgr.create_action_mixed("asset_batch_%d" % request_id, do_ops, undo_ops)
+	else:
+		# F9(2026-07-29 报告5): headless 无 undo_mgr，直接执行 do_ops 落地全部节点。
+		for op in do_ops:
+			if String(op.get("type", "method")) == "method":
+				op["target"].callv(op["method"], op["args"])
 	# create_action_mixed 已 commit（do_ops 中 add_child 已执行），node 已挂载 → get_path() 有效
 	var node_paths: Array = []
 	for node in nodes:

@@ -143,9 +143,9 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   nav-set-params-no-undo / ui-layout-anchor-no-undo / ui-theme-no-undo(F2 nav_set_params/ui-layout+anchor_preset/ui-theme 补 create_action_mixed undo×3) +
 //   animation-keyframe-index-no-bound(F3 ki 三分支 remove/update/curve 边界守卫) + websocket-outbound-no-buffer-limit(F4 ws_peer outbound 4MB 上限防慢消费者堆积 OOM);
 //   fixes 在 commits 4e1e979..0ba9021(D-P2 Task1-6),合计 123。
-    expect(FIXED_DEFECTS.length).toBe(125);
+    expect(FIXED_DEFECTS.length).toBe(126);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(125);
+    expect(new Set(keys).size, '存在重名 key').toBe(126);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');
