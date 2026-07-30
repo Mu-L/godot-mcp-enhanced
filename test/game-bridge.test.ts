@@ -184,7 +184,8 @@ describe('game-bridge error & path validation', () => {
       expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
       expect(parsed.error).toContain('Cannot connect to MCP Bridge');
       expect(parsed.error).not.toContain('ECONNREFUSED');  // 不泄露原始错误码给用户
-      expect(parsed.suggestion).toBeTruthy();
+      expect(parsed.suggestion).toEqual(expect.any(String));
+      expect(parsed.suggestion.length).toBeGreaterThan(0);
     });
   });
 
@@ -198,7 +199,8 @@ describe('game-bridge error & path validation', () => {
       expect(result!.isError).toBe(true);
       const parsed = JSON.parse(result!.content[0].text);
       expect(parsed.error_code).toBe('BRIDGE_NOT_CONNECTED');
-      expect(parsed.suggestion).toBeTruthy();
+      expect(parsed.suggestion).toEqual(expect.any(String));
+      expect(parsed.suggestion.length).toBeGreaterThan(0);
     });
 
     it('auth timeout → BRIDGE_NOT_CONNECTED(bridge 接受 TCP 不响应认证)', async () => {
