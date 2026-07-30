@@ -87,6 +87,32 @@ describe('batch-tools handleTool', () => {
     expect(result.content[0].text).toContain('error');
   });
 
+  it('batch create_files rejects too many files (>50, H-06 OOM guard)', async () => {
+    // G8（报告4 :100 guard 审计）: MAX_FILE_COUNT=50 OOM 防护拒绝路径——审计发现零覆盖，补测。
+    // 断言绑定守卫专属错误文本（防假绿：neuter 守卫后此断言应红，delete-red 已验）。
+    const files = Array.from({ length: 51 }, (_, i) => ({ path: `f${i}.txt`, content: 'x' }));
+    const result = await handleTool('batch', {
+      project_path: '/fake/project',
+      action: 'create_files',
+      files,
+    }, {});
+    expect(result).toBeTruthy();
+    expect(result.content[0].text).toContain('Too many files');
+    expect(result.content[0].text).toContain('Maximum is 50');
+  });
+
+  it('batch create_files rejects oversized file (>1MB, H-06 OOM guard)', async () => {
+    // G8: MAX_FILE_SIZE=1MB 单文件 OOM 防护拒绝路径——审计发现零覆盖，补测。
+    const big = 'x'.repeat(1_000_001);
+    const result = await handleTool('batch', {
+      project_path: '/fake/project',
+      action: 'create_files',
+      files: [{ path: 'big.txt', content: big }],
+    }, {});
+    expect(result).toBeTruthy();
+    expect(result.content[0].text).toContain('exceeds maximum size');
+  });
+
   it('batch run_verify rejects empty scenes array', async () => {
     const result = await handleTool('batch', {
       project_path: '/fake/project',
