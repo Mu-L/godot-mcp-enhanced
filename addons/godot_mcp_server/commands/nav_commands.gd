@@ -193,7 +193,9 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 		nav.bake_finished.disconnect(_cb)
 	if not _bake_state["done"]:
 		push_warning("[MCP] nav bake_mesh deadline exhausted — bake_result 退化乐观")
-	var success: bool = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
+	# N1 补全：对齐 :144（create_region_async 末行）。循环内/freed 分支已守，但 deadline 耗尽退出后
+	# nav 可能被并发 peer 删除（MAX_PEERS=5），末行属性访问须先 is_instance_valid 否则 SCRIPT ERROR。
+	var success: bool = is_instance_valid(nav) and nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
 	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if _bake_state["done"] else "bake_timeout"}}
 
 func handle_nav_create_agent(params: Dictionary, request_id: int) -> Dictionary:
