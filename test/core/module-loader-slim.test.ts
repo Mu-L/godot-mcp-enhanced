@@ -8,12 +8,12 @@
 // 本测试经 registry 查询 API 取 def（走 registerAllModules 包装的 getToolDefinitions），
 // 验证 slim 真在链路生效 + 全部分支行为正确。
 import { describe, it, expect } from 'vitest';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES } from '../../src/core/module-loader.js';
 import { getToolDefinition } from '../../src/core/tool-registry.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 // 直 import barrel —— 用于路径隔离断言（证明 registry 路径与 barrel 路径产出不同）
 import { getToolDefinitions as getUiDefsDirect } from '../../src/tools/ui-tools.js';
 
-const SLIM_THRESHOLD_BYTES = 8000; // module-loader.ts:170
 // 代表性 removeProps（完整列表见 module-loader.ts:178-182，此处取每类一个做存在性断言）
 const REMOVED_REPRESENTATIVE = ['theme_action', 'theme_create_action', 'tree', 'ops'] as const;
 
@@ -87,5 +87,36 @@ describe('slim 路径隔离（防回归：直 import barrel 绕过 registerAllMo
     // barrel 仍含被 slim 移除的 prop（对照点）
     expect(barrelProps).toContain('theme_action');
     expect(registryProps).not.toContain('theme_action');
+  });
+});
+
+describe('slimSchema 边界分支（:216 removed.length===0 防御性 dead path）', () => {
+  // 该分支语义：配了 SLIM_CONFIG + 超阈值 + 有 properties，但 removeProps 与实际 properties 无交集。
+  // 当前 SLIM_CONFIG.ui.removeProps 与 ui 实际 props 完全匹配 → 生产路径不可达（防御性 dead path）。
+  // 用 fake def 直接调 slimSchema 触发，覆盖该分支防回归。
+  it(':216 removed.length===0 — 配了 SLIM_CONFIG + 超阈值，但 removeProps 与 properties 无交集 → 原样返回', () => {
+    // 构造 fake def：名字命中 SLIM_CONFIG（ui）但 properties 不含任何 removeProps。
+    // 用超大 padding 让 schema stringify 后超 SLIM_THRESHOLD_BYTES，越过 :196 阈值判断。
+    const padding = 'x'.repeat(SLIM_THRESHOLD_BYTES);
+    const fakeDef: Tool = {
+      name: 'ui',
+      description: 'fake',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          action: { type: 'string' },
+          someUnrelatedProp: { type: 'string', description: padding }, // 不在 removeProps 里
+        },
+        required: ['action'],
+      },
+    };
+    const result = slimSchema([fakeDef]);
+    expect(result).toHaveLength(1);
+    // :216 命中：removed 为空 → 原样返回（description 无 descHint，properties 不变）
+    expect(result[0].description, '未追加 descHint（removed 为空走原样返回）').toBe('fake');
+    expect(
+      Object.keys(result[0].inputSchema.properties ?? {}),
+      'properties 不变（未删除任何 prop）'
+    ).toEqual(['action', 'someUnrelatedProp']);
   });
 });

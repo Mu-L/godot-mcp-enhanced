@@ -167,9 +167,9 @@ function injectTags(defs: Tool[]): Tool[] {
 //
 // 设计：配置驱动（非启发式自动识别——后者太脆弱）。SLIM_CONFIG 按 toolName 列出要移除的
 // 参数 + 追加到 description 的提示文本。阈值 SLIM_THRESHOLD_BYTES 决定哪些工具触发瘦身。
-const SLIM_THRESHOLD_BYTES = 8000;
+export const SLIM_THRESHOLD_BYTES = 8000;
 
-const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: string }> = {
+export const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: string }> = {
   ui: {
     // theme 系列 11 个参数（theme_action/theme_path/params/theme_create_action/
     // source_node_path/save_path/theme_node_path/item_type/prop_name/theme_type/value）
@@ -188,7 +188,7 @@ const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: string }> =
  * 对超阈值的工具瘦身：移除 action 专属参数，追加 description 提示。
  * 幂等：已瘦身的工具（无配置或未超阈值）原样返回。
  */
-function slimSchema(defs: Tool[]): Tool[] {
+export function slimSchema(defs: Tool[]): Tool[] {
   return defs.map(def => {
     const config = SLIM_CONFIG[def.name];
     if (!config) return def;
