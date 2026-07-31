@@ -27,7 +27,7 @@ export function buildMarkdown(caps: ToolCapability[]): string {
   const top5 = [...caps].sort((a, b) => b.size.totalBytes - a.size.totalBytes).slice(0, 5);
   const top5Lines = top5.map(c =>
     `- \`${c.name}\` (${c.group}): desc ${c.size.descBytes}B / schema ${c.size.schemaBytes}B / total ${c.size.totalBytes}B`
-  ).join('\n');
+  );
   const lines = [
     `# Capability Matrix`,
     ``,
