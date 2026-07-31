@@ -400,4 +400,55 @@ describe('EditorConnection', () => {
 
     conn.disconnect();
   });
+
+  // P2-9（2026-07-31 补）：resetReconnectState() 直接单测。
+  // EditorConnection.ts:543-550 全文唯一被 requestReconnect(:557) 间接调用，无直接单测。
+  // 4 个行为分支：reconnectAttempt 归 0 / reconnectEnabled 重置到 shouldReconnect /
+  // reconnectTimer 清理 / 无 timer 时不报错。
+  // 关键语义：reconnect:false → shouldReconnect=false → resetReconnectState 后
+  // reconnectEnabled 仍 false（e2e-resilience-editor.test.ts:13 注释的"reconnect:false
+  // 行不通"根因即此，reset 不强制开 enabled，只回到 shouldReconnect）。
+  it('resetReconnectState() resets attempt/enabled and clears timer (P2-9)', () => {
+    // ─ 场景 A：reconnect:true，耗尽后 reset 应回到可重连状态 ─────────────────
+    const connA = new EditorConnection({
+      port,
+      reconnect: true,
+      maxReconnectAttempts: 3,
+      secret: 'test-secret',
+    });
+    // 模拟重连耗尽后的状态：attempt 拉高 + reconnectEnabled 被置 false（:481 耗尽分支）
+    connA.reconnectAttempt = 5;
+    connA.reconnectEnabled = false;
+    // 模拟有挂起的 reconnectTimer（真 setTimeout handle，reset 后应被 clearTimeout 清）
+    connA.reconnectTimer = setTimeout(() => {}, 100_000);
+
+    connA.resetReconnectState();
+
+    // 分支 1：reconnectAttempt 归 0（:544）
+    expect(connA.reconnectAttempt).toBe(0);
+    // 分支 2：reconnectEnabled 重置到 shouldReconnect（reconnect:true → true，:545）
+    expect(connA.reconnectEnabled).toBe(true);
+    // 分支 3：reconnectTimer 被清为 null（:548，证明进了 if 分支并 clearTimeout）
+    expect(connA.reconnectTimer).toBe(null);
+
+    // ─ 场景 B：reconnect:false，reset 不应强制开 enabled（关键不变量）────────
+    const connB = new EditorConnection({
+      port,
+      reconnect: false,   // → shouldReconnect=false
+      secret: 'test-secret',
+    });
+    connB.reconnectEnabled = true;  // 假设被外部异常置 true
+    connB.reconnectTimer = setTimeout(() => {}, 100_000);
+
+    connB.resetReconnectState();
+    // reconnectEnabled 应回到 shouldReconnect=false，不是强制 true
+    expect(connB.reconnectEnabled).toBe(false);
+    expect(connB.reconnectTimer).toBe(null);
+
+    // ─ 场景 C：无 timer 时调 reset 不应报错（边界，:546 if 守卫）────────────
+    const connC = new EditorConnection({ port, reconnect: true, secret: 'test-secret' });
+    connC.reconnectTimer = null;  // 确保无 timer
+    expect(() => connC.resetReconnectState()).not.toThrow();
+    expect(connC.reconnectTimer).toBe(null);
+  });
 });
