@@ -47,7 +47,10 @@ export function mockSuccessResult(overrides = {}) {
 
 /**
  * executeGdscript 失败结果工厂（P1-3 阶段 B 用，先建骨架）。
- * 按 kind 生成对应失败形态，对齐 src/gdscript-executor.ts 真实失败分支（:1008/:1021/:1044/:1116）。
+ * 按 kind 生成对应失败形态，对齐 ExecuteGdscriptResult（src/gdscript-executor.ts）的字段形态。
+ * 下游 parseGdscriptResult（src/tools/shared/errors.ts）只看字段形态不看 executor 内部行号：
+ *   !compile_success → 报 compile_error；!run_success → 报 run_error。
+ * 故 kind 对齐的是"字段组合 + 错误文本语义"，非 executor 具体 early-return（行号易漂移，不引）。
  * @param {{ kind?: 'compile'|'run'|'sandbox'|'binary'|'generic', compileError?: string, runError?: string, outputs?: any[] }} [opts]
  */
 export function mockFailureResult(opts = {}) {
@@ -65,16 +68,16 @@ export function mockFailureResult(opts = {}) {
   };
   switch (kind) {
     case 'compile':
-      // 对齐 gdscript-executor.ts:1116 编译失败分支
+      // 字段形态：compile_success:false + compile_error（Godot 编译失败产物，经 parseErrors 填入）
       return { ...base, compile_error: opts.compileError ?? 'Parse error: line 5: unexpected token' };
     case 'run':
-      // 运行时失败（编译过但运行报错）
+      // 字段形态：compile_success:true + run_success:false + run_error（编译过但运行报错）
       return { ...base, compile_success: true, run_success: false, run_error: opts.runError ?? 'Runtime error: null reference' };
     case 'sandbox':
-      // 对齐 gdscript-executor.ts:1021 sandbox violation
+      // 字段形态同 compile，错误文本含 "Sandbox violation"（语义：scanGdscriptSandbox 命中）
       return { ...base, compile_error: opts.compileError ?? 'Sandbox violation: code contains dangerous patterns' };
     case 'binary':
-      // 对齐 gdscript-executor.ts:1044 binary not found
+      // 字段形态同 compile，错误文本含 "binary not found"（语义：godot 二进制缺失/非法）
       return { ...base, compile_error: opts.compileError ?? 'Godot binary not found: /fake/godot' };
     default:
       return base;

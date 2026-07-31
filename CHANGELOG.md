@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — 测试覆盖加固批次（P2-8..P2-12 + P1-2/P1-3/P1-4 + N-1，审查 SHIPPED WITH NITS）
+
+纯测试加固，无用户可见行为变化。对应 2026-07-10 测试覆盖审计遗留项 + coverage batch 审查 nit 闭环。
+
+- **P2-8 health-monitor 状态恢复断言 + P1-2 WS 断连批量 reject 故障注入**（`20b20c8`）：health-monitor ping 成功后补 `getState()==='connected'` 断言（原只断言 pingFn 调用次数漏状态恢复）；editor-connection 补 3 并发 request + server close 全 reject 带 `CONNECTION_LOST` 故障注入（原 close handler 批量 reject 逻辑零故障注入）。
+- **P2-9 resetReconnectState 直接单测**（`196485e`）：补 EditorConnection.resetReconnectState 4 行为分支覆盖（attempt→0 / enabled 重置含 reconnect:false 不变量 / timer 清理 / 无 timer 边界）。
+- **P2-10 场景树并发竞争真测试**（`641738d`）：注入 50ms 延时版 spawnGodot，3 并发 edit_node 占满 shortRunning slot（同步 acquire），断言 `getShortRunningCount()===3` 落在延时窗内（非 flaky，能真观察并发）。
+- **P1-4 scene 操作状态反查断言**（`d7f5347`）：add_node 无 properties 路径走 writeFileSync 真落盘后用 read_scene 反查真 `.tscn`，诚实标注 edit_node/remove_node 走 spawnGodot 不写文件的 mock 鸿沟。
+- **P1-3 统一 executeGdscript happy/失败 mock 工厂**（`1010860` + `125239d`）：阶段 A 抽 mock-results.js mockSuccessResult/mockFailureResult 统一 happy mock；阶段 B 补 particles 失败分支（compile/run/sandbox/binary 四 kind 经 parseGdscriptResult 真路径，非 mock 自证）。
+- **P2-11 ui schema 瘦身消除 check-token-budget WARN**（`bbca356`）：超阈值工具把低频 action 专属参数（theme 系列/tree/ops 共 13 个）从 properties 移到 description 提示，参数仍可经 additionalProperties 传入。ui inputSchema 8921B→3560B，check-token-budget 零 WARN。不改运行时 handler 行为。
+- **N-1 修复 build-matrix TOP5 渲染乱码**（`2985d1b`）：`src/capability/build-matrix.ts` `...top5Lines`（top5Lines 是 join 后字符串，spread 按字符迭代）导致 `docs/capability-matrix.md` TOP5 段每行单字符。去掉 `.join('\n')` 让 spread 作用于数组。预存 bug，P2-11 重跑 build-matrix 时再生产。
+- **P2-12 slimSchema 直接单测**（`f31c95a`，补 coverage-batch 审查 N-2 缺口）：新建 `test/core/module-loader-slim.test.ts`（6 用例），经 registry 查询 API 取 def（非直 import barrel，后者绕过 registerAllModules 后处理读未 slim 原始 def），覆盖 slimSchema 全部主要分支 + 路径隔离断言。非假绿验证（调高阈值/清空 removeProps → 用例转 RED）。
+
+### Fixed — N-3/N-4 流程清理（本 commit）
+
+- **N-3 mock-results.js docstring 精度**（coverage-batch 审查 N-3）：去易漂移的具体行号（`:1008/:1021/:1044/:1116` 把 kill-switch 误列且工厂无对应 kind；`:68` 标 `:1116` 为 compile 实际是 write-temp-failed），改述为"对齐 ExecuteGdscriptResult 的 compile/run/sandbox/binary 四种字段形态"，因下游 parseGdscriptResult 只看字段形态不看 executor 内部 early-return 行号。
+
 ## [0.25.1] - 2026-07-31
 
 ### Fixed — 竞品对比批①-④ 落地（feat/competitor-followups，审查 SHIPPED WITH NITS）
