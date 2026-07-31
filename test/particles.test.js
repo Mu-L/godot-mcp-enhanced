@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mockSuccessResult } from './helpers/mock-results.js';
+import { mockSuccessResult, mockFailureResult } from './helpers/mock-results.js';
 
 // Mock gdscript-executor before importing the module under test
 vi.mock('../src/gdscript-executor.js', () => ({
@@ -358,5 +358,87 @@ describe('particles handleTool — particles_set_material', () => {
     expect(executeGdscript).toHaveBeenCalledTimes(1);
     const callArgs = executeGdscript.mock.calls[0][0];
     expect(callArgs.code).toContain('ParticleProcessMaterial.new()');
+  });
+});
+
+// P1-3 阶段 B（2026-07-31）：executeGdscript 失败分支测试。
+// 看板指控：22 份 happy mock 绕过 executor 全部失败分支。本组用 mockFailureResult 工厂
+// 覆盖 parseGdscriptResult（src/tools/shared/errors.ts:50-55）的两个失败契约分支：
+//   - compile_success===false → isError + compile_error 文本
+//   - run_success===false → isError + run_error 文本
+// particles 走 parseGdscriptResult（particles.ts:506），是代表性消费者；
+// 同契约适用于所有走 parseGdscriptResult 的工具（profiler/validation/animation 等）。
+describe('particles handleTool — executeGdscript 失败分支（P1-3 阶段 B）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('compile 失败 → isError + 含 compile_error 文本', async () => {
+    vi.mocked(executeGdscript).mockResolvedValueOnce(mockFailureResult({
+      kind: 'compile',
+      compileError: 'Parse error: line 5: unexpected token',
+    }));
+    const ctx = createMockCtx();
+    const result = await handleTool('particles', {
+      project_path: '/fake/project',
+      action: 'particles_create',
+      node_type: 'GPUParticles2D',
+      name: 'FailNode',
+    }, ctx);
+
+    expect(result.isError, 'compile 失败应 isError').toBe(true);
+    expect(result.content[0].text, '应含 compile_error 文本').toContain('Parse error: line 5');
+    expect(result.content[0].text, '应含 SCRIPT_EXEC_FAILED 错误码').toContain('SCRIPT_EXEC_FAILED');
+  });
+
+  it('run 失败（编译过但运行报错）→ isError + 含 run_error 文本', async () => {
+    vi.mocked(executeGdscript).mockResolvedValueOnce(mockFailureResult({
+      kind: 'run',
+      runError: 'Runtime error: null reference',
+    }));
+    const ctx = createMockCtx();
+    const result = await handleTool('particles', {
+      project_path: '/fake/project',
+      action: 'particles_create',
+      node_type: 'GPUParticles2D',
+      name: 'FailNode',
+    }, ctx);
+
+    expect(result.isError, 'run 失败应 isError').toBe(true);
+    expect(result.content[0].text, '应含 run_error 文本').toContain('null reference');
+  });
+
+  it('sandbox violation 失败 → isError + 含 sandbox 文本', async () => {
+    vi.mocked(executeGdscript).mockResolvedValueOnce(mockFailureResult({
+      kind: 'sandbox',
+      compileError: 'Sandbox violation: dangerous patterns',
+    }));
+    const ctx = createMockCtx();
+    const result = await handleTool('particles', {
+      project_path: '/fake/project',
+      action: 'particles_create',
+      node_type: 'GPUParticles2D',
+      name: 'FailNode',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Sandbox violation');
+  });
+
+  it('binary not found 失败 → isError + 含 binary 文本', async () => {
+    vi.mocked(executeGdscript).mockResolvedValueOnce(mockFailureResult({
+      kind: 'binary',
+      compileError: 'Godot binary not found: /fake/godot',
+    }));
+    const ctx = createMockCtx();
+    const result = await handleTool('particles', {
+      project_path: '/fake/project',
+      action: 'particles_create',
+      node_type: 'GPUParticles2D',
+      name: 'FailNode',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('binary not found');
   });
 });
