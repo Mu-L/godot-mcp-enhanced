@@ -351,4 +351,53 @@ describe('EditorConnection', () => {
 
     conn.disconnect();
   });
+
+  // P1-2（2026-07-31 补）：WS 断连 pending 批量 reject 故障注入。
+  // EditorConnection.ts:257-263 close handler 遍历 pending 全 reject 挂 CONNECTION_LOST。
+  // 核实：现有测试无并发 request + 中途 close 的故障注入。本测试补：3 并发 request +
+  // server 端 close → 断言全 reject 带 code='CONNECTION_LOST'。
+  it('rejects all pending requests with CONNECTION_LOST on server-side close (P1-2)', async () => {
+    let latestWs = null;
+    wss.on('connection', (ws) => {
+      latestWs = ws;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        // 只响应 auth(id=-1)，业务 request 不响应 → 保持 pending
+        if (msg.id === -1) {
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        }
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: false,  // 关重连，聚焦批量 reject
+      secret: 'test-secret',
+      requestTimeout: 5000,  // 长超时，确保 reject 来自 close 而非 timeout
+    });
+    await conn.connect();
+    expect(conn.connected).toBe(true);
+
+    // 发 3 个并发业务 request（server 不响应，全进 pending）
+    const reqs = [
+      conn.request('method_a', { n: 1 }),
+      conn.request('method_b', { n: 2 }),
+      conn.request('method_c', { n: 3 }),
+    ];
+
+    // 等待 request 真正发出并进 pending（让 server 收到 message）
+    await new Promise((r) => setTimeout(r, 100));
+
+    // server 端关闭连接 → client 'close' → 批量 reject pending
+    latestWs.close();
+
+    // 3 个 request 应全 reject，且 err.code === 'CONNECTION_LOST'
+    const results = await Promise.allSettled(reqs);
+    expect(results.every(r => r.status === 'rejected')).toBe(true);
+    for (const r of results) {
+      expect(r.reason.code).toBe('CONNECTION_LOST');
+    }
+
+    conn.disconnect();
+  });
 });

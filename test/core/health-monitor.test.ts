@@ -267,6 +267,10 @@ describe('HealthMonitor — heartbeat', () => {
     await tick(200); // total 300ms since last ping
     expect(pingFn).toHaveBeenCalledTimes(3);
 
+    // P2-8（2026-07-31 补）：ping 成功后状态应从 reconnecting 恢复为 connected
+    // 依据 health-monitor.ts:306 ping ok 时 setState('connected')
+    expect(monitor.getState()).toBe('connected');
+
     monitor.stopHeartbeat();
   });
 });
