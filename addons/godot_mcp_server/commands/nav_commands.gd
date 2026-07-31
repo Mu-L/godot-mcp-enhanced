@@ -274,7 +274,8 @@ func handle_nav_set_params(params: Dictionary) -> Dictionary:
 		CommandHelpers._record_prop(do_ops, undo_ops, agent, "max_speed", float(raw_params["max_speed"]))
 		updated.append("max_speed")
 	if raw_params.has("avoidance_enabled"):
-		CommandHelpers._record_prop(do_ops, undo_ops, agent, "avoidance_enabled", raw_params["avoidance_enabled"])
+		# P2-5: bool() 强转（对齐其他参数 float()/int()），NavigationAgent3D.avoidance_enabled 是 bool
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "avoidance_enabled", bool(raw_params["avoidance_enabled"]))
 		updated.append("avoidance_enabled")
 	if raw_params.has("neighbor_distance"):
 		CommandHelpers._record_prop(do_ops, undo_ops, agent, "neighbor_distance", float(raw_params["neighbor_distance"]))

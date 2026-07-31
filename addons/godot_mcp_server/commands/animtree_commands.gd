@@ -182,6 +182,10 @@ func handle_animtree_set_blend(params: Dictionary) -> Dictionary:
 	var new_val: Variant
 	if value is Dictionary:
 		new_val = Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
+	elif value is Array and value.size() >= 2:
+		# P2-7: Array→Vector2（JSON 表达 Vector2 的另一种方式，对齐 asset_factory._vec3 模式）
+		# 原 else 分支 float([0.5,0.3])=0.0 退化，blend 参数静默丢失
+		new_val = Vector2(float(value[0]), float(value[1]))
 	else:
 		new_val = float(value)
 

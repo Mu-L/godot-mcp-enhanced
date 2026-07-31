@@ -49,13 +49,14 @@ static func create_mesh_uncached(shape: String, params: Dictionary) -> Mesh:
 			m.height = float(params.get("height", 1.0))
 			m.top_radius = float(params.get("radius", 0.5))
 			m.bottom_radius = m.top_radius
-			m.radial_segments = int(params.get("radial_segments", 24))
+			# P2-6: clampi 下限防 mesh 退化（对齐 custom_meshes.gd:16 的 clampi(..., 3, 128)）
+			m.radial_segments = clampi(int(params.get("radial_segments", 24)), 3, 128)
 			return m
 		"sphere":
 			var m := SphereMesh.new()
 			m.radius = float(params.get("radius", 0.5))
-			m.radial_segments = int(params.get("radial_segments", 24))
-			m.rings = int(params.get("rings", 16))
+			m.radial_segments = clampi(int(params.get("radial_segments", 24)), 3, 128)
+			m.rings = clampi(int(params.get("rings", 16)), 3, 128)
 			return m
 		"prism":
 			var m := PrismMesh.new()
@@ -138,8 +139,9 @@ static func create_material(spec: Variant) -> Material:
 		var mat := StandardMaterial3D.new()
 		if d.has("color"):
 			mat.albedo_color = _parse_color(d["color"], Color(1, 1, 1))  # BUG1 修复：Array/hex 分派，非法回退白
-		mat.metallic = float(d.get("metallic", 0.0))
-		mat.roughness = float(d.get("roughness", 0.7))
+		# P2-6: clampf [0,1] 防 metallic/roughness 超语义范围（StandardMaterial3D 要求 0~1，>1 渲染过曝）
+		mat.metallic = clampf(float(d.get("metallic", 0.0)), 0.0, 1.0)
+		mat.roughness = clampf(float(d.get("roughness", 0.7)), 0.0, 1.0)
 		if d.has("emissive"):
 			mat.emission_enabled = true
 			mat.emission = _parse_color(d["emissive"], Color(0, 0, 0))  # BUG1 修复：同上，非法回退黑
