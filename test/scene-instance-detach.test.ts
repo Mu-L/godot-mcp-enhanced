@@ -1,7 +1,7 @@
 // test/scene-instance-detach.test.ts
 // 补 src/tools/scene/scene-instance.ts handleDetachInstance 分支覆盖（原 :209-278 零直接单测）。
 // handleDetachInstance 是纯文件操作（无 spawnGodot），测各错误分支 + happy path。
-// 复用 test/tscn-editor.test.js 的 TARGET_TSCN/SOURCE_TSCN fixture（含 instance=ExtResource）。
+// TARGET_TSCN/SOURCE_TSCN 结构对齐 test/tscn-editor.test.js 的 fixture（含 instance=ExtResource），就地重声明避免跨文件 import。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
