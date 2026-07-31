@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { escapeTscnAttr, formatTscnValue } from '../src/tscn/tscn-editor-shared.js';
+import {
+  escapeTscnAttr, formatTscnValue, escapeTscnValue, escapeRegExp,
+  normalizeLines, findSectionEnd, getBracketAttr,
+  leafName, parentPath, findNodeSectionLine,
+} from '../src/tscn/tscn-editor-shared.js';
 
 // I-1: escapeTscnAttr 必须与 escapeTscnValue 一致地拒绝换行符。
 // 当前 add 白名单(^[A-Za-z0-9_]+$)与 detach 严格相等阻挡了换行进入,但根因(转义函数本身
@@ -74,5 +78,104 @@ describe('formatTscnValue (I-3: full-anchor literal detection)', () => {
     expect(formatTscnValue('null')).toBe('null');
     expect(formatTscnValue('42')).toBe('42');
     expect(formatTscnValue('3.14')).toBe('3.14');
+  });
+});
+
+// ── 补覆盖：纯函数 escapeTscnValue/escapeRegExp/normalizeLines/findSectionEnd ─────
+describe('escapeTscnValue (拒绝换行 + 转义 \\"\[\])', () => {
+  it('拒绝换行（与 escapeTscnAttr 对齐）', () => {
+    expect(() => escapeTscnValue('a\nb')).toThrow(/newlines/i);
+    expect(() => escapeTscnValue('a\rb')).toThrow(/newlines/i);
+  });
+  it('转义反斜杠/引号/方括号', () => {
+    expect(escapeTscnValue('a"b')).toBe('a\\"b');
+    expect(escapeTscnValue('a\\b')).toBe('a\\\\b');
+    expect(escapeTscnValue('a]b')).toBe('a\\]b');
+    expect(escapeTscnValue('a[b')).toBe('a\\[b');
+  });
+  it('无特殊字符原样返回', () => {
+    expect(escapeTscnValue('plain')).toBe('plain');
+  });
+});
+
+describe('escapeRegExp (RegExp 特殊字符转义)', () => {
+  it('转义 . * + ? 等元字符', () => {
+    expect(escapeRegExp('a.b*c')).toBe('a\\.b\\*c');
+    expect(escapeRegExp('a(b)c')).toBe('a\\(b\\)c');
+  });
+  it('无元字符原样返回', () => {
+    expect(escapeRegExp('plain')).toBe('plain');
+  });
+});
+
+describe('normalizeLines (CRLF/LF 归一)', () => {
+  it('CRLF → LF split', () => {
+    expect(normalizeLines('a\r\nb')).toEqual(['a', 'b']);
+  });
+  it('裸 CR → LF split', () => {
+    expect(normalizeLines('a\rb')).toEqual(['a', 'b']);
+  });
+  it('LF split', () => {
+    expect(normalizeLines('a\nb\nc')).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('findSectionEnd (找下一 [ section 边界)', () => {
+  const lines = ['[node name="A"]', 'prop = 1', '[node name="B"]', 'prop = 2'];
+  it('从 section 内返回下一个 [ 行索引', () => {
+    expect(findSectionEnd(lines, 0)).toBe(2);
+  });
+  it('末段无下一个 [ 返回 length', () => {
+    expect(findSectionEnd(lines, 2)).toBe(4);
+  });
+});
+
+// ── 节点路径 + section 查找（findNodeSectionLine 依赖 leafName/parentPath/getBracketAttr）──
+describe('leafName / parentPath (nodePath 拆分)', () => {
+  it('leafName 取末段', () => {
+    expect(leafName('Root/Player/Sprite2D')).toBe('Sprite2D');
+    expect(leafName('Alone')).toBe('Alone');
+  });
+  it('parentPath 取前缀（单段返空串）', () => {
+    expect(parentPath('Root/Player/Sprite2D')).toBe('Root/Player');
+    expect(parentPath('Alone')).toBe('');
+  });
+});
+
+describe('getBracketAttr ([node] 头部属性提取)', () => {
+  it('提取 name 属性', () => {
+    expect(getBracketAttr('[node name="Player" type="Node2D"]', 'name')).toBe('Player');
+  });
+  it('提取 parent 属性', () => {
+    expect(getBracketAttr('[node name="Player" parent="Root" instance=ExtResource("1")]', 'parent')).toBe('Root');
+  });
+  it('属性不存在返 null', () => {
+    expect(getBracketAttr('[node name="Player"]', 'parent')).toBeNull();
+  });
+});
+
+describe('findNodeSectionLine (按 nodePath 定位 [node] 行索引)', () => {
+  const lines = [
+    '[node name="Main" type="Node2D"]',           // 0: 根节点（无 parent）
+    'position = Vector2(0, 0)',
+    '[node name="Player" parent="." instance=ExtResource("1")]',  // 2: 有 parent="."
+    'speed = 100',
+    '[node name="Sprite" parent="Player" type="Sprite2D"]',       // 4: parent="Player"
+  ];
+  it('根节点（无 parent）命中', () => {
+    expect(findNodeSectionLine(lines, 'Main')).toBe(0);
+  });
+  it('parent="." 节点命中', () => {
+    expect(findNodeSectionLine(lines, './Player')).toBe(2);
+  });
+  it('parent="Player" 子节点命中', () => {
+    expect(findNodeSectionLine(lines, 'Player/Sprite')).toBe(4);
+  });
+  it('不存在返 -1', () => {
+    expect(findNodeSectionLine(lines, 'Nonexistent')).toBe(-1);
+  });
+  it('name 匹配但 parent 不匹配不命中', () => {
+    // Player 存在但 parent 期望 Wrong，应返 -1
+    expect(findNodeSectionLine(lines, 'Wrong/Player')).toBe(-1);
   });
 });
