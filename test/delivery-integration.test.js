@@ -13,9 +13,9 @@ describe('delivery integration tests', () => {
   it('wrapAssertionCode produces valid SceneTree script', async () => {
     const mod = await import('../src/tools/shared.js');
     const code = mod.wrapAssertionCode('_mcp_output("x", "42")', 'value check');
-    expect(code.includes('extends SceneTree')).toBeTruthy();
-    expect(code.includes('_mcp_output("x", "42")')).toBeTruthy();
-    expect(code.includes('_mcp_done')).toBeTruthy();
+    expect(code).toContain('extends SceneTree');
+    expect(code).toContain('_mcp_output("x", "42")');
+    expect(code).toContain('_mcp_done');
   });
 
   it('workflow tool definition includes acceptance', async () => {

@@ -1,8 +1,9 @@
 /** doctor 命令 — 环境诊断 */
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { findGodot } from '../core/godot-finder.js';
 import { ALL_ADAPTERS } from './clients/index.js';
+import { readJsonForCheck } from './clients/json-config.js';
 
 function status(ok: boolean, msg: string): string {
   return ok ? `  ✓ ${msg}` : `  ✗ ${msg}`;
@@ -39,13 +40,9 @@ export async function runDoctor(_args: string[]): Promise<void> {
 
   // 2.5. 项目级 Godot 覆盖
   const mcpConfigPath = join(projectDir, '.godot', 'mcp-godot.json');
-  if (existsSync(mcpConfigPath)) {
-    try {
-      const config = JSON.parse(readFileSync(mcpConfigPath, 'utf-8')) as { godot_path?: string };
-      if (config.godot_path) {
-        console.log(status(existsSync(config.godot_path), `Project Godot override: ${config.godot_path}`));
-      }
-    } catch { /* ignore parse errors */ }
+  const config = readJsonForCheck(mcpConfigPath) as { godot_path?: string } | null;
+  if (config?.godot_path) {
+    console.log(status(existsSync(config.godot_path), `Project Godot override: ${config.godot_path}`));
   }
 
   // 3. AI 客户端

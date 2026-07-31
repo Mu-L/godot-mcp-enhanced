@@ -1,5 +1,5 @@
 // test/regression/defects-fixed.test.ts — M2 Task 4
-// FIXED_DEFECTS 94 条硬断言：detect() === 0（防复发）。
+// FIXED_DEFECTS 126 条硬断言：detect() === 0（防复发）。
 // 复发即红，失败消息指引按 spec §8 闭环（改 status=open + 加 baseline + 移组）。
 // 不调 _setProjectRootForTest：detect-helpers DEFAULT_ROOT 已修（C1），detect 默认读对项目根真文件。
 import { describe, it, expect } from 'vitest';
@@ -110,9 +110,46 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   edit-node-readonly-undo-null-set(C12) / ui-set-params-no-key-check-load-null(C13),
 //   合计 93。（C4 accurate bake_result deferred——架构阻塞 coroutine vs 同步 dispatch,见 nav-bake-in-undo-action 注释）
 //   +1(2026-07-24 批次 D): asset-android-tool-orphan(D1 asset/android TOOL_GROUPS 补组,消除 isToolAllowed 恒 false 游离),合计 94。
-    expect(FIXED_DEFECTS.length).toBe(97);
+//   +5(2026-07-24~28 批次 E/Bridge/scene-workflow traversal): D2 nodepath-traversal-category-error /
+//   批次 E animation-track-destructive-confirmation / Bridge take_screenshot-null-crash-swallow /
+//   2026-07-28 scene/workflow traversal detect×2,合计 99（见 defects.ts:2 顶部权威登记）。
+//   +1(2026-07-29 A-telemetry T1): telemetry-error-category-pii-leak(error_category 固定 'TOOL_ERROR' 枚举,
+//   不再 safeErrorCategory 派生泄漏 PII),合计 100。
+//   +1(2026-07-29 A-telemetry T2): telemetry-afterhook-no-optout-guard(after-hook 第一行加 isTelemetryEnabled
+//   前置守卫,堵 opt-out 下 hashProject 参数求值期创建 telemetry-uuid.txt),合计 101。
+//   +1(2026-07-29 A-RCE S1): addon-update-dest-symlink-bypass(updateAddon/readAddonVersion 补 safeRealPath(dest)
+//   +isPathInAllowedRoots 校验,堵 addons/ 子段符号链接越界读写),合计 102。
+//   +1(2026-07-29 A-RCE T2): bpy-no-dangerous-scan(execute_bpy 补 scanBpySandbox 静态扫描,
+//   对齐 execute_gdscript 纵深防御,堵 os/subprocess/eval/exec/__import__/ctypes/open),合计 103。
+//   +1(2026-07-29 A-RCE T3): profile-executeToolCall-isToolAllowed-enforce(isToolAllowed 从
+//   getFilteredTools 广告层补到 executeToolCall 主路径入口,堵被转发 MCP 客户端调过滤工具),合计 104。
+//   +1(2026-07-29 A-RCE T4): godotpath-allowed-paths-unimplemented(GODOT_MCP_ALLOWED_GODOT_PATHS
+//   env 白名单 isGodotPathAllowed 接入 validateGodotBinary/detectGodotVersion/findGodot 全出口,
+//   堵 AI 可控 godot_path 参数指向任意二进制被 spawn),合计 105。
+//   +1(2026-07-29 B-Reliability T3): editor-halfopen-no-precheck(EditorToolExecutor 构造器注入
+//   healthMonitor,_executeInner 入口 reconnecting 时即时返 NOT_CONNECTED,跳过 30s conn.request
+//   半开 HOL 等待,避免串行 executeChain ×30s 放大),合计 106。
+//   +1(2026-07-29 B-Reliability T4): gdscript-spawn-not-registered(gdscript-executor spawn
+//   后注册 _spawnedGodotPids,exit/error/三 forceKillTree 路径 unregister;GodotServer.close
+//   遍历活跃 PID 调 killPidTree best-effort 清理,堵挂起脚本 + close → 孤儿无兜底),合计 107。
+//   +1(2026-07-29 B-Reliability T5): heartbeat-blanket-catch-no-distinguish(pingFn catch 保留
+//   err.code + onStateChange 分流 REQUEST_TIMEOUT(降级)vs NOT_CONNECTED/CONNECTION_LOST(让
+//   EditorConnection 自动重连兜底,不 disconnect 抢占)+ addOnReconnectHandler 触发 hm.reset()
+//   即刻复位 connected;堵编辑器重启/瞬时不可达也强制降级须手动 reconnect),合计 108。
+//   +7(2026-07-29 C-Correctness detect 补全 T8: nav-freed-access-signal / nav-status-hardcoded /
+//   doctor-no-stripbom / readcache-no-byte-limit / addon-update-nonatomic / adapter-no-mode-preserve /
+//   adapter-env-field-overwrite;fixes 在 commits 35dd8b9..c04a6b0,detect 统一 T8 补),合计 117。
+//   +6(2026-07-29 D-P2 报告5 addons GDScript): custom-mesh-segments-no-upper-cap(F1 clampi 上限防编辑器主线程 OOM,Security) +
+//   nav-set-params-no-undo / ui-layout-anchor-no-undo / ui-theme-no-undo(F2 nav_set_params/ui-layout+anchor_preset/ui-theme 补 create_action_mixed undo×3) +
+//   animation-keyframe-index-no-bound(F3 ki 三分支 remove/update/curve 边界守卫) + websocket-outbound-no-buffer-limit(F4 ws_peer outbound 4MB 上限防慢消费者堆积 OOM);
+//   fixes 在 commits 4e1e979..0ba9021(D-P2 Task1-6),合计 123。
+//   +3(2026-07-30 D-ADV 报告5 ADVISORY): animtree-conditions-no-dict-guard(F5 conditions Dictionary 守卫防 SCRIPT ERROR) +
+//   undo-manager-dead-create-action(F6 删 create_action+create_action_with_props 死代码,YAGNI) +
+//   asset-placer-no-undo-mgr-null-guard(F9 place_one/place_batch undo_mgr null 守卫+callv fallback 对齐 node_commands);
+//   F7 stale(node_commands C11 孤儿扫描已闭环)/ F8 won't-fix(EditorPlugin 虚函数禁 super);fixes 在 commits d7c4485..132b1af(D-ADV Task1-3),合计 126。
+    expect(FIXED_DEFECTS.length).toBe(126);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(97);
+    expect(new Set(keys).size, '存在重名 key').toBe(126);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

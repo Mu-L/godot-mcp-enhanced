@@ -441,3 +441,53 @@ describe('A1 class_path 合法路径格式(I1 回归保护)', () => {
     expect(m![1]).not.toMatch(projDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   });
 });
+
+// ─── :97b executeGdscriptTrusted failure 变体（覆盖 data-import.ts:392-397 + timeout 冒泡）──
+// 现有 mock :16 固定 happy（compile_success:true, run_success:true），failure 分支零触发（假绿）。
+// per-it mockResolvedValueOnce/mockRejectedValueOnce 覆盖单次，不破坏 happy 默认。
+describe('csv_to_resources executeGdscriptTrusted failure 变体（:97b）', () => {
+  const makeValidArgs = (overrides: Record<string, unknown> = {}) => ({
+    action: 'csv_to_resources',
+    project_path: tmpdir(),
+    class_path: 'res://r.gd',
+    output_dir: 'out',
+    filename_column: 'id',
+    csv_content: 'id,name\n1,a\n',
+    ...overrides,
+  });
+  const makeCtx = (): ToolContext =>
+    ({ findGodot: async () => 'godot', projectDir: tmpdir() } as unknown as ToolContext);
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('compile_error → SCRIPT_EXEC_FAILED（data-import.ts:392-393 !compile_success 分支）', async () => {
+    vi.mocked(executeGdscriptTrusted).mockResolvedValueOnce({
+      success: false, compile_success: false, compile_error: 'GDScript parse error: unterminated string',
+      errors: [], run_success: false, run_error: '', outputs: [], raw_output: '', duration_ms: 0, autoload_detected: [],
+    });
+    const r = await handleTool('csv_to_resources', makeValidArgs(), makeCtx()) as unknown as
+      { content: { type: string; text: string }[]; isError?: boolean };
+    expect(r.isError).toBe(true);
+    const parsed = JSON.parse(r.content[0].text);
+    expect(parsed.error_code).toBe('SCRIPT_EXEC_FAILED');
+    expect(parsed.error).toContain('parse error');
+  });
+
+  it('run_error → SCRIPT_EXEC_FAILED（data-import.ts:395-396 !run_success 分支）', async () => {
+    vi.mocked(executeGdscriptTrusted).mockResolvedValueOnce({
+      success: false, compile_success: true, compile_error: '', errors: [],
+      run_success: false, run_error: 'runtime crash: null instance', outputs: [], raw_output: '', duration_ms: 0, autoload_detected: [],
+    });
+    const r = await handleTool('csv_to_resources', makeValidArgs(), makeCtx()) as unknown as
+      { content: { type: string; text: string }[]; isError?: boolean };
+    expect(r.isError).toBe(true);
+    const parsed = JSON.parse(r.content[0].text);
+    expect(parsed.error_code).toBe('SCRIPT_EXEC_FAILED');
+    expect(parsed.error).toContain('runtime crash');
+  });
+
+  it('timeout → rejects（executeGdscriptTrusted reject 干净冒泡，对齐 A1 :407 rejects.toThrow 先例）', async () => {
+    vi.mocked(executeGdscriptTrusted).mockRejectedValueOnce(new Error('Godot process timed out after 60s'));
+    await expect(handleTool('csv_to_resources', makeValidArgs(), makeCtx())).rejects.toThrow(/timed out/);
+  });
+});

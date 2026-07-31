@@ -38,7 +38,7 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
     clearRegistry();
     registerTools([{ name: 'nav', readonly: false, long_running: false }]);
     mockConn = makeMockConn();
-    executor = new EditorToolExecutor(mockConn as unknown as Parameters<typeof EditorToolExecutor>[0]);
+    executor = new EditorToolExecutor(mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0]);
   });
 
   afterEach(() => {
@@ -56,7 +56,11 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
     expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
     expect(mockConn.startOperation).toHaveBeenCalledWith(expect.any(Number));
     expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
-    expect(mockConn.request).toHaveBeenCalledWith('nav_bake_mesh', expect.objectContaining({ action: 'bake_mesh' }));
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_bake_mesh',
+      expect.objectContaining({ action: 'bake_mesh' }),
+      { timeoutMs: 110000 }
+    );
     expect(callOrder).toEqual(['startOperation', 'request', 'endOperation']);
   });
 
@@ -65,7 +69,11 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
 
     expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
     expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
-    expect(mockConn.request).toHaveBeenCalledWith('nav_create_region', expect.objectContaining({ bake: true }));
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: true }),
+      { timeoutMs: 110000 }
+    );
   });
 
   it('nav create_region with bake=false: does NOT call start/endOperation', async () => {
@@ -128,5 +136,114 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
 
     expect(mockConn.startOperation).not.toHaveBeenCalled();
     expect(mockConn.endOperation).not.toHaveBeenCalled();
+  });
+
+  // B-T1: nav bake 请求超时对齐
+  it('nav bake_mesh: request includes timeoutMs 110000 (110s)', async () => {
+    await executor.execute('nav', { action: 'bake_mesh', region_path: '/root/Nav' });
+
+    // 验证 request 调用第三参包含 timeoutMs: 110000
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_bake_mesh',
+      expect.objectContaining({ action: 'bake_mesh' }),
+      { timeoutMs: 110000 }
+    );
+  });
+
+  it('nav create_region with bake=true: request includes timeoutMs 110000', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: true });
+
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: true }),
+      { timeoutMs: 110000 }
+    );
+  });
+
+  it('nav create_region with bake=false: request does NOT include custom timeoutMs', async () => {
+    await executor.execute('nav', { action: 'create_region', bake: false });
+
+    // 非 bake 调用不传第三参（使用默认 30s）
+    expect(mockConn.request).toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.objectContaining({ bake: false })
+    );
+    expect(mockConn.request).not.toHaveBeenCalledWith(
+      'nav_create_region',
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
+    );
+  });
+
+  it('non-nav tool: request does NOT include custom timeoutMs', async () => {
+    registerTools([{ name: 'add_node', readonly: false, long_running: false }]);
+    await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    // 非 nav 工具不传第三参
+    expect(mockConn.request).toHaveBeenCalledWith('add_node', expect.anything());
+    expect(mockConn.request).not.toHaveBeenCalledWith(
+      'add_node',
+      expect.anything(),
+      expect.anything()
+    );
+  });
+});
+
+// B-T3: 半开 HOL 预检（_executeInner healthMonitor.getState）
+// TCP 半开时 conn.connected=true 但 editor 卡死，conn.request 挂满 30s；
+// 串行 executeChain ×30s HOL 放大。注入 healthMonitor，reconnecting 即时返 NOT_CONNECTED。
+describe('EditorToolExecutor HOL precheck (B-T3)', () => {
+  let mockConn: MockConn;
+
+  beforeEach(() => {
+    clearRegistry();
+    registerTools([{ name: 'add_node', readonly: false, long_running: false }]);
+    mockConn = makeMockConn();
+  });
+
+  afterEach(() => {
+    clearRegistry();
+  });
+
+  it('reconnecting state returns NOT_CONNECTED immediately, skips conn.request (no 30s HOL wait)', async () => {
+    const hm = { getState: () => 'reconnecting' } as any;
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      hm,
+    );
+    // 若预检生效，conn.request 不应被调用；这里用 spy 兜底：一旦调用立即 fail
+    mockConn.request.mockImplementation(async () => { throw new Error('should not reach — HOL precheck must short-circuit'); });
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeTruthy();
+    expect(JSON.stringify(r)).toMatch(/NOT_CONNECTED|reconnecting/i);
+    // 反向断言：conn.request 未被调用（跳过 30s 等待）
+    expect(mockConn.request).not.toHaveBeenCalled();
+  });
+
+  it('connected state dispatches normally (no false reject)', async () => {
+    const hm = { getState: () => 'connected' } as any;
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      hm,
+    );
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeFalsy();
+    expect(mockConn.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('undefined healthMonitor (backward compat) dispatches normally', async () => {
+    // 不注入 hm 的既有调用点（如测试 fixture）必须保持向后兼容
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+    );
+
+    const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
+
+    expect(r.isError).toBeFalsy();
+    expect(mockConn.request).toHaveBeenCalledTimes(1);
   });
 });

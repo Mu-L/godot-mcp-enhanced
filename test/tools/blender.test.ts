@@ -43,6 +43,26 @@ describe('execute_bpy path validation', () => {
     expect(JSON.stringify(r)).toContain('EXPORT_PATH_TRAVERSAL');
   });
 
+  it('blocks dangerous code via sandbox (SANDBOX_BLOCKED, 不触发 spawn)', async () => {
+    // Important-1 (review): handler 反向断言。危险 code 在 writeFileSync 前被 scanBpySandbox 拦截。
+    // 注意接线顺序：scan 在 findBlender 之后（接线 concern 见 task-2-report fix 节），故需 mock findBlender 通过。
+    // test/setup.js 全局设 GODOT_MCP_UNRESTRICTED=true（bypass scanBpySandbox），需在此 it 内清空。
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+    vi.stubEnv('GODOT_MCP_DISABLE_SAFETY', '');
+    const { findBlender } = await import('../../src/core/blender-finder.js');
+    const { runBlenderHeadless } = await import('../../src/core/blender-spawn.js');
+    vi.mocked(findBlender).mockResolvedValue('/fake/blender');
+    const r = await handleTool('blender',
+      { project_path: tmpProj, action: 'execute_bpy', export_path: 'a.glb',
+        code: 'import os\nos.system("echo hi")' },
+      {} as any);
+    expect(r).toBeTruthy();
+    expect((r as any).isError).toBeTruthy();
+    expect(JSON.stringify(r)).toMatch(/SANDBOX_BLOCKED/);
+    // 反向断言：未触发 spawn（scan 在 writeFileSync 前 return）
+    expect(vi.mocked(runBlenderHeadless)).not.toHaveBeenCalled();
+  });
+
   it('accepts bare relative path without res:// prefix (normalizeUserProjectPath no-prefix branch)', async () => {
     const { findBlender } = await import('../../src/core/blender-finder.js');
     const { runBlenderHeadless } = await import('../../src/core/blender-spawn.js');

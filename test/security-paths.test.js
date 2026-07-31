@@ -1,9 +1,10 @@
 import { expect } from 'vitest';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolveWithinRoot } from '../src/helpers.js';
-import { isPathInAllowedRoots, _resetPathAllowWarned } from '../src/core/path-utils.js';
+import { isPathInAllowedRoots } from '../src/core/path-utils.js';
+import { isolatePathEnv } from './helpers/path-isolation.js';
 import { sanitizeResPath, gdEscape } from '../src/tools/shared.js';
 
 // ─── sanitizeResPath ──────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ describe('resolveWithinRoot iterative decoding', () => {
     // Just verifying no throw for a legit encoded path
     // The actual resolved path may not exist, but traversal check should pass
     const result = resolveWithinRoot(root, 'my%20file.txt');
-    expect(result.includes('my file.txt')).toBeTruthy();
+    expect(result).toContain('my file.txt');
   });
 
   it('does NOT reject filenames containing ".." (F-4: segment-level match, not substring)', () => {
@@ -151,24 +152,16 @@ describe('gdEscape edge cases', () => {
 
 describe('isPathInAllowedRoots — C-SEC-1 path traversal', () => {
   // setup.js 默认 GODOT_MCP_UNRESTRICTED=true 方便多数测试;C-SEC-1 须在 allowlist 模式下验证
-  let savedAllowed;
-  let savedUnrestricted;
+  let restore = () => {};
   let tmpRoots = [];
 
   beforeEach(() => {
-    savedAllowed = process.env.ALLOWED_PROJECT_PATHS;
-    savedUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
-    _resetPathAllowWarned();
+    restore = isolatePathEnv();   // 清 UNRESTRICTED + reset（ALLOWED 由各 it 内 makeRoot 后手动设）
     tmpRoots = [];
   });
 
   afterEach(() => {
-    if (savedAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
-    else process.env.ALLOWED_PROJECT_PATHS = savedAllowed;
-    if (savedUnrestricted === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
-    else process.env.GODOT_MCP_UNRESTRICTED = savedUnrestricted;
-    _resetPathAllowWarned();
+    restore();
     for (const r of tmpRoots) {
       try { rmSync(r, { recursive: true, force: true }); } catch { /* best effort */ }
     }
@@ -216,24 +209,16 @@ describe('isPathInAllowedRoots — C-1 junction/symlink bypass', () => {
   // 修复前:isPathInAllowedRoots 只 normalize,reparse 不解析 → startsWith(root) 放行;
   //   下游 resolveWithinRoot 把 base realpath 成 reparse 目标 → 读写 allowlist 外任意文件。
   // 修复后:requestedPath 与 allowlist 条目都 realpath → reparse 解析到外部 → 不匹配 → 拒绝。
-  let savedAllowed;
-  let savedUnrestricted;
+  let restore = () => {};
   let tmpRoots = [];
 
   beforeEach(() => {
-    savedAllowed = process.env.ALLOWED_PROJECT_PATHS;
-    savedUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
-    _resetPathAllowWarned();
+    restore = isolatePathEnv();
     tmpRoots = [];
   });
 
   afterEach(() => {
-    if (savedAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
-    else process.env.ALLOWED_PROJECT_PATHS = savedAllowed;
-    if (savedUnrestricted === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
-    else process.env.GODOT_MCP_UNRESTRICTED = savedUnrestricted;
-    _resetPathAllowWarned();
+    restore();
     for (const r of tmpRoots) {
       try { rmSync(r, { recursive: true, force: true }); } catch { /* best effort */ }
     }

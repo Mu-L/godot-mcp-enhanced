@@ -6,27 +6,6 @@ func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
 
 
-func create_action(request_id: int, do_methods: Array, undo_methods: Array) -> void:
-	var undo_redo = _plugin.get_undo_redo()
-	undo_redo.create_action("MCP: op_%d" % request_id)
-	for m in do_methods:
-		_add_method_call(undo_redo, "do", m)
-	for m in undo_methods:
-		_add_method_call(undo_redo, "undo", m)
-	undo_redo.commit_action()
-
-
-## 创建带 property 操作的 undo action
-func create_action_with_props(request_id: int, do_props: Array, undo_props: Array) -> void:
-	var undo_redo = _plugin.get_undo_redo()
-	undo_redo.create_action("MCP: op_%d" % request_id)
-	for p in do_props:
-		undo_redo.add_do_property(p.target, p.property, p.value)
-	for p in undo_props:
-		undo_redo.add_undo_property(p.target, p.property, p.value)
-	undo_redo.commit_action()
-
-
 ## 创建混合 action（methods + properties + references）
 ## do_ops/undo_ops 中每个元素是 Dictionary，格式:
 ## {"type": "method", "target": Object, "method": String, "args": Array}

@@ -59,8 +59,8 @@ describe('script-tools edit_script schema', () => {
   it('has indent_mode with raw and smart options', () => {
     const im = props.indent_mode;
     expect(im).toBeTruthy();
-    expect(im.enum.includes('raw')).toBeTruthy();
-    expect(im.enum.includes('smart')).toBeTruthy();
+    expect(im.enum).toContain('raw');
+    expect(im.enum).toContain('smart');
   });
 });
 

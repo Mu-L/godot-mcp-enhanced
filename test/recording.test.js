@@ -123,19 +123,19 @@ describe('generateRecordingFileName', () => {
 describe('genRecordingSaveScript', () => {
   it('generates GDScript that writes to res://recordings/', () => {
     const script = genRecordingSaveScript('recording_test.json', '{"version":1,"events":[]}');
-    expect(script.includes('res://recordings/recording_test.json')).toBeTruthy();
-    expect(script.includes('FileAccess.WRITE')).toBeTruthy();
-    expect(script.includes('_mcp_output("saved"')).toBeTruthy();
+    expect(script).toContain('res://recordings/recording_test.json');
+    expect(script).toContain('FileAccess.WRITE');
+    expect(script).toContain('_mcp_output("saved"');
   });
 
   it('creates recordings directory if missing', () => {
     const script = genRecordingSaveScript('recording_test.json', '{}');
-    expect(script.includes('make_dir("recordings")')).toBeTruthy();
+    expect(script).toContain('make_dir("recordings")');
   });
 
   it('escapes JSON content for GDScript string', () => {
     const script = genRecordingSaveScript('recording_test.json', '{"key": "val\\ue"}');
-    expect(script.includes('store_string')).toBeTruthy();
+    expect(script).toContain('store_string');
   });
 });
 
@@ -144,14 +144,14 @@ describe('genRecordingSaveScript', () => {
 describe('genRecordingLoadScript', () => {
   it('generates GDScript that reads from res://recordings/', () => {
     const script = genRecordingLoadScript('recording_test.json');
-    expect(script.includes('res://recordings/recording_test.json')).toBeTruthy();
-    expect(script.includes('FileAccess.READ')).toBeTruthy();
-    expect(script.includes('_mcp_output("recording"')).toBeTruthy();
+    expect(script).toContain('res://recordings/recording_test.json');
+    expect(script).toContain('FileAccess.READ');
+    expect(script).toContain('_mcp_output("recording"');
   });
 
   it('handles file not found', () => {
     const script = genRecordingLoadScript('recording_missing.json');
-    expect(script.includes('File not found')).toBeTruthy();
+    expect(script).toContain('File not found');
   });
 });
 

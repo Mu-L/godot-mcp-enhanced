@@ -4,7 +4,7 @@
 > 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:33 个 MCP 工具(merged,每个含多 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
+工具层:35 个 MCP 工具(merged,共 203 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **33** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **35** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
@@ -44,10 +44,11 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 适合对可信边界有要求的开发场景:
 
 - **路径访问控制** — `ALLOWED_PROJECT_PATHS` 白名单(deny-by-default),防 junction / 符号链接绕过
+- **Godot 二进制白名单** — `GODOT_MCP_ALLOWED_GODOT_PATHS`（分号分隔,realpath 归一）在 `godot --version` 签名校验之上加硬隔离,防 AI 可控的 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行)。空 env = back-compat 放行(本地信任场景,签名校验仍兜底);多用户/不可信环境显式列可信路径
 - **GDScript 注入防御** — 危险 API 模式扫描 + 字符串拼接绕过检测
 - **危险操作确认令牌** — 删节点等操作需显式确认
 - **输出标记防伪造** — 每次执行随机标记,防 GDScript 伪造 MCP 输出
-- **本地运行** — 无远程暴露,无第三方数据上传
+- **本地运行** — 无远程暴露,无第三方数据上传(注:启动时 update-checker 会查 npm registry,详见下方「匿名遥测」段)
 
 <details>
 <summary><b>⚠️ 诚实的边界(展开必读)</b></summary>
@@ -60,6 +61,19 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 - 本工具**仅限本地可信环境**,不提供远程认证或加密
 
 </details>
+
+## 匿名遥测（默认关闭）
+
+**opt-in,默认零外传**。仅当显式设 `GODOT_MCP_TELEMETRY=true` 时启用,且阶段 0 endpoint 默认空 = **不发任何数据出进程**。
+
+- **收集什么**:tool 名 + success bool + duration_ms + 错误分类(经白名单脱敏,非原始文本)+ 加盐 sha256 项目 hash(不可逆推原路径)
+- **绝不收集**:源码 / 场景内容 / 文件路径 / 项目名 / editor 日志 / 邮箱 IP 账号
+- **install UUID 存哪**:`~/.godot-mcp/telemetry-uuid.txt`(POSIX 0o600)
+- **CI 强制关闭**:`CI=true` 时即使 opt-in 也忽略,防 CI 触发合成事件
+
+> **⚠️ 诚实披露 update-checker 外传点**:本仓库每次 MCP server 启动时,`src/core/update-checker.ts:13,86` 会**被动 fetch** `https://registry.npmjs.org/godot-mcp-enhanced/latest`(24h 缓存)。此行为与遥测无关但涉及「数据离开本机」,且**当前无 env 门控**(已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认)。这与「默认零外传」是冲突的硬伤——补 env 门控属未来 PR 范围。workaround:预置 `~/.godot-mcp/update-cache.json` 或防火墙阻断。详见 [`docs/telemetry.md`](docs/telemetry.md#-诚实披露既有的非遥测外传点)。
+>
+> **代理环境变量**:update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 trustEnv）。企业代理环境下请求经代理；完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
 
 ## Blender 建模（execute_bpy）安全模型
 
@@ -123,7 +137,9 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 ## 工具一览
 
-> 共 28 个 MCP 工具(merged tool definition),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+> 共 35 个 MCP 工具(merged tool definition,共 203 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+>
+> **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:35**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:203**(matrix 的 risk 聚合 read 100+write 80+destructive 10+process 13)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
 
 ### 执行工具
 
@@ -479,7 +495,7 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
-> ✅ 协议层实测通过（29 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+> ✅ 协议层实测通过（35 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
 
 #### ZCode（智谱 GLM-5.2 ADE）
 [ZCode](https://zcode.z.ai/) 原生支持 MCP。**设置 → MCP 服务器 → 新建**（stdio，`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`），或写入 `<项目根>/.zcode/config.json` / `.agents/mcp.json`。**关键**：ZCode 不读 `CLAUDE.md`，只读 workspace 根 `AGENTS.md`——运行 `setup_project_rules`（默认双写）生成 `AGENTS.md` 让 godot 规则生效。
@@ -512,7 +528,9 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_PATH` | Godot 可执行文件路径 | 自动搜索（PATH/注册表/Scoop/Downloads） |
 | `GODOT_PROJECT_PATH` | 默认项目路径 | 自动检测 cwd（向上搜索 project.godot） |
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
+| `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
 | `DEBUG` | 启用详细日志 | `false` |
+| `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
 
 > **注意：** 项目路径有 30 秒缓存。切换项目后等待 30 秒或重启 MCP server 使新路径生效。
 
@@ -615,6 +633,8 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.25.1** | 2026-07-31 | **竞品对比批①-④ 落地**（审查 SHIPPED WITH NITS）：工具数口径修正（21 处漂移 28/29/33/130+→35/203，含 rule-templates 独立副本同步防下游污染）+ `check-tool-count.mjs` CI 校验脚本根治漂移 + 进程生命周期 P0 周期 orphan 扫描/P1 启动清理（STARTUP_CLEANUP opt-in）+ command_helpers 纯函数行为测试（L2 none→partial）+ nav N1-fix（bake_mesh 末行 freed 守卫）。4293 测试 + verify_delivery 3/3 通过。 |
+| **v0.25.0** | 2026-07-30 | **A-RCE 安全批次**（headless instantiate_class 白名单堵 `extends Node` RCE + self_update 符号链接校验 + execute_bpy 危险 API 扫描 + profile 硬隔离 + godot_path 白名单）+ **B 可靠性**（nav bake 超时对齐/gdscript spawn orphan 清理/心跳降级区分 timeout-refused/HOL 预检/全系统扫跳过 --editor）+ **C 正确性**（adapter env 白名单合并/nav freed 守卫/doctor stripBom/update-cache 字节上限/updateAddon 原子化）+ **Telemetry 骨架**（opt-in 默认关，零外传）+ **Nav bake 准确性**（async-dispatch，bake_result 从乐观改 get_vertices 判据）+ **测试质量**（e2e 清理 .godot 缓存防假绿 + 弱断言精确化 576 条）。 |
 | **v0.24.1** | 2026-07-27 | **文档同步修复**：`rule-templates.ts` 补齐 get_node_layout 同步（独立副本约束 drift，第三方审查发现）+ **AGENTS.md 三段强制流程**（`.claude/rules/` 改后核查 / plan 落地后必出第三方审查文档 / 完成前必登 memory）+ 新增 `docs/reviews/` 目录补 5 条 7 月断档链路审查文档 |
 | **v0.24.0** | 2026-07-25 | **self-update 机制**(Godot AI 追赶 3/3：npm 启动检查 + self_update MCP 工具 addon 检查/更新)+ **5 批审查全闭环**(A 安全 RCE class_path/路径穿越/symlink + B 可靠性降级链路/资源写原子化17处 + C 正确性协议契约/undo/参数校验 + D 工具治理 asset/android TOOL_GROUPS + E 测试缺口加固10/10)+ **batch F 测试覆盖深度**(6 task 假绿修复/纯函数单测/安全动态断言/防回归契约/skip 可见化)+ **CI Godot 4.6.3/4.7.1 版本矩阵** + ZCode 深度支持/AGENTS.md + orphan 扫描会话隔离 + editor key 多实例误删修复 + take_screenshot null guard，4030 测试 |
 | **v0.23.0** | 2026-07-13 | 安全 CRITICAL(零确认 RCE 复合链 `6406de4` + `confirm_and_execute` elicitation out-of-band gate 堵 AI 自确认 token `18ef867` + `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` opt-in 降级)+ editor 路由解锁(editor-method-map 登记 animation_track/export/particles/nav/animtree/ui 21 action `356a061` + scene/node/open_scene/reconnecting)+ bug 修复(path_generator 死循环/scene vector3 coerce/asset color+count/data-import A1-A3)+ HealthMonitor editor stall 检测 `85f5328` + 删 ReconnectionManager 死代码 410 行 `f2773fb` |

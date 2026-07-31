@@ -1,18 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 // Mock executor
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(async () => ({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
+  executeGdscript: vi.fn(async () => mockSuccessResult({
     outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'Node exists: root/Player' }) }],
-    raw_output: '', duration_ms: 100,
   })),
-  executeGdscriptTrusted: vi.fn(async () => ({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
+  executeGdscriptTrusted: vi.fn(async () => mockSuccessResult({
     outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'Node exists: root/Player' }) }],
-    raw_output: '', duration_ms: 100,
   })),
 }));
 
@@ -81,6 +76,34 @@ describe('test-framework tools', () => {
     const text = result.content[0].text;
     expect(text).toBeTruthy();
     expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('property_equals wraps expected as a string literal, not a bare identifier (security P2)', async () => {
+    // :146 `str(${gdEscape(expected)})` 语句位置无引号 → expected="Player" 生成 str(Player)
+    // (GDScript 当标识符，功能 bug + 弱注入面)。修复后应 str("Player")。
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+
+    await handleTool('test', {
+      project_path: '/tmp/test-project',
+      action: 'assert',
+      assertion_type: 'property_equals',
+      path: 'root/Player',
+      property: 'name',
+      expected: 'Player',
+    }, mockCtx);
+
+    expect(capturedCode).toContain('var _expected = str("Player")');
+    expect(capturedCode).not.toContain('var _expected = str(Player)');
   });
 
   it('handleTool for test assert with invalid assertion_type', async () => {

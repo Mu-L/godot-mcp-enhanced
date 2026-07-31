@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-07-31
+
+### Fixed — 竞品对比批①-④ 落地（feat/competitor-followups，审查 SHIPPED WITH NITS）
+
+- **docs(tool-count): 工具数口径修正**（批①，`e650053`）：核实发现 21 处文档漂移（28/29/33/130+ 五种过时数字），统一为权威值 35 工具 / 203 action（capability-matrix CI 锁定）。最高优先：`src/tools/rule-templates.ts:24` 与 `.claude/rules/godot-mcp-core.md:10` 独立副本重新同步（防 `setup_project_rules` 下游污染）；`docs/distribution/server.json` 防 MCP Registry 错误扩散。version bump 0.25.0→0.25.1（独立副本同步约束）。
+- **chore(tool-count): CI 校验脚本根治漂移**（批②，`05ef998`）：新增 `scripts/check-tool-count.mjs`（仿 check-token-budget.mjs，readFileSync 不走 git / 导出纯函数 / 退出码 0-1），从 capability-matrix.json 动态读权威值校验各文档手写数字，支持 negate（反向断言「不应残留 130+」）和双捕获组（rule-templates/core.md 工具数+action 数）。补 `check-rules-version-bump` 只校验版本不校验内容的盲区。+ 6 个单测 + ci.yml 接入。
+- **feat(process): P0 周期 orphan 扫描 + P1 启动清理**（批③，`e46ead6`）：`GodotServer.run()` 挂 60s setInterval 周期调 `killOrphanGodotProcesses`（60s 规避内部 30s 节流，unref 不阻塞退出，close() clearInterval 防竞争，第一层只扫本会话 `_spawnedGodotPids` 不误杀用户 Godot）；新增 `STARTUP_CLEANUP` feature flag（默认关 opt-in）启动时清理上一会话残留，不 await 避免拖慢启动。godot-ai 的 detached+lease+reaper 不适用 enhanced（stdio 单 client）不照搬。
+- **test(gdscript): command_helpers 纯函数行为测试**（批④，`1d2e56a`）：补强 GDScript 侧零行为覆盖（capability-matrix L2 从 none 35 → partial 1）。用 executeGdscript 在 headless `--script` 模式覆盖 `values_equal`（同类型/Array↔Vector3 分量比/int↔float/bool↔int fallback）/`parse_vec3`/`has_path_traversal`。复用 e2e-p1-p5 的 skipIf 无 GODOT_PATH 模式防 CI 假绿。CI godot-matrix job 双版本（4.6.3/4.7.1）跑。
+- **fix(nav): N1 补全 bake_mesh_async 末行 freed 守卫**（`b1b9f51`，两天批次审查发现）：`nav_commands.gd:196→198` 末行属性访问缺 `is_instance_valid` 守卫，deadline 耗尽退出后 nav 可能被并发 peer 删除（MAX_PEERS=5），访问 freed 对象 → GDScript SCRIPT ERROR。对齐同文件 :144（create_region_async 末行）。配套两天批次审查报告 `docs/reviews/2026-07-31-two-day-batch-review.md`（130 commits，SHIPPED）。
+- **docs(review): 批①-④ 第三方审查报告**（`12b4344`）：`docs/reviews/2026-07-31-competitor-followups-batch1-4.md`，SHIPPED WITH NITS，无 Blocking。
+
+## [0.25.0] - 2026-07-30
+
+### Security — A-RCE 批次（headless RCE + 沙箱硬化）
+
+- **P1 headless instantiate_class 合并白名单**：`src/scripts/godot_operations.gd` 移除 `is_parent_class("Node")` 兜底（Node 是 Node 的父类 → `extends Node` 恶意脚本绕过 → `_ready` RCE，不经 execute_gdscript 沙箱），改 `ALLOWED_HEADLESS_TYPES`（NODE_TYPES ∪ CONTROL_TYPES ∪ Control − Node）双分支∈检查，对齐 editor `node_commands.gd` 纯白名单。**BREAKING**：`create_scene(root_node_type="Node")` / `add_node(node_type="Node")` 被拒（罕见，用 Node2D/Node3D/Control 或 execute_gdscript）。
+- **P1 self_update dest 符号链接校验**：`src/core/addon-version.ts` updateAddon/readAddonVersion 补 `safeRealPath(dest)+isPathInAllowedRoots`，堵 `addons/` 子段符号链接 cpSync/readFileSync 跟随写出/读出 allowlist 外（monorepo 共享 addon 常见）。
+- **P2 execute_bpy 危险 API 扫描**：新增 `src/core/bpy-sandbox.ts` `scanBpySandbox`（os/subprocess/eval/exec/__import__/ctypes，negative lookbehind 避免误报 `bpy.ops.image.open()`），对齐 execute_gdscript `scanGdscriptSandbox` 纵深防御；warnings 非空 BLOCK（除非 `GODOT_MCP_DISABLE_SAFETY=true`）。
+- **P2 profile 硬隔离**：`src/core/ToolDispatcher.ts` `executeToolCall` 入口加 `isToolAllowed` 强制检查（原仅 getFilteredTools 广告层），堵被转发 MCP 客户端调用 TOOL_GROUPS/slim 过滤工具。
+- **ADVISORY godot_path 白名单**：实现 `GODOT_MCP_ALLOWED_GODOT_PATHS` env（分号分隔，realpath 归一），接入 validateGodotBinary/detectGodotVersion/findGodot 全出口，签名校验之上的硬隔离。
+- **detect 假绿修正**：`rce-script-branch-no-node-check` 不再把 is_parent_class 当充分守卫（+反向 Node 不在白名单）；`set-prop-no-type-whitelist` 扩扫 headless。
+- **Docs**：update-checker 披露 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 遵守（刻意不设 `trustEnv=false`，避免断企业代理用户）。
+
+### Fixed — Reliability (B 批次)
+
+- **P1 nav bake 请求超时对齐**：`EditorToolExecutor` nav bake `conn.request` 传 `{timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC*1000}`（原默认 30s），消除 >30s 烘焙误报 `editor_disconnected/do_not_retry`（GD 实际烘成但客户端禁重试）。
+- **P1 headless gdscript spawn orphan 清理**：`gdscript-executor` spawn 注册 `_spawnedGodotPids`（exit/error/timeout 三路径 unregister）；`GodotServer.close` 遍历活跃 spawn `killPidTree` best-effort 清理 in-flight（原只 kill run_project 长进程，挂起脚本+关闭→孤儿无兜底）。
+- **P1 心跳降级区分 timeout/refused**：pingFn catch 保留 err.code；`REQUEST_TIMEOUT`（TCP OPEN 主线程卡死）→ `handleEditorStall` 降级；`NOT_CONNECTED/CONNECTION_LOST`（下线/重启）→ 不 `disconnect` 抢占，让 EditorConnection 20 次退避自动重连兜底。重连成功 `hm.reset()` 复位 connected；重连耗尽 `reconnectExhausted` 兜底降级。
+- **P2 半开 HOL 预检**：`EditorToolExecutor._executeInner` 入口查 `healthMonitor.getState()`，reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
+- **P2 全系统扫跳过 --editor**：`fullSystemScanGodot` Windows PowerShell + POSIX sh 过滤加 `--editor` 排除，opt-in 开启时不误杀同项目编辑器。
+- 5 条 defects detect 补全（nav-bake/HOL/spawn/heartbeat/fullsystem-scan；#1/#2/#4 原零 detect）。
+
+### Fixed — Correctness (C 批次)
+
+- **P1 adapter env 白名单合并**：14 adapter（含 codex TOML / opencode environment）env 写入抽 `buildEnv(godotPath, oldEnv?)` 共享 helper，reconfigure 时白名单保留 `ALLOWED_PROJECT_PATHS` / `GODOT_MCP_BRIDGE_*` / `GODOT_MCP_EDITOR_*`（原覆盖致用户配置重跑 setup 静默丢失；复发 cli-configure-env-field-overwrite）。
+- **P2 nav freed 对象访问**：`nav_commands.gd` 两处 freed 分支删 `nav.bake_finished` 访问，直接 return（对齐 headless navigation.ts:45；freed 对象属性访问致 -32003 丢失）。
+- **P2 nav status 动态**：bake status 按 success/`_bake_state["done"]` 派生（bake_completed/bake_failed/bake_timeout），非硬编码（原 success:false 与 status:bake_completed 矛盾）。
+- **P2 doctor stripBom**：`doctor.ts` 改用 `readJsonForCheck`（含 stripBom），带 BOM 的 mcp-godot.json 不再静默吞错。
+- **P2 readCache 字节上限**：`update-checker.ts` readCache 加 `statSync` 64KB + `latest.length<=64`（防大文件/恶意文件启动期 OOM）。
+- **P2 updateAddon 原子化**：`addon-version.ts` 裸 cpSync 改 staging+校验+备份+平台 rename（POSIX rename 原子 / Windows rm+rename+dest.bak 备份回滚），中断不留破损 addon。
+- **P2 adapter 文件权限保持**：13 adapter 原子写抽 `writeFileAtomicWithMode`（statSync 旧 mode + writeFileSync{mode}），Unix 保持 0o600 / Windows no-op。
+- 7 条 defects detect 补全。
+
+### Added — Telemetry Skeleton (Stage 0, zero egress)
+
+- **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
+- **诚实披露 update-checker 外传点**：`docs/telemetry.md` + `README.md` + `README.en.md` 明确标注——每次 MCP server 启动时 `src/core/update-checker.ts:13,86` 被动 fetch npm registry（24h 缓存），**当前无 env 门控**（已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认），与「默认零外传」冲突。补门控属未来 PR。
+
 ### Fixed — Nav Bake Accuracy (C4 async-dispatch)
 
 - **MCP 调用路径 nav bake_result 准确**：`nav_create_region(bake=true)` / `nav_bake_mesh` 的 bake_result 从乐观 `navigation_mesh != null` 改为 bake 真正完成后 `get_vertices().size() > 0` 判据。
@@ -15,6 +63,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - headless 侧：`navigation.ts` 同款 fallback + `get_vertices().size()`（`extends SceneTree` 无 `get_tree()`，用 `await process_frame`）。
 - **已知局限**：redo 路径 bake 仍乐观（editor undo 系统 `commit_action` 同步执行 do_ops，MCP 层插不进 await）。workaround：redo 后调 `nav_bake_mesh` 走 MCP 路径得准确 bake。
 - 详见 `D:\GitHub\godot-mcp-enhanced\docs\superpowers\specs\2026-07-28-c4-nav-async-dispatch-design.md` + plan。
+
+### Fixed — Test Quality
+
+- **e2e beforeAll 清理 `.godot` 缓存**：`test/e2e-p1-p5.test.ts` 的 `beforeAll` 加 `rmSync(test/e2e-scene/.godot, recursive)`，本地运行以 CI fresh-checkout 干净状态起步，防过期导入缓存致 P3-import 的 `.godot/imported` 存在断言命中残留目录而假绿（:101，报告4 P2-10）。
+- **弱断言精确化**：机械转 576 条 `includes().toBeTruthy()` → `toContain`（括号感知 codemod，贪婪切分 + receiver 白名单守卫，排除复合 `||` / 函数调用 / negation）+ 鉴权维度 5 条语义强化（inputSchema 形状 / suggestion 类型，delete-red）。gate 弱计数 1349 → 768，上限 1400 → 810（:99，报告4 P2-7）。
 
 ## [0.24.1] - 2026-07-27
 

@@ -34,6 +34,7 @@ import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
 import { getLogger } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
+import { record as recordTelemetry, hashProject, isTelemetryEnabled } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
 import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
 
@@ -223,6 +224,15 @@ export class ToolDispatcher {
   }
 
   private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter): Promise<ToolResult> {
+    // ── Task 3 (A-RCE #3): profile 硬隔离入口强制 ──
+    // isToolAllowed 原只在 getFilteredTools 广告层(:183),被转发 MCP 客户端(拿完整
+    // tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/slim 过滤的工具。此处对称补强:
+    // 主路径也强制。非 RCE(ReadOnlyGuard 兜底),是隔离弱。默认 activeGroups 全激活,
+    // 对所有已知顶层工具名返 true,零误拒;manage_tools deactivate 收窄后才生效。
+    if (!isToolAllowed(name)) {
+      log('executeToolCall: tool %s not in active groups (profile enforcement)', name);
+      return opsErrorResult('TOOL_NOT_ALLOWED', `Tool "${name}" is not available in the active tool groups (TOOL_GROUPS/slim profile).`);
+    }
     // Snapshot current mode + executor for consistent routing throughout this call
     const currentMode = this.connectionMode;
     const currentExecutor = this.editorExecutor;
@@ -449,6 +459,35 @@ export class ToolDispatcher {
           this.healthMonitor.recordSuccess(duration);
           recorder.record(ctx.toolName, true, duration);
         }
+        return result;
+      },
+    });
+
+    // Telemetry after-hook（opt-in，与 healthSample 并列；review B-1 正确包装点）。
+    // endpoint 空（默认）时 record 内部立即 return，零开销。
+    mw.push({
+      name: 'telemetry',
+      before: async () => ({ passed: true }),
+      after: async (ctx, result) => {
+        // T2: opt-out 前置守卫——必须在 recordTelemetry 参数求值前早 return。
+        // 否则 hashProject(ctx.args.project_path) 在 record() 入口前先跑 → getInstallUUID
+        // （config.ts:28 首次 mint 创建 ~/.godot/mcp/telemetry-uuid.txt），违反 docs/telemetry.md
+        // 「零副作用」承诺。守卫在 callee 内部无效（参数已求值），须在调用方 before-arg-eval。
+        // 根因 [[feature-gate-inside-callee-defeated-by-arg-eval]]。
+        if (!isTelemetryEnabled()) return result;
+        // 与 healthSample 判定对齐：{success:false} JSON 无 isError 时也算失败，
+        // 否则 telemetry success 虚高、与 recorder/health 口径不一致。
+        const isError = result.isError === true || this.checkJsonSuccessFalse(result);
+        recordTelemetry({
+          tool: ctx.toolName,
+          success: !isError,
+          duration_ms: Date.now() - ctx.startTime,
+          // T1: 固定枚举 'TOOL_ERROR'。原 safeErrorCategory(extractErrorMessage(result)) 会把
+          // 原始错误文本（含路径/项目名 PII）仅替标点后塞进 error_category，Stage 1 接 endpoint
+          // 即外传 PII。result 无结构化 code，按错误文本推断 category 主观且 YAGNI，故固定枚举。
+          error_category: isError ? 'TOOL_ERROR' : undefined,
+          project_hash: typeof ctx.args.project_path === 'string' ? hashProject(ctx.args.project_path) : undefined,
+        });
         return result;
       },
     });

@@ -46,6 +46,11 @@ let _snap3d: string;
 let _snap2d: string;
 
 beforeAll(() => {
+  // :101（报告4 P2-10）: 清理上次运行的 .godot 缓存（imported/uid_cache/editor 状态），
+  // 让本地运行以 CI fresh-checkout 的干净状态起步，防过期导入缓存致假通过。
+  // 无此清理时 P3-import 的 `.godot/imported` 存在断言会命中残留目录而假绿。
+  // .godot/ 已 gitignore（行 36），CI fresh checkout 本就无此目录——清理纯为本地一致性。
+  rmSync(resolve(E2E_DIR, '.godot'), { recursive: true, force: true });
   _snap3d = readFileSync(SCENE_3D, "utf-8");
   _snap2d = readFileSync(SCENE_2D, "utf-8");
 });

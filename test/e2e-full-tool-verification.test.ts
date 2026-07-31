@@ -106,7 +106,13 @@ function expectSuccess(r: { text: string; isError: boolean }, substr?: string) {
   expect(r.isError).toBe(false);
   if (substr) expect(r.text).toContain(substr);
 }
+// error path 断言(P1-10):明确 isError:true + 锁预期 error 关键词(非任意文本)
+function expectErrorContains(r: { text: string; isError: boolean }, substr: string) {
+  expect(r.isError).toBe(true);
+  expect(r.text).toContain(substr);
+}
 // 容错断言:允许 error,但必须返回结构化文本(not-found / 空列表也算通过)
+// 仅用于无法预判 success/error 的纯结构验证(L1/bridge 段);正路径用 expectSuccess,已知 error path 用 expectErrorContains
 function expectHasText(r: { text: string; isError: boolean }) {
   expect(r.text).toBeDefined();
   expect(r.text.length).toBeGreaterThan(0);
@@ -445,19 +451,22 @@ describe('E2E: docs / manage_tools / instances', () => {
 // 9. Godot-dependent tools — I-04: 强化断言验证实际工作
 // ═══════════════════════════════════════════════════════════════════════════════
 describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeout: 60_000 }, () => {
-  it('validation: run_validation returns structured result', async () => {
-    const r = await callTool('validation', { action: 'run_validation' });
-    expectHasText(r);
+  // P1-10: 弱断言 expectHasText（length>0 不辨 isError）已全部强化为 expectSuccess / expectErrorContains。
+  // 7 个 it 曾用工具不认的 action（run_validation / inspect_node on runtime / create / read / list）
+  // 致永远 UNKNOWN_ACTION 假绿——已修正确 action 名。剩余 error 多为 fixture 缺靶（极简 e2e-project）
+  // 或 it 参数简化,工具行为正确（返结构化 error）,锁 expectErrorContains 明确 error path。
+  it('validation: run_and_verify returns structured result', async () => {
+    const r = await callTool('validation', { action: 'run_and_verify' });
+    expectSuccess(r);
   });
 
-  it('screenshot: capture returns image data or error', async () => {
+  it('screenshot: capture saves image', async () => {
     const r = await callTool('screenshot', {
       action: 'capture',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       image_path: 'user://e2e_test.png',
     });
-    // 3D 场景应返回图片数据或明确的处理结果
-    expectHasText(r);
+    expectSuccess(r, 'Screenshot saved');
   });
 
   it('workflow: dev_loop executes and returns output', async () => {
@@ -468,13 +477,13 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
     expectSuccess(r, 'workflow_ok');
   });
 
-  it('runtime: inspect_node returns node info', async () => {
-    const r = await callTool('runtime', {
+  it('scene: inspect_node returns structured node info', async () => {
+    const r = await callTool('scene', {
       action: 'inspect_node',
       scene_path: 'res://scenes/main.tscn',
       node_path: 'Main',
     });
-    expectHasText(r);
+    expectSuccess(r);
   });
 
   it('animation: list_players returns result', async () => {
@@ -482,10 +491,10 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       action: 'list_players',
       scene_path: 'res://scenes/anim_test.tscn',
     });
-    expectHasText(r);
+    expectSuccess(r);
   });
 
-  it('animation_track: add_track returns result', async () => {
+  it('animation_track: add_track — fixture lacks AnimationPlayer', async () => {
     const r = await callTool('animation_track', {
       action: 'add_track',
       scene_path: 'res://scenes/anim_test.tscn',
@@ -494,60 +503,62 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       track_type: 'value',
       track_path: ':position:x',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'AnimationPlayer');
   });
 
-  it('particles: create returns success or error', async () => {
+  it('particles: particles_create validates node_type', async () => {
     const r = await callTool('particles', {
-      action: 'create',
+      action: 'particles_create',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       parent_path: '.',
       name: 'TestParticles',
       type: 'GPUParticles2D',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'node_type');
   });
 
-  it('tilemap: read returns tilemap data or error', async () => {
+  it('tilemap: tilemap_read requires NodePath', async () => {
     const r = await callTool('tilemap', {
-      action: 'read',
+      action: 'tilemap_read',
       scene_path: 'res://demos/dynamic_tilemap_layers/dynamic_tilemap.tscn',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'NodePath');
   });
 
-  it('material: read returns material info or not-found error', async () => {
+  it('material: read — fixture lacks material on node', async () => {
     const r = await callTool('material', {
       action: 'read',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       node_path: '.',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'material');
   });
 
-  it('signal: list returns signal info', async () => {
+  it('signal: signal_list — fixture lacks TestSprite node', async () => {
     const r = await callTool('signal', {
-      action: 'list',
+      action: 'signal_list',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       node_path: 'TestSprite',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'not found');
   });
 
-  it('audio: list returns audio player info', async () => {
+  it('audio: audio_query requires NodePath', async () => {
     const r = await callTool('audio', {
-      action: 'list',
+      action: 'audio_query',
       scene_path: 'res://scenes/main.tscn',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'NodePath');
   });
 
-  it('nav: list returns navigation info', async () => {
+  it('nav: query_path validates Vector3', async () => {
     const r = await callTool('nav', {
-      action: 'list',
+      action: 'query_path',
       scene_path: 'res://demos/navigation/navigation_demo.tscn',
+      start: { x: 0, y: 0, z: 0 },
+      end: { x: 1, y: 0, z: 1 },
     });
-    expectHasText(r);
+    expectErrorContains(r, 'Vector3');
   });
 
   it('physics: raycast returns hit result', async () => {
@@ -556,22 +567,22 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
       from: { x: 0, y: 10, z: 0 },
       to: { x: 0, y: 0, z: 0 },
     });
-    expectHasText(r);
+    expectSuccess(r);
   });
 
-  it('animtree: animtree_create returns result', async () => {
+  it('animtree: animtree_create requires name + animation_player_path', async () => {
     const r = await callTool('animtree', {
       action: 'animtree_create',
       scene_path: 'res://scenes/e2e_verify_test.tscn',
       node_path: '.',
       name: 'TestAnimTree',
     });
-    expectHasText(r);
+    expectErrorContains(r, 'required');
   });
 
   it('profiler: snapshot returns profiler data', async () => {
     const r = await callTool('profiler', { action: 'snapshot' });
-    expectHasText(r);
+    expectSuccess(r);
   });
 });
 
@@ -580,9 +591,8 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('E2E: game (Bridge — error path)', () => {
   it('query ping: returns error message without running game', async () => {
-    const r = await callTool('game', { action: 'query', method: 'ping' });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(0);
+    const r = await callTool('game', { action: 'game_query', method: 'ping' });
+    expectErrorContains(r, 'Bridge');
   });
 });
 

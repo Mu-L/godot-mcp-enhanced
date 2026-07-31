@@ -2,6 +2,8 @@
 import type { EditorConnection } from './EditorConnection.js';
 import type { ToolResult } from '../types.js';
 import { resolveEditorMethod } from './editor-method-map.js';
+import type { HealthMonitor } from './health-monitor.js';
+import { opsErrorResult } from '../tools/shared.js';
 
 export class EditorToolExecutor {
   private syncActive = false;
@@ -11,6 +13,10 @@ export class EditorToolExecutor {
   private treeChangeCount = 0;
   private static readonly MAX_BUFFER_SIZE = 10000;
   private readonly conn: EditorConnection;
+  // B-T3: 半开 HOL 预检——_executeInner 入口据 healthMonitor.getState() === 'reconnecting'
+  // 即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
+  // 可选：未注入时不预检（向后兼容既有 new EditorToolExecutor(conn) 调用点）。
+  private readonly healthMonitor?: HealthMonitor;
   // security P1#2: editor 工具串行化链(防并发 ws.send 致 undo 栈 LIFO 错乱)
   private executeChain: Promise<unknown> = Promise.resolve();
 
@@ -28,8 +34,9 @@ export class EditorToolExecutor {
     }
   };
 
-  constructor(conn: EditorConnection) {
+  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor) {
     this.conn = conn;
+    this.healthMonitor = healthMonitor;
     this.conn.addOnDisconnectHandler(this._disconnectHandler);
     this.conn.addOnReconnectHandler(this._reconnectHandler);
   }
@@ -56,6 +63,15 @@ export class EditorToolExecutor {
   }
 
   private async _executeInner(toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // B-T3: 半开 HOL 预检——TCP 半开时 conn.connected=true 但 editor 主线程卡死，
+    // conn.request 挂满 30s（串行 executeChain ×30s HOL 放大）。
+    // healthMonitor 心跳已检测到 reconnecting 时，入口即时返 NOT_CONNECTED 跳过等待。
+    if (this.healthMonitor && this.healthMonitor.getState() === 'reconnecting') {
+      return opsErrorResult(
+        'NOT_CONNECTED',
+        'Editor is reconnecting (half-open precheck). Retry shortly.',
+      );
+    }
     try {
       if (toolName === 'editor') {
         const action = args.action as string;
@@ -78,6 +94,8 @@ export class EditorToolExecutor {
       // 闭环 defects heartbeat-pause-timeout-disconnect（startOperation/endOperation 零生产调用）：
       // bake_mesh 挂起期心跳阻塞致 editor 误判断开；operation_start 通知 GD heartbeat.gd 暂停。
       // T_ts 对齐 §6 BAKE_WAIT_TIMEOUT_MS（110s 量级，clamp ≤600）。GD P1#3 hard timeout 兜底（heartbeat.gd:37-46）。
+      // finalArgs.bake === true 严格等于依赖 nav 工具 schema 强制 bool（GD 侧 params.get("bake", false) 宽松，
+      // 但 TS schema 校验在 GD 之前保证 bool 入参，故 === true 不会漏 truthy 非 bool 值）。
       const isNavBake = method === 'nav_bake_mesh'
         || (method === 'nav_create_region' && finalArgs.bake === true);
       const NAV_BAKE_OP_TIMEOUT_SEC = 110;  // < GD clamp 600，> §6 BAKE_WAIT_TIMEOUT_MS
@@ -85,7 +103,7 @@ export class EditorToolExecutor {
       if (isNavBake) {
         await this.conn.startOperation(NAV_BAKE_OP_TIMEOUT_SEC);
         try {
-          const result = await this.conn.request(method, finalArgs);
+          const result = await this.conn.request(method, finalArgs, { timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC * 1000 });
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } finally {
           // I-1 (C4 final review): endOperation 在连接异常态（client 30s REQUEST_TIMEOUT reject 后）

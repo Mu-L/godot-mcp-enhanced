@@ -178,7 +178,8 @@ describe('createPendingToken + consumeToken', () => {
 
   it('creates and consumes a valid token', () => {
     const token = createPendingToken('scene', { action: 'remove_node', node_path: '/root/Player' });
-    expect(typeof token === 'string' && token.length > 10).toBeTruthy();
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(10);
     expect(pendingCount()).toBe(1);
 
     const result = consumeToken(token);

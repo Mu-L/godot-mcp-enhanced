@@ -130,9 +130,10 @@ let _busySince = 0;
 // Short-running counter: query_scene_tree / inspect_node (seconds-level operations)
 let _shortRunningCount = 0;
 
-// 仅 run_project 注册（长生命周期游戏进程，崩溃残留需 orphan 兜底）。
-// launch_editor 不注册（detached 编辑器，用户有意长期运行）；
-// B 类 headless 不注册（自带 forceKillTree 清理）。
+// 仅长生命周期 / 可能挂起的 Godot 进程注册（崩溃残留或 close 时机错位需 orphan 兜底）：
+//   - run_project（runtime.ts:224，长生命周期游戏进程）
+//   - gdscript-executor spawn（B-T4，原 only-run_project 致挂起脚本 + close → 孤儿无兜底）
+// launch_editor 不注册（detached 编辑器，用户有意长期运行）。
 let _spawnedGodotPids: Set<number> = new Set();
 
 /** 记录本会话 spawn 的需要 orphan 兜底的 Godot 进程 PID（仅 run_project）。 */
@@ -419,7 +420,7 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
         //         (-and short-circuits before .Contains so null CommandLine won't throw).
         `$path = '${safePath}'; ` +
         `Get-CimInstance Win32_Process -Filter "Name LIKE 'Godot%'" | ` +
-        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) } | ` +
+        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) -and -not ($_.CommandLine -like '*--editor*') } | ` +
         `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -466,7 +467,7 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
     return new Promise((resolve) => {
       let settled = false;
       const ps = spawn('sh', ['-c',
-        `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -F -- '${safeDir}' && echo {}'`
+        `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -v -- "--editor" | grep -F -- '${safeDir}' && echo {}'`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
       const timer = setTimeout(() => {

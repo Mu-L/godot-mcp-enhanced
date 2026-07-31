@@ -184,6 +184,8 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 			if keyframe_index == null:
 				return {"error": {"code": -32004, "message": "keyframe_index is required for remove"}}
 			var ki = int(keyframe_index)
+			if ki < 0 or ki >= anim.track_get_key_count(ti):
+				return {"error": {"code": -32004, "message": "keyframe_index out of range"}}
 
 			if _undo_manager != null:
 				# 捕获旧关键帧数据用于 undo
@@ -204,6 +206,8 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 			if keyframe_index == null:
 				return {"error": {"code": -32004, "message": "keyframe_index is required for update"}}
 			var ki = int(keyframe_index)
+			if ki < 0 or ki >= anim.track_get_key_count(ti):
+				return {"error": {"code": -32004, "message": "keyframe_index out of range"}}
 
 			if _undo_manager != null:
 				var old_val = anim.track_get_key_value(ti, ki)
@@ -269,6 +273,8 @@ func handle_animation_curve(params: Dictionary, request_id: int = 0) -> Dictiona
 	var ki = int(keyframe_index)
 	if ti < 0 or ti >= anim.get_track_count():
 		return {"error": {"code": -32004, "message": "track_index out of range: " + str(ti)}}
+	if ki < 0 or ki >= anim.track_get_key_count(ti):
+		return {"error": {"code": -32004, "message": "keyframe_index out of range"}}
 	if anim.track_get_type(ti) != Animation.TYPE_BEZIER:
 		return {"error": {"code": -32004, "message": "Track is not a bezier track. Curve handles only apply to bezier tracks."}}
 

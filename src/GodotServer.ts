@@ -61,6 +61,16 @@ export { clearGodotPathCache, getCachedGodotPath };
 const DEBUG = process.env.DEBUG === 'true';
 const EDITOR_SECRET_TIMEOUT_MS = 5000;
 
+// 编辑器重连参数（env 可覆盖，默认对齐 EditorConnection 构造默认）。
+// 运行时读（非 module-level 固化）：连接是低频操作，且避免测试需在 import 前设 env。
+// 主要为集成测试可注入低 attempts/interval 跑真实重连耗尽（默认 20 次 × backoff 到 60s 不可测）。
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function log(...args: unknown[]): void {
   if (!DEBUG) return;
   getLogger().debug('godot-mcp', args.map(a => String(a)).join(' '));
@@ -86,12 +96,19 @@ export class GodotServer {
   private editorConn: EditorConnection | null = null;
   private editorExecutor: EditorToolExecutor | null = null;
   private connectionMode: 'headless' | 'editor';
+  /** B-T5: pingFn catch 保留 err.code,供 onStateChange 分流——
+   *  REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ 降级;
+   *  NOT_CONNECTED/CONNECTION_LOST(下线)→ 让 EditorConnection 自动重连兜底,不抢占。 */
+  private _lastPingErrCode: string | undefined;
   // 方案B: 供 rebuildEditorConnection() 重建降级后的 editor 连接(port 存实例,secret 重建时重读)
   private editorPort: number | null = null;
   private editorProjectPath: string | null = null;
   private noFallback: boolean;
   private agentCtx: AgentContextManager;
   private stateStore: FileStateStore | null = null;
+  // 报告②P0：周期性 orphan 扫描定时器。60s 间隔（规避 killOrphanGodotProcesses 内部 30s 节流）。
+  // unref 不阻塞进程退出；close() 时 clearInterval。参考 agent-context.ts:46 / health-monitor.ts:320。
+  private orphanScanTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opsScript: string, options: ServerOptions = {}) {
     this.opsScript = opsScript;
@@ -340,8 +357,21 @@ export class GodotServer {
     await this.server.connect(transport);
     log('Godot MCP Enhanced server running on stdio');
 
+    // 报告②P0：周期性 orphan 扫描。killOrphanGodotProcesses 内部有 30s 节流，故 60s 间隔保证每次
+    // tick 真正扫描。第一层只扫本会话 _spawnedGodotPids（不误杀用户 Godot）。unref 不阻塞退出。
+    this.orphanScanTimer = setInterval(() => {
+      void ps.killOrphanGodotProcesses(ps.getProjectDir() || undefined).catch(() => { /* best-effort */ });
+    }, 60_000);
+    this.orphanScanTimer.unref?.();
+
     // 状态持久化 — 加载已保存的 agent 状态
     const projectPath = resolveProjectPath();
+
+    // 报告②P1：启动时清理上一会话残留 Godot 进程（opt-in，默认关）。
+    // 默认只跑第一层（毫秒级、安全）；不 await 避免拖慢启动。
+    if (isFeatureEnabled('STARTUP_CLEANUP') && projectPath) {
+      void ps.killOrphanGodotProcesses(projectPath).catch(() => { /* best-effort */ });
+    }
     if (projectPath) {
       this.stateStore = new FileStateStore(projectPath);
       const saved = await this.stateStore.load();
@@ -446,29 +476,62 @@ export class GodotServer {
       try { this.editorConn.disconnect(); } catch { /* best-effort */ }
       this.editorConn = null;
     }
-    this.editorConn = new EditorConnection({ port, reconnect: true, secret });
+    this.editorConn = new EditorConnection({
+      port,
+      reconnect: true,
+      secret,
+      maxReconnectAttempts: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_ATTEMPTS', 20),
+      reconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_INTERVAL', 1000),
+      maxReconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_MAX_INTERVAL', 60000),
+    });
     try {
       await this.editorConn.connect();
-      this.editorExecutor = new EditorToolExecutor(this.editorConn);
+      // B-T3: hm 提前到 EditorToolExecutor 构造前复用，注入 _executeInner 半开 HOL 预检
+      // （reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待，避免串行 executeChain ×30s 放大）。
+      const hm = this.dispatcher?.getHealthMonitor();
+      this.editorExecutor = new EditorToolExecutor(this.editorConn, hm);
       this.dispatcher?.setEditorExecutor(this.editorExecutor);
       this.editorConn.addOnReconnectExhaustedHandler(() => {
         getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
         this.handleEditorStall();
       });
+      // B-T5: 编辑器重连成功 → 即刻复位 hm state=connected + 清 heartbeat 失败计数。
+      // 避免 refused 不抢占后 hm 卡 reconnecting(下次 ping 要等 probeIntervalMs=60s 才纠正),
+      // 期间 B-T3 半开 HOL 预检(_executeInner getState===reconnecting)会拦所有 editor 工具致卡顿。
+      // 链完整性:refused→hm reconnecting 但不降级→EditorConnection 20 次退避重连→重连成功→
+      // 本 handler 复位 hm→恢复;重连耗尽→上面 reconnectExhausted handler→handleEditorStall 兜底降级。
+      this.editorConn.addOnReconnectHandler(() => {
+        if (hm) hm.reset();
+      });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
-      const hm = this.dispatcher?.getHealthMonitor();
       if (hm) {
         hm.startHeartbeat(
-          () => (this.editorConn ? this.editorConn.request('ping', {}, { timeoutMs: 5000 }).then(() => true).catch(() => false) : Promise.resolve(false)),
+          () => (this.editorConn
+            ? this.editorConn.request('ping', {}, { timeoutMs: 5000 })
+                .then(() => { this._lastPingErrCode = undefined; return true; })
+                .catch((err: unknown) => {
+                  // B-T5: 保留 err.code 供 onStateChange 分流(旧实现毯式 catch `() => false` 丢 code)。
+                  const e = err as { code?: string } | null | undefined;
+                  this._lastPingErrCode = e?.code;
+                  return false;
+                })
+            : Promise.resolve(false)),
         );
-        // 2026-07-12 P0 控制回路接线：心跳检测编辑器卡死（连续 ping 失败进 reconnecting）时主动降级。
-        // 堵 HealthMonitor 纯仪表盘缺口：编辑器主线程卡死但 TCP OPEN 时 WS 不 close →
-        // reconnectExhausted handler 不触发 → 此回路兜底（复用 handleEditorStall 统一降级动作）。
+        // 2026-07-12 P0 控制回路接线 + B-T5 分流:
+        // - REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ handleEditorStall 降级。WS 不 close, ws.on('close')→scheduleReconnect
+        //   不触发,自动重连救不了;必须主动降级让用户用 headless 工作 + 手动 reconnect。
+        // - NOT_CONNECTED/CONNECTION_LOST(下线/重启/瞬时不可达)→ 不降级,让 EditorConnection ws.close 已触发的
+        //   scheduleReconnect(20 次退避)自动兜底。disconnect 会杀重连(reconnectEnabled=false),抢占致用户须手动 reconnect。
+        //   重连成功后 addOnReconnectHandler 即时复位 hm;重连耗尽 reconnectExhausted handler 最终兜底降级。
         hm.onStateChange((_from, to) => {
           if (to === 'reconnecting' && this.connectionMode === 'editor') {
-            getLogger().warn('godot-mcp', 'Heartbeat detected editor stall (TCP open but main thread blocked) — degrading to headless.');
-            this.handleEditorStall();
+            if (this._lastPingErrCode === 'REQUEST_TIMEOUT') {
+              getLogger().warn('godot-mcp', 'Heartbeat REQUEST_TIMEOUT (editor main thread blocked) — degrading to headless.');
+              this.handleEditorStall();
+            } else {
+              getLogger().info('godot-mcp', `Heartbeat ${this._lastPingErrCode || 'unknown'} (editor down/refused) — letting auto-reconnect handle, not degrading.`);
+            }
           }
         });
         // B6: 重建(rebuild)成功后 hm.state 可能残留 'reconnecting'(上次 stall 留下),
@@ -523,6 +586,11 @@ export class GodotServer {
   }
 
   async close(): Promise<void> {
+    // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
+    if (this.orphanScanTimer) {
+      clearInterval(this.orphanScanTimer);
+      this.orphanScanTimer = null;
+    }
     if (this.editorConn) {
       this.editorConn.disconnect();
       this.editorConn = null;
@@ -535,6 +603,16 @@ export class GodotServer {
       ps.setProcessBusy(false);
       ps.setRunningProcess(null);
       log('Running Godot process killed');
+    }
+    // B-T4: 清理 in-flight short-running gdscript spawn（gdscript-executor 注册）。
+    // 原 close 只 kill run_project 长进程,挂起脚本 + close → 孤儿无兜底。
+    // getSpawnedGodotPids 此时通常已空（exit/error/timeout 三路径均 unregister），
+    // 仅异常路径（注册后 close 抢占 / forceKillTree 后 exit 未触发）残留 PID → best-effort kill。
+    for (const pid of ps.getSpawnedGodotPids()) {
+      try {
+        ps.killPidTree(pid);
+        ps.unregisterSpawnedGodotPid(pid);
+      } catch { /* best-effort: 已退出 / killPidTree 内部吞错 */ }
     }
     // Clean up guard cleanup timer and pending tokens
     guard.cleanup();

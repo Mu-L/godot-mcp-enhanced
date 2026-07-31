@@ -234,8 +234,8 @@ text = "Hello"
 
     const summary = parseTscnSummary(content);
     expect(typeof summary === 'string').toBeTruthy();
-    expect(summary.includes('Main')).toBeTruthy();
-    expect(summary.includes('Nodes (2 total)')).toBeTruthy();
+    expect(summary).toContain('Main');
+    expect(summary).toContain('Nodes (2 total)');
     expect(summary).toMatchSnapshot('scene-summary');
   });
 });

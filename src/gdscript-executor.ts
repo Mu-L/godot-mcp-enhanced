@@ -22,7 +22,7 @@ import { join, basename, resolve } from 'path';
 import { tmpdir, userInfo } from 'os';
 import { randomUUID, createHash } from 'crypto';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
-import { forceKillTree, getProjectDir, getRunningProcess, acquireShortRunningSlot, releaseShortRunningSlot } from './core/process-state.js';
+import { forceKillTree, getProjectDir, getRunningProcess, acquireShortRunningSlot, releaseShortRunningSlot, registerSpawnedGodotPid, unregisterSpawnedGodotPid } from './core/process-state.js';
 import { buildSafeEnv } from './helpers.js';
 import { MARKER_RESULT as MARKER_RESULT_SHARED, MARKER_ERROR as MARKER_ERROR_SHARED, GD_MCP_GET_ROOT, GD_MCP_GET_NODE, GD_MCP_LOAD_MAIN_SCENE, GD_MCP_OUTPUT } from './tools/shared.js';
 import { normalizeIndentToTabs as _sharedNormalizeIndent } from './tools/shared/value-serializer.js';
@@ -1193,6 +1193,12 @@ export async function executeGdscript(
       stdio: ['pipe', 'pipe', 'pipe'],
       env: buildSafeEnv(),
     });
+    // B-T4: 注册到 _spawnedGodotPids, close/崩溃可清理 in-flight short-running spawn。
+    // 原 only-run_project 注册致挂起脚本 + close → 孤儿无兜底; 三路径 forceKillTree 后也需 unregister。
+    if (proc.pid) registerSpawnedGodotPid(proc.pid);
+    const unregisterSpawn = () => { if (proc.pid) unregisterSpawnedGodotPid(proc.pid); };
+    proc.on('exit', unregisterSpawn);   // 正常 exit
+    proc.on('error', unregisterSpawn);  // spawn 错误（ENOENT 等）
 
     proc.stdout?.on('data', (d: Buffer) => {
       if (outputExceeded) return;
@@ -1216,6 +1222,7 @@ export async function executeGdscript(
         stdoutChunks.length = 0;
         stdoutChunks.push(...trimmed, Buffer.from('\n[OUTPUT TRUNCATED: exceeded 10MB limit]'));
         forceKillTree(proc);
+        unregisterSpawn();  // B-T4: pipe 溢出强杀后注销（exit 事件可能不触发）
       }
     });
     proc.stderr?.on('data', (d: Buffer) => {
@@ -1240,6 +1247,7 @@ export async function executeGdscript(
         stderrChunks.length = 0;
         stderrChunks.push(...trimmed, Buffer.from('\n[OUTPUT TRUNCATED: exceeded 10MB limit]'));
         forceKillTree(proc);
+        unregisterSpawn();  // B-T4: pipe 溢出强杀后注销（exit 事件可能不触发）
       }
     });
 
@@ -1250,6 +1258,7 @@ export async function executeGdscript(
       if (settled) return;
       if (!proc.killed) {
         forceKillTree(proc);
+        unregisterSpawn();  // B-T4: timeout 强杀后注销（exit 事件可能不触发）
       }
       settled = true;
       releaseShortRunningSlot();

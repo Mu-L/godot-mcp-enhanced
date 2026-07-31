@@ -267,6 +267,10 @@ describe('HealthMonitor — heartbeat', () => {
     await tick(200); // total 300ms since last ping
     expect(pingFn).toHaveBeenCalledTimes(3);
 
+    // P2-8（2026-07-31 补）：ping 成功后状态应从 reconnecting 恢复为 connected
+    // 依据 health-monitor.ts:306 ping ok 时 setState('connected')
+    expect(monitor.getState()).toBe('connected');
+
     monitor.stopHeartbeat();
   });
 });
@@ -372,5 +376,65 @@ describe('HealthMonitor — B1 errorType 分流', () => {
       hm.recordFailure('heartbeat', `ping false ${i}`);
     }
     expect(hm.getState()).toBe('reconnecting');
+  });
+});
+
+// ─── B-T5 修复（批次 B 可靠性，最复杂状态机）──────────────────────────────────
+// bug: pingFn catch 毯式 `() => false` 丢 err.code,两种失败(REQUEST_TIMEOUT 主线程卡死 /
+// NOT_CONNECTED+CONNECTION_LOST 编辑器下线)都 recordFailure → reconnecting → 旧 onStateChange
+// 无差别调 handleEditorStall → disconnect() 杀 EditorConnection 自动重连(reconnectEnabled=false)。
+// 修复:catch 保留 err.code(GodotServer.ts)+ onStateChange 分流(REQUEST_TIMEOUT 降级,其他不抢占)
+// + 重连成功复位 hm connected(本测试验证 reset() 是这条链的关键节点)。
+//
+// 状态机链完整性(refused→重连成功→复位→恢复;耗尽→降级兜底):
+//   editor 下线 → ping NOT_CONNECTED ×N → hm reconnecting → onStateChange 不降级
+//   → EditorConnection 自动重连 20 次退避 → 成功 → addOnReconnectHandler 触发 hm.reset()
+//   → state=connected + 清计数 → tools 流通;若 20 次失败 → reconnectExhausted → handleEditorStall。
+
+describe('HealthMonitor — B-T5 reset() 状态机链', () => {
+  it('B-T5a: reset() 复位 reconnecting→connected 并清 consecutiveHeartbeatFails', () => {
+    const hm = new HealthMonitor({ maxConsecutiveFailures: 3 });
+    hm.setState('connected');
+    // 3 次 heartbeat 失败进 reconnecting(模拟 ping NOT_CONNECTED ×3)
+    for (let i = 0; i < 3; i++) hm.recordFailure('heartbeat', `down ${i}`);
+    expect(hm.getState()).toBe('reconnecting');
+
+    // 反向断言:无 reset 时单次 heartbeat 失败立即再触发 reconnecting(consecutiveHeartbeatFails=4 ≥ 3)
+    hm.reset();
+    expect(hm.getState()).toBe('connected');
+    // 关键:reset 后 consecutiveHeartbeatFails 清零——单次失败不会立即卡回 reconnecting
+    // (可能进 degraded 因为 recentSuccessFlags 含历史 false 标记,但 reconnecting 阈值不再触发)
+    hm.recordFailure('heartbeat', 'first ping after reconnect');
+    expect(hm.getState()).not.toBe('reconnecting'); // 1 < 3, 不再卡 reconnecting
+  });
+
+  it('B-T5b: reset() 触发 onStateChange(connected),监听器据 to=connected 不降级', () => {
+    const hm = new HealthMonitor({ maxConsecutiveFailures: 2 });
+    const transitions: string[] = [];
+    hm.onStateChange((_f, to) => { transitions.push(to); });
+    hm.setState('connected');
+    for (let i = 0; i < 2; i++) hm.recordFailure('heartbeat', `down ${i}`);
+    expect(hm.getState()).toBe('reconnecting');
+    expect(transitions).toContain('reconnecting');
+
+    // EditorConnection 自动重连成功 → 触发 hm.reset()
+    transitions.length = 0;
+    hm.reset();
+
+    expect(hm.getState()).toBe('connected');
+    expect(transitions).toEqual(['connected']); // 'reconnecting' → 'connected'
+    // GodotServer onStateChange 仅在 to==='reconnecting' 时考虑降级;
+    // 'connected' 转换不会触发降级——复位语义正确,链完整性保证。
+  });
+
+  it('B-T5c: reset() 在 connected 态是 no-op(不重复触发 onStateChange)', () => {
+    const hm = new HealthMonitor();
+    let callCount = 0;
+    hm.onStateChange(() => { callCount++; });
+    hm.setState('connected');
+    // 已 connected,reset 不应触发监听器
+    hm.reset();
+    expect(callCount).toBe(0);
+    expect(hm.getState()).toBe('connected');
   });
 });

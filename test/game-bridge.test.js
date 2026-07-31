@@ -35,8 +35,8 @@ describe('game-bridge tool definitions', () => {
   });
 
   it('tool has required inputSchema', () => {
-    expect(tools[0].inputSchema).toBeTruthy();
-    expect(tools[0].inputSchema.properties).toBeTruthy();
+    expect(tools[0].inputSchema).toEqual(expect.objectContaining({ type: 'object' }));
+    expect(tools[0].inputSchema.properties).toEqual(expect.any(Object));
     expect(tools[0].inputSchema.required).toContain('action');
   });
 });

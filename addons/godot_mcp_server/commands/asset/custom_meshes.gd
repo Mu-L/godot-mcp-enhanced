@@ -13,7 +13,7 @@ extends RefCounted
 static func make_cone(params: Dictionary) -> ArrayMesh:
 	var height: float = float(params.get("height", 1.0))
 	var radius: float = float(params.get("radius", 0.5))
-	var segments: int = max(int(params.get("segments", 24)), 3)
+	var segments: int = clampi(int(params.get("segments", 24)), 3, 128)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var yb := -height / 2.0
@@ -53,7 +53,7 @@ static func make_tube(params: Dictionary) -> ArrayMesh:
 	var height: float = float(params.get("height", 1.0))
 	var radius: float = float(params.get("radius", 0.5))
 	var thickness: float = float(params.get("thickness", 0.1))
-	var segments: int = max(int(params.get("segments", 24)), 3)
+	var segments: int = clampi(int(params.get("segments", 24)), 3, 128)
 	var inner := maxf(radius - thickness, 0.001)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -133,8 +133,9 @@ static func make_tube(params: Dictionary) -> ArrayMesh:
 static func make_torus(params: Dictionary) -> ArrayMesh:
 	var R: float = float(params.get("major_radius", 0.5))
 	var r: float = float(params.get("minor_radius", 0.2))
-	var ms: int = max(int(params.get("major_segments", 32)), 3)
-	var ns: int = max(int(params.get("minor_segments", 16)), 3)
+	var ms: int = clampi(int(params.get("major_segments", 32)), 3, 128)
+	var ns: int = clampi(int(params.get("minor_segments", 16)), 3, 128)
+	# F1(2026-07-29): ms/ns 各 ≤128 隐含 ms×ns ≤ 16384，顶点 ≈ 9.8 万 < 20 万上限，无需额外乘积守卫。
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for i in ms:
@@ -166,7 +167,7 @@ static func _torus_vertex(R: float, r: float, a: float, b: float) -> Vector3:
 
 # --- stairs 楼梯（多台阶 → 单 ArrayMesh，A3）---
 static func make_stairs(params: Dictionary) -> ArrayMesh:
-	var steps: int = max(int(params.get("steps", 5)), 1)
+	var steps: int = clampi(int(params.get("steps", 5)), 1, 200)
 	var sh: float = float(params.get("step_height", 0.2))
 	var sd: float = float(params.get("step_depth", 0.3))
 	var w: float = float(params.get("width", 1.2))
@@ -199,7 +200,7 @@ static func _post_xs(length: float, posts: int, start_post: bool, end_post: bool
 static func make_fence(params: Dictionary) -> ArrayMesh:
 	var length: float = float(params.get("length", 3.0))
 	var height: float = float(params.get("height", 1.2))
-	var posts: int = max(int(params.get("posts", 4)), 1)
+	var posts: int = clampi(int(params.get("posts", 4)), 1, 200)
 	var pr: float = float(params.get("post_radius", 0.05))
 	var rt: float = float(params.get("rail_thickness", 0.04))
 	var start_post: bool = bool(params.get("start_post", true))

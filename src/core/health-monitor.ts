@@ -169,6 +169,21 @@ export class HealthMonitor {
     }
   }
 
+  /**
+   * Reset state to 'connected' and clear failure counters.
+   * B-T5: Called when the underlying transport confirms recovery (e.g. EditorConnection
+   * reconnect success after refused/offline) — avoids stale consecutiveHeartbeatFails
+   * re-tripping 'reconnecting' on the next ping, and skips the up-to-probeIntervalMs
+   * window during which B-T3 half-open HOL precheck would block all editor tools.
+   */
+  reset(): void {
+    this.consecutiveFails = 0;
+    this.consecutiveHeartbeatFails = 0;
+    if (this.state !== 'connected') {
+      this.setState('connected');
+    }
+  }
+
   /** Register a state-change listener. 2026-07-12 P0: 控制回路接线点。
    *  触发时机：setState 实际改变状态时（from !== to）。
    *  签名 (from, to)：消费者可区分升级（connected→degraded）与降级（degraded→connected）。 */

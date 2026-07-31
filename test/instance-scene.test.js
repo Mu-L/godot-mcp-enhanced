@@ -2,13 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 // A3 测试需要捕获 executeGdscript 收到的 GDScript 片段, 断言含持久化回写(owner+pack+save)。
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(async () => ({
-    success: true, compile_success: true, compile_error: '', errors: [],
-    run_success: true, run_error: '', outputs: [], raw_output: '', duration_ms: 1,
-  })),
+  executeGdscript: vi.fn(async () => mockSuccessResult({ duration_ms: 1 })),
 }));
 
 import * as scene from '../src/tools/scene.js';
@@ -53,7 +51,7 @@ describe('instance_scene tool definition', () => {
       instance_path: 'res://scenes/main.tscn',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('CIRCULAR')).toBeTruthy();
+    expect(result.content[0].text).toContain('CIRCULAR');
   });
 });
 
@@ -107,7 +105,7 @@ describe('set_instance_property tool definition', () => {
       value: 'test',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('BLOCKED_PROP')).toBeTruthy();
+    expect(result.content[0].text).toContain('BLOCKED_PROP');
   });
 
   it('should reject invalid property names', async () => {

@@ -74,6 +74,12 @@ vi.mock('../src/core/process-state.js', () => ({
   getProjectDir: vi.fn().mockReturnValue(''),
   setProjectDir: vi.fn(),
   killProcess: vi.fn().mockResolvedValue(undefined),
+  // B-T4: close() 清理 in-flight gdscript spawn（默认空集，无 orphan）
+  getSpawnedGodotPids: vi.fn().mockReturnValue([]),
+  killPidTree: vi.fn(),
+  unregisterSpawnedGodotPid: vi.fn(),
+  // 报告②P0/P1：周期 orphan 扫描 + 启动清理调用此函数
+  killOrphanGodotProcesses: vi.fn().mockResolvedValue(0),
 }));
 
 // ─── Import SUT (after mocks) ────────────────────────────────────────────────
@@ -202,6 +208,7 @@ describe('GodotServer', () => {
         connect: vi.fn().mockResolvedValue(undefined),
         disconnect: vi.fn(),
         isConnected: vi.fn().mockReturnValue(true),
+        addOnReconnectHandler: vi.fn(),
         addOnReconnectExhaustedHandler: vi.fn((handler) => {
           exhaustedHandlers.push(handler);
         }),
@@ -240,6 +247,7 @@ describe('GodotServer', () => {
         addOnDisconnectHandler: vi.fn((handler) => {
           disconnectHandlers.push(handler);
         }),
+        addOnReconnectHandler: vi.fn(),
         addOnReconnectExhaustedHandler: vi.fn(),
       };
 
@@ -359,6 +367,42 @@ describe('GodotServer', () => {
       for (const name of names) {
         if (name === 'confirm_and_execute') continue;
       }
+    });
+  });
+
+  // ── 报告② P0/P1：进程生命周期（放在末尾，fake timers 不污染前置测试）─────────
+  describe('process lifecycle (报告② P0/P1)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('P0: run() 挂载 60s 周期 orphan 扫描定时器', async () => {
+      vi.useFakeTimers();
+      const { killOrphanGodotProcesses } = await import('../src/core/process-state.js');
+      const server = new GodotServer('/fake/ops.gd');
+      await server.run();
+      expect(killOrphanGodotProcesses).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(killOrphanGodotProcesses).toHaveBeenCalled();
+      await server.close();
+    });
+
+    it('P0: close() 清理 orphan 扫描定时器（不再触发）', async () => {
+      vi.useFakeTimers();
+      const { killOrphanGodotProcesses } = await import('../src/core/process-state.js');
+      const server = new GodotServer('/fake/ops.gd');
+      await server.run();
+      await server.close();
+      vi.mocked(killOrphanGodotProcesses).mockClear();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(killOrphanGodotProcesses).not.toHaveBeenCalled();
+    });
+
+    it('P1: STARTUP_CLEANUP 默认关（run() 不触发启动清理）', async () => {
+      const { killOrphanGodotProcesses } = await import('../src/core/process-state.js');
+      vi.mocked(killOrphanGodotProcesses).mockClear();
+      const server = new GodotServer('/fake/ops.gd');
+      await server.run();
+      expect(killOrphanGodotProcesses).not.toHaveBeenCalled();
+      await server.close();
     });
   });
 });

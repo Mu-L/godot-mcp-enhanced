@@ -23,7 +23,7 @@ describe('animation-track TOOL_NAMES', () => {
   const expected = ['animation_track'];
   for (const name of expected) {
     it(`includes ${name}`, () => {
-      expect(TOOL_NAMES.includes(name)).toBeTruthy();
+      expect(TOOL_NAMES).toContain(name);
     });
   }
 });
@@ -159,14 +159,14 @@ describe('animation-track handleTool', () => {
 describe('genAnimationTrackAdd', () => {
   it('generates script with track type and path', () => {
     const script = genAnimationTrackAdd('root/AP', 'idle', 'value', 'Sprite2D:frame', undefined);
-    expect(script.includes('add_track(0)')).toBeTruthy();
-    expect(script.includes('Sprite2D:frame')).toBeTruthy();
-    expect(script.includes('idle')).toBeTruthy();
+    expect(script).toContain('add_track(0)');
+    expect(script).toContain('Sprite2D:frame');
+    expect(script).toContain('idle');
   });
 
   it('generates script with insert_at position', () => {
     const script = genAnimationTrackAdd('root/AP', 'walk', 'position_3d', undefined, 2);
-    expect(script.includes('add_track(1, 2)')).toBeTruthy();
+    expect(script).toContain('add_track(1, 2)');
   });
 
   it('generates script without track path when not provided', () => {
@@ -180,8 +180,8 @@ describe('genAnimationTrackAdd', () => {
 describe('genAnimationTrackRemove', () => {
   it('generates script with track index', () => {
     const script = genAnimationTrackRemove('root/AP', 'idle', 3);
-    expect(script.includes('remove_track(3)')).toBeTruthy();
-    expect(script.includes('idle')).toBeTruthy();
+    expect(script).toContain('remove_track(3)');
+    expect(script).toContain('idle');
   });
 });
 
@@ -190,15 +190,15 @@ describe('genAnimationTrackRemove', () => {
 describe('genAnimationKeyframeAdd', () => {
   it('generates script with time and value', () => {
     const script = genAnimationKeyframeAdd('root/AP', 'idle', 0, 0.5, 100, 1.0);
-    expect(script.includes('track_insert_key(0, 0.5, 100, 1)')).toBeTruthy();
+    expect(script).toContain('track_insert_key(0, 0.5, 100, 1)');
   });
 
   it('generates script with default transition', () => {
     const script = genAnimationKeyframeAdd('root/AP', 'idle', 0, 1.0, [1, 2, 3], undefined);
     // transition=undefined → 默认 1.0（animation-track.ts:127 `transition ?? 1.0`），JS Number 字符串化为 "1"
     // 定位 track_insert_key 第 4 参 transition 的实际默认值，而非恒真的 includes('1')
-    expect(script.includes('track_insert_key(0, 1, Vector3(1, 2, 3), 1)')).toBeTruthy();
-    expect(script.includes('Vector3(1, 2, 3)')).toBeTruthy();
+    expect(script).toContain('track_insert_key(0, 1, Vector3(1, 2, 3), 1)');
+    expect(script).toContain('Vector3(1, 2, 3)');
   });
 });
 
@@ -207,7 +207,7 @@ describe('genAnimationKeyframeAdd', () => {
 describe('genAnimationKeyframeRemove', () => {
   it('generates script with track and keyframe index', () => {
     const script = genAnimationKeyframeRemove('root/AP', 'idle', 0, 2);
-    expect(script.includes('track_remove_key(0, 2)')).toBeTruthy();
+    expect(script).toContain('track_remove_key(0, 2)');
   });
 });
 
@@ -216,12 +216,12 @@ describe('genAnimationKeyframeRemove', () => {
 describe('genAnimationKeyframeUpdate', () => {
   it('generates script with value update', () => {
     const script = genAnimationKeyframeUpdate('root/AP', 'idle', 0, 1, 200, undefined);
-    expect(script.includes('track_set_key_value(0, 1, 200)')).toBeTruthy();
+    expect(script).toContain('track_set_key_value(0, 1, 200)');
   });
 
   it('generates script with transition update', () => {
     const script = genAnimationKeyframeUpdate('root/AP', 'idle', 0, 1, undefined, 0.5);
-    expect(script.includes('track_set_key_transition(0, 1, 0.5)')).toBeTruthy();
+    expect(script).toContain('track_set_key_transition(0, 1, 0.5)');
   });
 });
 
@@ -230,17 +230,17 @@ describe('genAnimationKeyframeUpdate', () => {
 describe('genAnimationCurve', () => {
   it('generates script with in_handle', () => {
     const script = genAnimationCurve('root/AP', 'idle', 0, 0, { x: 0.1, y: 0.2 }, undefined);
-    expect(script.includes('track_set_key_in_handle(0, 0, Vector2(0.1, 0.2))')).toBeTruthy();
+    expect(script).toContain('track_set_key_in_handle(0, 0, Vector2(0.1, 0.2))');
   });
 
   it('generates script with out_handle', () => {
     const script = genAnimationCurve('root/AP', 'idle', 0, 0, undefined, { x: 0.3, y: 0.4 });
-    expect(script.includes('track_set_key_out_handle(0, 0, Vector2(0.3, 0.4))')).toBeTruthy();
+    expect(script).toContain('track_set_key_out_handle(0, 0, Vector2(0.3, 0.4))');
   });
 
   it('generates script with both handles', () => {
     const script = genAnimationCurve('root/AP', 'idle', 0, 0, { x: 1, y: 2 }, { x: 3, y: 4 });
-    expect(script.includes('track_set_key_in_handle')).toBeTruthy();
-    expect(script.includes('track_set_key_out_handle')).toBeTruthy();
+    expect(script).toContain('track_set_key_in_handle');
+    expect(script).toContain('track_set_key_out_handle');
   });
 });

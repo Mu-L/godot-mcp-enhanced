@@ -1,11 +1,8 @@
 import { expect, it, beforeEach, describe, vi } from 'vitest';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
-    outputs: [], raw_output: '', duration_ms: 100,
-  })),
+  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult())),
 }));
 
 vi.mock('../src/helpers.js', () => ({

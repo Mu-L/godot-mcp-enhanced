@@ -2,7 +2,7 @@
 
 > Free · Open Source · Secure — a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture + runtime control**.
 
-An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 28 MCP tools (merged, each with multiple actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
+An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 35 MCP tools (merged, with 200+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
 
 > **Tool descriptions are in Chinese** (serving the Chinese Godot developer community; i18n PRs welcome). This English README covers positioning, comparison, security, and setup; for the full per-action tool list see the [Chinese README](README.md) and [capability-matrix](docs/capability-matrix.md).
 
@@ -17,7 +17,7 @@ An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool 
 |---|:---:|:---:|:---:|:---:|
 | Price | **Free** | $15 one-time [^p1] | $19 one-time [^p2] | Free [^p3] |
 | Open Source | **✅ MIT** | ❌ server precompiled/closed [^p1] | ❌ [^p2] | ✅ [^p3] |
-| Tools | **28** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| Tools | **35** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — |
 | Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **Runtime control (engine-level)** | **✅ game bridge: live state / input simulation / record-replay / frame-verify** | ❌ file & editor only | ❌ | ❌ |
@@ -44,7 +44,7 @@ As of 2026-06-28, systematic security features are rare among Godot MCP solution
 - **GDScript injection defense** — dangerous-API pattern scanning + string-concatenation bypass detection
 - **Confirm tokens for dangerous ops** — node deletion etc. require explicit confirmation
 - **Output anti-forgery** — random per-execution marker prevents GDScript from forging MCP output
-- **Local-only** — no remote exposure, no third-party data upload
+- **Local-only** — no remote exposure, no third-party data upload (note: update-checker queries npm registry on startup, see "Anonymous Telemetry" below)
 
 <details>
 <summary><b>⚠️ Honest boundaries (read before relying on this)</b></summary>
@@ -56,6 +56,19 @@ The above is a **mistake-prevention layer**, not an unbreakable security boundar
 - This tool is **for local trusted environments only**; no remote attestation or encryption.
 
 </details>
+
+## Anonymous Telemetry (off by default)
+
+**Opt-in, zero egress by default.** Only enabled when `GODOT_MCP_TELEMETRY=true` is set explicitly; Stage 0 endpoint defaults to empty = **no data leaves the process**.
+
+- **What we collect**: tool name + success bool + duration_ms + error category (whitelist-sanitized, not raw text) + salted sha256 project hash (irreversible)
+- **Never collected**: source code / scene content / file paths / project names / editor logs / email, IP, account
+- **Install UUID lives at**: `~/.godot-mcp/telemetry-uuid.txt` (POSIX 0o600)
+- **CI forced off**: `CI=true` ignores the opt-in even if set
+
+> **⚠️ Honest disclosure — update-checker egress**: every MCP server startup passively fetches `https://registry.npmjs.org/godot-mcp-enhanced/latest` from `src/core/update-checker.ts:13,86` (24h cache). This is unrelated to telemetry but does send data off-host, and **currently has no env gate** (confirmed via `grep GODOT_MCP_UPDATE_CHECK src/` — zero matches). This conflicts with the "zero egress by default" claim; an env gate is deferred to a future PR. Workarounds: pre-seed `~/.godot-mcp/update-cache.json`, or firewall-block. See [`docs/telemetry.md`](docs/telemetry.md).
+>
+> **Proxy environment variables**: update-checker's npm registry fetch respects `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment variables (Node's default `trustEnv`). In enterprise proxy environments, requests go through the proxy; to fully block, set `NO_PROXY=registry.npmjs.org` or use firewall rules. **Intentionally not setting `trustEnv: false`**—doing so would break update checks for legitimate enterprise proxy users.
 
 ## Core Capabilities
 
@@ -96,9 +109,9 @@ Following agentic-skills methodology (e.g. obra/superpowers), this project ships
 
 Each workflow ships with a checklist + common-deviation tips, keeping AI on-rails and reducing footguns.
 
-## Tools (28)
+## Tools (35)
 
-> **28 MCP tools** (merged tool definitions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
+> **35 MCP tools** (merged tool definitions, 200+ actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
 
 ## MCP Resources
 

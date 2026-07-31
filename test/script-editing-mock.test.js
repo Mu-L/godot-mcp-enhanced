@@ -1,15 +1,13 @@
 import { expect, it, beforeEach, afterEach, describe, vi } from 'vitest';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 // Mock the executor — hoisted to top by Vitest
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
+  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult({
     outputs: [{ key: 'result', value: '{"validated":1,"total_errors":0}' }],
-    raw_output: '', duration_ms: 100,
-  })),
+  }))),
   parseMcpMarkers: vi.fn((raw) => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
@@ -77,7 +75,7 @@ describe('Level B: Script editing', () => {
     }, ctx);
     expect(!result.isError).toBeTruthy();
     const content = readFileSync(join(dirRef.path, scriptPath), 'utf-8');
-    expect(content.includes('edited')).toBeTruthy();
+    expect(content).toContain('edited');
   });
 
   // 用例 3: validate_scripts — 合法脚本应通过验证
@@ -142,7 +140,7 @@ describe('Level B: Script editing', () => {
       script_path: 'res://scripts/res_read_test.gd',
     }, ctx);
     expect(!result.isError).toBeTruthy();
-    expect(result.content[0].text.includes('test comment')).toBeTruthy();
+    expect(result.content[0].text).toContain('test comment');
   });
 
   it('edit_script with res:// prefix and path traversal fails', async () => {
@@ -179,7 +177,7 @@ describe('Level B: Script editing', () => {
     expect(!result.isError).toBeTruthy();
     const content = readFileSync(join(dirRef.path, 'scripts', 'space_indent.gd'), 'utf-8');
     // 新内容应保持 2 空格缩进（与原文件一致）
-    expect(content.includes('  print("positive")')).toBeTruthy();
+    expect(content).toContain('  print("positive")');
   });
 
   // #6 smart indent: tab 缩进文件行为不变（向后兼容）
@@ -195,7 +193,7 @@ describe('Level B: Script editing', () => {
     }, ctx);
     expect(!result.isError).toBeTruthy();
     const content = readFileSync(join(dirRef.path, 'scripts', 'main.gd'), 'utf-8');
-    expect(content.includes('\tpass')).toBeTruthy();
+    expect(content).toContain('\tpass');
   });
 
   // #3 级联删除信息: parse error 应显示结构化行号和标识符
@@ -220,12 +218,12 @@ describe('Level B: Script editing', () => {
     }, ctx);
     const text = result.content?.[0]?.text || '';
     // 应包含结构化行号信息
-    expect(text.includes('Line 15')).toBeTruthy();
-    expect(text.includes('Line 23')).toBeTruthy();
+    expect(text).toContain('Line 15');
+    expect(text).toContain('Line 23');
     // 应包含标识符
-    expect(text.includes('MAX_SPEED')).toBeTruthy();
-    expect(text.includes('calc_damage')).toBeTruthy();
+    expect(text).toContain('MAX_SPEED');
+    expect(text).toContain('calc_damage');
     // 文件应被恢复到原始状态
-    expect(text.includes('Original file restored')).toBeTruthy();
+    expect(text).toContain('Original file restored');
   });
 });

@@ -1,9 +1,47 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, statSync, renameSync } from 'fs';
 import { randomUUID } from 'crypto';
+import { dirname, basename, join } from 'path';
 
 /** 去除 UTF-8 BOM（Windows 工具有时写入 BOM，会破坏 JSON.parse）。 */
 export function stripBom(raw: string): string {
   return raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+}
+
+/**
+ * C1 env 白名单前缀（对齐 buildSafeEnv 前缀策略，见 src/helpers.ts）。
+ *
+ * - `ALLOWED_PROJECT_PATHS`：用户显式配的项目路径白名单，重跑 setup 静默丢失会破坏 MCP 服务器定位项目。
+ * - `GODOT_MCP_BRIDGE_`：bridge 运行时配置子命名空间（如 GODOT_MCP_BRIDGE_PERSISTENT_SECRET / *_EXTRA_METHODS），
+ *   非用户凭证。丢失会使 mcp_bridge.gd 的对应开关失效。
+ * - `GODOT_MCP_EDITOR_`：editor 插件运行时配置子命名空间（对称设计），丢失同样破坏插件行为。
+ *
+ * 安全侧：服务端安全/沙箱开关（GODOT_MCP_UNRESTRICTED / GODOT_MCP_ALLOW_UNSAFE /
+ * ALLOW_EXECUTE_GDSCRIPT）刻意不在白名单内 —— 子进程不能自行解锁限制。
+ */
+const ENV_PRESERVE_PREFIXES = ['ALLOWED_PROJECT_PATHS', 'GODOT_MCP_BRIDGE_', 'GODOT_MCP_EDITOR_'] as const;
+
+/**
+ * C1: 构建 MCP server env，保留旧 env 中白名单前缀的用户配置（防 reconfigure 静默丢失）。
+ *
+ * 13 adapter 旧实现 `env: { GODOT_PATH: godotPath }` 完全覆盖 oldEntry.env —— 用户配的
+ * ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_* 重跑 setup 后静默丢失，复发 DEFECT
+ * cli-configure-env-field-overwrite。本 helper 仅保留白名单前缀且值为 string 的条目，
+ * 其余（含脏值/非 string）过滤。
+ *
+ * @param godotPath 必填，始终写入 GODOT_PATH
+ * @param oldEnv 旧 entry 的 env/environment 字段（Record<string, unknown>）；undefined 时仅含 GODOT_PATH
+ * @returns 新 env 对象（GODOT_PATH + 白名单保留项）
+ */
+export function buildEnv(godotPath: string, oldEnv?: Record<string, unknown>): Record<string, string> {
+  const env: Record<string, string> = { GODOT_PATH: godotPath };
+  if (oldEnv) {
+    for (const [k, v] of Object.entries(oldEnv)) {
+      if (ENV_PRESERVE_PREFIXES.some(p => k === p || k.startsWith(p)) && typeof v === 'string') {
+        env[k] = v;
+      }
+    }
+  }
+  return env;
 }
 
 /**
@@ -50,4 +88,29 @@ export function readJsonForCheck(filePath: string): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+/**
+ * 原子写入配置文件并保持原有文件 mode（F3: adapter-no-mode-preserve）。
+ *
+ * 13 adapter 旧实现 `writeFileSync(tmpPath, data, 'utf-8')` 第三参是 encoding 非 mode，
+ * tmp 默认 0o666 & ~umask，rename 后覆盖原文件 mode（用户 `chmod 0o600` 的配置被破坏）。
+ *
+ * 本 helper 先读原文件 mode，显式传给 writeFileSync：
+ * - 原文件存在 → mode & 0o777 传给 tmp，rename 后保持
+ * - 原文件不存在（首次创建）→ statSync 抛 ENOENT，fallback 用 writeFileSync 默认 mode
+ *
+ * 跨平台：Windows stat.mode 无业务意义（仅只读位生效），mode 保持等于 no-op，无副作用；
+ * Unix 修复 mode 丢失。
+ */
+export function writeFileAtomicWithMode(configPath: string, data: string): void {
+  const tmpPath = join(dirname(configPath), `.${basename(configPath)}.${randomUUID()}.tmp`);
+  let mode: number | undefined;
+  try {
+    mode = statSync(configPath).mode & 0o777;
+  } catch {
+    // 文件不存在(首次写入) → 跳过 mode 保持,用 writeFileSync 默认 mode
+  }
+  writeFileSync(tmpPath, data, mode !== undefined ? { mode, encoding: 'utf-8' } : 'utf-8');
+  renameSync(tmpPath, configPath);
 }

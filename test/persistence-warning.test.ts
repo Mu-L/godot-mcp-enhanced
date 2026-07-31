@@ -10,18 +10,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../src/types.js';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
-const SUCCESS_RESULT = {
-  success: true,
-  compile_success: true,
-  compile_error: '',
-  errors: [],
-  run_success: true,
-  run_error: '',
+const SUCCESS_RESULT = mockSuccessResult({
   outputs: [{ key: 'result', value: '{"ok":true}' }],
-  raw_output: '',
-  duration_ms: 100,
-};
+});
 
 vi.mock('../src/gdscript-executor.js', () => ({
   executeGdscript: vi.fn(async () => SUCCESS_RESULT),

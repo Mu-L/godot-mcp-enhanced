@@ -44,3 +44,23 @@ describe('C2/C6/C7/C8 TS 正确性', () => {
     expect(helper).toMatch(/ends_with\("\.tmp\.tres"\)/);
   });
 });
+
+// N2 nav status 动态派生（C-T2：C-Correctness 第 2 条）
+describe('N2 nav status 派生（反硬编码）', () => {
+  it('N2: bake status derived from success/_bake_state (not hardcoded)', () => {
+    const gd = readFileSync('addons/godot_mcp_server/commands/nav_commands.gd', 'utf-8');
+    // 正向：sync 分支按 success 派生（GDScript 三元：value if cond else value）
+    expect(gd).toMatch(/"status":\s*"bake_completed"\s+if\s+success\s+else\s+"bake_failed"/);
+    // 正向：async 分支按 _bake_state["done"] 派生
+    expect(gd).toMatch(/"status":\s*"bake_completed"\s+if\s+_bake_state\["done"\]\s+else\s+"bake_timeout"/);
+    // 反向：不再有行末纯字面量 "status": "bake_completed"（后面没有 if/else）
+    // 允许三元表达式中出现 bake_completed
+    const lines = gd.split('\n');
+    const hardcodedLines = lines.filter(line =>
+      line.includes('"status": "bake_completed"') &&
+      !line.includes(' if ') &&
+      !line.includes(' else ')
+    );
+    expect(hardcodedLines.length).toBe(0);
+  });
+});

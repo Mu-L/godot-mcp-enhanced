@@ -3,20 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 // ─── Mock gdscript-executor ────────────────────────────────────────────────
 vi.mock('../src/gdscript-executor.js', () => ({
   scanGdscriptSandbox: vi.fn(() => []),
-  executeGdscript: vi.fn(async () => ({
-    success: true,
-    compile_success: true,
-    compile_error: '',
-    errors: [],
-    run_success: true,
-    run_error: '',
+  executeGdscript: vi.fn(async () => mockSuccessResult({
     outputs: [{ key: 'perf', value: '{"orphan_node_count":5,"static_memory_mb":50.0,"resource_count":120}' }],
-    raw_output: '',
-    duration_ms: 100,
   })),
 }));
 
@@ -87,7 +80,7 @@ describe('delivery tool definitions', () => {
   it('verify_delivery is in tool definitions', async () => {
     const tools = getToolDefinitions();
     const names = tools.map(t => t.name);
-    expect(names.includes('verify_delivery')).toBeTruthy();
+    expect(names).toContain('verify_delivery');
     expect(tools.length).toBe(1);
   });
 
@@ -96,7 +89,7 @@ describe('delivery tool definitions', () => {
     expect(tool.inputSchema).toBeTruthy();
     expect(tool.description).toBeTruthy();
     const required = tool.inputSchema.required;
-    expect(required.includes('scope')).toBeTruthy();
+    expect(required).toContain('scope');
   });
 
   it('scope accepts scene, script, full', async () => {

@@ -160,6 +160,69 @@ function injectTags(defs: Tool[]): Tool[] {
   });
 }
 
+// ─── P2-11: slimSchema pass（schema 瘦身，消除 check-token-budget WARN）──────
+// 方案 A（深度对比①）：超阈值的工具把"低频 action 专属参数"从 properties 移到 description，
+// 参数仍可通过 additionalProperties 传入（LLM 按 description 提示构造）。
+// 不改运行时行为：handler 仍从 args 读这些参数，只是 schema 不再逐字段声明。
+//
+// 设计：配置驱动（非启发式自动识别——后者太脆弱）。SLIM_CONFIG 按 toolName 列出要移除的
+// 参数 + 追加到 description 的提示文本。阈值 SLIM_THRESHOLD_BYTES 决定哪些工具触发瘦身。
+const SLIM_THRESHOLD_BYTES = 8000;
+
+const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: string }> = {
+  ui: {
+    // theme 系列 11 个参数（theme_action/theme_path/params/theme_create_action/
+    // source_node_path/save_path/theme_node_path/item_type/prop_name/theme_type/value）
+    // 只服务 theme_create/theme_set_property/ui_set_theme 三个 action，但对所有 action 暴露。
+    // tree（build_layout 专属）+ ops（draw_recipe 专属）是复杂嵌套结构，体积最大。
+    removeProps: [
+      'theme_action', 'theme_path', 'params', 'theme_create_action', 'source_node_path',
+      'save_path', 'theme_node_path', 'item_type', 'prop_name', 'theme_type', 'value',
+      'tree', 'ops',
+    ],
+    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}])',
+  },
+};
+
+/**
+ * 对超阈值的工具瘦身：移除 action 专属参数，追加 description 提示。
+ * 幂等：已瘦身的工具（无配置或未超阈值）原样返回。
+ */
+function slimSchema(defs: Tool[]): Tool[] {
+  return defs.map(def => {
+    const config = SLIM_CONFIG[def.name];
+    if (!config) return def;
+    const schemaStr = JSON.stringify(def.inputSchema);
+    if (Buffer.byteLength(schemaStr, 'utf8') < SLIM_THRESHOLD_BYTES) return def;
+
+    // 保留 inputSchema 完整结构（type/required 等），只替换 properties
+    const inputSchema = def.inputSchema as {
+      type: 'object';
+      properties?: Record<string, unknown>;
+      required?: string[];
+      [k: string]: unknown;
+    };
+    if (!inputSchema?.properties) return def;
+
+    const removed: string[] = [];
+    const newProperties: Record<string, object> = {};
+    for (const [key, value] of Object.entries(inputSchema.properties)) {
+      if (config.removeProps.includes(key)) {
+        removed.push(key);
+      } else {
+        newProperties[key] = value as object;
+      }
+    }
+    if (removed.length === 0) return def;
+
+    return {
+      ...def,
+      description: def.description + config.descHint,
+      inputSchema: { ...inputSchema, properties: newProperties },
+    };
+  });
+}
+
 let registered = false;
 
 /** Register all tool modules into the global registry. Idempotent — safe to call multiple times. */
@@ -171,7 +234,7 @@ export function registerAllModules(): void {
     const wrappedMod = {
       ...mod,
       TOOL_META: mod.TOOL_META,
-      getToolDefinitions: () => injectTags(originalGetDefs.call(mod)),
+      getToolDefinitions: () => slimSchema(injectTags(originalGetDefs.call(mod))),
     };
     registerModule(wrappedMod);
   }

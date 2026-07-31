@@ -74,7 +74,8 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
 
-const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；bake_mesh 路径用 110000（见 _async）
+const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；nav_create_region 用
+const BAKE_MESH_WAIT_TIMEOUT_MS := 110000  # bake_mesh 长 timeout（> client 30s；GD coroutine orphan 由 §10 peer 守卫兜底）
 
 # nav_create_region async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
 # Task 0 实测 is_baking/baking 属性不存在（BAKING_PROPS 空），改用 bake_finished 信号 +
@@ -106,7 +107,7 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 
 	# bake_finished 信号先连接（避 commit/add_child 路径触发 bake 后丢信号）
 	var _bake_state = {"done": false}
-	var _cb: Callable = Callable()
+	var _cb: Callable  # want_bake=false 时保持默认空 Callable（类型系统隐式默认），不显式赋 Callable()
 	if want_bake:
 		_cb = func() -> void: _bake_state["done"] = true
 		nav.bake_finished.connect(_cb)
@@ -133,8 +134,7 @@ func handle_nav_create_region_async(params: Dictionary, request_id: int) -> Dict
 		var _deadline: int = Time.get_ticks_msec() + BAKE_WAIT_TIMEOUT_MS
 		while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 			if not is_instance_valid(nav):
-				if nav.bake_finished.is_connected(_cb):
-					nav.bake_finished.disconnect(_cb)
+				# N1: freed 对象不碰信号（信号随对象释放自动断开），直接 return（对齐 headless navigation.ts:45）
 				return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
 			await get_tree().process_frame
 		if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
@@ -159,7 +159,7 @@ func handle_nav_bake_mesh(params: Dictionary) -> Dictionary:
 
 	node.bake_navigation_mesh()
 	var success = node.navigation_mesh != null
-	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
+	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if success else "bake_failed"}}
 
 # nav_bake_mesh async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
 # 110s 是 GD 兜底窗口；client requestTimeoutMs=30s（EditorConnection.ts:152），bake_mesh 110s > 30s
@@ -182,20 +182,21 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	nav.bake_finished.connect(_cb)
 	nav.bake_navigation_mesh()
 
-	# §6 fallback: bake_finished 信号 + timer 竞速（deadline 110000ms 量级）
-	var _deadline: int = Time.get_ticks_msec() + 110000
+	# §6 fallback: bake_finished 信号 + timer 竞速（BAKE_MESH_WAIT_TIMEOUT_MS 量级）
+	var _deadline: int = Time.get_ticks_msec() + BAKE_MESH_WAIT_TIMEOUT_MS
 	while not _bake_state["done"] and Time.get_ticks_msec() < _deadline:
 		if not is_instance_valid(nav):
-			if nav.bake_finished.is_connected(_cb):
-				nav.bake_finished.disconnect(_cb)
+			# N1: freed 对象不碰信号（信号随对象释放自动断开），直接 return（对齐 headless navigation.ts:45）
 			return {"error": {"code": -32003, "message": "NavigationRegion3D freed during bake"}}
 		await get_tree().process_frame
 	if is_instance_valid(nav) and nav.bake_finished.is_connected(_cb):
 		nav.bake_finished.disconnect(_cb)
 	if not _bake_state["done"]:
 		push_warning("[MCP] nav bake_mesh deadline exhausted — bake_result 退化乐观")
-	var success: bool = nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
-	return {"result": {"node": node_path, "success": success, "status": "bake_completed"}}
+	# N1 补全：对齐 :144（create_region_async 末行）。循环内/freed 分支已守，但 deadline 耗尽退出后
+	# nav 可能被并发 peer 删除（MAX_PEERS=5），末行属性访问须先 is_instance_valid 否则 SCRIPT ERROR。
+	var success: bool = is_instance_valid(nav) and nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
+	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if _bake_state["done"] else "bake_timeout"}}
 
 func handle_nav_create_agent(params: Dictionary, request_id: int) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
@@ -253,39 +254,49 @@ func handle_nav_set_params(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32004, "message": "params must be a dictionary"}}
 
 	var agent: NavigationAgent3D = node
+	var do_ops: Array = []
+	var undo_ops: Array = []
 	var updated = []
 
 	if raw_params.has("path_desired_distance"):
-		agent.path_desired_distance = float(raw_params["path_desired_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "path_desired_distance", float(raw_params["path_desired_distance"]))
 		updated.append("path_desired_distance")
 	if raw_params.has("target_desired_distance"):
-		agent.target_desired_distance = float(raw_params["target_desired_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "target_desired_distance", float(raw_params["target_desired_distance"]))
 		updated.append("target_desired_distance")
 	if raw_params.has("radius"):
-		agent.radius = float(raw_params["radius"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "radius", float(raw_params["radius"]))
 		updated.append("radius")
 	if raw_params.has("height"):
-		agent.height = float(raw_params["height"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "height", float(raw_params["height"]))
 		updated.append("height")
 	if raw_params.has("max_speed"):
-		agent.max_speed = float(raw_params["max_speed"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "max_speed", float(raw_params["max_speed"]))
 		updated.append("max_speed")
 	if raw_params.has("avoidance_enabled"):
-		agent.avoidance_enabled = raw_params["avoidance_enabled"]
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "avoidance_enabled", raw_params["avoidance_enabled"])
 		updated.append("avoidance_enabled")
 	if raw_params.has("neighbor_distance"):
-		agent.neighbor_distance = float(raw_params["neighbor_distance"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "neighbor_distance", float(raw_params["neighbor_distance"]))
 		updated.append("neighbor_distance")
 	if raw_params.has("max_neighbors"):
-		agent.max_neighbors = int(raw_params["max_neighbors"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "max_neighbors", int(raw_params["max_neighbors"]))
 		updated.append("max_neighbors")
 	if raw_params.has("time_horizon_agents"):
-		agent.time_horizon_agents = float(raw_params["time_horizon_agents"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "time_horizon_agents", float(raw_params["time_horizon_agents"]))
 		updated.append("time_horizon_agents")
 	if raw_params.has("time_horizon_obstacles"):
-		agent.time_horizon_obstacles = float(raw_params["time_horizon_obstacles"])
+		CommandHelpers._record_prop(do_ops, undo_ops, agent, "time_horizon_obstacles", float(raw_params["time_horizon_obstacles"]))
 		updated.append("time_horizon_obstacles")
 
+	if do_ops.is_empty():
+		return {"error": {"code": -32004, "message": "no valid nav params to set"}}
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("Set NavAgent Params", do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			op["target"].set(op["property"], op["value"])
 	return {"result": {"node": node_path, "updated": updated, "status": "params_set"}}
 
 func handle_nav_create_link(params: Dictionary, request_id: int) -> Dictionary:

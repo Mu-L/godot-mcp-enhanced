@@ -95,59 +95,70 @@ func handle_ui_set_layout(params: Dictionary, request_id: int = 0) -> Dictionary
 		return {"error": {"code": -32004, "message": "Node is not a Control: " + node.get_class()}}
 
 	var ctrl: Control = node
+	# F2(2026-07-29 报告5): anchors/offsets/min_size/grow_direction 改 _record_prop 聚合 property op
+	# 进 create_action_mixed，Ctrl+Z 可撤销（原直接赋值无 undo）。
+	var do_ops: Array = []
+	var undo_ops: Array = []
 
 	var anchors = params.get("anchors")
 	if anchors != null and anchors is Dictionary:
 		if anchors.has("left"):
-			ctrl.anchor_left = float(anchors["left"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_left", float(anchors["left"]))
 		if anchors.has("right"):
-			ctrl.anchor_right = float(anchors["right"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_right", float(anchors["right"]))
 		if anchors.has("top"):
-			ctrl.anchor_top = float(anchors["top"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_top", float(anchors["top"]))
 		if anchors.has("bottom"):
-			ctrl.anchor_bottom = float(anchors["bottom"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "anchor_bottom", float(anchors["bottom"]))
 
 	var offsets = params.get("offsets")
 	if offsets != null and offsets is Dictionary:
 		if offsets.has("left"):
-			ctrl.offset_left = float(offsets["left"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_left", float(offsets["left"]))
 		if offsets.has("right"):
-			ctrl.offset_right = float(offsets["right"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_right", float(offsets["right"]))
 		if offsets.has("top"):
-			ctrl.offset_top = float(offsets["top"])
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_top", float(offsets["top"]))
 		if offsets.has("bottom"):
-			ctrl.offset_bottom = float(offsets["bottom"])
-
-	var min_size = params.get("min_size")
-	if min_size != null and min_size is Dictionary:
-		if min_size.has("x"):
-			ctrl.custom_minimum_size = Vector2(float(min_size["x"]), ctrl.custom_minimum_size.y)
-		if min_size.has("y"):
-			ctrl.custom_minimum_size = Vector2(ctrl.custom_minimum_size.x, float(min_size["y"]))
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "offset_bottom", float(offsets["bottom"]))
 
 	var custom_minimum_size = params.get("custom_minimum_size")
 	if custom_minimum_size != null and custom_minimum_size is Dictionary:
 		var cx = float(custom_minimum_size.get("x", ctrl.custom_minimum_size.x))
 		var cy = float(custom_minimum_size.get("y", ctrl.custom_minimum_size.y))
-		ctrl.custom_minimum_size = Vector2(cx, cy)
+		CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "custom_minimum_size", Vector2(cx, cy))
+	else:
+		var min_size = params.get("min_size")
+		if min_size != null and min_size is Dictionary:
+			var nx = float(min_size.get("x", ctrl.custom_minimum_size.x))
+			var ny = float(min_size.get("y", ctrl.custom_minimum_size.y))
+			CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "custom_minimum_size", Vector2(nx, ny))
 
 	var grow_direction: String = params.get("grow_direction", "")
 	if grow_direction != "":
 		match grow_direction:
 			"both":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_BOTH
-				ctrl.grow_vertical = Control.GROW_DIRECTION_BOTH
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_BOTH)
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_BOTH)
 			"up":
-				ctrl.grow_vertical = Control.GROW_DIRECTION_BEGIN
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_BEGIN)
 			"down":
-				ctrl.grow_vertical = Control.GROW_DIRECTION_END
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_vertical", Control.GROW_DIRECTION_END)
 			"left":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_BEGIN)
 			"right":
-				ctrl.grow_horizontal = Control.GROW_DIRECTION_END
+				CommandHelpers._record_prop(do_ops, undo_ops, ctrl, "grow_horizontal", Control.GROW_DIRECTION_END)
 			_:
 				return {"error": {"code": -32004, "message": "Invalid grow_direction: " + grow_direction}}
 
+	if do_ops.is_empty():
+		return {"error": {"code": -32004, "message": "no layout params to set"}}
+
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("UI Set Layout", do_ops, undo_ops)
+	else:
+		for op in do_ops:
+			op["target"].set(op["property"], op["value"])
 	return {"result": {"node": node_path, "status": "layout_set"}}
 
 # ─── ui_get_layout ──────────────────────────────────────────────────────────
@@ -217,8 +228,22 @@ func handle_ui_anchor_preset(params: Dictionary, request_id: int = 0) -> Diction
 		return {"error": {"code": -32004, "message": "Unknown preset: " + preset + ". Available: " + str(preset_map.keys())}}
 
 	var ctrl: Control = node
-	ctrl.set_anchors_preset(preset_map[preset])
-
+	# F2(2026-07-29 报告5): set_anchors_preset 改 method op 进 create_action_mixed，
+	# undo 记旧 4 anchors property op；Ctrl+Z 回滚（原直接调用无 undo）。
+	# anchor preset 改 anchor_left/right/top/bottom 四属性；记旧值供 undo
+	var do_ops: Array = [
+		{"type": "method", "target": ctrl, "method": "set_anchors_preset", "args": [preset_map[preset]]},
+	]
+	var undo_ops: Array = [
+		{"type": "property", "target": ctrl, "property": "anchor_left", "value": ctrl.anchor_left},
+		{"type": "property", "target": ctrl, "property": "anchor_right", "value": ctrl.anchor_right},
+		{"type": "property", "target": ctrl, "property": "anchor_top", "value": ctrl.anchor_top},
+		{"type": "property", "target": ctrl, "property": "anchor_bottom", "value": ctrl.anchor_bottom},
+	]
+	if _undo_manager != null:
+		_undo_manager.create_action_mixed("UI Anchor Preset", do_ops, undo_ops)
+	else:
+		ctrl.set_anchors_preset(preset_map[preset])
 	return {"result": {"node": node_path, "preset": preset, "status": "preset_applied"}}
 
 # ─── ui_set_theme ───────────────────────────────────────────────────────────
@@ -240,14 +265,24 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 
 	match action:
 		"create":
-			var theme = Theme.new()
-			ctrl.theme = theme
+			# F2(2026-07-29 报告5): ctrl.theme 改走 create_action_mixed（property op），Ctrl+Z 回滚旧 theme。
+			var new_theme = Theme.new()
+			if _undo_manager != null:
+				_undo_manager.create_action_mixed("UI Theme Create",
+					[{"type": "property", "target": ctrl, "property": "theme", "value": new_theme}],
+					[{"type": "property", "target": ctrl, "property": "theme", "value": ctrl.theme}])
+			else:
+				ctrl.theme = new_theme
 		"set_params":
 			var theme = ctrl.theme
 			if theme == null:
 				return {"error": {"code": -32004, "message": "Node has no theme assigned"}}
 			var p = params.get("params")
 			if p != null and p is Dictionary:
+				# F2(2026-07-29 报告5): theme.set(key,val) 累积 method op，循环后一次 create_action_mixed，
+				# undo 记 theme.get(key) 旧值；Ctrl+Z 回滚每个 set。未设时 get 返默认值（ADVISORY 级可接受）。
+				var t_do: Array = []
+				var t_undo: Array = []
 				for key in p:
 					if not key is String:
 						continue
@@ -259,7 +294,13 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 					# C13: 校验 key 是 Theme 有效属性（避免 silent no-op / 动态属性污染）
 					if not _theme_has_property(theme, String(key)):
 						continue
-					theme.set(key, val)
+					t_undo.append({"type": "method", "target": theme, "method": "set", "args": [String(key), theme.get(key)]})
+					t_do.append({"type": "method", "target": theme, "method": "set", "args": [String(key), val]})
+				if not t_do.is_empty() and _undo_manager != null:
+					_undo_manager.create_action_mixed("UI Theme Set Params", t_do, t_undo)
+				else:
+					for op in t_do:
+						op["target"].callv("set", op["args"])
 		"save":
 			var theme = ctrl.theme
 			if theme == null:
@@ -281,7 +322,13 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 			var res = load(load_path)
 			if res == null:
 				return {"error": {"code": -32000, "message": "Failed to load theme from: " + load_path}}
-			ctrl.theme = res
+			# F2(2026-07-29 报告5): ctrl.theme=res 改走 create_action_mixed（property op），Ctrl+Z 回滚旧 theme。
+			if _undo_manager != null:
+				_undo_manager.create_action_mixed("UI Theme Load",
+					[{"type": "property", "target": ctrl, "property": "theme", "value": res}],
+					[{"type": "property", "target": ctrl, "property": "theme", "value": ctrl.theme}])
+			else:
+				ctrl.theme = res
 		_:
 			return {"error": {"code": -32004, "message": "Invalid action: " + action + ". Must be: set_params, create, save, load"}}
 
@@ -344,6 +391,8 @@ func handle_ui_container_add(params: Dictionary, request_id: int) -> Dictionary:
 
 # ─── theme_create ───────────────────────────────────────────────────────────
 
+# F2(2026-07-29): theme_create 只 Theme.new()+可选 save 文件，不赋给节点 ctrl.theme（不改场景树持久属性），
+# 故不需 undo（Ctrl+Z 无意义）。报告5 F2 列其为误判，本批排除。
 func handle_theme_create(params: Dictionary) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:
@@ -421,6 +470,10 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 	var prop_name: String = params.get("name", "")
 	var theme_type: String = params.get("theme_type", "")
 	var value = params.get("value")
+	# F2(2026-07-29 报告5): 各 theme.set_xxx 累积 method op（do+旧值 undo），match 后一次 create_action_mixed。
+	# 旧值取法：theme.get_color/get_constant/get_default_font/get_stylebox；未设时返默认值（ADVISORY 级可接受）。
+	var t_do: Array = []
+	var t_undo: Array = []
 
 	match item_type:
 		"default_font":
@@ -431,16 +484,20 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var font = load(font_path)
 			if font == null:
 				return {"error": {"code": -32004, "message": "Failed to load font: " + font_path}}
-			theme.set_default_font(font)
+			t_do.append({"type": "method", "target": theme, "method": "set_default_font", "args": [font]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_default_font", "args": [theme.get_default_font()]})
 		"color":
 			var c = value
 			if c is Array and c.size() >= 3:
 				var a = float(c[3]) if c.size() >= 4 else 1.0
-				theme.set_color(prop_name, theme_type, Color(float(c[0]), float(c[1]), float(c[2]), a))
+				var new_col = Color(float(c[0]), float(c[1]), float(c[2]), a)
+				t_do.append({"type": "method", "target": theme, "method": "set_color", "args": [prop_name, theme_type, new_col]})
+				t_undo.append({"type": "method", "target": theme, "method": "set_color", "args": [prop_name, theme_type, theme.get_color(prop_name, theme_type)]})
 			else:
 				return {"error": {"code": -32004, "message": "Color value must be array [r, g, b] or [r, g, b, a]"}}
 		"constant":
-			theme.set_constant(prop_name, theme_type, int(value))
+			t_do.append({"type": "method", "target": theme, "method": "set_constant", "args": [prop_name, theme_type, int(value)]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_constant", "args": [prop_name, theme_type, theme.get_constant(prop_name, theme_type)]})
 		"stylebox":
 			var sb_path: String = str(value)
 			if not _validate_resource_path(sb_path):
@@ -449,8 +506,16 @@ func handle_theme_set_property(params: Dictionary) -> Dictionary:
 			var sb = load(sb_path)
 			if sb == null:
 				return {"error": {"code": -32004, "message": "Failed to load stylebox: " + sb_path}}
-			theme.set_stylebox(prop_name, theme_type, sb)
+			# F2(2026-07-29): 对称追加 set_stylebox method op + theme.get_stylebox 旧值（保持资源路径校验）。
+			t_do.append({"type": "method", "target": theme, "method": "set_stylebox", "args": [prop_name, theme_type, sb]})
+			t_undo.append({"type": "method", "target": theme, "method": "set_stylebox", "args": [prop_name, theme_type, theme.get_stylebox(prop_name, theme_type)]})
 		_:
 			return {"error": {"code": -32004, "message": "Invalid item_type: " + item_type + ". Must be: default_font, color, constant, stylebox"}}
 
+	if not t_do.is_empty():
+		if _undo_manager != null:
+			_undo_manager.create_action_mixed("UI Theme Set Property", t_do, t_undo)
+		else:
+			for op in t_do:
+				op["target"].callv(op["method"], op["args"])
 	return {"result": {"node": theme_node_path, "item_type": item_type, "name": prop_name, "status": "property_set"}}

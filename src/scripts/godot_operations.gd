@@ -185,44 +185,69 @@ func get_script_by_name(name_of_class: String):
 	log_error("Could not find script for class: " + name_of_class)
 	return null
 
+# headless instantiate_class 类型白名单(合并 node_commands ALLOWED_NODE_TYPES +
+# ui_commands ALLOWED_CONTROL_TYPES + 裸 Control, 移除裸 Node)。
+# 对齐 editor node_commands.gd ALLOWED_NODE_TYPES + ui_commands.gd ALLOWED_CONTROL_TYPES
+# 纯白名单精神(I-4 / IMPORTANT-14)。移除 "Node" 堵 extends Node 恶意脚本 _ready RCE:
+# Node 自身是 Node 的父类 → is_parent_class("Node","Node")=true → base_type="Node" 通过
+# → script.new() 触发 _ready OS.execute RCE(不经 execute_gdscript 沙箱)。
+# 须与 addons/.../commands/node_commands.gd + ui_commands.gd 三处白名单同步(defects detect 守护)。
+const ALLOWED_HEADLESS_TYPES: Array = [
+	"Node3D", "MeshInstance3D", "StaticBody3D", "RigidBody3D",
+	"CharacterBody3D", "Camera3D", "Light3D", "DirectionalLight3D",
+	"OmniLight3D", "SpotLight3D", "CollisionShape3D", "RayCast3D",
+	"Area3D", "Marker3D", "PathFollow3D", "VisibleOnScreenNotifier3D",
+	"Node2D", "Sprite2D", "AnimatedSprite2D",
+	"CollisionShape2D", "Area2D", "RigidBody2D", "CharacterBody2D",
+	"AudioStreamPlayer", "AudioStreamPlayer2D", "AudioStreamPlayer3D",
+	"AnimationPlayer", "AnimationTree", "Timer",
+	"Control",
+	"Button", "Label", "Panel", "LineEdit", "TextEdit", "RichTextLabel",
+	"LinkButton", "HSlider", "VSlider", "CheckBox", "CheckButton",
+	"OptionButton", "SpinBox", "ProgressBar", "TextureRect", "ColorPickerButton",
+	"TabContainer", "Tree", "ItemList", "MarginContainer", "HBoxContainer",
+	"VBoxContainer", "GridContainer", "CenterContainer", "ScrollContainer",
+	"PanelContainer", "HSplitContainer", "VSplitContainer", "NinePatchRect",
+]
+
+func _is_headless_allowed(type_name: String) -> bool:
+	return type_name in ALLOWED_HEADLESS_TYPES
+
 func instantiate_class(name_of_class: String):
 	if name_of_class.is_empty():
 		log_error("Cannot instantiate class: name is empty")
 		return null
 
-	# I-S3: Block dangerous non-Node engine classes (FileAccess, Thread, etc.)
+	# I-S3: 深层纵深——即便白名单,仍阻危险引擎类前缀(白名单已不含,此为防御网)。
 	var blocked_prefixes := ["File", "Thread", "Mutex", "Semaphore", "OS", "IP", "StreamPeer", "TCP", "UDP", "HTTP", "TLS", "Crypto", "Hash", "RegEx", "XML", "JSONParser", "ResourceLoader", "ResourceSaver", "PackedData", "TranslationServer", "PhysicsServer", "RenderingServer", "AudioServer", "NavigationServer", "DisplayServer"]
 	for prefix in blocked_prefixes:
 		if name_of_class.begins_with(prefix):
 			log_error(String("Class %s is blocked for security reasons") % name_of_class)
 			return null
 	if ClassDB.class_exists(name_of_class):
-		# IMPORTANT-13 (review): 黑名单可被补全前缀绕过。补 is_parent_class("Node") 检查,
-		# 确保仅实例化 Node 子类(堵黑名单漏的非 Node 引擎类 FileAccess/Thread/OS 等)。
-		# 未改纯白名单:本函数用于 create_scene/add_node,node_type 范围含 Control 等,
-		# node_commands 的 ALLOWED_NODE_TYPES 无 Control,直接复用会致 UI 场景回归;
-		# 完整白名单范围留作产品决策 issue。
-		if not ClassDB.is_parent_class(name_of_class, "Node"):
-			log_error(String("Refused: %s is not a Node subclass") % name_of_class)
+		# P1 RCE 修复(对齐 editor I-4 / IMPORTANT-14):纯白名单 ∈ 检查,不再用
+		# is_parent_class("Node") 兜底。is_parent_class("Node","Node")=true →
+		# extends Node 恶意类绕过 → instantiate 跑 _ready RCE。白名单移除裸 Node,
+		# 仅允许具体可实例化类型 + Node2D/Node3D/Control 基础类。
+		if not _is_headless_allowed(name_of_class):
+			log_error(String("Refused: %s is not in the headless allowed types whitelist") % name_of_class)
 			return null
-		if ClassDB.can_instantiate(name_of_class):
-			var result = ClassDB.instantiate(name_of_class)
-			if result == null:
-				log_error("ClassDB.instantiate() returned null for class: " + name_of_class)
-			return result
-		log_error("Class exists but cannot be instantiated: " + name_of_class)
-		return null
+		if not ClassDB.can_instantiate(name_of_class):
+			log_error("Class exists but cannot be instantiated: " + name_of_class)
+			return null
+		var result = ClassDB.instantiate(name_of_class)
+		if result == null:
+			log_error("ClassDB.instantiate() returned null for class: " + name_of_class)
+		return result
 
 	var script = get_script_by_name(name_of_class)
 	if script is GDScript:
-		# 2026-07-12 CRITICAL RCE 复合链修复（IMPORTANT-13 闭环）：
-		# 脚本分支补对称 is_parent_class("Node") 检查，与 ClassDB 分支 :166 一致。
-		# get_instance_base_type() 返回脚本 extends 的基类名（如 "Node2D"/"Control"）。
-		# 防御：恶意脚本 class_name 经 search_and_replace 写盘 + ensureClassNameImport 注册后，
-		# create_scene/add_node 的 root_node_type 传恶意类名 → script.new() 执行任意 _init/_ready。
+		# P1 RCE 修复:script 分支同样用白名单——检查脚本 extends 的 base_type ∈ 白名单。
+		# extends Node2D 合法自定义脚本 base_type="Node2D" ∈ 允许;
+		# extends Node 恶意脚本 base_type="Node" ∉ 允许(白名单移除裸 Node)→ 拒绝, 堵 _ready RCE。
 		var base_type: String = script.get_instance_base_type()
-		if base_type.is_empty() or not ClassDB.is_parent_class(base_type, "Node"):
-			log_error(String("Refused: script class %s base type %s is not a Node subclass") % [name_of_class, base_type])
+		if base_type.is_empty() or not _is_headless_allowed(base_type):
+			log_error(String("Refused: script class %s base type %s not in headless whitelist") % [name_of_class, base_type])
 			return null
 		return script.new()
 

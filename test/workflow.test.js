@@ -29,7 +29,7 @@ describe('scene_snapshot — _mcp_get_root() null guard before add_child', () =>
     expect(executeGdscriptTrusted).toHaveBeenCalled();
     const code = executeGdscriptTrusted.mock.calls[0][0].code;
     expect(code.includes('_mcp_get_root().add_child')).toBe(false);
-    expect(code.includes('var _root: Node = _mcp_get_root()')).toBe(true);
+    expect(code).toContain('var _root: Node = _mcp_get_root()');
   });
 });
 
@@ -42,7 +42,7 @@ describe('workflow tool definitions', () => {
   });
 
   it('includes workflow', () => {
-    expect(names.includes('workflow')).toBeTruthy();
+    expect(names).toContain('workflow');
   });
 
   it('tool has action parameter with correct enum values', () => {

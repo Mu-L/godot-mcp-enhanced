@@ -146,7 +146,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
         } else {
           if (!projectPath) {
-            return opsErrorResult('INVALID_PARAMS', 'project_path is required when ALLOW_OUTSIDE_PROJECT_PATHS is not set.');
+            return opsErrorResult('INVALID_PARAMS', 'project_path is required to resolve image_path (or set GODOT_MCP_UNRESTRICTED=true / ALLOWED_PROJECT_PATHS to allow arbitrary paths).');
           }
           imagePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(imagePath));
         }

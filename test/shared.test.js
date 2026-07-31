@@ -11,8 +11,8 @@ describe('shared constants', () => {
     expect(typeof MARKER_RESULT === 'string' && MARKER_RESULT.length > 0).toBeTruthy();
   });
   it('SCENE_TREE_HEADER contains extends SceneTree', () => {
-    expect(SCENE_TREE_HEADER.includes('extends SceneTree')).toBeTruthy();
-    expect(SCENE_TREE_HEADER.includes('_mcp_done')).toBeTruthy();
+    expect(SCENE_TREE_HEADER).toContain('extends SceneTree');
+    expect(SCENE_TREE_HEADER).toContain('_mcp_done');
   });
   it('NON_PERSIST is a non-empty string', () => {
     expect(typeof NON_PERSIST === 'string' && NON_PERSIST.length > 0).toBeTruthy();

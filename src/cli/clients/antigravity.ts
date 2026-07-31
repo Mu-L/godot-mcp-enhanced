@@ -1,9 +1,8 @@
-import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 
 export class AntigravityAdapter implements ClientAdapter {
   name = 'Antigravity';
@@ -50,12 +49,12 @@ export class AntigravityAdapter implements ClientAdapter {
       ...preserved,
       command: mcpCommand,
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: { GODOT_PATH: godotPath },
+      // C1: 保留旧 entry.env 的白名单前缀(防 reconfigure 丢失用户配的 ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_*)
+      env: buildEnv(godotPath, oldEntry.env as Record<string, unknown> | undefined),
     };
     const configDir = join(configPath, '..');
     if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
-    const tmpPath = join(configDir, `.mcp_config.${randomUUID()}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    renameSync(tmpPath, configPath);
+    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
+    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
   }
 }

@@ -1,8 +1,7 @@
-import { existsSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { randomUUID } from 'crypto';
 import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck } from './json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
 import { globalConfigRoot } from './paths.js';
 
 export class ClaudeDesktopAdapter implements ClientAdapter {
@@ -29,13 +28,14 @@ export class ClaudeDesktopAdapter implements ClientAdapter {
     if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
     const config = readJsonConfigWithBackup(configPath);
     if (!config.mcpServers) config.mcpServers = {};
+    // C1: 保留旧 entry 的白名单 env
+    const oldEntry = (config.mcpServers as Record<string, unknown>).godot as Record<string, unknown> | undefined;
     (config.mcpServers as Record<string, unknown>).godot = {
       command: mcpCommand,
       ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: { GODOT_PATH: godotPath },
+      env: buildEnv(godotPath, oldEntry?.env as Record<string, unknown> | undefined),
     };
-    const tmpPath = join(configDir, `.claude_desktop_config.${randomUUID()}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    renameSync(tmpPath, configPath);
+    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
+    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
   }
 }

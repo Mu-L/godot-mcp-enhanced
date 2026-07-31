@@ -101,4 +101,37 @@ describe('doctor', () => {
     expect(logSpy.mock.calls.some(c => /\(global\)/.test(String(c[0] ?? '')))).toBe(true);
     logSpy.mockRestore();
   });
+
+  it('handles BOM in mcp-godot.json without throwing', async () => {
+    const { runDoctor } = await import('../../src/cli/doctor.js');
+    const { mkdirSync, writeFileSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+
+    const tempDir = join(tmpdir(), 'doctor-test-' + Math.random().toString(36).slice(2));
+    const godotDir = join(tempDir, '.godot');
+    mkdirSync(godotDir, { recursive: true });
+
+    const configPath = join(godotDir, 'mcp-godot.json');
+    const BOM = '﻿';
+    const configContent = BOM + JSON.stringify({ godot_path: '/custom/godot' });
+    writeFileSync(configPath, configContent, 'utf-8');
+
+    try {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      // Change to temp dir to test project-level config
+      const originalCwd = process.cwd();
+      process.chdir(tempDir);
+      await runDoctor([]);
+      process.chdir(originalCwd);
+
+      const output = consoleSpy.mock.calls.map(c => c.join(' ')).join('\n');
+
+      // Should not throw, and should read the Godot override correctly
+      expect(output).toContain('Project Godot override: /custom/godot');
+      consoleSpy.mockRestore();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

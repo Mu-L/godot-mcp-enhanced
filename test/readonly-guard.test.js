@@ -23,7 +23,7 @@ describe('ReadOnlyGuard', () => {
     const result = guard.check('add_node');
     expect(result.blocked).toBe(true);
     expect(result.errorCode).toBe(-32001);
-    expect(result.message.includes('read-only')).toBeTruthy();
+    expect(result.message).toContain('read-only');
   });
 
   it('allows all tools when guard is inactive', () => {

@@ -72,4 +72,37 @@ describe('AntigravityAdapter', () => {
     expect(await new AntigravityAdapter().isConfigured('/ignored')).toBe(false);  // 无 godot key
     rmSync(fakeHome, { recursive: true, force: true });
   });
+
+  // C1 (cli-configure-env-field-overwrite): USER_STATE_KEYS 保留路径之外,env 白名单也必须保留
+  it('configure preserves whitelisted user env on reconfigure (C1)', async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), 'mcp-ag-'));
+    vi.doMock('os', () => ({ homedir: () => fakeHome }));
+    const filePath = join(fakeHome, '.gemini', 'config', 'mcp_config.json');
+    mkdirSync(join(filePath, '..'), { recursive: true });
+    writeFileSync(filePath, JSON.stringify({
+      mcpServers: {
+        godot: {
+          command: 'old',
+          disabled: true,
+          env: {
+            GODOT_PATH: '/old',
+            ALLOWED_PROJECT_PATHS: '/projects',
+            GODOT_MCP_BRIDGE_PERSISTENT_SECRET: 'true',
+            HACKER_INJECTED: 'evil',
+          },
+        },
+      },
+    }));
+    const { AntigravityAdapter } = await import('../../../src/cli/clients/antigravity.js');
+    await new AntigravityAdapter().configure('/ignored', '/new/godot', 'npx', ['godot-mcp-enhanced']);
+    const config = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const env = config.mcpServers.godot.env;
+    expect(env.GODOT_PATH).toBe('/new/godot');
+    expect(env.ALLOWED_PROJECT_PATHS).toBe('/projects');
+    expect(env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET).toBe('true');
+    expect(env.HACKER_INJECTED).toBeUndefined();
+    // user-state 保留路径同时生效
+    expect(config.mcpServers.godot.disabled).toBe(true);
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
 });

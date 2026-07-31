@@ -26,7 +26,7 @@ describe('animtree ACTIONS', () => {
   ];
   for (const name of expected) {
     it(`includes ${name}`, () => {
-      expect(ACTIONS.includes(name)).toBeTruthy();
+      expect(ACTIONS).toContain(name);
     });
   }
 });
@@ -48,7 +48,7 @@ describe('animtree getToolDefinitions', () => {
     const defs = getToolDefinitions();
     const actionEnum = defs[0].inputSchema.properties.action.enum;
     for (const a of ACTIONS) {
-      expect(actionEnum.includes(a)).toBeTruthy();
+      expect(actionEnum).toContain(a);
     }
   });
   it('definition has name and inputSchema', () => {
@@ -172,9 +172,9 @@ describe('animtree handleTool', () => {
 describe('genStateSetPosition', () => {
   it('generates script with state name and position', () => {
     const script = genStateSetPosition('root/Tree', 'idle', 10, 20);
-    expect(script.includes('idle')).toBeTruthy();
-    expect(script.includes('Vector2(10, 20)')).toBeTruthy();
-    expect(script.includes('set_node_position')).toBeTruthy();
+    expect(script).toContain('idle');
+    expect(script).toContain('Vector2(10, 20)');
+    expect(script).toContain('set_node_position');
   });
 });
 
@@ -183,7 +183,7 @@ describe('genStateSetPosition', () => {
 describe('genStateSetBlend', () => {
   it('generates script with parameter name and value', () => {
     const script = genStateSetBlend('root/Tree', 'blend_amount', '0.5');
-    expect(script.includes('blend_amount')).toBeTruthy();
-    expect(script.includes('0.5')).toBeTruthy();
+    expect(script).toContain('blend_amount');
+    expect(script).toContain('0.5');
   });
 });

@@ -1160,6 +1160,13 @@ describe('getFilteredTools with activeGroups', () => {
     dispatcher = new ToolDispatcher(createOptions());
   });
 
+  // Task 3 (A-RCE #3) 连带修复:mockImplementation 会永久覆盖 mockReturnValue 默认值,
+  // 若不恢复会泄漏到后续 describe。原 executeToolCall 不调 isToolAllowed 故无害;
+  // Task 3 入口强制后污染暴露(后续 describe 的 docs 工具被误拒)。afterEach 显式恢复。
+  afterEach(() => {
+    mockIsToolAllowed.mockReturnValue(true);
+  });
+
   it('returns only tools allowed by activeGroups', () => {
     // 模拟 activeGroups 过滤：core(animation,scene) 允许，bridge(game) 不允许
     mockIsToolAllowed.mockImplementation((name: string) => {
@@ -1594,6 +1601,87 @@ describe('executeToolCall schema validation (Task 3)', () => {
     });
 
     // confirm_and_execute 路径应正常执行(内联工具无 inputSchema → 跳过)
+    expect(mockModule.handleTool).toHaveBeenCalled();
+  });
+});
+
+// ── Task 3 (A-RCE #3): profile 硬隔离(executeToolCall 入口 isToolAllowed 强制) ─
+//
+// 背景:isToolAllowed 原只在 getFilteredTools 广告层(:183)用,executeToolCall 主路径
+// 不强制。被转发 MCP 客户端(拿完整 tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/
+// slim 过滤的工具。非 RCE(ReadOnlyGuard 兜底),是隔离弱。入口强制 = 防御深度对称补强。
+//
+// 默认 activeGroups = Object.keys(TOOL_GROUPS)(全 20 组激活),isToolAllowed 对所有
+// 已知顶层工具名(script/scene/validation 等)返 true,默认场景零误拒。
+// manage_tools deactivate 收窄 activeGroups 后,入口强制才生效。
+// 注意:executeToolCall 的 name 是顶层工具名,不是 action 名(execute_gdscript 是
+// script 工具的 action,由 arguments.action 传)。
+
+describe('executeToolCall profile enforcement (Task 3, A-RCE #3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAllToolDefinitions.mockReturnValue([...FIXTURE_TOOLS]);
+    mockGetToolDefinition.mockReturnValue(undefined);
+    mockRequiresConfirmation.mockReturnValue(false);
+    (_mockResolveProjectPath as ReturnType<typeof vi.fn>).mockReturnValue('/default/project');
+    // 默认 isToolAllowed=true(对齐 mock 声明,防上个 describe 残留 false 污染)
+    mockIsToolAllowed.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    // 显式恢复,防 mockReturnValue(false) 跨 describe 泄漏
+    mockIsToolAllowed.mockReturnValue(true);
+  });
+
+  // [P1] isToolAllowed=false → executeToolCall 入口拒绝 TOOL_NOT_ALLOWED,不路由执行
+  it('rejects tool when isToolAllowed returns false (filtered out by TOOL_GROUPS)', async () => {
+    mockIsToolAllowed.mockReturnValue(false);
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'blender', arguments: { project_path: '/tmp' } },
+    });
+
+    // 接入前:executeToolCall 不检查 isToolAllowed,路由到 handler 返 mockToolResult(isError undefined)
+    // 接入后:入口返 TOOL_NOT_ALLOWED,handler/executor 不被调用
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('TOOL_NOT_ALLOWED');
+  });
+
+  // [P2] editor 路由也被入口强制覆盖(对齐 S2 设计:防后续挪回 dispatchTool 时 editor 静默回归)
+  it('rejects tool in editor routing too (defense-in-depth across routing paths)', async () => {
+    mockIsToolAllowed.mockReturnValue(false);
+    const guard = createMockGuard(false);
+    const mockExecutor = { execute: vi.fn().mockResolvedValue(mockToolResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    const dispatcher = new ToolDispatcher(createOptions({ connectionMode: 'editor', readOnlyGuard: guard }));
+    dispatcher.setEditorExecutor(mockExecutor);
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'blender', arguments: { project_path: '/tmp' } },
+    });
+
+    expect(mockExecutor.execute).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('TOOL_NOT_ALLOWED');
+  });
+
+  // [P3] 默认 isToolAllowed=true → 顶层 core 工具不误拒(防过度拦截回归)
+  it('allowed core tool dispatches normally (no false rejection)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
+
+    await dispatcher.handleCall({
+      params: { name: 'script', arguments: { project_path: '/tmp', action: 'execute_gdscript', code: 'pass' } },
+    });
+
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 });

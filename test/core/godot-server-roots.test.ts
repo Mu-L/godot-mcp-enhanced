@@ -93,6 +93,10 @@ vi.mock('../../src/core/process-state.js', () => ({
   getProjectDir: vi.fn().mockReturnValue(''),
   setProjectDir: vi.fn(),
   killProcess: vi.fn().mockResolvedValue(undefined),
+  // B-T4: close() 清理 in-flight gdscript spawn（默认空集，无 orphan）
+  getSpawnedGodotPids: vi.fn().mockReturnValue([]),
+  killPidTree: vi.fn(),
+  unregisterSpawnedGodotPid: vi.fn(),
 }));
 
 // ─── Import SUT (after mocks) ────────────────────────────────────────────────

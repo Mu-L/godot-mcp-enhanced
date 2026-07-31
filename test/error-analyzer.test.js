@@ -15,7 +15,7 @@ describe('error-analyzer', () => {
       expect(result.errors[0].type).toBe('parse_error');
       expect(result.errors[0].file).toBe('res://scripts/player.gd');
       expect(result.errors[0].line).toBe(42);
-      expect(result.errors[0].suggestion.includes('Syntax error')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('Syntax error');
       expect(result.hasErrors).toBeTruthy();
     });
   });
@@ -28,7 +28,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('null_reference');
-      expect(result.errors[0].suggestion.includes('position')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('position');
     });
   });
 
@@ -39,7 +39,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('type_error');
-      expect(result.errors[0].suggestion.includes('move')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('move');
     });
   });
 
@@ -50,7 +50,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('script_error');
-      expect(result.errors[0].suggestion.includes('health')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('health');
     });
   });
 
@@ -61,7 +61,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('script_error');
-      expect(result.errors[0].suggestion.includes('set_position')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('set_position');
     });
 
     it('parses too many arguments', () => {
@@ -70,7 +70,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('script_error');
-      expect(result.errors[0].suggestion.includes('Too many')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('Too many');
     });
   });
 
@@ -81,7 +81,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('runtime_error');
-      expect(result.errors[0].suggestion.includes('bounds')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('bounds');
     });
   });
 
@@ -92,7 +92,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('runtime_error');
-      expect(result.errors[0].suggestion.includes('missing.png')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('missing.png');
     });
   });
 
@@ -131,7 +131,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('runtime_error');
-      expect(result.errors[0].suggestion.includes('assertion')).toBeTruthy();
+      expect(result.errors[0].suggestion).toContain('assertion');
     });
   });
 
@@ -162,9 +162,9 @@ describe('error-analyzer', () => {
       expect(result.warnings.length).toBe(1);
       expect(result.prints.length).toBe(3);
       expect(result.hasErrors).toBeTruthy();
-      expect(result.summary.includes('1 error')).toBeTruthy();
-      expect(result.summary.includes('1 warning')).toBeTruthy();
-      expect(result.summary.includes('3 print')).toBeTruthy();
+      expect(result.summary).toContain('1 error');
+      expect(result.summary).toContain('1 warning');
+      expect(result.summary).toContain('3 print');
     });
   });
 
@@ -182,7 +182,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(2);
       expect(result.hasErrors).toBeTruthy();
-      expect(result.summary.includes('headless limitation')).toBeTruthy();
+      expect(result.summary).toContain('headless limitation');
     });
   });
 
@@ -215,7 +215,7 @@ describe('error-analyzer', () => {
       // Note: first regex greedily matches before atMatch2 can fire
       // so file includes (100) and line is undefined — known limitation
       expect(result.errors[0].file).toBeTruthy();
-      expect(result.errors[0].file.includes('main.gd')).toBeTruthy();
+      expect(result.errors[0].file).toContain('main.gd');
     });
 
     it('parses function context', () => {
@@ -283,8 +283,8 @@ describe('autoload headless filtering', () => {
     ], { autoloadNames: ['GameEvents', 'PlayerData', 'AudioManager'] });
     expect(result.errors.length).toBe(1);
     expect(result.errors[0].type).toBe('headless_limitation');
-    expect(result.errors[0].suggestion.includes('GameEvents')).toBeTruthy();
-    expect(result.errors[0].suggestion.includes('autoload')).toBeTruthy();
+    expect(result.errors[0].suggestion).toContain('GameEvents');
+    expect(result.errors[0].suggestion).toContain('autoload');
     expect(!result.hasErrors).toBeTruthy();
   });
 
@@ -313,8 +313,8 @@ describe('autoload headless filtering', () => {
     ], { autoloadNames: ['GameEvents'] });
     expect(result.errors.length).toBe(2);
     expect(result.hasErrors).toBeTruthy();
-    expect(result.summary.includes('headless limitation')).toBeTruthy();
-    expect(result.summary.includes('1 error')).toBeTruthy();
+    expect(result.summary).toContain('headless limitation');
+    expect(result.summary).toContain('1 error');
   });
 });
 
@@ -328,7 +328,7 @@ describe('class_name headless filtering (S3)', () => {
     ], { classNames: ['PlayerData', 'EnemyDatabase', 'Battler'] });
     expect(result.errors.length).toBe(1);
     expect(result.errors[0].type).toBe('headless_limitation');
-    expect(result.errors[0].suggestion.includes('PlayerData')).toBeTruthy();
+    expect(result.errors[0].suggestion).toContain('PlayerData');
     expect(!result.hasErrors).toBeTruthy();
   });
 

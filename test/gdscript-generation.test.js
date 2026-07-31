@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { generateCommitScript } from '../src/tools/scene/scene-commit.js';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
 // Mock gdscript-executor so stress test handler can run without Godot
 const _capturedScripts = [];
@@ -17,21 +18,15 @@ vi.mock('../src/gdscript-executor.js', () => ({
   scanGdscriptSandbox: vi.fn(() => []),
   executeGdscript: vi.fn(async (opts) => {
     _capturedScripts.push(opts.code);
-    return {
-      success: true, compile_success: true, compile_error: '',
-      errors: [], run_success: true, run_error: '',
+    return mockSuccessResult({
       outputs: [{ key: 'result', value: JSON.stringify({ success: true, iterations: 100 }) }],
-      raw_output: '', duration_ms: 100,
-    };
+    });
   }),
   executeGdscriptTrusted: vi.fn(async (opts) => {
     _capturedScripts.push(opts.code);
-    return {
-      success: true, compile_success: true, compile_error: '',
-      errors: [], run_success: true, run_error: '',
+    return mockSuccessResult({
       outputs: [{ key: 'result', value: JSON.stringify({ success: true, iterations: 100 }) }],
-      raw_output: '', duration_ms: 100,
-    };
+    });
   }),
 }));
 

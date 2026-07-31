@@ -124,4 +124,31 @@ describe('OpenCodeAdapter', () => {
     expect(config.mcp.godot.enabled).toBe(false);   // 用户旧值保留
     expect(config.mcp.godot.command).toEqual(['npx', 'godot-mcp-enhanced']); // 配置更新
   });
+
+  // C1 (cli-configure-env-field-overwrite): opencode 用 environment 字段(非 env),也必须保留白名单
+  it('configure preserves whitelisted user env on reconfigure (C1, environment 字段)', async () => {
+    writeFileSync(join(TEST_DIR, 'opencode.json'), JSON.stringify({
+      mcp: {
+        godot: {
+          type: 'local',
+          command: ['old'],
+          enabled: true,
+          environment: {
+            GODOT_PATH: '/old',
+            ALLOWED_PROJECT_PATHS: '/projects',
+            GODOT_MCP_BRIDGE_PERSISTENT_SECRET: 'true',
+            HACKER_INJECTED: 'evil',
+          },
+        },
+      },
+    }));
+    const { OpenCodeAdapter } = await import('../../../src/cli/clients/opencode.js');
+    await new OpenCodeAdapter().configure(TEST_DIR, '/new/godot', 'npx', ['godot-mcp-enhanced']);
+    const config = JSON.parse(readFileSync(join(TEST_DIR, 'opencode.json'), 'utf-8'));
+    const env = config.mcp.godot.environment;
+    expect(env.GODOT_PATH).toBe('/new/godot');
+    expect(env.ALLOWED_PROJECT_PATHS).toBe('/projects');
+    expect(env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET).toBe('true');
+    expect(env.HACKER_INJECTED).toBeUndefined();
+  });
 });

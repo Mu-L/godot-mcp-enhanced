@@ -108,12 +108,12 @@ describe('T008 CharacterBody2D 模板', () => {
 
   it('自定义参数 speed 生效', () => {
     const code = tpl.generate({ speed: '500.0' });
-    expect(code.includes('500.0')).toBeTruthy();
+    expect(code).toContain('500.0');
   });
 
   it('自定义参数 jump_velocity 生效', () => {
     const code = tpl.generate({ jump_velocity: '-600.0' });
-    expect(code.includes('-600.0')).toBeTruthy();
+    expect(code).toContain('-600.0');
   });
 });
 
@@ -133,16 +133,16 @@ describe('T010 StateMachine 模板', () => {
 
   it('默认状态列表包含 IDLE, RUN, JUMP', () => {
     const code = tpl.generate({});
-    expect(code.includes('IDLE')).toBeTruthy();
-    expect(code.includes('RUN')).toBeTruthy();
-    expect(code.includes('JUMP')).toBeTruthy();
+    expect(code).toContain('IDLE');
+    expect(code).toContain('RUN');
+    expect(code).toContain('JUMP');
   });
 
   it('自定义状态列表生效', () => {
     const code = tpl.generate({ states: 'PATROL,CHASE,RETREAT' });
-    expect(code.includes('PATROL')).toBeTruthy();
-    expect(code.includes('CHASE')).toBeTruthy();
-    expect(code.includes('RETREAT')).toBeTruthy();
+    expect(code).toContain('PATROL');
+    expect(code).toContain('CHASE');
+    expect(code).toContain('RETREAT');
     expect(code.includes('IDLE')).toBeFalsy();
   });
 });
@@ -153,7 +153,7 @@ describe('getTemplateSuggestion', () => {
   it('L001 返回包含 Camera3D 的代码', () => {
     const suggestion = getTemplateSuggestion('L001');
     expect(suggestion).toBeTruthy();
-    expect(suggestion.includes('Camera3D')).toBeTruthy();
+    expect(suggestion).toContain('Camera3D');
   });
 
   it('L999 返回 null（未知规则）', () => {
@@ -163,7 +163,7 @@ describe('getTemplateSuggestion', () => {
   it('L002 返回包含 PhysicsMaterial 的代码', () => {
     const suggestion = getTemplateSuggestion('L002');
     expect(suggestion).toBeTruthy();
-    expect(suggestion.includes('PhysicsMaterial')).toBeTruthy();
+    expect(suggestion).toContain('PhysicsMaterial');
   });
 });
 

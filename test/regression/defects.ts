@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 97 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1）。
+// FIXED_DEFECTS 126 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite） + 2026-07-29 D-P2 F2 nav/ui undo×3（nav-set-params-no-undo/ui-layout-anchor-no-undo/ui-theme-no-undo） + 2026-07-29 D-P2 F3 animation-keyframe-index-no-bound×1 + 2026-07-29 D-P2 F4 websocket-outbound-no-buffer-limit×1（ws_peer 仅 set_inbound_buffer_size 无 set_outbound_buffer_size → sync 风暴/慢消费者 outbound 无界增长 OOM；fix :231 后加 set_outbound_buffer_size(4MB)）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -53,6 +53,28 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // detect: scanGdscriptSandbox 返回 [] 早退 + 仅 console.warn 不 return 的路径已消除
       // fixed 核心：命中危险模式即 return failure（gdscript-executor.ts）。校验该阻断分支存在
       return fileContains('src/gdscript-executor.ts', /sandboxWarnings\.length\s*>\s*0\s*&&\s*!safetyDisabled/) ? 0 : 1;
+    } },
+  { key: 'bpy-no-dangerous-scan', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      // blender.ts execute_bpy 全功能 Python 无 execute_gdscript 同款危险 API 静态扫描(防御不对称)。
+      // fix: scanBpySandbox(os/subprocess/eval/exec/__import__), warnings 非空 BLOCK。
+      const blender = readSrc('src/tools/blender.ts');
+      const hasExec = /execute_bpy|buildBlenderScript/.test(blender);
+      // Minor-4 (review): 查带括号调用点,防删调用留 import 的伪绿。
+      const hasScan = /scanBpySandbox\s*\(/.test(blender);
+      return hasExec && !hasScan ? 1 : 0;
+    } },
+  { key: 'profile-executeToolCall-isToolAllowed-enforce', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // A-RCE #3 (Task 3): isToolAllowed 原只在 getFilteredTools 广告层(ToolDispatcher:183),
+    // executeToolCall 主路径不强制。被转发 MCP 客户端(拿完整 tools/list 或硬编码工具名)
+    // 仍可调用 TOOL_GROUPS/slim 过滤的工具。非 RCE(ReadOnlyGuard 兜底),是隔离弱。
+    // fix: executeToolCall 入口(currentMode 快照前)加 isToolAllowed 强制检查,返 TOOL_NOT_ALLOWED。
+    // detect: executeToolCall 函数体到 const currentMode 之间无 isToolAllowed(name) 调用 → 1(复发)。
+    // 锚定 `private async executeToolCall`(唯一函数签名),避开日志字符串 "executeToolCall: tool %s" 误匹配。
+    detect: () => {
+      const f = readSrc('src/core/ToolDispatcher.ts');
+      const m = f.match(/private async executeToolCall[\s\S]{0,1000}?const currentMode/);
+      return m && !/isToolAllowed\s*\(\s*name\s*\)/.test(m[0]) ? 1 : 0;
     } },
   { key: 'gdscript-template-injection', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
@@ -141,10 +163,14 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   { key: 'set-prop-no-type-whitelist', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      // fixed：ClassDB.instantiate 加类型白名单。命中「ClassDB.instantiate( 吃用户串无白名单」即复发
+      // fixed：ClassDB.instantiate 加类型白名单。命中「ClassDB.instantiate( 吃用户串无白名单」即复发。
+      // headless src/scripts/godot_operations.gd 同样有 ClassDB.instantiate, 须同扫(P1 RCE, 对齐 addons)。
       const addons = countMatchesInDir('addons', /ClassDB\.instantiate\s*\(/g, /\.gd$/);
-      const whitelist = countMatchesInDir('addons', /_validate_node_type|ALLOWED_BASE_TYPES|ALLOWED_CONTROL_TYPES|is_safe_class/g, /\.gd$/);
-      return addons > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
+      const headless = (readSrc('src/scripts/godot_operations.gd').match(/ClassDB\.instantiate\s*\(/g) || []).length;
+      const total = addons + headless;
+      const whitelist = countMatchesInDir('addons', /_validate_node_type|ALLOWED_BASE_TYPES|ALLOWED_CONTROL_TYPES|is_safe_class/g, /\.gd$/)
+        + (/_is_headless_allowed|ALLOWED_HEADLESS_TYPES/.test(readSrc('src/scripts/godot_operations.gd')) ? 1 : 0);
+      return total > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
     } },
   // ── IMPORTANT 架构/安全（行 282-381）──
   { key: 'allow-by-default-missing-config', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
@@ -606,16 +632,26 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       return /rootNodeType[\s\S]{0,300}invalid characters/.test(m[0]) ? 0 : 1;
     } },
   { key: 'rce-script-branch-no-node-check', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
-    // godot_operations.gd:177-179 脚本分支 script.new() 无 is_parent_class("Node") 校验
-    // （ClassDB 分支 :160-175 有 IMPORTANT-13 修，脚本分支漏了）。
-    // fix: script.new() 前补 script.get_instance_base_type() + is_parent_class("Node") 校验。
-    // detect: godot_operations.gd 脚本分支含 is_parent_class(base_type, "Node")（缺则复发）。
+    // headless instantiate_class 两分支曾用 is_parent_class("Node") 兜底, 但 Node 自身是 Node 的父类
+    // → extends Node 恶意脚本(base_type="Node")通过 → script.new() _ready RCE(不经 execute_gdscript 沙箱)。
+    // fix: 合并白名单双分支 ∈ 检查(ALLOWED_HEADLESS_TYPES, 移除裸 Node), 对齐 editor I-4 / IMPORTANT-14。
+    // detect: 不再把 is_parent_class 当充分守卫——须验证白名单 ∈ 检查存在 + 反向裸 Node 不在白名单数组。
     detect: () => {
       const f = readSrc('src/scripts/godot_operations.gd');
-      // 定位脚本分支（script is GDScript 到 return script.new() 之间，窗口放宽容纳修复注释）
-      const m = f.match(/if script is GDScript:[\s\S]{0,800}?return script\.new\(\)/);
-      if (!m) return 1; // 分支结构改变 → 复发
-      return /is_parent_class\(\s*base_type\s*,\s*"Node"\s*\)/.test(m[0]) ? 0 : 1;
+      const hasWhitelist = /ALLOWED_HEADLESS_TYPES/.test(f);
+      // script 分支须用 base_type ∈ 白名单 helper(非 is_parent_class 兜底)
+      const scriptBranch = f.match(/if script is GDScript:[\s\S]{0,900}?return script\.new\(\)/);
+      const scriptUsesWhitelist = !!scriptBranch &&
+        /_is_headless_allowed\(base_type\)/.test(scriptBranch[0]);
+      if (!hasWhitelist || !scriptUsesWhitelist) return 1;
+      // 反向:确认裸 "Node" 不在白名单数组(防误加回 → extends Node 绕过复发)
+      const wlBlock = f.match(/const ALLOWED_HEADLESS_TYPES[\s\S]{0,1200}?\]/);
+      if (wlBlock) {
+        if (/^[\t ]*"Node",/m.test(wlBlock[0]) || /,\s*"Node"\s*,/.test(wlBlock[0])) {
+          return 1;
+        }
+      }
+      return 0;
     } },
   // ─── 2026-07-12 进程通信 P0：HealthMonitor 控制回路 ──────────────────────────
   // HealthMonitor 原为纯仪表盘：evaluateState 进 reconnecting 仅 setState 打日志改字段，
@@ -1026,6 +1062,369 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const hasNullGuard = /\b(?:img|tex|viewport)\s*==\s*null\b/.test(body);
       return (hasGetImage && !hasNullGuard) ? 1 : 0;
     } },
+  // ─── 2026-07-28 detect 补全（2026-07-22 安全/RCE 面审查 P1，防护已在批次 A/B 落地，补 detect 防复发）──
+  { key: 'validation-run-and-verify-scene-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // 2026-07-22 RCE面复审P1: validation.ts run_and_verify 的 args.scene 直接 push 进 godot CLI
+    // 加载项目外场景执行节点脚本(无 GD _sanitize_res_path 兜底)。
+    // fix: normalizeUserProjectPath + resolveWithinRoot(projectPath, normalized) 仅校验(validation.ts:549)。
+    // 复发: 删 resolveWithinRoot 调用 → 窗口无终点 m=undefined → detect=1。
+    // 窗口容差: case 体到目标调用当前 ~750 字符,窗口 3000;若 case 'run_and_verify' 体显著增长超窗口需 bump。
+    detect: () => {
+      const f = readSrc('src/tools/validation.ts');
+      const m = f.match(/case 'run_and_verify'[\s\S]{0,3000}?\bresolveWithinRoot\(projectPath,\s*normalized\)/);
+      return m ? 0 : 1;
+    } },
+  { key: 'workflow-user-protocol-traversal', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // 2026-07-22 安全审查: workflow.ts 三处 user:// 放行不校验 .. 段(bridge.screenshot.path:390 / reference_path:515 /
+    // frames_dir:584), GD bridge take_screenshot/Image.load/DirAccess 任意目录读/写。
+    // fix: 三处调用均加 hasTraversalSegments。复发: 任一处调用删 → raw count<3 detect=1。
+    // 注: :257 函数定义 hasTraversalSegments(p:) 不匹配 raw 前缀, 故不计数。
+    // 局限: 若未来新增第 4 处 user:// 入口,必须同步加 hasTraversalSegments(raw*) 防护,否则 count≥3 仍假绿漏检。
+    detect: () => {
+      const f = readSrc('src/tools/workflow.ts');
+      return (f.match(/hasTraversalSegments\(raw\w+/g) || []).length >= 3 ? 0 : 1;
+    } },
+  // ─── 2026-07-29 A-telemetry 批次 Task 1：error_category PII 泄漏 ──────────────
+  // ToolDispatcher telemetry after-hook(:466-474) error_category 原传
+  // safeErrorCategory(extractErrorMessage(result) || 'TOOL_ERROR')。extractErrorMessage 返原始错误文本
+  // （含路径/项目名 PII），safeErrorCategory 只替标点不删字母数字 → 路径片段入 error_category 字段，
+  // Stage 1 接 endpoint 即外传 PII。result 无结构化 code，按文本推断 category 主观且 YAGNI。
+  // fix: 改固定枚举 'TOOL_ERROR' + 删 safeErrorCategory（ToolDispatcher import + telemetry/index 导出 +
+  // sanitize.ts 定义）。recorder.record(:448) 仍用 extractErrorMessage 是本地记录经 sanitizeMsg，不外传，未动。
+  // detect: ToolDispatcher.ts telemetry hook 内 error_category 为固定 'TOOL_ERROR' 字面量且不含
+  // extractErrorMessage/safeErrorCategory 派生（任一回退 → detect=1）。
+  { key: 'telemetry-error-category-pii-leak', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/core/ToolDispatcher.ts');
+      // error_category 赋值必为固定枚举 'TOOL_ERROR'（ToolDispatcher 全文件唯一 error_category 赋值点）。
+      // 正向匹配即可排除一切派生回退：safeErrorCategory(...) 或 extractErrorMessage(...) 形式均无 'TOOL_ERROR'
+      // 字面量紧跟 `?`，故不匹配 → detect=1。注释里的旧代码字面量不带 `error_category:` 前缀，不会误命中。
+      const m = f.match(/error_category:\s*isError\s*\?\s*['"]TOOL_ERROR['"]\s*:\s*undefined/);
+      return m ? 0 : 1;
+    } },
+  // ─── 2026-07-29 A-telemetry 批次 Task 2：opt-out 守卫缺失 → telemetry-uuid.txt 副作用 ───
+  // telemetry after-hook(:462) 原无 isTelemetryEnabled() 前置守卫，recordTelemetry 参数求值期
+  // hashProject(ctx.args.project_path) 先跑 → getInstallUUID（config.ts:28 首次 mint 创建
+  // ~/.godot/mcp/telemetry-uuid.txt）发生在 record() 内部守卫之前 → opt-out（默认）下首次带
+  // project_path 调用仍创建 UUID 文件，违反 docs/telemetry.md「零副作用」承诺。
+  // fix: after-hook 第一行（构造 recordTelemetry 参数之前）加 `if (!isTelemetryEnabled()) return result`。
+  // 根因 [[feature-gate-inside-callee-defeated-by-arg-eval]]：守卫须在调用方参数求值前，非 callee 内部。
+  // detect: 位置契约（参 godot-server-degrade.test.ts:27-34 indexOf 模式）——切 telemetry after-hook 块，
+  // isTelemetryEnabled 必须出现在 recordTelemetry( 之前（守卫被删或挪到 record 之后 → detect=1）。
+  { key: 'telemetry-afterhook-no-optout-guard', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/core/ToolDispatcher.ts');
+      // 切片：name: 'telemetry' mw.push 块到 createRateLimitMiddleware（紧随其后的 mw.push）。
+      const start = f.indexOf("name: 'telemetry'");
+      if (start < 0) return 1;
+      const end = f.indexOf('createRateLimitMiddleware()', start);
+      const slice = end > 0 ? f.slice(start, end) : f.slice(start, start + 800);
+      const guardIdx = slice.indexOf('isTelemetryEnabled');
+      const recordIdx = slice.indexOf('recordTelemetry(');
+      // 两处必须都存在，且守卫在 record 调用之前（guardIdx < recordIdx）。
+      return guardIdx >= 0 && recordIdx >= 0 && guardIdx < recordIdx ? 0 : 1;
+    } },
+  { key: 'addon-update-dest-symlink-bypass', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // addon-version.ts updateAddon cpSync 前只 realpath projectPath 本体, dest 子段 addons/ 符号链接
+    // 未校验 → cpSync 跟随写出 allowlist 外(monorepo 共享 addon 常见, 非 TOCTOU 预存即触发)。
+    // 同源 readAddonVersion readFileSync 同样路径未校验 → 越界读（信息泄漏）。
+    // fix: updateAddon(dest) + readAddonVersion(cfg) 两处 safeRealPath + isPathInAllowedRoots 校验。
+    detect: () => {
+      const f = readSrc('src/core/addon-version.ts');
+      // 命中「cpSync 但无 dest realpath 校验」或「readFileSync 路径但无 cfg realpath 校验」即复发
+      const hasCp = /cpSync\(/.test(f);
+      const hasDestCheck = /safeRealPath\(dest\)[\s\S]{0,120}isPathInAllowedRoots\(realDest\)/.test(f);
+      const hasCfgCheck = /safeRealPath\(cfg\)[\s\S]{0,120}isPathInAllowedRoots\(realCfg\)/.test(f);
+      return hasCp && (!hasDestCheck || !hasCfgCheck) ? 1 : 0;
+    } },
+  { key: 'godotpath-allowed-paths-unimplemented', status: 'fixed', severity: 'ADVISORY', dimension: 'Security',
+    // A-RCE #4: godot-finder.ts:55-56 注释自承 GODOT_MCP_ALLOWED_GODOT_PATHS 未实现。
+    // validateGodotBinary --version 签名校验之上的硬隔离缺失——AI 可控的 godot_path 工具参数/
+    // project override/env 指向任意二进制(伪造形如 Godot 版本签名的输出)被 spawn = 任意代码执行。
+    // fix: isGodotPathAllowed(env 分号分隔, realpath 归一, 空 env back-compat 放行, UNRESTRICTED 旁路)
+    // 接入 validateGodotBinary / detectGodotVersion / findGodot 全部最终出口。
+    // detect: 文件含 env 名但缺 isGodotPathAllowed 定义/导出 = 复发(注释自承未实现形态)。
+    detect: () => {
+      const f = readSrc('src/core/godot-finder.ts');
+      // 含 env 名(说明知晓该机制)但无 isGodotPathAllowed 调用 = 未实现;两者都存在 = fixed。
+      // 注意 export 必须存在(防定义留注释,调用全删的伪绿)。
+      const hasEnvMention = /GODOT_MCP_ALLOWED_GODOT_PATHS/.test(f);
+      const hasExport = /export function isGodotPathAllowed/.test(f);
+      const hasCallSite = /isGodotPathAllowed\s*\(/.test(f);
+      return hasEnvMention && (!hasExport || !hasCallSite) ? 1 : 0;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 2：全系统扫误杀编辑器进程 ──────────────────
+  { key: 'fullsystem-scan-kills-editor', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // fullSystemScanGodot(opt-in GODOT_MCP_FULL_SYSTEM_SCAN=true) Windows PowerShell/POSIX sh 过滤只查
+    // --path 路径匹配，不跳 --editor 进程 → 同项目 godot --path /proj --editor 被误杀。
+    // fix: 两分支加 --editor 排除（Windows: -not ($_.CommandLine -like '*--editor*')，
+    //       POSIX: grep -v -- '--editor'）。
+    // detect: 两分支都含 --editor 排除条件（PowerShell -not + POSIX grep -v）。
+    detect: () => {
+      const f = readSrc('src/core/process-state.ts');
+      const psBlock = f.match(/Where-Object \{[\s\S]*?CommandLine\.Contains[\s\S]*?\}/s);
+      const shBlock = f.match(/pgrep -f godot[\s\S]*?grep -F/s);
+      const psHasExclude = psBlock ? /-not.*\*--editor\*|--editor.*-not/i.test(psBlock[0]) : false;
+      const shHasExclude = shBlock ? /grep.*-v.*--editor|--editor.*exclude/i.test(shBlock[0]) : false;
+      return psHasExclude && shHasExclude ? 0 : 1;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 3：半开 HOL 预检缺失 ──────────────────────
+  { key: 'editor-halfopen-no-precheck', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // EditorToolExecutor._executeInner 直接 conn.request，无 healthMonitor.getState() 预检。
+    // TCP 半开时 conn.connected=true → request 挂满 30s；串行 executeChain ×30s HOL 放大。
+    // fix: 构造器注入 healthMonitor（可选），_executeInner 入口 reconnecting 时即时返
+    //       NOT_CONNECTED（跳过 30s 等待）。GodotServer.establishEditorConnection 传 hm。
+    // detect: _executeInner 入口含 getState()==='reconnecting' 预检 + NOT_CONNECTED 返回。
+    detect: () => {
+      const f = readSrc('src/core/EditorToolExecutor.ts');
+      const hasPrecheck = /healthMonitor\.getState\(\)\s*===\s*['"]reconnecting['"]/.test(f);
+      const hasShortCircuit = /NOT_CONNECTED/.test(f);
+      return hasPrecheck && hasShortCircuit ? 0 : 1;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 4：headless gdscript spawn orphan 清理 ──
+  { key: 'nav-bake-request-timeout-misalign', status: 'fixed', severity: 'CRITICAL', dimension: 'Reliability',
+    // EditorToolExecutor nav bake conn.request 用默认 30s != startOperation(NAV_BAKE_OP_TIMEOUT_SEC=110s),
+    // >30s 烘焙命中 REQUEST_TIMEOUT → editor_disconnected/do_not_retry（GD 实际烘成但客户端禁重试）。
+    // fix: nav bake 分支 conn.request 传 { timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC * 1000 }。
+    // detect: nav bake 分支（isNavBake 后 conn.request）含 timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC。
+    detect: () => {
+      const f = readSrc('src/core/EditorToolExecutor.ts');
+      const bakeBranch = f.match(/isNavBake[\s\S]{0,400}?conn\.request\(method, finalArgs[\s\S]{0,100}?\)/);
+      return bakeBranch && !/timeoutMs:\s*NAV_BAKE_OP_TIMEOUT_SEC/.test(bakeBranch[0]) ? 1 : 0;
+    } },
+  { key: 'gdscript-spawn-not-registered', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // gdscript-executor.ts:1192 spawn(godotPath, godotArgs) 不入 _spawnedGodotPids
+    // （仅 runtime.ts:224 run_project 注册）。GodotServer.close 只 kill run_project 长进程，
+    // 挂起脚本 + close → 孤儿无兜底；orphan 扫描默认只扫 run_project PID。
+    // fix: gdscript-executor spawn 后 registerSpawnedGodotPid(proc.pid) + exit/error/
+    //      三 forceKillTree 分支(timeout/stdout溢出/stderr溢出)调 unregister；
+    //      GodotServer.close 遍历 ps.getSpawnedGodotPids() 调 ps.killPidTree best-effort 清理。
+    // detect: 三特征齐备（spawn 后 register + close 含 getSpawnedGodotIds+killPidTree + 三 forceKillTree 路径 unregister）。
+    detect: () => {
+      const exec = readSrc('src/gdscript-executor.ts');
+      const srv = readSrc('src/GodotServer.ts');
+      // 1. spawn 后注册
+      const spawnIdx = exec.indexOf('spawn(godotPath, godotArgs');
+      const afterSpawn = spawnIdx > 0 ? exec.slice(spawnIdx, spawnIdx + 400) : '';
+      const hasRegister = /registerSpawnedGodotPid\s*\(\s*proc\.pid\s*\)/.test(afterSpawn);
+      // 2. close 含 getSpawnedGodotPids + killPidTree 遍历
+      const closeStart = srv.indexOf('async close(): Promise<void>');
+      const closeEnd = srv.indexOf("log('Server shut down')", closeStart);
+      const closeBody = closeStart > 0 && closeEnd > 0 ? srv.slice(closeStart, closeEnd) : '';
+      const hasCloseCleanup = /getSpawnedGodotPids\s*\(\s*\)/.test(closeBody) && /killPidTree|forceKillTree/.test(closeBody);
+      // 3. 三 forceKillTree 分支后 unregister（120 字符窗口）
+      const fktIndices: number[] = [];
+      let searchFrom = 0;
+      while (true) {
+        const idx = exec.indexOf('forceKillTree(proc)', searchFrom);
+        if (idx < 0) break;
+        fktIndices.push(idx);
+        searchFrom = idx + 1;
+      }
+      const allCovered = fktIndices.length >= 3 && fktIndices.every(idx =>
+        /unregisterSpawn|unregisterSpawnedGodotPid/.test(exec.slice(idx, idx + 120)));
+      return hasRegister && hasCloseCleanup && allCovered ? 0 : 1;
+    } },
+  // ─── 2026-07-29 B-Reliability Task 5：心跳降级区分 timeout/refused 不抢占重连 ──
+  { key: 'heartbeat-blanket-catch-no-distinguish', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // GodotServer.ts:482 pingFn `.catch(() => false)` 毯式 catch 丢 err.code,
+    // 两种失败(REQUEST_TIMEOUT 主线程卡死 / NOT_CONNECTED+CONNECTION_LOST 下线)都 recordFailure
+    // → reconnecting → 旧 onStateChange 无差别调 handleEditorStall → disconnect() 杀 20 次退避自动重连。
+    // 编辑器重启/瞬时不可达也强制降级,用户须手动 reconnect。
+    // fix: pingFn catch 保留 err.code 到 _lastPingErrCode; onStateChange 分流
+    //      REQUEST_TIMEOUT(TCP OPEN 主线程卡死→降级,自动重连救不了)
+    //      vs NOT_CONNECTED/CONNECTION_LOST(下线→让 EditorConnection scheduleReconnect 兜底,不抢占);
+    //      addOnReconnectHandler 触发 hm.reset() 即刻复位 connected(避免卡 reconnecting)。
+    //      状态机链完整:refused→不降级→自动重连→成功→复位;重连耗尽→reconnectExhausted→handleEditorStall 兜底。
+    // detect: 五特征齐备(_lastPingErrCode 字段 + catch 保留 err.code + onStateChange 分流 REQUEST_TIMEOUT
+    //         + 非 REQUEST_TIMEOUT else 分支不调 handleEditorStall + addOnReconnectHandler 调 hm.reset())。
+    detect: () => {
+      const src = readSrc('src/GodotServer.ts');
+      // 1. 声明 _lastPingErrCode 字段
+      const hasField = /private\s+_lastPingErrCode\s*:\s*string\s*\|\s*undefined/.test(src);
+      // 2. pingFn catch 保留 err.code 到 _lastPingErrCode(非毯式 () => false)
+      const hasCatch = /_lastPingErrCode\s*=\s*(?:err|e)\??\.code/.test(src);
+      // 3. onStateChange 分流 REQUEST_TIMEOUT
+      const onStateIdx = src.indexOf('hm.onStateChange(');
+      const onStateSlice = onStateIdx > 0 ? src.slice(onStateIdx, onStateIdx + 1500) : '';
+      const hasRequestTimeoutBranch = /REQUEST_TIMEOUT/.test(onStateSlice);
+      const hasHandleStall = /this\.handleEditorStall\(\)/.test(onStateSlice);
+      // 4. 非 REQUEST_TIMEOUT 分支不调 handleEditorStall(含 else / letting / not degrading 语义)
+      const hasElse = /\belse\b/.test(onStateSlice);
+      const hasNoDegradeLog = /not degrading|letting|auto-reconnect/.test(onStateSlice);
+      // 5. addOnReconnectHandler 调 hm.reset()(重连成功复位,链关键节点)
+      const recIdx = src.indexOf('addOnReconnectHandler(');
+      const recSlice = recIdx > 0 ? src.slice(recIdx, recIdx + 400) : '';
+      const hasResetOnReconnect = /hm\.reset\(\)/.test(recSlice);
+      // 反向:毯式 catch 复发即红
+      const hasBlanketCatch = /\.catch\(\s*\(\)\s*=>\s*false\s*\)/.test(src);
+      return hasField && hasCatch && hasRequestTimeoutBranch && hasHandleStall
+        && hasElse && hasNoDegradeLog && hasResetOnReconnect && !hasBlanketCatch ? 0 : 1;
+    } },
+  // ─── 2026-07-29 C-Correctness 批次 detect 补全（fixes 在 commits 35dd8b9..c04a6b0，detect 统一 T8 补）──
+  { key: 'nav-freed-access-signal', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T1 (N1, commit 6c974a5): nav_commands.gd bake 等 bake_finished 信号循环内,freed 对象(nav 被 free)
+    // 再访问 nav.bake_finished（disconnect/is_connected）→ nil access SCRIPT ERROR 中断 await 循环。
+    // fix: if not is_instance_valid(nav): 分支直接 return（不碰信号,信号随对象释放自动断开,对齐 headless navigation.ts:45）。
+    // detect: 两处 freed 分支(if not is_instance_valid(nav): 到 return)不含 nav.bake_finished（复发→>0）。
+    detect: () => {
+      const f = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
+      // 两处 freed 分支：if not is_instance_valid(nav): 到 return {（含），窗口 300 字符覆盖注释+return
+      const branches = f.match(/if not is_instance_valid\(nav\):[\s\S]{0,300}?return\s*\{/g) ?? [];
+      if (branches.length !== 2) return 1; // 结构变移强制复核
+      return branches.filter(b => /nav\.bake_finished/.test(b)).length;
+    } },
+  { key: 'nav-status-hardcoded', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T2 (N2, commit e78cf39): handle_nav_bake_mesh / _async 的 return status 原硬编码 "bake_completed"
+    // (无视 actual bake 结果),烘焙失败/超时仍谎报 completed。fix: 改派生 "bake_completed" if cond else "bake_failed"/"bake_timeout"。
+    // detect: "status": "bake_completed" 字面量后无 if 三元(裸硬编码)= 复发；fixed 形态紧跟 if 三元。
+    detect: () =>
+      countMatchesInFile('addons/godot_mcp_server/commands/nav_commands.gd', /"status":\s*"bake_completed"(?!\s+if)/g) },
+  { key: 'doctor-no-stripbom', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T3 (F5, commit d149d9f): doctor.ts 内联 JSON.parse(readFileSync(...)) 不 stripBOM,带 BOM 的合法
+    // mcp-godot.json JSON.parse throw → adapter.isConfigured catch return false → doctor 误报 + setup 破坏幂等。
+    // fix: 改 readJsonForCheck（stripBom + 容错 null,与 adapter isConfigured 同源）。
+    // detect: doctor.ts 含 readJsonForCheck 调用（删调用或回内联 JSON.parse(readFileSync → detect=1）。
+    detect: () => /readJsonForCheck\s*\(/.test(readSrc('src/cli/doctor.ts')) ? 0 : 1 },
+  { key: 'readcache-no-byte-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // C-T4 (S2, commit fc8e8bc): update-checker.ts readCache 无字节上限,恶意/损坏大缓存文件 readFileSync 全量载入 OOM。
+    // fix: statSync(cachePath).size > 64KB 上限 + obj.latest.length <= 64（version 字段合理上限）双守卫。
+    // detect: readCache 函数体含 statSync().size + .length 上限（删任一→detect=1 复发）。
+    detect: () => {
+      const f = readSrc('src/core/update-checker.ts');
+      const start = f.indexOf('function readCache(');
+      if (start < 0) return 1;
+      const body = f.slice(start, start + 800);
+      const hasSizeGuard = /statSync\([^)]+\)\.size\s*>/.test(body);
+      const hasLengthGuard = /\.length\s*<=?\s*\d+/.test(body);
+      return hasSizeGuard && hasLengthGuard ? 0 : 1;
+    } },
+  { key: 'addon-update-nonatomic', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // C-T5 (S3, commit 0fb465b): addon-version.ts updateAddon 裸 cpSync(addonSource, dest) 中途失败（断电/磁盘满）
+    // 留破损 addon → Godot 启动 parse error 阻塞。fix: staging 目录 cp + 校验 + rename 原子替换 + 备份回滚。
+    // detect: updateAddon 含 staging + renameSync(staging, dest) + 无裸 cpSync(addonSource, dest)（回退裸 cpSync→detect=1）。
+    detect: () => {
+      const f = readSrc('src/core/addon-version.ts');
+      const start = f.indexOf('export function updateAddon(');
+      if (start < 0) return 1;
+      const body = f.slice(start, start + 3000);
+      const hasStaging = /\bstaging\b/.test(body);
+      const hasRename = /renameSync\(staging,\s*dest\)/.test(body);
+      const hasBareCp = /cpSync\(addonSource,\s*dest[\s,)]/.test(body);
+      return hasStaging && hasRename && !hasBareCp ? 0 : 1;
+    } },
+  { key: 'adapter-no-mode-preserve', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T6 (F3, commit 10f0cc1): 13 adapter writeFileSync(tmpPath, data, 'utf-8') 第三参 encoding 非 mode,
+    // tmp 默认 0o666, rename 后覆盖用户 chmod 0o600 的配置 mode（Unix 权限丢失,敏感配置变组可读）。
+    // fix: json-config.ts 抽 writeFileAtomicWithMode helper（stat 原文件 mode → write tmp 显式传 mode → rename 保持）。
+    // detect: json-config export writeFileAtomicWithMode + ≥1 adapter 调用（删 export 或调用全删回 writeFileSync→detect=1）。
+    detect: () => {
+      const cfg = readSrc('src/cli/clients/json-config.ts');
+      const hasExport = /export function writeFileAtomicWithMode/.test(cfg);
+      // adapter 调用点（json-config 自身定义算1,adapter 调用至少1处 = 总计 - 自身 ≥ 1）
+      const allCalls = countMatchesInDir('src/cli/clients', /\bwriteFileAtomicWithMode\s*\(/g, /\.ts$/);
+      const selfCount = (cfg.match(/\bwriteFileAtomicWithMode\s*\(/g) ?? []).length;
+      return hasExport && allCalls - selfCount >= 1 ? 0 : 1;
+    } },
+  { key: 'adapter-env-field-overwrite', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // C-T7 (C1, commit c04a6b0): 13 adapter `env: { GODOT_PATH: godotPath }` 完全覆盖 oldEntry.env,
+    // 用户配的 ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_* 重跑 setup 静默丢失,复发 MCP 服务器定位不到项目。
+    // fix: 抽 buildEnv(godotPath, oldEnv) helper 保留白名单前缀（ALLOWED_PROJECT_PATHS / GODOT_MCP_BRIDGE_ / GODOT_MCP_EDITOR_）。
+    // detect: 14 adapter 无裸 env/environment: { GODOT_PATH:（全覆盖字面量 = 复发；fixed 走 buildEnv）。
+    //   排除 json-config.ts（其 doc 注释含旧模式字样,非代码复发）。
+    detect: () => {
+      const adapters = ['claude-code','cursor','claude-desktop','trae','windsurf','zed','antigravity',
+        'cherry-studio','cline','gemini-cli','qwen-code','zcode','opencode','codex'];
+      let n = 0;
+      for (const name of adapters) {
+        const f = readSrc(`src/cli/clients/${name}.ts`);
+        n += (f.match(/\b(?:env|environment):\s*\{\s*GODOT_PATH\s*:/g) ?? []).length;
+      }
+      return n;
+    } },
+  { key: 'custom-mesh-segments-no-upper-cap', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P2(2026-07-29 报告5 F1): custom_meshes 细分参数 max(int(...),N) 只取下限不取上限 → 认证客户端传超大值
+    // 在 @tool 编辑器主线程同步建顶点 → 卡死/OOM。fix: 改 clampi(int(...),N,CAP)。path_generator sample count 同理加上限。
+    // detect: custom_meshes 含裸 max(int(params.get 且无 clampi 覆盖 = 复发。
+    detect: () => {
+      const cm = readSrc('addons/godot_mcp_server/commands/asset/custom_meshes.gd');
+      const bareMax = (cm.match(/max\(int\(params\.get/g) || []).length;
+      const clampi = (cm.match(/clampi\(int\(params\.get/g) || []).length;
+      const pg = readSrc('addons/godot_mcp_server/commands/asset/path_generator.gd');
+      const pathCountCap = /count\s*>\s*\d{4,}|count exceeds maximum/i.test(pg);
+      return (bareMax === 0 && clampi >= 6 && pathCountCap) ? 0 : 1;
+    } },
+  { key: 'nav-set-params-no-undo', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P2(2026-07-29 报告5 F2): handle_nav_set_params 直接赋值改 NavigationAgent3D 属性未走 create_action_mixed → Ctrl+Z 不撤销。
+    // fix: 10 属性改 CommandHelpers._record_prop 聚合 property op 进 create_action_mixed。detect: 函数内无 create_action_mixed = 复发。
+    detect: () => {
+      const nav = readSrc('addons/godot_mcp_server/commands/nav_commands.gd');
+      const fn = nav.slice(nav.indexOf('func handle_nav_set_params'));
+      const body = fn.slice(0, fn.indexOf('\nfunc ', 1));
+      return /create_action_mixed/.test(body) ? 0 : 1;
+    } },
+  { key: 'ui-layout-anchor-no-undo', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P2(2026-07-29 报告5 F2): ui_set_layout/ui_anchor_preset 直接赋值未走 create_action_mixed → Ctrl+Z 不撤销。
+    // fix: property op 聚合进 create_action_mixed。detect: 两函数内均无 create_action_mixed = 复发。
+    detect: () => {
+      const ui = readSrc('addons/godot_mcp_server/commands/ui_commands.gd');
+      const hasUndo = (fnName: string) => {
+        const fn = ui.slice(ui.indexOf('func ' + fnName));
+        const body = fn.slice(0, fn.indexOf('\nfunc ', 1));
+        return /create_action_mixed/.test(body);
+      };
+      return (hasUndo('handle_ui_set_layout') && hasUndo('handle_ui_anchor_preset')) ? 0 : 1;
+    } },
+  { key: 'ui-theme-no-undo', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P2(2026-07-29 报告5 F2): set_theme(create/load/set_params) + theme_set_property 改 theme 未走 create_action_mixed → Ctrl+Z 不撤销。
+    // theme_create 不改节点（只新建+save），排除。detect: set_theme/theme_set_property 内均无 create_action_mixed = 复发。
+    detect: () => {
+      const ui = readSrc('addons/godot_mcp_server/commands/ui_commands.gd');
+      const hasUndo = (fnName: string) => {
+        const fn = ui.slice(ui.indexOf('func ' + fnName));
+        const body = fn.slice(0, fn.indexOf('\nfunc ', 1));
+        return /create_action_mixed/.test(body);
+      };
+      return (hasUndo('handle_ui_set_theme') && hasUndo('handle_theme_set_property')) ? 0 : 1;
+    } },
+  { key: 'animation-keyframe-index-no-bound', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
+    // P2(2026-07-29 报告5 F3): remove/update/curve 三分支 ki=int(keyframe_index) 后无 track_get_key_count 守卫 →
+    // 越界 ki 假成功。fix: ki 守卫返 -32004。detect: 三分支均无 ki key_count 守卫 = 复发。
+    detect: () => {
+      const a = readSrc('addons/godot_mcp_server/commands/animation_commands.gd');
+      const guards = (a.match(/ki\s*<\s*0\s*or\s*ki\s*>=\s*anim\.track_get_key_count/g) || []).length;
+      return guards >= 3 ? 0 : 1;
+    } },
+  { key: 'websocket-outbound-no-buffer-limit', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // P2(2026-07-29 报告5 F4): ws_peer 只 set_inbound_buffer_size 无 set_outbound_buffer_size →
+    // sync 风暴/慢消费者 outbound 无界增长 OOM。fix: set_outbound_buffer_size(4MB)。
+    // detect: websocket_server.gd 无 set_outbound_buffer_size = 复发（CI 新增，Obsidian defects.md 同步回标）。
+    detect: () => {
+      return /set_outbound_buffer_size/.test(readSrc('addons/godot_mcp_server/websocket_server.gd')) ? 0 : 1;
+    } },
+  { key: 'animtree-conditions-no-dict-guard', status: 'fixed', severity: 'ADVISORY', dimension: 'Correctness',
+    // P2(2026-07-29 报告5 F5): animtree add_transition conditions 元素未校验 Dictionary，
+    // 非 Dictionary 输入 cond.get() → SCRIPT ERROR 中断 transition 建立。fix: for 循环内加 cond is Dictionary 守卫跳过非法元素。
+    // detect: animtree_commands.gd 无 'cond is Dictionary' = 复发。
+    detect: () => {
+      return /cond is Dictionary/.test(readSrc('addons/godot_mcp_server/commands/animtree_commands.gd')) ? 0 : 1;
+    } },
+  { key: 'undo-manager-dead-create-action', status: 'fixed', severity: 'ADVISORY', dimension: 'Maintainability',
+    // P2(2026-07-29 报告5 F6): undo_manager.create_action + create_action_with_props 零外部调用（仅 create_action_mixed 在用），
+    // 死代码维护负担 + 误导调用者用旧 API。fix: 删两方法（_add_method_call 保留，被 _apply_op 用）。
+    // detect: 两方法定义仍在 = 复发（注意 func create_action( 不匹配 func create_action_mixed(）。
+    detect: () => {
+      const src = readSrc('addons/godot_mcp_server/undo_manager.gd');
+      return (/func create_action\(/.test(src) || /func create_action_with_props/.test(src)) ? 1 : 0;
+    } },
+  { key: 'asset-placer-no-undo-mgr-null-guard', status: 'fixed', severity: 'ADVISORY', dimension: 'Reliability',
+    // P2(2026-07-29 报告5 F9): asset_placer place_one/place_batch 直接 undo_mgr.create_action_mixed 无 null 守卫，
+    // headless（undo_mgr==null）null instance SCRIPT ERROR。fix: 对齐 node_commands:260 if undo_mgr != null + else callv fallback。
+    // detect: asset_placer.gd 'undo_mgr != null' 出现 < 2 = 复发（place_one + place_batch 各一）。
+    detect: () => {
+      const n = (readSrc('addons/godot_mcp_server/commands/asset/asset_placer.gd').match(/undo_mgr != null/g) || []).length;
+      return n >= 2 ? 0 : 1;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1109,7 +1508,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
     // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 53 }, // ...51=Task 3(f857615)前序累积见下;Task 3 blender-finder.ts:10 增 _blenderPath 缓存(同 godot-finder _pathCache 先例, findGodot 缓存模式) 51→52;orphan-scan T1(a8d6a78)增 _spawnedGodotPids 会话 PID 集合(同 _runningProcess 既有模式, 多会话隔离) 52→53
+    baseline: 54 }, // ...51=Task 3(f857615)前序累积见下;Task 3 blender-finder.ts:10 增 _blenderPath 缓存(同 godot-finder _pathCache 先例, findGodot 缓存模式) 51→52;orphan-scan T1(a8d6a78)增 _spawnedGodotPids 会话 PID 集合(同 _runningProcess 既有模式, 多会话隔离) 52→53;telemetry Task 1(64a3830)增 config.ts:25 _uuidCache UUID 缓存(同 _pathCache/_blenderPath findGodot 缓存模式, install UUID 身份收敛) 53→54
     // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46；MCP Logging(Task 1 _mcpServer + _clientReady 注入 setter, 同 setMcpServer/_singletonWarned 既有模式) 46→48；MCP Progress(Task 1 b43ba4b _progressSender + _progressClientReady 注入 setter, 同 Logging 既有模式) 48→50；MCP Elicit(Task 1 _elicitServer 单值注入, 同 logger/progress server 注入模式但无 clientReady——elicitInput 是 request 非 notification) 50→51
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)
