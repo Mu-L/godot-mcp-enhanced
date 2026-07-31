@@ -873,7 +873,7 @@ describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L
 // action:recording 用 runtime record_start/stop/play(plan 写 recording_* 错);
 //         profiler snapshot/start/get_data/stop。
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasGodot || !hasRealProject)('L2 real-project: recording + profiler', { timeout: 150_000 }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 real-project: recording + profiler', { timeout: 150_000 }, () => {
   let projectGodotSnap = '';
 
   beforeAll(() => {
@@ -1005,7 +1005,10 @@ describe.skipIf(!hasRealProject)('L3: android(adb)', { timeout: 60_000 }, () => 
 // 不 install bridge,run_project wait_for_bridge → bridge 不就绪 → isError
 // (修复前 isError:false 误报,到 ping 才暴露 BRIDGE_NOT_CONNECTED)
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasGodot || !hasRealProject)('L2 run_project bridge-not-ready → isError', { timeout: 60_000 }, () => {
+// P1-fix(测试 gate): 补 OPT_IN_L2 + CI gate，对齐 :818 bridge suite / :884 stderr 警告的意图。
+// 原仅 gate hasGodot+hasRealProject，npm test 默认就跑 run_project（--debug 非 headless），
+// 起 Godot GUI 窗口；fixture project.godot 改写瞬间被 Godot 读取不完整 → 弹"no main scene"系统窗。
+describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 run_project bridge-not-ready → isError', { timeout: 60_000 }, () => {
   it('wait_for_bridge + 无 bridge install → isError:true', async () => {
     const r = await callToolReal('runtime', { action: 'run_project', wait_for_bridge: true, bridge_timeout: 3, timeout: 30 });
     expect(r.isError).toBe(true);
