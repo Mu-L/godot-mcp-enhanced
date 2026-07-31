@@ -19,8 +19,8 @@
 | 维度 | 结论 | 依据 |
 |------|------|------|
 | **stdio 传输** | ✅ 完美匹配 | Warp CLI Server = stdio 子进程；godot-mcp = stdio 服务端 |
-| **工具发现** | ✅ 29 个工具全列出 | 协议层实测（见 [§6](#6-验证)） |
-| **inputSchema** | ✅ 29/29 完整 | Warp 的 `mcp_context` 需要工具 schema，全部就绪 |
+| **工具发现** | ✅ 35 个工具全列出 | 协议层实测（见 [§6](#6-验证)） |
+| **inputSchema** | ✅ 35/35 完整 | Warp 的 `mcp_context` 需要工具 schema，全部就绪 |
 | **integer 参数强转** | ✅ 无风险 | godot-mcp 数值参数用 `number` 而非 `integer`，**不触发** Warp 的 `coerce_integer_args` |
 | **env 变量传递** | ✅ 支持 | Warp `env` 字段直传 `GODOT_PATH` / `ALLOWED_PROJECT_PATHS` |
 | **权限** | ⚠️ 首次调用需确认 | Warp 默认 `AgentDecides` profile，首次调工具弹确认（见 [§7](#7-权限与安全)） |
@@ -142,7 +142,7 @@ Warp 会在启动时 spawn 该命令、退出时关闭它。
 
 ### 6.1 Warp 内验证
 
-配置后，**Settings > Agents > MCP servers** 页应显示 `godot` 为 running 状态，点开能看到可用工具列表（预期 29 个工具组，含 `scene` / `script` / `validation` / `game` 等）。
+配置后，**Settings > Agents > MCP servers** 页应显示 `godot` 为 running 状态，点开能看到可用工具列表（预期 35 个工具组，含 `scene` / `script` / `validation` / `game` 等）。
 
 ### 6.2 协议层验证（可复现，不依赖 Warp）
 
@@ -163,7 +163,7 @@ console.log("names:", tools.map(x => x.name).join(", "));
 await c.close();'
 ```
 
-**撰写本文档时的实测结果（v0.19.1，2026-06-28）**：
+**撰写本文档时的实测结果（v0.19.1，2026-06-28）**。> ℹ️ 下方为 v0.19.1 历史快照（当时 29 个工具），当前工具数见 [capability-matrix](capability-matrix.md)（35 个）。保留原始输出以存实测痕迹。
 
 ```
 [OK] initialize 握手成功 (522ms)

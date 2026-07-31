@@ -11,6 +11,9 @@ const FEATURES = {
   HEALTH_MONITOR:  { env: 'GODOT_MCP_HEALTH_MONITOR',   default: true },
   ELICITATION:     { env: 'GODOT_MCP_ELICITATION',      default: true },
   TELEMETRY:       { env: 'GODOT_MCP_TELEMETRY',        default: false },
+  // 报告②P1：启动时清理上一会话残留 Godot 进程（默认关，opt-in）。
+  // 仅跑第一层 PID 集合扫描（毫秒级、安全）；第二层全系统扫描仍需 GODOT_MCP_FULL_SYSTEM_SCAN=true。
+  STARTUP_CLEANUP: { env: 'GODOT_MCP_STARTUP_CLEANUP',  default: false },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURES;

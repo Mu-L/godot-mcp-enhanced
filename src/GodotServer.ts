@@ -106,6 +106,9 @@ export class GodotServer {
   private noFallback: boolean;
   private agentCtx: AgentContextManager;
   private stateStore: FileStateStore | null = null;
+  // 报告②P0：周期性 orphan 扫描定时器。60s 间隔（规避 killOrphanGodotProcesses 内部 30s 节流）。
+  // unref 不阻塞进程退出；close() 时 clearInterval。参考 agent-context.ts:46 / health-monitor.ts:320。
+  private orphanScanTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opsScript: string, options: ServerOptions = {}) {
     this.opsScript = opsScript;
@@ -354,8 +357,21 @@ export class GodotServer {
     await this.server.connect(transport);
     log('Godot MCP Enhanced server running on stdio');
 
+    // 报告②P0：周期性 orphan 扫描。killOrphanGodotProcesses 内部有 30s 节流，故 60s 间隔保证每次
+    // tick 真正扫描。第一层只扫本会话 _spawnedGodotPids（不误杀用户 Godot）。unref 不阻塞退出。
+    this.orphanScanTimer = setInterval(() => {
+      void ps.killOrphanGodotProcesses(ps.getProjectDir() || undefined).catch(() => { /* best-effort */ });
+    }, 60_000);
+    this.orphanScanTimer.unref?.();
+
     // 状态持久化 — 加载已保存的 agent 状态
     const projectPath = resolveProjectPath();
+
+    // 报告②P1：启动时清理上一会话残留 Godot 进程（opt-in，默认关）。
+    // 默认只跑第一层（毫秒级、安全）；不 await 避免拖慢启动。
+    if (isFeatureEnabled('STARTUP_CLEANUP') && projectPath) {
+      void ps.killOrphanGodotProcesses(projectPath).catch(() => { /* best-effort */ });
+    }
     if (projectPath) {
       this.stateStore = new FileStateStore(projectPath);
       const saved = await this.stateStore.load();
@@ -570,6 +586,11 @@ export class GodotServer {
   }
 
   async close(): Promise<void> {
+    // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
+    if (this.orphanScanTimer) {
+      clearInterval(this.orphanScanTimer);
+      this.orphanScanTimer = null;
+    }
     if (this.editorConn) {
       this.editorConn.disconnect();
       this.editorConn = null;
