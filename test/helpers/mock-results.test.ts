@@ -3,7 +3,7 @@
  *
  * 工厂被 16+ 测试文件复用，本身必须有保障。验证：
  *   - mockSuccessResult：默认 10 字段 + overrides 覆盖
- *   - mockFailureResult：4 类 kind 的字段正确性（对齐 src/gdscript-executor.ts 真实失败分支）
+ *   - mockFailureResult：4 类 kind 的字段正确性（对齐 ExecuteGdscriptResult 的字段形态，见 mock-results.js docstring）
  *   - mockSuccessSpawn：默认字段 + overrides
  */
 import { describe, it, expect } from 'vitest';
