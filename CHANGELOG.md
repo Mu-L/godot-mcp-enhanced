@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-07-31
+
+### Fixed — 竞品对比批①-④ 落地（feat/competitor-followups，审查 SHIPPED WITH NITS）
+
+- **docs(tool-count): 工具数口径修正**（批①，`e650053`）：核实发现 21 处文档漂移（28/29/33/130+ 五种过时数字），统一为权威值 35 工具 / 203 action（capability-matrix CI 锁定）。最高优先：`src/tools/rule-templates.ts:24` 与 `.claude/rules/godot-mcp-core.md:10` 独立副本重新同步（防 `setup_project_rules` 下游污染）；`docs/distribution/server.json` 防 MCP Registry 错误扩散。version bump 0.25.0→0.25.1（独立副本同步约束）。
+- **chore(tool-count): CI 校验脚本根治漂移**（批②，`05ef998`）：新增 `scripts/check-tool-count.mjs`（仿 check-token-budget.mjs，readFileSync 不走 git / 导出纯函数 / 退出码 0-1），从 capability-matrix.json 动态读权威值校验各文档手写数字，支持 negate（反向断言「不应残留 130+」）和双捕获组（rule-templates/core.md 工具数+action 数）。补 `check-rules-version-bump` 只校验版本不校验内容的盲区。+ 6 个单测 + ci.yml 接入。
+- **feat(process): P0 周期 orphan 扫描 + P1 启动清理**（批③，`e46ead6`）：`GodotServer.run()` 挂 60s setInterval 周期调 `killOrphanGodotProcesses`（60s 规避内部 30s 节流，unref 不阻塞退出，close() clearInterval 防竞争，第一层只扫本会话 `_spawnedGodotPids` 不误杀用户 Godot）；新增 `STARTUP_CLEANUP` feature flag（默认关 opt-in）启动时清理上一会话残留，不 await 避免拖慢启动。godot-ai 的 detached+lease+reaper 不适用 enhanced（stdio 单 client）不照搬。
+- **test(gdscript): command_helpers 纯函数行为测试**（批④，`1d2e56a`）：补强 GDScript 侧零行为覆盖（capability-matrix L2 从 none 35 → partial 1）。用 executeGdscript 在 headless `--script` 模式覆盖 `values_equal`（同类型/Array↔Vector3 分量比/int↔float/bool↔int fallback）/`parse_vec3`/`has_path_traversal`。复用 e2e-p1-p5 的 skipIf 无 GODOT_PATH 模式防 CI 假绿。CI godot-matrix job 双版本（4.6.3/4.7.1）跑。
+- **fix(nav): N1 补全 bake_mesh_async 末行 freed 守卫**（`b1b9f51`，两天批次审查发现）：`nav_commands.gd:196→198` 末行属性访问缺 `is_instance_valid` 守卫，deadline 耗尽退出后 nav 可能被并发 peer 删除（MAX_PEERS=5），访问 freed 对象 → GDScript SCRIPT ERROR。对齐同文件 :144（create_region_async 末行）。配套两天批次审查报告 `docs/reviews/2026-07-31-two-day-batch-review.md`（130 commits，SHIPPED）。
+- **docs(review): 批①-④ 第三方审查报告**（`12b4344`）：`docs/reviews/2026-07-31-competitor-followups-batch1-4.md`，SHIPPED WITH NITS，无 Blocking。
+
+## [0.25.0] - 2026-07-30
+
 ### Security — A-RCE 批次（headless RCE + 沙箱硬化）
 
 - **P1 headless instantiate_class 合并白名单**：`src/scripts/godot_operations.gd` 移除 `is_parent_class("Node")` 兜底（Node 是 Node 的父类 → `extends Node` 恶意脚本绕过 → `_ready` RCE，不经 execute_gdscript 沙箱），改 `ALLOWED_HEADLESS_TYPES`（NODE_TYPES ∪ CONTROL_TYPES ∪ Control − Node）双分支∈检查，对齐 editor `node_commands.gd` 纯白名单。**BREAKING**：`create_scene(root_node_type="Node")` / `add_node(node_type="Node")` 被拒（罕见，用 Node2D/Node3D/Control 或 execute_gdscript）。
