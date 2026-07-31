@@ -586,57 +586,69 @@ export class GodotServer {
   }
 
   async close(): Promise<void> {
-    // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
-    if (this.orphanScanTimer) {
-      clearInterval(this.orphanScanTimer);
-      this.orphanScanTimer = null;
+    // P2: 整体 try/finally 兜底，finally 保证 server.close + 模块级引用清理必执行。
+    // 各步骤虽多 best-effort，但 agentCtx.destroy()/server.close() 抛错会中断后续清理 →
+    // 模块级单例引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
+    let serverClosed = false;
+    try {
+      // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
+      if (this.orphanScanTimer) {
+        clearInterval(this.orphanScanTimer);
+        this.orphanScanTimer = null;
+      }
+      if (this.editorConn) {
+        this.editorConn.disconnect();
+        this.editorConn = null;
+        this.dispatcher?.setEditorExecutor(null);
+        log('Editor connection closed');
+      }
+      const proc = ps.getRunningProcess();
+      if (proc && !proc.killed) {
+        await killProcess(proc);
+        ps.setProcessBusy(false);
+        ps.setRunningProcess(null);
+        log('Running Godot process killed');
+      }
+      // B-T4: 清理 in-flight short-running gdscript spawn（gdscript-executor 注册）。
+      // 原 close 只 kill run_project 长进程,挂起脚本 + close → 孤儿无兜底。
+      // getSpawnedGodotPids 此时通常已空（exit/error/timeout 三路径均 unregister），
+      // 仅异常路径（注册后 close 抢占 / forceKillTree 后 exit 未触发）残留 PID → best-effort kill。
+      for (const pid of ps.getSpawnedGodotPids()) {
+        try {
+          ps.killPidTree(pid);
+          ps.unregisterSpawnedGodotPid(pid);
+        } catch { /* best-effort: 已退出 / killPidTree 内部吞错 */ }
+      }
+      // Clean up guard cleanup timer and pending tokens
+      guard.cleanup();
+      // Stop health monitor heartbeat
+      this.dispatcher?.getHealthMonitor().stopHeartbeat();
+      // 状态持久化 — 刷盘并清理
+      if (this.stateStore) {
+        await this.stateStore.flush();
+        this.stateStore.destroy();
+      }
+      try { this.agentCtx.destroy(); } catch { /* best-effort: 不阻断 server.close + 引用清理 */ }
+      await this.server.close();
+      serverClosed = true;
+    } finally {
+      // 必执行：模块级引用清理（防测试隔离泄漏 / 重启残留）+ server.close 兜底
+      if (!serverClosed) {
+        try { await this.server.close(); } catch { /* best-effort: 已损坏或重复关闭 */ }
+      }
+      setOnGroupsChanged(null);
+      setConnectionStatusProvider(null);
+      setGetContextConnectionProvider(null);
+      setEditorSceneProvider(null);
+      setReconnectEditor(null);
+      clearMcpServer();
+      setLoggerServer(null);          // 批 P1: MCP Logging 干净关闭 + 测试隔离
+      setLoggerClientReady(false);
+      setProgressSender(null);
+      setProgressClientReady(false);
+      setElicitServer(null);
+      setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
+      log('Server shut down');
     }
-    if (this.editorConn) {
-      this.editorConn.disconnect();
-      this.editorConn = null;
-      this.dispatcher?.setEditorExecutor(null);
-      log('Editor connection closed');
-    }
-    const proc = ps.getRunningProcess();
-    if (proc && !proc.killed) {
-      await killProcess(proc);
-      ps.setProcessBusy(false);
-      ps.setRunningProcess(null);
-      log('Running Godot process killed');
-    }
-    // B-T4: 清理 in-flight short-running gdscript spawn（gdscript-executor 注册）。
-    // 原 close 只 kill run_project 长进程,挂起脚本 + close → 孤儿无兜底。
-    // getSpawnedGodotPids 此时通常已空（exit/error/timeout 三路径均 unregister），
-    // 仅异常路径（注册后 close 抢占 / forceKillTree 后 exit 未触发）残留 PID → best-effort kill。
-    for (const pid of ps.getSpawnedGodotPids()) {
-      try {
-        ps.killPidTree(pid);
-        ps.unregisterSpawnedGodotPid(pid);
-      } catch { /* best-effort: 已退出 / killPidTree 内部吞错 */ }
-    }
-    // Clean up guard cleanup timer and pending tokens
-    guard.cleanup();
-    // Stop health monitor heartbeat
-    this.dispatcher?.getHealthMonitor().stopHeartbeat();
-    // 状态持久化 — 刷盘并清理
-    if (this.stateStore) {
-      await this.stateStore.flush();
-      this.stateStore.destroy();
-    }
-    this.agentCtx.destroy();
-    await this.server.close();
-    setOnGroupsChanged(null);
-    setConnectionStatusProvider(null);
-    setGetContextConnectionProvider(null);
-    setEditorSceneProvider(null);
-    setReconnectEditor(null);
-    clearMcpServer();
-    setLoggerServer(null);          // 批 P1: MCP Logging 干净关闭 + 测试隔离
-    setLoggerClientReady(false);
-    setProgressSender(null);
-    setProgressClientReady(false);
-    setElicitServer(null);
-    setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
-    log('Server shut down');
   }
 }

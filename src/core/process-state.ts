@@ -423,6 +423,10 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
         `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) -and -not ($_.CommandLine -like '*--editor*') } | ` +
         `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      // P2: unref orphan-scan spawn so close() doesn't block Node exit on in-flight scan (15s timeout window).
+      // 对齐 orphanScanTimer.unref() (GodotServer.ts) / heartbeatTimer.unref() (health-monitor.ts)。
+      // 可选链：测试 mock 的 spawn 返回值无 unref（真实 ChildProcess 有）。
+      ps.unref?.();
 
       // I-03 fix: 15s timeout to prevent hanging on unresponsive WMI/shell
       const timer = setTimeout(() => {
@@ -469,6 +473,9 @@ async function fullSystemScanGodot(projectDir: string, excludePid?: number): Pro
       const ps = spawn('sh', ['-c',
         `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -v -- "--editor" | grep -F -- '${safeDir}' && echo {}'`
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      // P2: unref orphan-scan spawn (同 powershell 分支，对齐 orphanScanTimer.unref())。
+      // 可选链：测试 mock 的 spawn 返回值无 unref。
+      ps.unref?.();
 
       const timer = setTimeout(() => {
         if (!settled && !ps.killed) {

@@ -298,8 +298,13 @@ export class EditorConnection {
         } else if (msg.method && msg.id == null) {
           const handlers = this.notificationHandlers.get(msg.method);
           if (handlers) {
+            // P2: 对齐 B5 容错（fireDisconnect/fireReconnect :106-123），单 handler 抛错不阻断后续 + 不冒泡到 ws 'message' 回调
             for (const handler of handlers) {
-              handler(msg.params);
+              try {
+                handler(msg.params);
+              } catch (err) {
+                getLogger().warn('editor', `notification handler threw for ${msg.method}: ${err instanceof Error ? err.message : String(err)}`);
+              }
             }
           }
         }

@@ -162,7 +162,7 @@ export interface ToolGroupDef {
   protected?: boolean;
 }
 
-/** 16 tool groups for fine-grained profile configuration. */
+/** Tool groups for fine-grained profile configuration. Count verified by test/tool-groups.test.js (number omitted here to avoid drift as groups are added). */
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
