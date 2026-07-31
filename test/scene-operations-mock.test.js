@@ -1,14 +1,12 @@
 // Level B 集成测试：场景操作工具（scene.handleTool）
 import { expect, it, beforeEach, describe, vi } from 'vitest';
+import { mockSuccessResult, mockSuccessSpawn } from './helpers/mock-results.js';
 
 // Mock the executor — hoisted to top by Vitest
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
+  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult({
     outputs: [{ key: 'result', value: '{"ok":true}' }],
-    raw_output: '', duration_ms: 100,
-  })),
+  }))),
   parseMcpMarkers: vi.fn((raw) => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
@@ -17,13 +15,9 @@ vi.mock('../src/gdscript-executor.js', () => ({
 
 // Mock spawnGodot — Task 3: edit_node 迁移到 spawnGodot 路径，需 mock 避免真 spawn
 vi.mock('../src/tools/spawn-helper.js', () => ({
-  spawnGodot: vi.fn(() => Promise.resolve({
+  spawnGodot: vi.fn(() => Promise.resolve(mockSuccessSpawn({
     stdout: "Node 'root/Root/MovableNode' edited successfully",
-    stderr: '',
-    output: '',
-    exitCode: 0,
-    timedOut: false,
-  })),
+  }))),
 }));
 
 import { executeGdscript } from '../src/gdscript-executor.js';

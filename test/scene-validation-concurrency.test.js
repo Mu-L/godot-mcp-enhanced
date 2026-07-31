@@ -1,14 +1,12 @@
 // A-12/A-13/A-14: scene_path 输入校验 + edit_node/remove_node 并发控制 + 回归测试
 import { expect, it, beforeEach, afterEach, describe, vi } from 'vitest';
+import { mockSuccessResult, mockSuccessSpawn } from './helpers/mock-results.js';
 
 // Mock the executor — hoisted by Vitest
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
+  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult({
     outputs: [{ key: 'result', value: '{"ok":true}' }],
-    raw_output: '', duration_ms: 100,
-  })),
+  }))),
   parseMcpMarkers: vi.fn((raw) => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
@@ -17,10 +15,9 @@ vi.mock('../src/gdscript-executor.js', () => ({
 
 // Task 3: edit_node 迁移 spawnGodot，mock 避免真 spawn
 vi.mock('../src/tools/spawn-helper.js', () => ({
-  spawnGodot: vi.fn(() => Promise.resolve({
+  spawnGodot: vi.fn(() => Promise.resolve(mockSuccessSpawn({
     stdout: "Node 'root/Root/SomeNode' edited successfully",
-    stderr: '', output: '', exitCode: 0, timedOut: false,
-  })),
+  }))),
 }));
 
 import * as scene from '../src/tools/scene.js';

@@ -12,21 +12,15 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { ToolContext } from '../../src/types.js';
+import { mockSuccessResult } from '../helpers/mock-results.js';
 
 vi.mock('../../src/gdscript-executor.js', () => ({
-  executeGdscriptTrusted: vi.fn(async () => ({
-    success: true,
-    compile_success: true,
-    compile_error: '',
-    errors: [],
-    run_success: true,
-    run_error: '',
+  executeGdscriptTrusted: vi.fn(async () => mockSuccessResult({
     outputs: [
       { key: 'generated', value: '[]' },
       { key: 'errors', value: '[]' },
       { key: 'stats', value: '{"rows":1,"generated":0,"failed":0}' },
     ],
-    raw_output: '',
     duration_ms: 1,
   })),
 }));

@@ -1,14 +1,11 @@
 import { expect, it, beforeEach, afterEach, describe, vi } from 'vitest';
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { mockSuccessResult } from './helpers/mock-results.js';
 
-// Mock the executor
+// Mock the executor — hoisted to top by Vitest
 vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve({
-    success: true, compile_success: true, compile_error: '',
-    errors: [], run_success: true, run_error: '',
-    outputs: [], raw_output: '', duration_ms: 100,
-  })),
+  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult())),
   parseMcpMarkers: vi.fn((raw) => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
