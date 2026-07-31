@@ -100,4 +100,23 @@ describe.skipIf(!hasGodot)('path_generator spacing 下限守卫（P2-15，防 CP
     expect(result.run_success).toBe(true);
     expect(out(result, 'continuous_tiny')).toBe('0'); // 守卫在 sample 入口，continuous 也覆盖
   });
+
+  it('count=20000(超限) + spacing=1e-4(极小) → 返空（双守卫同时命中，回归保护）', async () => {
+    // 审查 Nit-2：count>10000 守卫（:57）与 spacing 守卫（:62）同时命中场景。
+    // 两守卫在此场景下是 OR 关系（任一命中即返空），本用例锁死"双守卫共存不冲突、
+    // 双命中时返空"，防日后误删任一守卫致回归（count 守卫删 → spacing 守卫仍拦；
+    // spacing 守卫删 → count 守卫仍拦；两守卫都删 → 20000 点采样冻结）。
+    const result = await executeGdscript({
+      godotPath: GODOT_PATH,
+      projectPath: CHECK_PROJECT,
+      timeout: 30,
+      code: [
+        POINTS_SETUP,
+        '_mcp_output("both_guards", str(PG.sample(pts, "discrete", 1e-4, 20000, "path", false).size()))',
+        '_mcp_done()',
+      ].join('\n'),
+    });
+    expect(result.run_success).toBe(true);
+    expect(out(result, 'both_guards')).toBe('0'); // count>10000 守卫先命中返空
+  });
 });
