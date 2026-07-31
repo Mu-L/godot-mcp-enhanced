@@ -1,7 +1,7 @@
 // src/core/update-checker.ts
 // npm registry 最新版查询 + 24h 缓存 + 网络容错。
 // 启动被动提示（index.ts）与 check_update 工具共用同一函数。
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createRequire } from 'module';
@@ -57,6 +57,9 @@ function writeCache(cachePath: string, data: CacheData): void {
     mkdirSync(dir, { recursive: true });  // recursive 对已存在目录是 noop，避免 existsSync+mkdirSync TOCTOU
     const tmp = cachePath + '.tmp';
     writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+    // S2(2026-07-31 nit#4): 显式收紧到 0o600（writeFileSync 默认 0o666 & ~umask，umask 022 → 0o644，
+    // cache 含版本/时间戳信息，收紧无害；chmodSync 在 rename 前对 tmp 设置，rename 后目标继承权限）
+    try { chmodSync(tmp, 0o600); } catch { /* Windows/受限环境 chmod 无效，忽略 */ }
     renameSync(tmp, cachePath);  // 原子 rename
   } catch { /* 缓存写失败静默 */ }
 }

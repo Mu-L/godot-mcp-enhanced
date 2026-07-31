@@ -15,10 +15,8 @@ func cleanup() -> void:
 
 
 
-# P0-3 helpers: 统一 property undo 收集模式(4 setter 共用)
-func _record_prop(do_ops: Array, undo_ops: Array, target: Object, prop: String, new_val) -> void:
-	undo_ops.append({"type": "property", "target": target, "property": prop, "value": target.get(prop)})
-	do_ops.append({"type": "property", "target": target, "property": prop, "value": new_val})
+# F2(2026-07-31 nit#1): _record_prop 迁移到 CommandHelpers._record_prop 共享版（command_helpers.gd:220），
+# 本地副本删除（两份实现行对行相同，command_helpers 已被本文件其他方法引用）。
 
 
 func _ensure_mat(node: Object, mat, do_ops: Array, undo_ops: Array):
@@ -94,28 +92,28 @@ func handle_particles_set_emission(params: Dictionary, request_id: int = 0) -> D
 	var undo_ops: Array = []
 	var amount = params.get("amount")
 	if amount != null:
-		_record_prop(do_ops, undo_ops, node, "amount", int(amount))
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "amount", int(amount))
 	var emission_shape: String = params.get("emission_shape", "")
 	if emission_shape != "":
 		var shape_map = {"point": ParticleProcessMaterial.EMISSION_SHAPE_POINT, "sphere": ParticleProcessMaterial.EMISSION_SHAPE_SPHERE, "box": ParticleProcessMaterial.EMISSION_SHAPE_BOX, "ring": ParticleProcessMaterial.EMISSION_SHAPE_RING}
 		if not shape_map.has(emission_shape):
 			return {"error": {"code": -32004, "message": "Invalid emission_shape: " + emission_shape + ". Supported: point, sphere, box, ring"}}
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
-		_record_prop(do_ops, undo_ops, mat, "emission_shape", shape_map[emission_shape])
+		CommandHelpers._record_prop(do_ops, undo_ops, mat, "emission_shape", shape_map[emission_shape])
 		var radius = params.get("emission_sphere_radius")
 		if radius != null:
-			_record_prop(do_ops, undo_ops, mat, "emission_sphere_radius", float(radius))
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "emission_sphere_radius", float(radius))
 		var extents = params.get("emission_box_extents")
 		if extents != null and extents is Dictionary:
-			_record_prop(do_ops, undo_ops, mat, "emission_box_extents", Vector3(float(extents.get("x", 1.0)), float(extents.get("y", 1.0)), float(extents.get("z", 1.0))))
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "emission_box_extents", Vector3(float(extents.get("x", 1.0)), float(extents.get("y", 1.0)), float(extents.get("z", 1.0))))
 	var direction = params.get("direction")
 	if direction != null and direction is Dictionary:
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
-		_record_prop(do_ops, undo_ops, mat, "direction", Vector3(float(direction.get("x", 0.0)), float(direction.get("y", -1.0)), float(direction.get("z", 0.0))))
+		CommandHelpers._record_prop(do_ops, undo_ops, mat, "direction", Vector3(float(direction.get("x", 0.0)), float(direction.get("y", -1.0)), float(direction.get("z", 0.0))))
 	var spread = params.get("spread")
 	if spread != null:
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
-		_record_prop(do_ops, undo_ops, mat, "spread", float(spread))
+		CommandHelpers._record_prop(do_ops, undo_ops, mat, "spread", float(spread))
 	if _undo_manager != null and do_ops.size() > 0:
 		_undo_manager.create_action_mixed("Set Particles Emission (req:%d)" % request_id, do_ops, undo_ops)
 	elif _undo_manager == null and do_ops.size() > 0:
@@ -138,23 +136,23 @@ func handle_particles_set_process(params: Dictionary, request_id: int = 0) -> Di
 	var gravity = params.get("gravity")
 	if gravity != null and gravity is Dictionary:
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
-		_record_prop(do_ops, undo_ops, mat, "gravity", Vector3(float(gravity.get("x", 0.0)), float(gravity.get("y", -9.8)), float(gravity.get("z", 0.0))))
+		CommandHelpers._record_prop(do_ops, undo_ops, mat, "gravity", Vector3(float(gravity.get("x", 0.0)), float(gravity.get("y", -9.8)), float(gravity.get("z", 0.0))))
 	var speed_scale = params.get("speed_scale")
 	if speed_scale != null:
-		_record_prop(do_ops, undo_ops, node, "speed_scale", float(speed_scale))
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "speed_scale", float(speed_scale))
 	var explosiveness = params.get("explosiveness")
 	if explosiveness != null:
-		_record_prop(do_ops, undo_ops, node, "explosiveness", float(explosiveness))
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "explosiveness", float(explosiveness))
 	var randomness = params.get("randomness")
 	if randomness != null:
-		_record_prop(do_ops, undo_ops, node, "randomness", float(randomness))
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "randomness", float(randomness))
 	var lifetime = params.get("lifetime")
 	if lifetime != null:
-		_record_prop(do_ops, undo_ops, node, "lifetime", float(lifetime))
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "lifetime", float(lifetime))
 	var damping = params.get("damping")
 	if damping != null:
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
-		_record_prop(do_ops, undo_ops, mat, "damping", float(damping))
+		CommandHelpers._record_prop(do_ops, undo_ops, mat, "damping", float(damping))
 	if _undo_manager != null and do_ops.size() > 0:
 		_undo_manager.create_action_mixed("Set Particles Process (req:%d)" % request_id, do_ops, undo_ops)
 	elif _undo_manager == null and do_ops.size() > 0:
@@ -186,22 +184,22 @@ func handle_particles_load_preset(params: Dictionary, request_id: int = 0) -> Di
 	var mat = node.process_material
 	var do_ops: Array = []
 	var undo_ops: Array = []
-	_record_prop(do_ops, undo_ops, node, "amount", int(cfg.get("amount", 10)))
-	_record_prop(do_ops, undo_ops, node, "lifetime", float(cfg.get("lifetime", 1.0)))
-	_record_prop(do_ops, undo_ops, node, "explosiveness", float(cfg.get("explosiveness", 0.0)))
-	_record_prop(do_ops, undo_ops, node, "randomness", float(cfg.get("randomness", 0.0)))
+	CommandHelpers._record_prop(do_ops, undo_ops, node, "amount", int(cfg.get("amount", 10)))
+	CommandHelpers._record_prop(do_ops, undo_ops, node, "lifetime", float(cfg.get("lifetime", 1.0)))
+	CommandHelpers._record_prop(do_ops, undo_ops, node, "explosiveness", float(cfg.get("explosiveness", 0.0)))
+	CommandHelpers._record_prop(do_ops, undo_ops, node, "randomness", float(cfg.get("randomness", 0.0)))
 	if cfg.has("one_shot") and cfg["one_shot"]:
-		_record_prop(do_ops, undo_ops, node, "one_shot", true)
+		CommandHelpers._record_prop(do_ops, undo_ops, node, "one_shot", true)
 	if cfg.has("gravity") or cfg.has("spread") or cfg.has("damping") or cfg.has("direction"):
 		mat = _ensure_mat(node, mat, do_ops, undo_ops)
 		if cfg.has("gravity"):
-			_record_prop(do_ops, undo_ops, mat, "gravity", cfg["gravity"])
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "gravity", cfg["gravity"])
 		if cfg.has("spread"):
-			_record_prop(do_ops, undo_ops, mat, "spread", cfg["spread"])
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "spread", cfg["spread"])
 		if cfg.has("damping"):
-			_record_prop(do_ops, undo_ops, mat, "damping", cfg["damping"])
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "damping", cfg["damping"])
 		if cfg.has("direction"):
-			_record_prop(do_ops, undo_ops, mat, "direction", cfg["direction"])
+			CommandHelpers._record_prop(do_ops, undo_ops, mat, "direction", cfg["direction"])
 	if _undo_manager != null and do_ops.size() > 0:
 		_undo_manager.create_action_mixed("Load Particles Preset %s (req:%d)" % [preset, request_id], do_ops, undo_ops)
 	elif _undo_manager == null and do_ops.size() > 0:

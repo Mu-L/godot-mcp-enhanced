@@ -1270,6 +1270,7 @@ export async function executeGdscript(
       if (settled) return;  // ipc P1-7: timer 已 reject(timeout)
       settled = true;
       clearTimeout(timer);
+      unregisterSpawn();  // B-T4 对称补全：exit/error/timeout/pipe 均已调，close 也补（Set 幂等，防 close 先于 exit 的 driver 边界）
       const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
       const stderr = Buffer.concat(stderrChunks).toString('utf-8');
       releaseShortRunningSlot();
