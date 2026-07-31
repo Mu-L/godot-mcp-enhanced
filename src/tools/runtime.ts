@@ -314,6 +314,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           '-gdir', testScript,
           '-gquit',
         ], { stdio: ['pipe', 'pipe', 'pipe'], env: buildSafeEnv() });
+        // P1-1: 注册到 _spawnedGodotPids，close/崩溃可清理 in-flight run_tests spawn。
+        // 原 only-run_project 注册（runtime.ts:224）致 close() 清不到 run_tests 进程 +
+        // 非 detached 非 unref 阻止 Node 退出最多 120s。对齐 gdscript-executor.ts:1198-1199。
+        // 系 07-29 P1-② gdscript-executor spawn orphan 修复的遗漏分支。
+        if (proc.pid) registerSpawnedGodotPid(proc.pid);
+        const unregisterSpawn = () => { if (proc.pid) unregisterSpawnedGodotPid(proc.pid); };
 
         let out = '';
         const MAX_OUTPUT = 500_000;
@@ -324,6 +330,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (!settled && !proc.killed) {
             settled = true;
             forceKillTree(proc);
+            unregisterSpawn();  // P1-1: timeout 强杀后注销（exit 事件可能不触发）
             releaseShortRunningSlot();
             resolve(textResult('run_tests timed out after 120s'));
           }
@@ -333,6 +340,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           clearTimeout(timer);
           if (settled) return;
           settled = true;
+          unregisterSpawn();  // P1-1: 正常 close 注销 PID
           releaseShortRunningSlot();
           const passed = (out.match(/Tests: (\d+)/g) || []).map(m => m.replace('Tests: ', ''));
           const failed = (out.match(/Failed: (\d+)/g) || []).map(m => m.replace('Failed: ', ''));
@@ -358,6 +366,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           clearTimeout(timer);
           if (settled) return;
           settled = true;
+          unregisterSpawn();  // P1-1: spawn 错误（ENOENT 等）注销 PID
           releaseShortRunningSlot();
           resolve({ content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true });
         });
