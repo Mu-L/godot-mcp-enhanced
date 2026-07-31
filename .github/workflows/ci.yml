@@ -33,6 +33,10 @@ jobs:
         # warn-only 基线：error 阈值极高（当前 0 触发）。读 committed json 快照，
         # 不重算（drift step 已保证 json 是最新契约）。size 不进 diff-matrix drift。
         run: node scripts/check-token-budget.mjs
+      - name: Check tool count consistency（报告④：README/manifest/规则文件 vs matrix 工具数）
+        # 校验手写工具数/action 数与 capability-matrix.json 一致；漂移 exit 1。
+        # 覆盖独立副本同步约束（rule-templates.ts vs .claude/rules/），补 check-rules-version-bump 的内容盲区。
+        run: node scripts/check-tool-count.mjs
       - name: Check rules version bump（spec §4 不变式）
         run: node scripts/check-rules-version-bump.mjs
       - name: Check version metadata consistency
