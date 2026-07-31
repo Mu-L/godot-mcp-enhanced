@@ -212,8 +212,12 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 		return {"error": {"code": -32004, "message": "Too many nodes (%d). Maximum: 100" % nodes.size()}}
 
 	var _name_re := RegEx.create_from_string("^[A-Za-z0-9_]+$")
-	# 预校验全部 node（零内存改）
-	var validated: Array = []
+	# P1-1(addons) 两阶段：先全预校验（name/type/parent，零 instantiate），全过后第二阶段
+	# 才 ClassDB.instantiate + append。对齐 asset_placer.gd:64-90。
+	# 原单循环 bug：instantiate(:229) 在校验循环内，下一轮 :223/:225/:228 early return 时，
+	# 前几轮已 instantiate 的 cls 未 free → 孤儿 Node leak（C11 扫描在 create_action_mixed 后到不了）。
+	# 第一阶段：全预校验，任一失败立即返错（零 instantiate 产物，无孤儿可 leak）
+	var prechecked: Array = []
 	for i in range(nodes.size()):
 		var n: Dictionary = nodes[i]
 		var node_type: String = String(n.get("node_type", "Node"))
@@ -226,11 +230,20 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 		var parent_node: Node = root if parent_path.is_empty() else CommandHelpers.find_node(root, parent_path)
 		if not parent_node:
 			return {"error": {"code": -32002, "message": "nodes[%d].parent not found: %s" % [i, parent_path]}}
-		var cls = ClassDB.instantiate(node_type)
+		prechecked.append({"node_type": node_type, "node_name": node_name, "parent": parent_node, "properties": n.get("properties", {})})
+	# 第二阶段：全预校验通过，才 ClassDB.instantiate + append（此时无 early return，不会孤儿）
+	var validated: Array = []
+	for p in prechecked:
+		var cls = ClassDB.instantiate(p["node_type"])
 		if not cls:
-			return {"error": {"code": -32000, "message": "nodes[%d].cannot instantiate: %s" % [i, node_type]}}
-		cls.name = node_name
-		validated.append({"cls": cls, "parent": parent_node, "name": node_name, "properties": n.get("properties", {})})
+			# instantiate 失败：前序已 instantiate 的 cls 需 free（防此处 return 孤儿）
+			for v in validated:
+				var prev_cls: Node = v["cls"]
+				if prev_cls != null and is_instance_valid(prev_cls):
+					prev_cls.free()
+			return {"error": {"code": -32000, "message": "cannot instantiate: %s" % p["node_type"]}}
+		cls.name = p["node_name"]
+		validated.append({"cls": cls, "parent": p["parent"], "name": p["node_name"], "properties": p["properties"]})
 
 	# 全过 → 批量 create_action_mixed
 	var do_ops: Array = []
