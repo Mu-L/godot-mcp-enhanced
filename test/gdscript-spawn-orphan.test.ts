@@ -42,8 +42,9 @@ describe('B-T4: gdscript-executor spawn 注册 PID', () => {
     const directCalls = EXEC_SRC.match(/unregisterSpawnedGodotPid\s*\(\s*proc\.pid\s*\)/g) ?? [];
     const closureCalls = EXEC_SRC.match(/\bunregisterSpawn\s*\(\s*\)/g) ?? [];
     const total = directCalls.length + closureCalls.length;
-    // 闭包实现：定义 1 + exit/error 各 1 + 三 forceKillTree 分支各 1 = 6
+    // 闭包实现：exit/error 传引用（不匹配调用正则）+ 三 forceKillTree 分支各 1 + close 1 = 4
     // 直接调：exit/error 各 1 + 三 forceKillTree 各 1 = 5
+    // nit#3 后 close handler 补 unregisterSpawn，闭包调用点 = 4（1225/1250/1261/1273）
     expect(total, `unregister 调用总数 ${total}（direct=${directCalls.length} closure=${closureCalls.length}），期望 >=4`).toBeGreaterThanOrEqual(4);
   });
 

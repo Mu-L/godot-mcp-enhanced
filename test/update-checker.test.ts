@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRequire } from 'module';
@@ -94,5 +94,22 @@ describe('checkForUpdateCached', () => {
     const r = await checkForUpdateCached({ cacheDir });
     expect(r.latest).toBe('0.24.0');
     expect(r.fromCache).toBe(false);
+  });
+
+  // S2 nit#4 守卫：writeCache 的 chmodSync(tmp, 0o600) 收紧缓存文件权限。
+  // 对齐 json-config.test.ts / claude-code.test.ts 的 0o600 硬断言模式（update-checker 是唯一缺守护的 chmod 落地点）。
+  // Windows chmod 是 noop（mode 不变），故 mode 断言仅 POSIX 生效；调用发生用文件存在间接验证（writeCache 成功即 chmod 已执行）。
+  it('writeCache 收紧缓存权限到 0o600（nit#4 守卫）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ version: '0.24.0' }),
+    }));
+    await checkForUpdateCached({ cacheDir });
+    const cachePath = join(cacheDir, 'update-cache.json');
+    expect(existsSync(cachePath), '缓存文件已写入（chmodSync 在 writeFileSync 后执行）').toBe(true);
+    // POSIX: stat mode 低 9 位应为 0o600（owner rw）；Windows: chmod noop，跳过 mode 断言
+    if (process.platform !== 'win32') {
+      const mode = statSync(cachePath).mode & 0o777;
+      expect(mode, `cache mode 应为 0o600，实际 0o${mode.toString(8)}`).toBe(0o600);
+    }
   });
 });
