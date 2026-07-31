@@ -4399,7 +4399,7 @@
     {
       "name": "ui",
       "group": "ui",
-      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。",
+      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}])",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4572,25 +4572,6 @@
             ],
             "description": "ui_anchor_preset: 锚点预设名称"
           },
-          "theme_action": {
-            "type": "string",
-            "enum": [
-              "set_params",
-              "create",
-              "save",
-              "load"
-            ],
-            "description": "ui_set_theme: 操作类型（set_params/create/save/load）"
-          },
-          "theme_path": {
-            "type": "string",
-            "description": "ui_set_theme: Theme 资源路径（save/load 时必填）"
-          },
-          "params": {
-            "type": "object",
-            "description": "ui_set_theme(set_params): 键值对（number/bool/string/array[4]→Color）",
-            "additionalProperties": true
-          },
           "child_type": {
             "type": "string",
             "enum": [
@@ -4635,356 +4616,9 @@
             "description": "ui_container_add: 子节点属性（支持 string/number/bool/null）",
             "additionalProperties": true
           },
-          "theme_create_action": {
-            "type": "string",
-            "enum": [
-              "create",
-              "extract"
-            ],
-            "description": "theme_create: 操作类型（create 创建空 Theme | extract 从节点提取）"
-          },
-          "source_node_path": {
-            "type": "string",
-            "description": "theme_create(extract): 源节点路径"
-          },
-          "save_path": {
-            "type": "string",
-            "description": "theme_create: 可选保存路径（res://themes/xxx.tres）"
-          },
-          "theme_node_path": {
-            "type": "string",
-            "description": "theme_set_property: 拥有 Theme 的节点路径"
-          },
-          "item_type": {
-            "type": "string",
-            "enum": [
-              "default_font",
-              "color",
-              "constant",
-              "stylebox"
-            ],
-            "description": "theme_set_property: 属性类型"
-          },
-          "prop_name": {
-            "type": "string",
-            "description": "theme_set_property: 属性名"
-          },
-          "theme_type": {
-            "type": "string",
-            "description": "theme_set_property: Theme 类型名（可选）"
-          },
-          "value": {
-            "description": "theme_set_property: 属性值（default_font/stylebox 为资源路径，color 为 [r,g,b,a]，constant 为数字）"
-          },
-          "ops": {
-            "type": "array",
-            "description": "ui_draw_recipe: 绘图操作数组（最多 200 个）",
-            "items": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "type": "string",
-                  "enum": [
-                    "rect",
-                    "circle",
-                    "line",
-                    "arc",
-                    "polygon",
-                    "polyline",
-                    "string"
-                  ],
-                  "description": "操作类型"
-                },
-                "position": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[x, y]"
-                },
-                "size": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[w, h]"
-                },
-                "center": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[x, y] 圆心"
-                },
-                "radius": {
-                  "type": "number",
-                  "description": "半径"
-                },
-                "from": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[x, y] 起点"
-                },
-                "to": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[x, y] 终点"
-                },
-                "start_angle": {
-                  "type": "number",
-                  "description": "起始角度（弧度）"
-                },
-                "end_angle": {
-                  "type": "number",
-                  "description": "结束角度（弧度）"
-                },
-                "points": {
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    }
-                  },
-                  "description": "[[x,y], ...]"
-                },
-                "text": {
-                  "type": "string",
-                  "description": "文本"
-                },
-                "color": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "description": "[r,g,b] 或 [r,g,b,a]，0-1"
-                },
-                "width": {
-                  "type": "number",
-                  "description": "线宽"
-                },
-                "filled": {
-                  "type": "boolean",
-                  "description": "是否填充（默认 true）"
-                },
-                "font_size": {
-                  "type": "number",
-                  "description": "字号（默认 16）"
-                }
-              },
-              "required": [
-                "kind"
-              ]
-            }
-          },
           "parent_path": {
             "type": "string",
             "description": "ui_build_layout: 父节点路径"
-          },
-          "tree": {
-            "type": "object",
-            "description": "ui_build_layout: UI 节点树（最大深度 10）",
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "Button",
-                  "Label",
-                  "Panel",
-                  "LineEdit",
-                  "TextEdit",
-                  "RichTextLabel",
-                  "LinkButton",
-                  "HSlider",
-                  "VSlider",
-                  "CheckBox",
-                  "CheckButton",
-                  "OptionButton",
-                  "SpinBox",
-                  "ProgressBar",
-                  "TextureRect",
-                  "ColorPickerButton",
-                  "TabContainer",
-                  "Tree",
-                  "ItemList",
-                  "MarginContainer",
-                  "HBoxContainer",
-                  "VBoxContainer",
-                  "GridContainer",
-                  "CenterContainer",
-                  "ScrollContainer",
-                  "PanelContainer",
-                  "HSplitContainer",
-                  "VSplitContainer",
-                  "NinePatchRect"
-                ],
-                "description": "Control 子类"
-              },
-              "name": {
-                "type": "string",
-                "description": "节点名称"
-              },
-              "properties": {
-                "type": "object",
-                "additionalProperties": true,
-                "description": "节点属性"
-              },
-              "anchor_preset": {
-                "type": "string",
-                "enum": [
-                  "top_left",
-                  "top_right",
-                  "bottom_left",
-                  "bottom_right",
-                  "center_left",
-                  "center_top",
-                  "center_right",
-                  "center_bottom",
-                  "center",
-                  "left_wide",
-                  "top_wide",
-                  "right_wide",
-                  "bottom_wide",
-                  "vcenter_wide",
-                  "hcenter_wide",
-                  "full_rect"
-                ],
-                "description": "锚点预设"
-              },
-              "layout": {
-                "type": "object",
-                "description": "CSS Flexbox 布局描述（存在时覆盖 type 字段）",
-                "properties": {
-                  "direction": {
-                    "type": "string",
-                    "enum": [
-                      "row",
-                      "column",
-                      "row-reverse",
-                      "column-reverse",
-                      "grid"
-                    ],
-                    "description": "主轴方向"
-                  },
-                  "justify": {
-                    "type": "string",
-                    "enum": [
-                      "flex-start",
-                      "center",
-                      "flex-end",
-                      "space-between",
-                      "space-around",
-                      "space-evenly"
-                    ],
-                    "description": "主轴对齐"
-                  },
-                  "align": {
-                    "type": "string",
-                    "enum": [
-                      "stretch",
-                      "flex-start",
-                      "center",
-                      "flex-end"
-                    ],
-                    "description": "交叉轴对齐"
-                  },
-                  "wrap": {
-                    "type": "string",
-                    "enum": [
-                      "nowrap",
-                      "wrap"
-                    ],
-                    "description": "换行模式"
-                  },
-                  "gap": {
-                    "type": "number",
-                    "description": "主轴间距"
-                  },
-                  "row_gap": {
-                    "type": "number",
-                    "description": "换行时行间距（仅 wrap 模式）"
-                  },
-                  "columns": {
-                    "type": "number",
-                    "description": "Grid 列数（仅 grid 方向）"
-                  },
-                  "padding": {
-                    "description": "内边距：数字或 [上, 右, 下, 左]",
-                    "oneOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "number"
-                        }
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "direction"
-                ]
-              },
-              "flex": {
-                "type": "object",
-                "description": "子节点 flex 控制",
-                "properties": {
-                  "grow": {
-                    "type": "number",
-                    "description": "扩展比例（0=不扩展）"
-                  },
-                  "shrink": {
-                    "type": "number",
-                    "description": "收缩比例（忽略，无 Godot 对应）"
-                  },
-                  "align_self": {
-                    "type": "string",
-                    "enum": [
-                      "auto",
-                      "flex-start",
-                      "center",
-                      "flex-end",
-                      "stretch"
-                    ],
-                    "description": "单独对齐覆盖"
-                  },
-                  "min_width": {
-                    "type": "number",
-                    "description": "最小宽度"
-                  },
-                  "min_height": {
-                    "type": "number",
-                    "description": "最小高度"
-                  },
-                  "max_width": {
-                    "type": "number",
-                    "description": "最大宽度（忽略，无 Godot 对应）"
-                  },
-                  "max_height": {
-                    "type": "number",
-                    "description": "最大高度（忽略，无 Godot 对应）"
-                  }
-                }
-              },
-              "children": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                },
-                "description": "子节点"
-              }
-            },
-            "required": [
-              "type",
-              "name"
-            ]
           },
           "load_autoloads": {
             "type": "boolean",
@@ -5012,23 +4646,10 @@
         "custom_minimum_size",
         "grow_direction",
         "preset",
-        "theme_action",
-        "theme_path",
-        "params",
         "child_type",
         "child_name",
         "child_properties",
-        "theme_create_action",
-        "source_node_path",
-        "save_path",
-        "theme_node_path",
-        "item_type",
-        "prop_name",
-        "theme_type",
-        "value",
-        "ops",
         "parent_path",
-        "tree",
         "load_autoloads"
       ],
       "readonly": false,
@@ -5063,9 +4684,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 308,
-        "schemaBytes": 8921,
-        "totalBytes": 9229
+        "descBytes": 647,
+        "schemaBytes": 3560,
+        "totalBytes": 4207
       }
     },
     {
