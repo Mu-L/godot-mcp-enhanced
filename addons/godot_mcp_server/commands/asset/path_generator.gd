@@ -7,6 +7,7 @@
 extends RefCounted
 
 const _EPS: float = 1e-4  # 米；与 forge_client.predict_n 同值（F1 同步约定）
+const MIN_SPACING: float = 1e-3  # P2-15: spacing 下限防 CPU 冻结（spacing 极小 + 长路径 → while 循环百万迭代卡 @tool 主线程）
 
 
 # path_node 读场景 Path3D.curve.baked_points（节点须在活动场景且为 Path3D，否则返 []）；
@@ -54,6 +55,11 @@ static func sample(
 ) -> Array:
 	# F1(2026-07-29): count 采样数上限防 OOM（每采样点实例化一个节点）。
 	if count is int and count > 10000:
+		return []
+	# P2-15: spacing 下限守卫（与 count>10000 OOM 上限对称）。
+	# spacing < MIN_SPACING 时 while d += spacing 循环产海量采样点冻结主线程（如 spacing=1e-4 + total=100m → 100 万迭代）。
+	# MIN_SPACING=1e-3(1mm) 远低于实际间距需求(≥0.1m)；count<1 才走 spacing 分支（BUG2 count 优先），count≥1 不应被 spacing 拒绝。
+	if count < 1 and spacing < MIN_SPACING:
 		return []
 	if mode == "continuous":
 		return _sample_continuous(points, spacing, count, include_endpoints, align_vertices)
