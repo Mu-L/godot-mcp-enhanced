@@ -107,16 +107,9 @@ export class EditorToolExecutor {
         // 不阻塞 GD 主循环 → TS ping 仍被即时响应，不误判降级。
         // 风险：若未来 editor 工具走同步阻塞主循环路径，TS ping 5s 超时×5≈75s 触发降级，
         // 而 NAV_BAKE_OP_TIMEOUT_SEC=110s > 75s 会误降级。届时需在此暂停/放宽 TS 侧 hm。
-        await this.conn.startOperation(NAV_BAKE_OP_TIMEOUT_SEC);
-        try {
-          const result = await this.conn.request(method, finalArgs, { timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC * 1000 });
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-        } finally {
-          // I-1 (C4 final review): endOperation 在连接异常态（client 30s REQUEST_TIMEOUT reject 后）
-          // 可能自身 reject（NOT_CONNECTED 等），.catch 防其覆盖 try 抛出的原始错误（保 errCode 可观测性，
-          // 下游 CONN_ERROR_CODES 判定正确）。
-          await this.conn.endOperation().catch(() => {});
-        }
+        // NIT-3: 必须 return await（非 return）——async 函数中 return 未经 await 的 Promise
+        // 会绕过当前 try/catch，致 _runWithOpTimeout 内 request 的 reject 逃出错误处理（I-1 失效）。
+        return await this._runWithOpTimeout(method, finalArgs, NAV_BAKE_OP_TIMEOUT_SEC);
       }
 
       // P2-12 phase 2: test_run 走 GD async coroutine（websocket_server.gd 分流 handle_test_async，
@@ -127,13 +120,7 @@ export class EditorToolExecutor {
       const isTestRun = method === 'test_run';
       const TEST_RUN_OP_TIMEOUT_SEC = 290;
       if (isTestRun) {
-        await this.conn.startOperation(TEST_RUN_OP_TIMEOUT_SEC);
-        try {
-          const result = await this.conn.request(method, finalArgs, { timeoutMs: TEST_RUN_OP_TIMEOUT_SEC * 1000 });
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-        } finally {
-          await this.conn.endOperation().catch(() => {});
-        }
+        return await this._runWithOpTimeout(method, finalArgs, TEST_RUN_OP_TIMEOUT_SEC);
       }
 
       const result = await this.conn.request(method, finalArgs);
@@ -183,6 +170,25 @@ export class EditorToolExecutor {
         content: [{ type: 'text' as const, text: JSON.stringify(errorPayload) }],
         isError: true,
       };
+    }
+  }
+
+  /**
+   * 包裹 startOperation/endOperation 的长操作执行（nav_bake / test_run 共用）。
+   * startOperation 通知 GD 侧 heartbeat.gd 暂停 inactivity 检测；endOperation 恢复。
+   * finally 块的 .catch(() => {}) 防清理错误覆盖 try 抛出的原始错误（I-1 审查 finding）。
+   */
+  private async _runWithOpTimeout(
+    method: string,
+    args: Record<string, unknown>,
+    timeoutSec: number,
+  ): Promise<ToolResult> {
+    await this.conn.startOperation(timeoutSec);
+    try {
+      const result = await this.conn.request(method, args, { timeoutMs: timeoutSec * 1000 });
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+    } finally {
+      await this.conn.endOperation().catch(() => {});
     }
   }
 

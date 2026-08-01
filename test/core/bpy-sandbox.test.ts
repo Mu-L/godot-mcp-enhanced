@@ -43,4 +43,23 @@ describe('scanBpySandbox', () => {
     // 裸 builtin open( 仍 block
     expect(scanBpySandbox('open("/etc/passwd")').length).toBeGreaterThan(0);
   });
+
+  it('P2-1: flags string concatenation bypass (getattr + parts)', () => {
+    // 对齐 gdscript detectStringConcatBypass：相邻字符串字面量拼接重构命中危险 token
+    const w = scanBpySandbox('getattr(__builtins__, "ex" + "ec")');
+    expect(w.some((s) => /concatenation bypass.*exec/i.test(s))).toBe(true);
+  });
+
+  it('NIT-2: flags % format string bypass (dangerous token prefix)', () => {
+    // 对齐 gdscript-executor C-01-fix:217。Python "os%s" % ".system" 等价拼接 → "os.system"
+    // prefixPart=os，正则匹配 ["']os%[sdr]["']
+    const w = scanBpySandbox('name = "os%s" % ".system"');
+    expect(w.some((s) => /% format string constructs.*os\.system/i.test(s))).toBe(true);
+  });
+
+  it('NIT-2: does NOT flag innocent % formatting (no dangerous token)', () => {
+    // 无危险 token 前缀/后缀的 % 格式化不应误报
+    expect(scanBpySandbox('print("Score: %d" % score)')).toEqual([]);
+    expect(scanBpySandbox('msg = "Hello %s" % name')).toEqual([]);
+  });
 });

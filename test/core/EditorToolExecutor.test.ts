@@ -124,10 +124,25 @@ describe('EditorToolExecutor nav bake operation (§7)', () => {
   it('finally: endOperation called even when request throws', async () => {
     mockConn.request.mockRejectedValueOnce(new Error('Plugin bake failed'));
 
-    await executor.execute('nav', { action: 'bake_mesh' });
+    const result = await executor.execute('nav', { action: 'bake_mesh' });
 
     expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
     expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
+    // NIT-3 回归保护：_runWithOpTimeout 的 reject 必须被 _executeInner 的 try/catch 接住
+    // （return await 而非 return）。若误用 return（不经 await），错误会逃出 execute 致本断言失败。
+    expect(result.isError).toBe(true);
+  });
+
+  it('NIT-3: test_run request throw is caught by outer try/catch (return await guard)', async () => {
+    // 与 nav bake 同走 _runWithOpTimeout，验证 test_run 路径错误传播也正确
+    registerTools([{ name: 'testing', readonly: true, long_running: true }]);
+    mockConn.request.mockRejectedValueOnce(new Error('Test suite crashed'));
+
+    const result = await executor.execute('testing', { action: 'run' });
+
+    expect(mockConn.startOperation).toHaveBeenCalledTimes(1);
+    expect(mockConn.endOperation).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
   });
 
   it('non-nav tool: does NOT call start/endOperation', async () => {

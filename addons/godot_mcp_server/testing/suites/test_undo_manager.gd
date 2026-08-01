@@ -44,8 +44,14 @@ func suite_setup(ctx: Dictionary) -> void:
 		skip_suite("no scene open in editor — undo_manager tests require an edited scene (open any scene and re-run)")
 		return
 	_arena = Node.new()
+	## P3-BLOCKING-FIX (2026-08-01 全天审查): arena 是 suite 级 fixture，必须在测试间保留。
+	## 命名 _McpTestUndoArena 统一前缀约定（所有测试相关节点用 _McpTest*）。
+	## 防 mcp_test_runner.gd:_free_mcp_test_nodes_recursive 误清：设 _mcp_test_persistent meta
+	## （该函数跳过 has_meta("_mcp_test_persistent") 的节点）。suite_teardown 负责最终释放。
+	## 根因见 arena-prefix-collision-blocking：二期 async 路径下 queue_free 在帧末落地。
 	_arena.name = "_McpTestUndoArena"
 	_arena.set_meta("_mcp_test_owned", true)
+	_arena.set_meta("_mcp_test_persistent", true)
 	scene_root.add_child(_arena)
 	_arena.owner = scene_root
 

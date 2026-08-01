@@ -23,6 +23,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **N-3 mock-results.js docstring 精度**（coverage-batch 审查 N-3）：去易漂移的具体行号（`:1008/:1021/:1044/:1116` 把 kill-switch 误列且工厂无对应 kind；`:68` 标 `:1116` 为 compile 实际是 write-temp-failed），改述为"对齐 ExecuteGdscriptResult 的 compile/run/sandbox/binary 四种字段形态"，因下游 parseGdscriptResult 只看字段形态不看 executor 内部 early-return 行号。
 
+## [0.25.3] - 2026-08-01
+
+### Fixed — 全天审查 BLOCKING 根治 + NIT 收尾
+
+- **fix(testing): arena 前缀碰撞 BLOCKING 根治（方案 B `_mcp_test_persistent` meta opt-out）**：修复 P2-12 二期 async 改造引入的 arena 在测试间被误 free（第 2 个测试起 SCRIPT ERROR）。根因：`await process_frame` 让 `queue_free` 帧末落地，命中 `_McpTest` 前缀清理规则的 suite 级 arena 被误清。修复：`mcp_test_runner.gd:_free_mcp_test_nodes_recursive` 加 meta opt-out，arena 设 `_mcp_test_persistent`。运行时对照实验闭环（修复版 EXIT_CODE=0 / 对照组 EXIT_CODE=1）。
+- **refactor(editor): NIT-3 抽 `_runWithOpTimeout` 辅助方法**：nav_bake 与 test_run 重复结构抽私有方法。实施中修复 `return` 未 `await` 致 reject 绕过 try/catch 的隐藏 bug + 回归测试。
+- **feat(security): NIT-2 bpy-sandbox 补 `%` 格式化构造检测**：新增 `detectBpyFormatStringBypass`（对齐 gdscript-executor C-01-fix:217），检测 Python `"os%s" % ".system"` 等价拼接绕过。+ 3 测试。
+- **chore(testing): NIT-1 删 testing.ts textResult 死代码**。
+- **docs(review): 全天审查报告** `docs/reviews/2026-08-01-full-day-review.md`，SHIPPED。
+
 ## [0.25.2] - 2026-08-01
 
 ### Added — P2-12 一期 McpTestSuite 移植（editor 路线，关闭 P1-5）

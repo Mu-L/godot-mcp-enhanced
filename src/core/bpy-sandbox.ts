@@ -2,6 +2,7 @@
 // execute_bpy 的 best-effort 危险 API 静态扫描,对齐 execute_gdscript scanGdscriptSandbox 纵深防御。
 // 同 GDScript 沙箱:防误用层非防对抗(字符串拼接/反射可绕过),真正隔离须容器/VM。
 import { getLogger } from './logger.js';
+import { escapeRegExp } from '../gdscript-executor.js';
 
 // Python 危险 API 模式(对齐 DANGEROUS_PATTERNS 精神)。在剥字符串/注释后的 skeleton 上匹配。
 const DANGEROUS_BPY_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
@@ -80,6 +81,32 @@ function detectBpyStringConcatBypass(code: string): string[] {
   return warnings;
 }
 
+/**
+ * NIT-2: 检测 Python % 格式化字符串构造危险 API（对齐 gdscript-executor C-01-fix:217）。
+ * Python 的 `"OS%s" % "system"` 等价于字符串拼接，是 detectBpyStringConcatBypass 的补充。
+ * 只匹配含危险 token 前缀/后缀的字面量 + % 格式化，避免误报 `"Score: %d" % value`。
+ *
+ * ⚠️ 安全限制（同 detectBpyStringConcatBypass）：不解析 Python AST，只防常见构造。
+ */
+function detectBpyFormatStringBypass(code: string): string[] {
+  const warnings: string[] = [];
+  for (const token of BPY_DANGEROUS_TOKENS) {
+    const dotIdx = token.indexOf('.');
+    const suffix = dotIdx >= 0 ? token.slice(dotIdx) : null;
+    // Match: "OS%s" / "os.%s" — 危险 token 前缀 + % 格式化（如 "OS%s" % "system" → "OSsystem"）
+    // Guard: 跳过 prefixPart 为空（token 以 '.' 开头，如 .execute）防误报裸 "%s"
+    const prefixPart = dotIdx >= 0 ? token.slice(0, dotIdx) : token;
+    if (prefixPart && new RegExp(`["']${escapeRegExp(prefixPart)}%[sdr]["']`).test(code)) {
+      warnings.push(`[BPY-SANDBOX-P2] % format string constructs dangerous API: "${token}"`);
+    }
+    // Match: ".execute" %s — 危险 token 后缀构造（如 ClassName + ".%s" % "execute"）
+    if (suffix && new RegExp(`["']${escapeRegExp(suffix)}["'].*%[sdr]`).test(code)) {
+      warnings.push(`[BPY-SANDBOX-P2] % format string constructs dangerous suffix: "${suffix}"`);
+    }
+  }
+  return warnings;
+}
+
 export function scanBpySandbox(code: string): string[] {
   // 对齐 scanGdscriptSandbox 双开关语义(简化):DISABLE_SAFETY + UNRESTRICTED 总开关旁路。
   if (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_UNRESTRICTED === 'true') {
@@ -98,5 +125,8 @@ export function scanBpySandbox(code: string): string[] {
   // P2-1: Phase 2 字符串拼接绕过检测（对齐 gdscript-executor 两阶段）。
   // 必须接收原文 code（非 skeleton），与 gdscript 契约 P2-RAW 一致。
   warnings.push(...detectBpyStringConcatBypass(code));
+  // NIT-2: Phase 2 % 格式化构造绕过检测（对齐 gdscript-executor C-01-fix:217）。
+  // Python 的 "OS%s" % "system" 是等价拼接路径。
+  warnings.push(...detectBpyFormatStringBypass(code));
   return warnings;
 }

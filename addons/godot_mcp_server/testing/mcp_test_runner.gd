@@ -351,13 +351,22 @@ func _cleanup_leaked_nodes(scene_root: Node, before: Array[Node]) -> void:
 
 ## Recursively free every node whose name starts with `_McpTest`, anywhere
 ## in the scene. Walk breadth-first so we collect victims before mutating.
+##
+## P3-BLOCKING-FIX-B (2026-08-01 全天审查根治方案): 命名前缀匹配 + meta opt-out 双保险。
+## 方案 A（改名 _UndoTestArena）治标；方案 B 让清理函数识别 `_mcp_test_persistent` meta
+## 跳过 suite 级 fixture，未来新 suite 用 _McpTest* 前缀命名 + 设 persistent meta 也不会被误清。
+## 语义区分：_mcp_test_owned = "runner 可管理"（测试节点+fixture 都设）；
+## _mcp_test_persistent = "跨测试保留"（仅 suite fixture 设，suite_teardown 负责释放）。
 func _free_mcp_test_nodes_recursive(root: Node) -> void:
 	var victims: Array[Node] = []
 	var queue: Array[Node] = [root]
 	while not queue.is_empty():
 		var node: Node = queue.pop_back()
 		for child in node.get_children():
-			if str(child.name).begins_with("_McpTest"):
+			## 命名碰 _McpTest 前缀 + 未标 persistent → 收为 victim（每测试临时节点）
+			## 命名碰前缀但标 persistent → suite fixture，跳过（suite_teardown 释放）
+			## 不碰前缀 → 继续递归进子树（防嵌套 _McpTest* 漏清）
+			if str(child.name).begins_with("_McpTest") and not child.has_meta("_mcp_test_persistent"):
 				victims.append(child)
 			else:
 				queue.append(child)

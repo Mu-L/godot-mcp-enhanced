@@ -1,6 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
-import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 
@@ -116,7 +115,3 @@ export const TOOL_META: Record<
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
 };
-
-// Re-export textResult so module shape matches sibling tool modules (silences
-// unused-import lint when downstream tree-shaking varies).
-export { textResult };

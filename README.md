@@ -633,6 +633,8 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.25.3** | 2026-08-01 | **全天审查收尾**（SHIPPED）：P2-12 二期 async 改造引入的 arena 前缀碰撞 BLOCKING 根治（方案 B `_mcp_test_persistent` meta opt-out，运行时对照实验闭环）+ NIT-3 抽 `_runWithOpTimeout`（含 return-await 隐藏 bug 修复）+ NIT-2 bpy-sandbox `%` 格式化构造检测 + NIT-1 删死代码。4381 测试。 |
+| **v0.25.2** | 2026-08-01 | **P2-12 McpTestSuite 移植**（editor 路线，关闭 P1-5）：AI 可写标准化 GDScript 测试套件（`extends McpTestSuite`），editor 模式 `testing` 工具执行 + 一期/二期 async coroutine 防 keepalive 饿死 + P1-2/P2 安全（execute_bpy 拼接检测/animation coerce/ui theme/export 白名单）+ P3 文档纠正（editor.exists 失真修复 7→0）。36 工具/205 action。 |
 | **v0.25.1** | 2026-07-31 | **竞品对比批①-④ 落地**（审查 SHIPPED WITH NITS）：工具数口径修正（21 处漂移 28/29/33/130+→35/203，含 rule-templates 独立副本同步防下游污染）+ `check-tool-count.mjs` CI 校验脚本根治漂移 + 进程生命周期 P0 周期 orphan 扫描/P1 启动清理（STARTUP_CLEANUP opt-in）+ command_helpers 纯函数行为测试（L2 none→partial）+ nav N1-fix（bake_mesh 末行 freed 守卫）。4293 测试 + verify_delivery 3/3 通过。 |
 | **v0.25.0** | 2026-07-30 | **A-RCE 安全批次**（headless instantiate_class 白名单堵 `extends Node` RCE + self_update 符号链接校验 + execute_bpy 危险 API 扫描 + profile 硬隔离 + godot_path 白名单）+ **B 可靠性**（nav bake 超时对齐/gdscript spawn orphan 清理/心跳降级区分 timeout-refused/HOL 预检/全系统扫跳过 --editor）+ **C 正确性**（adapter env 白名单合并/nav freed 守卫/doctor stripBom/update-cache 字节上限/updateAddon 原子化）+ **Telemetry 骨架**（opt-in 默认关，零外传）+ **Nav bake 准确性**（async-dispatch，bake_result 从乐观改 get_vertices 判据）+ **测试质量**（e2e 清理 .godot 缓存防假绿 + 弱断言精确化 576 条）。 |
 | **v0.24.1** | 2026-07-27 | **文档同步修复**：`rule-templates.ts` 补齐 get_node_layout 同步（独立副本约束 drift，第三方审查发现）+ **AGENTS.md 三段强制流程**（`.claude/rules/` 改后核查 / plan 落地后必出第三方审查文档 / 完成前必登 memory）+ 新增 `docs/reviews/` 目录补 5 条 7 月断档链路审查文档 |
