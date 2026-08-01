@@ -106,8 +106,10 @@ static func sample(
 static func _sample_continuous(
 	points: Array, spacing: float, count: int, include_endpoints: bool, align_vertices := false
 ) -> Array:
-	# P0-3：defense-in-depth early-return（spacing<=0 + count<1 时返空；sample 是 public，
-	# 但 sample 是 public，恶意/错误 client 直接调也不崩，不静默落入空 boundaries 分支）
+	# P0-3：defense-in-depth early-return（spacing<=0 + count<1 时返空）。
+	# 注：仅 spacing/count 不崩；points 元素类型未校验（内部 (points[i] as Vector3) 假定 Vector3，
+	# 非 Vector3 元素会 null.distance_to() 抛）。当前所有调用方经 resolve_points 规范化，不触发；
+	# 若未来有直接调 sample 的路径，需在入口加 points 元素类型校验。
 	if spacing <= 0.0 and count < 1:
 		return []
 	var last: int = points.size() - 1
