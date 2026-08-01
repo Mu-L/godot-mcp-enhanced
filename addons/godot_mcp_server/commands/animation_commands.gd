@@ -235,11 +235,11 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 				if do_ops.size() > 0:
 					_undo_manager.create_action_mixed("Update Keyframe (req:%d)" % request_id, do_ops, undo_ops)
 			else:
-			var value = params.get("value")
-			if value != null:
-				# P1-2: value 按 track type coerce（同 undo 分支）
-				value = _coerce_key_value(anim, ti, value)
-				anim.track_set_key_value(ti, ki, value)
+				var value = params.get("value")
+				if value != null:
+					# P1-2: value 按 track type coerce（同 undo 分支）
+					value = _coerce_key_value(anim, ti, value)
+					anim.track_set_key_value(ti, ki, value)
 				var transition = params.get("transition")
 				if transition != null:
 					anim.track_set_key_transition(ti, ki, float(transition))
