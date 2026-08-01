@@ -23,6 +23,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **N-3 mock-results.js docstring 精度**（coverage-batch 审查 N-3）：去易漂移的具体行号（`:1008/:1021/:1044/:1116` 把 kill-switch 误列且工厂无对应 kind；`:68` 标 `:1116` 为 compile 实际是 write-temp-failed），改述为"对齐 ExecuteGdscriptResult 的 compile/run/sandbox/binary 四种字段形态"，因下游 parseGdscriptResult 只看字段形态不看 executor 内部 early-return 行号。
 
+## [0.25.2] - 2026-08-01
+
+### Added — P2-12 一期 McpTestSuite 移植（editor 路线，关闭 P1-5）
+
+AI 可写标准化 GDScript 测试套件（`extends McpTestSuite`），editor 模式 `testing` 工具执行。借鉴 godot-ai MccpTestSuite，走 enhanced headless/editor 三层架构的 editor 路线（独立 addon 进程，非主线程）。
+
+- **feat(testing): McpTestSuite 框架 + test_run/test_manage 工具**：移植 godot-ai 4 文件到 `addons/godot_mcp_server/testing/`：`mcp_test_suite.gd`（断言 latch + track + skip + SCRIPT ERROR capture + editor_undo/redo，去 McpLogBuffer/McpScenePath 依赖）/ `script_error_capture.gd`（原样）/ `mcp_test_runner.gd`（同步路径 + 发现 + leak cleanup，丢 serviced/checkpoint transport 防饥饿 —— 一期限制 suite <30s，二期补 deferred-response hard gate）。TS 侧新增 `src/tools/testing.ts`（editor-only，headless 硬返 EDITOR_ONLY）+ `editor-method-map.ts` 登记 testing 族 + `module-loader.ts` 自动注册 + `static-grep.ts` EDITOR_COMMAND_ROUTING 补 test_run/test_manage。
+- **test(undo_manager): P1-5 套件覆盖 5 方法**（关闭 P1-5）：`addons/.../testing/suites/test_undo_manager.gd` 5 test 覆盖 undo_manager.gd 全部 5 func（setup / create_action_mixed / _add_method freed 守卫 / _apply_op property do+undo / _apply_op unknown type fallthrough）。P1-5 此前零行为测试（headless 编译期拒绝 EditorUndoRedoManager），随本期 editor 路线落地关闭。
+- **chore(tool-count): 36 工具 / 205 action 同步**：build-matrix 重建权威源（35→36 / 203→205），20 处文档漂移同步（README/manifest/README.en/server.json/distribution/migration + rule-templates.ts/godot-mcp-core.md 独立副本）。version bump 0.25.1→0.25.2（独立副本同步约束）。
+
+### 限制（一期边界，诚实标注）
+
+- **不测编辑器操作 undo 合约的 transport 防饥饿**：长 suite（>30s）会饿死 editor WS keepalive。二期补 deferred-response hard gate（抄 godot-ai v3 drain-and-reject）。
+- **test_undo_manager.gd 5 测试需本地 editor 实测**：CI godot-matrix job 双版本跑 e2e，但 undo_manager 5 测试的 editor 实测需本地 `test_run(suite="undo_manager")` 确认（headless 无 EditorUndoRedoManager）。TS 侧仅测 EDITOR_ONLY 拒绝路径 + 路由登记。
+
 ## [0.25.1] - 2026-07-31
 
 ### Fixed — 竞品对比批①-④ 落地（feat/competitor-followups，审查 SHIPPED WITH NITS）
