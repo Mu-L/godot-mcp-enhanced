@@ -111,7 +111,7 @@ import('./core/update-checker.js')
 
 - **请求目标**：`https://registry.npmjs.org/godot-mcp-enhanced/latest`（`:13` `REGISTRY_URL`）
 - **触发时机**：每次 MCP server 启动（被动，非用户主动调用 `check_update` 工具）
-- **网络请求**：`:86` `fetch(REGISTRY_URL, ...)`，5 秒超时
+- **网络请求**：`fetch(REGISTRY_URL, ...)`（`src/core/update-checker.ts`），5 秒超时
 - **缓存**：24 小时 TTL，缓存文件 `~/.godot-mcp/update-cache.json`，缓存命中则不发网络请求
 - **发送的数据**：仅 HTTPS GET 请求 npm registry（标准 npm registry GET，不附 body、不附 install UUID、不附任何自定义 header）。npm registry 服务端会记录请求 IP / UA（fetch 默认 User-Agent），这些由 npmjs.org 服务端策略控制，**本仓库不可控**
 - **失败静默**：网络失败 / 超时 / 解析失败均 `catch {}` 吞掉，不影响 MCP 启动

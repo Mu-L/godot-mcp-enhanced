@@ -30,7 +30,13 @@ export function getInstallUUID(): string {
   const p = uuidPath();
   let uuid = '';
   if (existsSync(p)) {
-    uuid = readFileSync(p, 'utf-8').trim();
+    // T3: readFileSync 包 try-catch（读写对称，对齐 :37 writeFileSync）。
+    // 文件存在但读取失败（EBUSY 锁/权限错）时返 '' 走 mint 分支，与"文件不存在"同语义。
+    // 兑现 docs/telemetry.md:88「消费侧任何 throw 都被吞掉」承诺于 getInstallUUID 自身。
+    // 实际后果被 middleware.ts:60-68 after-hook catch 兜底（无业务破坏），此处更彻底。
+    try {
+      uuid = readFileSync(p, 'utf-8').trim();
+    } catch { /* 读失败视同 uuid 缺失，走 mint 分支 */ }
   }
   if (!uuid) {
     uuid = randomUUID();

@@ -69,7 +69,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Telemetry Skeleton (Stage 0, zero egress)
 
 - **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
-- **诚实披露 update-checker 外传点**：`docs/telemetry.md` + `README.md` + `README.en.md` 明确标注——每次 MCP server 启动时 `src/core/update-checker.ts:13,86` 被动 fetch npm registry（24h 缓存），**当前无 env 门控**（已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认），与「默认零外传」冲突。补门控属未来 PR。
+- **诚实披露 update-checker 外传点**：`docs/telemetry.md` + `README.md` + `README.en.md` 明确标注——每次 MCP server 启动时 `src/core/update-checker.ts` 的 `fetch(REGISTRY_URL)` 被动 fetch npm registry（24h 缓存），**当前无 env 门控**（已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认），与「默认零外传」冲突。补门控属未来 PR。
 
 ### Fixed — Nav Bake Accuracy (C4 async-dispatch)
 

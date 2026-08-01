@@ -101,6 +101,12 @@ export class EditorToolExecutor {
       const NAV_BAKE_OP_TIMEOUT_SEC = 110;  // < GD clamp 600，> §6 BAKE_WAIT_TIMEOUT_MS
 
       if (isNavBake) {
+        // P2（设计权衡，固化审查 finding）：startOperation 只通知 GD 侧 heartbeat.gd 暂停
+        // inactivity 检测；TS 侧 hm 心跳（GodotServer.ts:509）照常每 15s 发 ping。
+        // 当前安全：nav bake 走 GD coroutine（websocket_server.gd:353 分流 handle_nav_async），
+        // 不阻塞 GD 主循环 → TS ping 仍被即时响应，不误判降级。
+        // 风险：若未来 editor 工具走同步阻塞主循环路径，TS ping 5s 超时×5≈75s 触发降级，
+        // 而 NAV_BAKE_OP_TIMEOUT_SEC=110s > 75s 会误降级。届时需在此暂停/放宽 TS 侧 hm。
         await this.conn.startOperation(NAV_BAKE_OP_TIMEOUT_SEC);
         try {
           const result = await this.conn.request(method, finalArgs, { timeoutMs: NAV_BAKE_OP_TIMEOUT_SEC * 1000 });
