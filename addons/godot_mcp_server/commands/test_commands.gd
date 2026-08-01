@@ -1,9 +1,19 @@
 extends Node
 
-var _plugin: EditorPlugin
+const McpTestRunner := preload("res://addons/godot_mcp_server/testing/mcp_test_runner.gd")
 
-func setup(plugin: EditorPlugin) -> void:
+var _plugin: EditorPlugin
+var _undo_manager: Node
+var _test_runner: RefCounted
+## N-5 (审查): handle_test_run 维护的聚合结果。handle_test_manage 返回此快照
+## 而非 _test_runner.get_results()（runner 每 run_suite 头 _results.clear()，
+## 多 suite 跑完后只剩最后一个 suite）。
+var _last_combined_results: Dictionary = {}
+
+func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_plugin = plugin
+	_undo_manager = undo_manager
+	_test_runner = McpTestRunner.new()
 
 func handle_test_assert(params: Dictionary) -> Dictionary:
 	var assertion_type: String = params.get("assertion_type", "")
@@ -50,3 +60,98 @@ func handle_test_assert(params: Dictionary) -> Dictionary:
 			return {"result": {"passed": count == expected_count, "message": "Children: %d (expected: %d)" % [count, expected_count], "actual": count}}
 		_:
 			return {"error": {"code": -32004, "message": "Unknown assertion type: " + assertion_type}}
+
+
+# ----- McpTestSuite runner (P2-12 phase 1) ----------------------------------
+#
+# Sync-only path: a long suite CAN starve the editor WebSocket keepalive.
+# Suites MUST be <30s; phase 2 will add the deferred-response hard gate.
+
+## Run McpTestSuite scripts. Discovers test_*.gd in res://tests/ and
+## res://addons/godot_mcp_server/testing/suites/, then runs them.
+## Filters: suite (substring), test_name (substring), exclude_test_name.
+func handle_test_run(params: Dictionary, _request_id: int) -> Dictionary:
+	var suite_filter: String = params.get("suite", "")
+	var test_filter: String = params.get("test_name", "")
+	var exclude_test_filter: String = params.get("exclude_test_name", "")
+	var verbose: bool = params.get("verbose", false)
+
+	## Clear previous results before discovery so an abort can never expose
+	## a stale prior run via handle_test_manage.
+	_test_runner.clear()
+
+	var discovery := McpTestRunner.discover_suites()
+	var suites: Array = discovery.suites
+	if suites.is_empty():
+		var msg := "No test suites found (looked in res://tests/ and res://addons/godot_mcp_server/testing/suites/)"
+		if not discovery.errors.is_empty():
+			msg += " (%d script(s) failed to load: %s)" % [discovery.errors.size(), ", ".join(discovery.errors)]
+		return {"data": {"error": msg, "total": 0, "load_errors": discovery.errors}}
+
+	## ctx threaded into every suite_setup(). Holds the plugin + undo_manager
+	## so suites testing editor-only APIs (e.g. test_undo_manager.gd) can
+	## access them without re-resolving from EditorInterface.
+	var ctx := {
+		"plugin": _plugin,
+		"undo_manager": _undo_manager,
+	}
+
+	var combined_results := {
+		"passed": 0,
+		"failed": 0,
+		"skipped": 0,
+		"total": 0,
+		"suites_run": [],
+		"failures": [],
+		"load_errors": discovery.errors,
+	}
+
+	for suite in suites:
+		if not suite_filter.is_empty() and suite.suite_name() != suite_filter:
+			continue
+		var result: Dictionary = _test_runner.run_suite(suite, test_filter, exclude_test_filter, ctx)
+		combined_results.passed += int(result.get("passed", 0))
+		combined_results.failed += int(result.get("failed", 0))
+		combined_results.skipped += int(result.get("skipped", 0))
+		combined_results.total += int(result.get("total", 0))
+		combined_results.suites_run.append(suite.suite_name())
+		if result.has("failures"):
+			combined_results.failures.append_array(result.failures)
+
+	if not combined_results.failures.is_empty():
+		## Per-suite verbose is flattened: keep failures always; full per-test
+		## rows only when verbose.
+		pass
+	if verbose:
+		## Re-run is wasteful; instead the runner.get_results(verbose) shape is
+		## per-suite. For phase-1 simplicity, expose aggregate + failures only;
+		## verbose per-test rows require storing them (deferred to phase 2).
+		pass
+
+	_annotate_edited_scene(combined_results)
+	## N-5: 缓存聚合结果供 handle_test_manage 取回（runner 内部 _results 只含最后一个 suite）
+	_last_combined_results = combined_results.duplicate(true)
+	return {"data": combined_results}
+
+
+## Partial-results retrieval for the last run (use after timeout/abort).
+## N-5: 返回 handle_test_run 缓存的聚合快照（_last_combined_results），非 runner 内部 _results。
+func handle_test_manage(params: Dictionary) -> Dictionary:
+	var verbose: bool = params.get("verbose", false)
+	var op: String = params.get("op", "results_get")
+	match op:
+		"results_get":
+			if _last_combined_results.is_empty():
+				return {"data": {"error": "No previous test_run results — call test_run first", "total": 0}}
+			_annotate_edited_scene(_last_combined_results)
+			return {"data": _last_combined_results}
+		_:
+			return {"error": {"code": -32004, "message": "Unknown test_manage op: " + op}}
+
+
+## Surface the edited scene so failures are attributable at a glance (a
+## suite that assumes the main scene is open will phantom-fail otherwise).
+func _annotate_edited_scene(results: Dictionary) -> void:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var edited := scene_root.scene_file_path if scene_root else ""
+	results["edited_scene"] = edited

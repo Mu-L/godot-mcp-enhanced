@@ -76,6 +76,9 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   batch_add_nodes: 'commands/node_commands.gd',
   // test_commands（core/validation 组）
   test_assert: 'commands/test_commands.gd',
+  // P2-12: McpTestSuite runner（editor-only，test_commands 复用）
+  test_run: 'commands/test_commands.gd',
+  test_manage: 'commands/test_commands.gd',
   // export_commands
   export_list_presets: 'commands/export_commands.gd',
   export_get_preset: 'commands/export_commands.gd',

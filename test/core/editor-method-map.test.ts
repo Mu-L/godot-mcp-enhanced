@@ -211,3 +211,25 @@ describe('editor-method-map runtime-tool routing (particles/nav/animtree/ui)', (
     }
   });
 });
+
+// P2-12 phase 1: McpTestSuite runner。editor-only, 同步执行（suite <30s）。
+// 漏登记 → fallback toolName 'testing' → GD 无此 method -32601 → headless →
+// testing.ts 硬返 EDITOR_ONLY（与 export_* 同类协议断链）。
+describe('editor-method-map testing routing (McpTestSuite runner)', () => {
+  it('maps testing.run → test_run method', () => {
+    expect(resolveEditorMethod('testing', { action: 'run' })?.method).toBe('test_run');
+  });
+  it('maps testing.manage → test_manage method', () => {
+    expect(resolveEditorMethod('testing', { action: 'manage' })?.method).toBe('test_manage');
+  });
+  it('returns null for unregistered testing action', () => {
+    expect(resolveEditorMethod('testing', { action: 'other' })).toBeNull();
+    expect(resolveEditorMethod('testing', {})).toBeNull();
+  });
+  it('testing methods match command_handler.gd (drift check)', () => {
+    const gd = readFileSync(resolve(process.cwd(), 'addons/godot_mcp_server/command_handler.gd'), 'utf8');
+    for (const m of ['test_run', 'test_manage']) {
+      expect(gd, `command_handler.gd 缺少分支 "${m}":`).toContain(`"${m}":`);
+    }
+  });
+});

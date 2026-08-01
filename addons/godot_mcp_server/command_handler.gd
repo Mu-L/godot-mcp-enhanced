@@ -33,7 +33,7 @@ func setup(plugin: EditorPlugin) -> void:
 	add_child(_node_commands)
 
 	_test_commands = preload("commands/test_commands.gd").new()
-	_test_commands.setup(plugin)
+	_test_commands.setup(plugin, _undo_manager)
 	add_child(_test_commands)
 
 	_export_commands = preload("commands/export_commands.gd").new()
@@ -124,6 +124,12 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _node_commands.handle_batch_add_nodes(params, request_id)
 		"test_assert":
 			return _test_commands.handle_test_assert(params)
+		# P2-12 phase 1: McpTestSuite runner (editor-only, sync path, suite <30s).
+		# Phase 2 will add the deferred-response hard gate for long suites.
+		"test_run":
+			return _test_commands.handle_test_run(params, request_id)
+		"test_manage":
+			return _test_commands.handle_test_manage(params)
 		"export_list_presets":
 			return _export_commands.handle_export_list_presets(params)
 		"export_get_preset":

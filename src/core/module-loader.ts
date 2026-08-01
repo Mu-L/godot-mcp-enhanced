@@ -57,6 +57,7 @@ import * as getContext from '../tools/get-context.js';
 import * as asset from '../tools/asset/asset-ops.js';
 import * as blender from '../tools/blender.js';
 import * as selfUpdate from '../tools/self-update.js';
+import * as testing from '../tools/testing.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ const ALL_MODULES: ToolModule[] = [
   asset,
   blender,
   selfUpdate,
+  testing,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────
