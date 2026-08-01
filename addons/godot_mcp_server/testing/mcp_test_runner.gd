@@ -6,12 +6,16 @@ extends RefCounted
 ## suite instances, runs them, and collects structured results.
 ##
 ## Source: ported from godot-ai (test_runner.gd).
-## Enhanced variant (P2-12 phase 1): SYNC PATH ONLY. Drops the
-## `run_suites_serviced` / `_checkpoint` / `McpConnection` transport-
-## starvation machinery (godot-ai's v3 drain-and-reject hard gate) —
-## enhanced runs suites synchronously on the editor WS handler thread,
-## so a long suite CAN starve the WebSocket keepalive. Suites MUST be
-## short (<30s); phase 2 will add the deferred-response hard gate.
+## Enhanced variant (P2-12): run_suite accepts an optional `yield_cb`
+## (Callable). When valid, it is awaited after each test so the editor
+## main loop can tick heartbeat + drain packets between tests — preventing
+## WebSocket keepalive starvation on long suites (phase 2 hard gate).
+## Empty/invalid yield_cb = phase-1 sync path (headless / unit-test fixtures).
+## This mirrors nav_bake_mesh's async coroutine pattern (websocket_server.gd
+## routes test_run through `await`, EditorToolExecutor wraps it in
+## startOperation/endOperation) — simpler than godot-ai's drain-and-reject
+## because enhanced's keepalive is server-side (heartbeat.gd), serviced
+## automatically when the main loop runs.
 ##
 ## Keeps the leak-cleanup helpers (`_free_mcp_test_nodes_recursive`,
 ## `_cleanup_leaked_nodes`) because editor suites create scene nodes that
@@ -39,6 +43,7 @@ func run_suite(
 	test_filter: String = "",
 	exclude_test_filter: String = "",
 	ctx: Dictionary = {},
+	yield_cb: Callable = Callable(),
 ) -> Dictionary:
 	_results.clear()
 	var start := Time.get_ticks_msec()
@@ -74,7 +79,7 @@ func run_suite(
 			"assertion_count": 0,
 		})
 	else:
-		_run_suite_tests(suite, test_filter, exclude_test_filter)
+		await _run_suite_tests(suite, test_filter, exclude_test_filter, yield_cb)
 
 	## Suite epilogue runs on EVERY path, including fail_setup/skip_suite:
 	## the suite has begun, so its teardown and leak cleanup must not skip.
@@ -90,11 +95,15 @@ func run_suite(
 	return get_results(false)
 
 
-## Per-test loop. Sync-only — no checkpoints between tests (phase 1).
+## Per-test loop. P2-12 phase 2: yield_cb (when valid) is awaited after each
+## test so the editor main loop can tick heartbeat + poll packets between
+## tests, preventing WebSocket keepalive starvation on long suites.
+## Empty/invalid yield_cb = phase-1 sync path (compat for headless/unit tests).
 func _run_suite_tests(
 	suite: McpTestSuite,
 	test_filter: String,
 	exclude_test_filter: String,
+	yield_cb: Callable = Callable(),
 ) -> void:
 	var name := suite.suite_name()
 	var methods := _get_test_methods(suite)
@@ -119,6 +128,11 @@ func _run_suite_tests(
 		var entry := _run_one_test(suite, name, method_name)
 		entry["duration_ms"] = Time.get_ticks_msec() - test_start
 		_results.append(entry)
+		## P2-12 phase 2: let the editor main loop run between tests so
+		## heartbeat.tick() fires + pending packets drain. No-op when yield_cb
+		## is empty (headless / unit-test fixtures keep phase-1 sync behavior).
+		if yield_cb.is_valid():
+			await yield_cb.call()
 
 
 ## Execute one test method and return its result entry (not yet appended;

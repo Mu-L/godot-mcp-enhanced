@@ -212,7 +212,7 @@ describe('editor-method-map runtime-tool routing (particles/nav/animtree/ui)', (
   });
 });
 
-// P2-12 phase 1: McpTestSuite runner。editor-only, 同步执行（suite <30s）。
+// P2-12: McpTestSuite runner。editor-only, async coroutine（290s 预算）。
 // 漏登记 → fallback toolName 'testing' → GD 无此 method -32601 → headless →
 // testing.ts 硬返 EDITOR_ONLY（与 export_* 同类协议断链）。
 describe('editor-method-map testing routing (McpTestSuite runner)', () => {

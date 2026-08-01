@@ -95,8 +95,8 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     export_get_preset: { method: 'export_get_preset' },
     export_build: { method: 'export_build' },
   },
-  // P2-12 phase 1: McpTestSuite runner. editor-only, 同步执行（suite <30s，
-  // 二期补 deferred-response hard gate）。漏登记 → fallback toolName 'testing'
+  // P2-12: McpTestSuite runner. editor-only, async coroutine (290s 预算 via
+  // EditorToolExecutor startOperation)。漏登记 → fallback toolName 'testing'
   // → GD 无此 method -32601 → headless → testing.ts 硬返 EDITOR_ONLY（死锁，
   // 与 export_* 同类协议断链）。method 名与 command_handler.gd 分支一致。
   testing: {

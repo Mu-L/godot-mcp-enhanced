@@ -62,15 +62,20 @@ func handle_test_assert(params: Dictionary) -> Dictionary:
 			return {"error": {"code": -32004, "message": "Unknown assertion type: " + assertion_type}}
 
 
-# ----- McpTestSuite runner (P2-12 phase 1) ----------------------------------
+# ----- McpTestSuite runner (P2-12 phase 2) ----------------------------------
 #
-# Sync-only path: a long suite CAN starve the editor WebSocket keepalive.
-# Suites MUST be <30s; phase 2 will add the deferred-response hard gate.
+# Async coroutine path: run_suite yields to the editor main loop between
+# tests (via _yield_frame → await get_tree().process_frame), so heartbeat.tick
+# keeps firing and pending packets drain — long suites no longer starve the
+# WebSocket keepalive. websocket_server.gd routes test_run through `await`
+# (like nav_bake_mesh), and EditorToolExecutor wraps it in startOperation/
+# endOperation with a 290s budget. test_manage stays synchronous (秒级 results_get).
 
 ## Run McpTestSuite scripts. Discovers test_*.gd in res://tests/ and
 ## res://addons/godot_mcp_server/testing/suites/, then runs them.
 ## Filters: suite (substring), test_name (substring), exclude_test_name.
-func handle_test_run(params: Dictionary, _request_id: int) -> Dictionary:
+## Async (P2-12 phase 2): awaits run_suite which yields between tests.
+func handle_test_run_async(params: Dictionary, _request_id: int) -> Dictionary:
 	var suite_filter: String = params.get("suite", "")
 	var test_filter: String = params.get("test_name", "")
 	var exclude_test_filter: String = params.get("exclude_test_name", "")
@@ -106,10 +111,16 @@ func handle_test_run(params: Dictionary, _request_id: int) -> Dictionary:
 		"load_errors": discovery.errors,
 	}
 
+	## P2-12 phase 2: yield_cb lets the runner await between tests so the
+	## editor main loop services heartbeat + drains packets. Mirrors
+	## nav_bake_mesh's `await get_tree().process_frame` pattern.
+	var yield_cb := Callable(self, "_yield_frame")
 	for suite in suites:
 		if not suite_filter.is_empty() and suite.suite_name() != suite_filter:
 			continue
-		var result: Dictionary = _test_runner.run_suite(suite, test_filter, exclude_test_filter, ctx)
+		var result: Dictionary = await _test_runner.run_suite(
+			suite, test_filter, exclude_test_filter, ctx, yield_cb
+		)
 		combined_results.passed += int(result.get("passed", 0))
 		combined_results.failed += int(result.get("failed", 0))
 		combined_results.skipped += int(result.get("skipped", 0))
@@ -117,21 +128,25 @@ func handle_test_run(params: Dictionary, _request_id: int) -> Dictionary:
 		combined_results.suites_run.append(suite.suite_name())
 		if result.has("failures"):
 			combined_results.failures.append_array(result.failures)
+		## Between suites: extra yield (coarse-grained safety net on top of
+		## the per-test yield inside run_suite).
+		await _yield_frame()
 
-	if not combined_results.failures.is_empty():
-		## Per-suite verbose is flattened: keep failures always; full per-test
-		## rows only when verbose.
-		pass
-	if verbose:
-		## Re-run is wasteful; instead the runner.get_results(verbose) shape is
-		## per-suite. For phase-1 simplicity, expose aggregate + failures only;
-		## verbose per-test rows require storing them (deferred to phase 2).
-		pass
-
+	## verbose per-test rows: 当前只返聚合 + failures（runner 内部 _results 经 run_suite
+	## 每 suite 头 _results.clear()，多 suite 时无法回溯全量 per-test 行）。verbose=true
+	## 时可考虑三期在 runner 累积 _results 不 clear，或 handler 层收集每 suite 的 verbose 快照。
 	_annotate_edited_scene(combined_results)
 	## N-5: 缓存聚合结果供 handle_test_manage 取回（runner 内部 _results 只含最后一个 suite）
 	_last_combined_results = combined_results.duplicate(true)
 	return {"data": combined_results}
+
+
+## P2-12 phase 2: yield one frame to the editor main loop. Called by the
+## runner between tests (via yield_cb) and between suites (directly) so
+## heartbeat.tick() fires + pending WebSocket packets drain, preventing
+## keepalive starvation on long suites.
+func _yield_frame() -> void:
+	await get_tree().process_frame
 
 
 ## Partial-results retrieval for the last run (use after timeout/abort).

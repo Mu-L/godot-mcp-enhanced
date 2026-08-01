@@ -26,10 +26,10 @@ describe('testing tool shape', () => {
     expect(actionEnum).toContain('manage');
   });
 
-  it('description warns about editor-only + <30s suite limit', () => {
+  it('description warns about editor-only + async coroutine + 290s budget', () => {
     const desc = getToolDefinitions()[0].description;
     expect(desc).toMatch(/editor-only/i);
-    expect(desc).toContain('<30s');
+    expect(desc).toContain('290s');
   });
 
   it('required contains action', () => {

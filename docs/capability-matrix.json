@@ -4133,7 +4133,7 @@
     {
       "name": "testing",
       "group": "unknown",
-      "description": "McpTestSuite 测试框架（editor-only）：跑 AI 编写的 GDScript 测试套件（`extends McpTestSuite`，放 `res://tests/` 或 `addons/godot_mcp_server/testing/suites/`）。 run: 发现并运行套件，返回 passed/failed/skipped/total/failures 结构化结果。 manage: op=\"results_get\" 取回上次运行的部分结果（超时/中断后用）。 ⚠️ 一期限制（P2-12）：同步执行，长 suite 会饿死 editor WebSocket keepalive —— 套件必须 <30s。二期将补 deferred-response hard gate 支持长套件。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY。需 `GODOT_MCP_MODE=editor` 并安装 Godot 插件。",
+      "description": "McpTestSuite 测试框架（editor-only）：跑 AI 编写的 GDScript 测试套件（`extends McpTestSuite`，放 `res://tests/` 或 `addons/godot_mcp_server/testing/suites/`）。 run: 发现并运行套件，返回 passed/failed/skipped/total/failures 结构化结果。 manage: op=\"results_get\" 取回上次运行的部分结果（超时/中断后用）。 ⚠️ P2-12 二期：async coroutine 执行，suite 内每 test 后让出主循环（heartbeat 照常 ping），支持长套件（总预算 290s，超时用 suite= 过滤分批）。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY。需 `GODOT_MCP_MODE=editor` 并安装 Godot 插件。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4220,9 +4220,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 653,
+        "descBytes": 655,
         "schemaBytes": 832,
-        "totalBytes": 1485
+        "totalBytes": 1487
       }
     },
     {

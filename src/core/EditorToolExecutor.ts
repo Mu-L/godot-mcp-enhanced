@@ -119,6 +119,23 @@ export class EditorToolExecutor {
         }
       }
 
+      // P2-12 phase 2: test_run 走 GD async coroutine（websocket_server.gd 分流 handle_test_async，
+      // suite 内每 test 后 await process_frame 让出主循环）。startOperation 暂停 GD heartbeat
+      // inactivity 检测（防 30s 无活动误断），TS 侧 hm ping 照常每 15s 发（GD 主循环未阻塞 → 响应正常）。
+      // 290s 预算 < GD clamp 600（heartbeat.gd:69）+ websocket_server.gd:325，> 预期 suite 总耗时；
+      // 多 suite 累积超 290s 时调用方应用 suite= 过滤分批。
+      const isTestRun = method === 'test_run';
+      const TEST_RUN_OP_TIMEOUT_SEC = 290;
+      if (isTestRun) {
+        await this.conn.startOperation(TEST_RUN_OP_TIMEOUT_SEC);
+        try {
+          const result = await this.conn.request(method, finalArgs, { timeoutMs: TEST_RUN_OP_TIMEOUT_SEC * 1000 });
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        } finally {
+          await this.conn.endOperation().catch(() => {});
+        }
+      }
+
       const result = await this.conn.request(method, finalArgs);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],

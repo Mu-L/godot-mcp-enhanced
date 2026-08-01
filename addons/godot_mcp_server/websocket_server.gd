@@ -357,6 +357,13 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		# operation_end 可能抢先于仍在 bake 的其他 coroutine 恢复心跳；heartbeat P1#3 hard timeout
 		# 兜底（heartbeat.gd:37-46）防误断（operation_end 仅递减计数，非强制立即恢复）。
 		response = await _command_handler.handle_nav_async(_method, parsed.get("params", {}), _request_counter)
+	elif _method == "test_run":
+		# P2-12 phase 2: test_run 走 async 入口（防 WS keepalive 饿死）。suite 内每 test 后
+		# await get_tree().process_frame 让出主循环，heartbeat.tick 照常 ping + packet 照常 drain。
+		# test_manage 保持同步（秒级 results_get，走 else 分支 handle()）。
+		# client 用 290s timeoutMs（EditorToolExecutor isTestRun 分支）大幅降低 orphan 概率
+		# （优于 nav_bake 默认 30s），但极端超 290s 仍会 orphan，§10 peer 守卫兜底丢 reply。
+		response = await _command_handler.handle_test_async(_method, parsed.get("params", {}), _request_counter)
 	else:
 		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)
 	# §10 peer 生命周期守卫：coroutine 恢复时 peer 可能已 CLOSED/被 free

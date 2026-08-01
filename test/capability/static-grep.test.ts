@@ -46,17 +46,24 @@ describe('static-grep', () => {
   });
 
   it('EDITOR_COMMAND_ROUTING 与 command_handler.gd handle() 路由表一致（drift 检测）', () => {
-    // 防止 editor 加命令时 ROUTING 漏更新：解析 handle() match 块提取路由 method，
-    // 与 ROUTING keys 双向比对。任一方向缺失即 drift（测试红）。
+    // 防止 editor 加命令时 ROUTING 漏更新：解析 handle()/handle_nav_async()/handle_test_async()
+    // 三个 match 块提取路由 method，与 ROUTING keys 双向比对。任一方向缺失即 drift（测试红）。
+    // P2-12 phase 2: test_run 从 handle() 移到 handle_test_async()（coroutine 路径），
+    // drift 检测必须扫全部三个 handler 函数，否则 test_run 误报 missingInHandler。
     const handlerPath = join(REPO_ROOT, 'addons/godot_mcp_server/command_handler.gd');
     const src = readFileSync(handlerPath, 'utf8');
-    const start = src.indexOf('func handle(');
-    const end = src.indexOf('\nfunc ', start + 1);
-    const block = src.slice(start, end === -1 ? undefined : end);
-    // match 分支："method": 格式（行尾冒号）；排除默认分支 "_"。
-    const routed = new Set(
-      [...block.matchAll(/^\s*"(\w+)":\s*$/gm)].map(m => m[1]).filter(m => m !== '_'),
-    );
+    const routed = new Set<string>();
+    for (const funcName of ['handle(', 'handle_nav_async(', 'handle_test_async(']) {
+      const start = src.indexOf(`func ${funcName}`);
+      if (start === -1) continue;
+      const end = src.indexOf('\nfunc ', start + 1);
+      const block = src.slice(start, end === -1 ? undefined : end);
+      // match 分支两种格式："method":（行尾冒号，handle() 多行体）或
+      // "method": return ...（单行体，handle_*_async 常见）。排除默认分支 "_"。
+      for (const m of block.matchAll(/^\s*"(\w+)":(?:\s*$|\s+return)/gm)) {
+        if (m[1] !== '_') routed.add(m[1]);
+      }
+    }
     const routing = new Set(Object.keys(EDITOR_COMMAND_ROUTING));
     const missingInRouting = [...routed].filter(m => !routing.has(m));
     const missingInHandler = [...routing].filter(m => !routed.has(m));

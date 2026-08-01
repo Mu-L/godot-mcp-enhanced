@@ -124,10 +124,9 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _node_commands.handle_batch_add_nodes(params, request_id)
 		"test_assert":
 			return _test_commands.handle_test_assert(params)
-		# P2-12 phase 1: McpTestSuite runner (editor-only, sync path, suite <30s).
-		# Phase 2 will add the deferred-response hard gate for long suites.
-		"test_run":
-			return _test_commands.handle_test_run(params, request_id)
+		# P2-12 phase 2: test_run moved to handle_test_async (coroutine path,
+		# yields between tests to keep WS keepalive alive). test_manage stays
+		# synchronous here (秒级 results_get).
 		"test_manage":
 			return _test_commands.handle_test_manage(params)
 		"export_list_presets":
@@ -259,6 +258,16 @@ func handle_nav_async(method: String, params: Dictionary, request_id: int) -> Di
 		"nav_create_link":   return _nav_commands.handle_nav_create_link(params, request_id)
 		_:
 			return {"error": {"code": -32601, "message": "Unknown nav method: %s" % method}}
+
+
+# P2-12 phase 2: test_run coroutine entry. websocket_server.gd routes
+# test_run here (await) so the suite can yield between tests; test_manage
+# stays in the synchronous handle() match above.
+func handle_test_async(method: String, params: Dictionary, request_id: int) -> Dictionary:
+	match method:
+		"test_run": return await _test_commands.handle_test_run_async(params, request_id)
+		_:
+			return {"error": {"code": -32601, "message": "Unknown test method: %s" % method}}
 
 
 func send_notification(method: String, params: Dictionary) -> void:
