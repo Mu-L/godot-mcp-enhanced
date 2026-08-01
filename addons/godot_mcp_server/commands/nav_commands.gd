@@ -75,7 +75,7 @@ func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary
 	return {"result": {"node_path": str(nav.get_path()), "type": "NavigationRegion3D", "baked": bake_result}}
 
 const BAKE_WAIT_TIMEOUT_MS := 28000  # < client 30s 超时；nav_create_region 用
-const BAKE_MESH_WAIT_TIMEOUT_MS := 110000  # bake_mesh 长 timeout（> client 30s；GD coroutine orphan 由 §10 peer 守卫兜底）
+const BAKE_MESH_WAIT_TIMEOUT_MS := 110000  # bake_mesh 长 timeout（== TS client timeoutMs:110000，EditorToolExecutor.ts:112；peer 异常断开时 orphan 由 §10 守卫兜底）
 
 # nav_create_region async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
 # Task 0 实测 is_baking/baking 属性不存在（BAKING_PROPS 空），改用 bake_finished 信号 +
@@ -162,8 +162,9 @@ func handle_nav_bake_mesh(params: Dictionary) -> Dictionary:
 	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if success else "bake_failed"}}
 
 # nav_bake_mesh async 版（A-lite coroutine handler）。spec §6 fallback 信号方案。
-# 110s 是 GD 兜底窗口；client requestTimeoutMs=30s（EditorConnection.ts:152），bake_mesh 110s > 30s
-# 时 client 先 reject，GD coroutine 完成于 orphan 态，§10 peer 守卫兜底丢 reply（spec §17 已知局限）。
+# 110s GD 兜底窗口 == TS client requestTimeoutMs（EditorToolExecutor.ts:112 传 timeoutMs:110000），
+# client 不会先 reject（P3-2 核实：原 :165 注释'client 30s'过时，TS 早已对齐 110s）。
+# 仅 peer 异常断开时 GD coroutine 完成于 orphan 态，§10 peer 守卫兜底丢 reply。
 func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)
 	if root == null:

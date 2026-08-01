@@ -132,9 +132,11 @@ func handle_test_run_async(params: Dictionary, _request_id: int) -> Dictionary:
 		## the per-test yield inside run_suite).
 		await _yield_frame()
 
-	## verbose per-test rows: 当前只返聚合 + failures（runner 内部 _results 经 run_suite
-	## 每 suite 头 _results.clear()，多 suite 时无法回溯全量 per-test 行）。verbose=true
-	## 时可考虑三期在 runner 累积 _results 不 clear，或 handler 层收集每 suite 的 verbose 快照。
+	## verbose per-test rows (P3-4, closed 2026-08-01): 当前 verbose=true 只返聚合 + failures，
+	## 不返每条 test 详情。runner 内部 _results 经 run_suite 每 suite 头 _results.clear()，
+	## 多 suite 时无法回溯全量 per-test 行。failures 数组已含失败 test 的 message + assertion_count，
+	## 覆盖调试需求；全量 per-test rows（含 passed/skipped）无明确需求驱动，YAGNI 不实现。
+	## 如未来需要：run_suite 加 verbose 参数传 get_results(true)，handler 收集每 suite 快照。
 	_annotate_edited_scene(combined_results)
 	## N-5: 缓存聚合结果供 handle_test_manage 取回（runner 内部 _results 只含最后一个 suite）
 	_last_combined_results = combined_results.duplicate(true)

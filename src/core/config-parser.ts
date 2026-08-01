@@ -6,7 +6,20 @@
 
 // ─── Config value parser ─────────────────────────────────────────────────────
 
-/** Split a comma-separated string while respecting quoted segments. */
+/**
+ * Split a comma-separated string while respecting quoted segments.
+ *
+ * Known limitation (P3-3, 2026-07-27 batch F, closed 2026-08-01): does NOT
+ * track bracket nesting depth. Input `[1,[2,3]]` is split by the inner comma
+ * into `['1','[2','3]']` instead of `['1','[2,3]']`. In practice this is safe
+ * because real Godot config files (project.godot / .godot / addon .cfg) use
+ * flat arrays only (PackedStringArray, simple lists) — verified by scanning
+ * all .godot/.cfg files in this repo + fixture projects: zero nested arrays.
+ * parseConfigValue recurses on each split element, so even `[1,[2,3]]` yields
+ * partial results (the `[2` and `3]` fragments parse as strings), not a crash.
+ * If future Godot configs introduce nested arrays, add bracket-depth tracking
+ * here (count `[`/`]` alongside the existing inQuotes flag).
+ */
 function splitRespectingQuotes(s: string): string[] {
   const parts: string[] = [];
   let current = '';
