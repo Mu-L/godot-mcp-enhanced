@@ -44,7 +44,18 @@ func handle_export_get_preset(params: Dictionary) -> Dictionary:
 				if _is_sensitive_key(prop_name):
 					data[prop_name] = "***"
 				else:
-					data[prop_name] = val
+					# P2-2: 非标量类型（Resource/Object 引用）白名单化，防 JSON.stringify
+					# 递归序列化失败致 reply 发不出→客户端 30s 超时
+					var t: int = typeof(val)
+					match t:
+						TYPE_STRING, TYPE_INT, TYPE_FLOAT, TYPE_BOOL, TYPE_NIL:
+							data[prop_name] = val
+						TYPE_ARRAY, TYPE_DICTIONARY:
+							# 容器内可能嵌套非标量，用 str 降级（best-effort，保留可读性）
+							data[prop_name] = str(val)
+						_:
+							# Object/Resource/Vector/Color 等 → str
+							data[prop_name] = str(val)
 			return {"result": data}
 	return {"error": {"code": -32002, "message": "Export preset not found: " + preset_name}}
 

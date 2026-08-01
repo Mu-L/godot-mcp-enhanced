@@ -112,6 +112,11 @@ func handle_instance_scene(params: Dictionary) -> Dictionary:
 	if not node_name.is_empty():
 		instance.name = node_name
 
+	# P2-4（设计固化，不改逻辑）：properties 在 create_action_mixed 之外直接 instance.set，
+	# 与 node_commands.gd:74 add_node 把 properties 放进 do_ops 不同。功能不坏——节点由
+	# reference op 持有存活，undo/redo 周期内 remove_child 不清除节点属性（节点存活故 properties 不丢）。
+	# 已过 coerce_property_value 防类型 silent no-op。若未来节点生命周期变化（reference op
+	# 不再持有存活），需把 properties 改走 do_ops 对齐 add_node。
 	for key in properties:
 		if key.begins_with("_"):
 			continue

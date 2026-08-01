@@ -150,6 +150,9 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 			var transition = params.get("transition")
 			var trans_val = float(transition) if transition != null else 1.0
 			var key_idx: int
+			# P1-2: value 按 track type coerce（TYPE_POSITION_3D 等需 Vector3，JSON Array 表达需转换）
+			if value != null:
+				value = _coerce_key_value(anim, ti, value)
 
 			if _undo_manager != null:
 				# Issue 2: 使用 _find_key_at_time 检查是否已存在关键帧
@@ -217,6 +220,8 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 				var undo_ops: Array = []
 				var value = params.get("value")
 				if value != null:
+					# P1-2: value 按 track type coerce（同 add 分支）
+					value = _coerce_key_value(anim, ti, value)
 					do_ops.append({"type": "method", "target": anim, "method": "track_set_key_value", "args": [ti, ki, value]})
 					undo_ops.append({"type": "method", "target": anim, "method": "track_set_key_value", "args": [ti, ki, old_val]})
 				var transition = params.get("transition")
@@ -230,9 +235,11 @@ func handle_animation_keyframe(params: Dictionary, request_id: int = 0) -> Dicti
 				if do_ops.size() > 0:
 					_undo_manager.create_action_mixed("Update Keyframe (req:%d)" % request_id, do_ops, undo_ops)
 			else:
-				var value = params.get("value")
-				if value != null:
-					anim.track_set_key_value(ti, ki, value)
+			var value = params.get("value")
+			if value != null:
+				# P1-2: value 按 track type coerce（同 undo 分支）
+				value = _coerce_key_value(anim, ti, value)
+				anim.track_set_key_value(ti, ki, value)
 				var transition = params.get("transition")
 				if transition != null:
 					anim.track_set_key_transition(ti, ki, float(transition))
@@ -343,6 +350,31 @@ func handle_animation_blend(params: Dictionary, request_id: int = 0) -> Dictiona
 	return {"result": {"animation": anim_name, "blend_time": float(blend_time), "speed": speed_val, "status": "blending"}}
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+## P1-2: 按 track type coerce keyframe value（防 JSON Array 表达 Vector3 silent fail）。
+## TYPE_POSITION_3D/ROTATION_3D/SCALE_3D → Vector3（Array/PackedFloat64Array/Vector3 互转）；
+## TYPE_BEZIER → float；TYPE_VALUE/其他 → 原样透传（目标属性未知，让 Godot 处理）。
+## 深挖#7 教训：GDScript 无安全类型转换，track_set_key_value 收到 Array[0,1,0] 对 Vector3 track silent fail。
+func _coerce_key_value(anim: Animation, track_index: int, value: Variant) -> Variant:
+	var track_type: int = anim.track_get_type(track_index)
+	match track_type:
+		Animation.TYPE_POSITION_3D, Animation.TYPE_ROTATION_3D, Animation.TYPE_SCALE_3D:
+			if value is Vector3:
+				return value
+			if value is Array:
+				var a: Array = value as Array
+				return Vector3(float(a[0]), float(a[1]), float(a[2])) if a.size() >= 3 else Vector3.ZERO
+			if value is PackedFloat64Array:
+				var p: PackedFloat64Array = value as PackedFloat64Array
+				return Vector3(p[0], p[1], p[2]) if p.size() >= 3 else Vector3.ZERO
+			# 非数组/Vector3（如数字）无法表达 3 分量，透传让 Godot 报错而非静默零
+			return value
+		Animation.TYPE_BEZIER:
+			return float(value)
+		_:
+			# TYPE_VALUE 等：目标属性类型未知，透传（node_commands 的 coerce_property_value 需 obj，此处无）
+			return value
+
 
 ## Issue 2: 精确查找指定时间点的关键帧索引
 func _find_key_at_time(anim: Animation, track_index: int, time: float) -> int:

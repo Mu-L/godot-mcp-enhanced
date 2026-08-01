@@ -291,11 +291,14 @@ func handle_ui_set_theme(params: Dictionary) -> Dictionary:
 					var val = p[key]
 					if val is Object:
 						continue
-					# C13: 校验 key 是 Theme 有效属性（避免 silent no-op / 动态属性污染）
-					if not _theme_has_property(theme, String(key)):
-						continue
-					t_undo.append({"type": "method", "target": theme, "method": "set", "args": [String(key), theme.get(key)]})
-					t_do.append({"type": "method", "target": theme, "method": "set", "args": [String(key), val]})
+				# C13: 校验 key 是 Theme 有效属性（避免 silent no-op / 动态属性污染）
+				if not _theme_has_property(theme, String(key)):
+					continue
+				# P2-1: val 按 Theme 属性当前类型 coerce（Array→Color/Vector3 等），对齐
+				# handle_theme_set_property :491-497 显式 Array→Color 模式，避免 Color 属性传 Array silent no-op
+				val = CommandHelpers.coerce_value_for_property(theme, String(key), val)
+				t_undo.append({"type": "method", "target": theme, "method": "set", "args": [String(key), theme.get(key)]})
+				t_do.append({"type": "method", "target": theme, "method": "set", "args": [String(key), val]})
 				if not t_do.is_empty() and _undo_manager != null:
 					_undo_manager.create_action_mixed("UI Theme Set Params", t_do, t_undo)
 				else:
