@@ -281,7 +281,11 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 ### 改动 GDScript 后
 
-6. 编辑 `.gd` 文件后,用 MCP 工具 `validate_scripts` 验证语法(触发 Godot 完整编译,含跨文件依赖,捕获 headless 遗漏的 Parse Error)。
+6. 编辑 `.gd` 文件后，验证语法有两个层次，按改动范围选用：
+   - **`validate_scripts`**（MCP 工具）：**逐文件 parse**（非完整编译）。快但**有盲区**——不严格检查块缩进一致性（else/match 块体缺缩进、for 循环体跑出循环等结构性 bug 它漏报）。适合单文件小改动的快速反馈。
+   - **`npm run check:gdscript`**：**项目级完整编译**（fixture 项目 `test/fixtures/gdscript-check` 启用 plugin 跑 `godot --headless --import`）。更严格——能抓 validate_scripts 漏的块缩进/结构 bug（实测：animation_commands/ui_commands 的 else 块体缺缩进被它抓到，validate_scripts 漏报）。**改 `addons/**/*.gd` 后必须跑这个**（不只是 validate_scripts）。需 `GODOT_PATH` 环境变量。
+
+   > ⚠️ 教训（2026-08-01 P2-12 缩进排查）：`validate_scripts` 的"触发 Godot 完整编译"描述是**误导**——它逐文件解析，不等于项目级完整编译。commit `195eabc` 的 animation_commands else 缩进 bug 经 validate_scripts 0 error 漏网，直到 editor 实测才暴露。`check:gdscript` 才是真"完整编译"。详见 memory `Godot MCP verification blind spot`。
 
 ### 改动 `.claude/rules/` 后（⚠️ 高频踩坑，CI 盲区）
 
@@ -409,10 +413,10 @@ CI 脚本 `scripts/check-rules-version-bump.mjs` 会在模板变更时强制要�
 
 本项目自身就是一个 MCP server,开发时频繁用 MCP 工具验证 Godot 侧行为:
 
-- 编辑 `.gd` 文件后,必须运行 `validate_scripts` 验证语法(触发 Godot 完整编译,含跨文件依赖解析,检测 headless 运行可能遗漏的 Parse Error)。
+- 编辑 `.gd` 文件后，验证语法：`validate_scripts`（逐文件 parse，快但有盲区）+ **`npm run check:gdscript`**（项目级完整编译，改 `addons/**/*.gd` 后必须跑，抓 validate_scripts 漏的缩进/结构 bug；详见「完成前强制检查」§6）。
 - 使用 `edit_script` 时优先选择 `search_and_replace` 模式(CRLF 安全、行号偏移鲁棒)。
 - 发版前必须运行 `verify_delivery`,确保场景树完整性 + 脚本健康 + 性能正常 + 自定义断言通过。
-- **AI 开发闭环**:`read_scene` / `read_script` → 理解结构 → `write_script` / `edit_script` → `run_and_verify`(错误分析)→ `validate_scripts` → `verify_delivery`(交付门禁)。`dev_loop` 工具可执行→验证→截图一体化,支持 acceptance 验收标准。
+- **AI 开发闭环**:`read_scene` / `read_script` → 理解结构 → `write_script` / `edit_script` → `run_and_verify`(错误分析)→ `validate_scripts` + `check:gdscript` → `verify_delivery`(交付门禁)。`dev_loop` 工具可执行→验证→截图一体化,支持 acceptance 验收标准。
 - 详细的 godot-mcp 子系统使用规则(模式选择决策树、引擎陷阱、editor/bridge/ui/recording 模式)见 `.claude/rules/godot-mcp-*.md`(Claude Code 客户端读取);ZCode 等客户端用 `setup_project_rules` 生成的内联版 AGENTS.md。
 
 ### MCP 子系统速查

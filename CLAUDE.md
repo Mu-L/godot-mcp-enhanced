@@ -2,7 +2,10 @@
 
 ## MCP 工具验证规则
 
-编辑 `.gd` 文件后，必须运行 `validate_scripts` 验证语法。
+编辑 `.gd` 文件后，验证语法有两个层次：
+- `validate_scripts`（MCP 工具）：逐文件 parse，快但有盲区（不抓块缩进 bug）。
+- `npm run check:gdscript`：项目级完整编译（更严格，**改 `addons/**/*.gd` 后必须跑**，能抓 validate_scripts 漏的缩进/结构 bug）。需 `GODOT_PATH`。
+
 使用 `edit_script` 时优先选择 `search_and_replace` 模式（CRLF 安全、行号偏移鲁棒）。
 
 ## 发版门禁
