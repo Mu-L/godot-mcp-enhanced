@@ -360,8 +360,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/animation_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -695,8 +695,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/animtree_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -894,8 +894,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/asset/asset_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -1453,8 +1453,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/sync_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -2437,8 +2437,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/nav_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -2684,8 +2684,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/particle_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -4208,8 +4208,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/test_commands.gd"
         }
       },
       "relatedDefects": [],
@@ -4767,8 +4767,8 @@
           "path": null
         },
         "editor": {
-          "exists": false,
-          "path": null
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/ui_commands.gd"
         }
       },
       "relatedDefects": [],

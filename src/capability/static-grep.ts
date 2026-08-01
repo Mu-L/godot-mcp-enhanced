@@ -138,9 +138,31 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
 
 /**
  * 探测工具在 editor 侧的实现文件，返回相对路径（addons/godot_mcp_server/ 下）或 null。
- * 精确按工具命令查 EDITOR_COMMAND_ROUTING（取代旧 group→单文件粗粒度映射）。
+ *
+ * P3-5 修复（2026-08-01）：原版只精确查 `ROUTING[toolName]`，但 ROUTING 的 key
+ * 是扁平 method 名（test_run/asset_create/add_node），不是顶层 toolName（testing/asset/scene）。
+ * 这导致 7/36 merged tool 的 editor.exists 误报 false（实际 command_handler 有分支）。
+ *
+ * 现在三查询：(1) 精确查 ROUTING[toolName]（method 名 == toolName）；
+ * (2) 前缀查（toolName 是 method 前缀，如 'asset' 匹配 'asset_create'）；
+ * (3) 已知别名（toolName 与 method 词根不同的特例，如 'testing' → 'test_run'）。
  */
+const TOOL_NAME_TO_METHOD_PREFIX_ALIAS: Record<string, string> = {
+  testing: 'test', // toolName 'testing' 但 method 前缀 'test_'（test_run/test_manage/test_assert）
+};
+
 export function findEditorCommandForTool(toolName: string): string | null {
-  const rel = EDITOR_COMMAND_ROUTING[toolName];
-  return rel ? `addons/godot_mcp_server/${rel}` : null;
+  // (1) 精确查（method 名 == toolName，如 'animation_track' 工具对应 'animation_track' method）
+  const exact = EDITOR_COMMAND_ROUTING[toolName];
+  if (exact) return `addons/godot_mcp_server/${exact}`;
+  // (2) 前缀查（toolName 是 method 名前缀）
+  const prefixes = [toolName, TOOL_NAME_TO_METHOD_PREFIX_ALIAS[toolName]].filter(Boolean) as string[];
+  for (const prefix of prefixes) {
+    for (const method of Object.keys(EDITOR_COMMAND_ROUTING)) {
+      if (method.startsWith(prefix + '_')) {
+        return `addons/godot_mcp_server/${EDITOR_COMMAND_ROUTING[method]}`;
+      }
+    }
+  }
+  return null;
 }
