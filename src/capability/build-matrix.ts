@@ -28,6 +28,15 @@ export function buildMarkdown(caps: ToolCapability[]): string {
   const top5Lines = top5.map(c =>
     `- \`${c.name}\` (${c.group}): desc ${c.size.descBytes}B / schema ${c.size.schemaBytes}B / total ${c.size.totalBytes}B`
   );
+  // P1-2: annotations hint 计数（readOnly / destructive / idempotent）
+  const annCount = caps.reduce((acc, c) => {
+    if (c.annotations) {
+      if (c.annotations.readOnlyHint) acc.readOnly++;
+      if (c.annotations.destructiveHint) acc.destructive++;
+      if (c.annotations.idempotentHint) acc.idempotent++;
+    }
+    return acc;
+  }, { readOnly: 0, destructive: 0, idempotent: 0 });
   const lines = [
     `# Capability Matrix`,
     ``,
@@ -39,6 +48,7 @@ export function buildMarkdown(caps: ToolCapability[]): string {
     `- risk：read ${riskTotals.read} / write ${riskTotals.write} / destructive ${riskTotals.destructive} / process ${riskTotals.process}`,
     `- L2 覆盖：covered ${byL2.covered} / partial ${byL2.partial} / none ${byL2.none}`,
     `- token 预算：tools/list ≈ ${totalBytes}B / ~${Math.round(totalBytes / 4)} tokens（description ${descBytesAll}B / schema ${schemaBytesAll}B，schema 占 ${schemaPct}%）`,
+    `- annotations：readOnly ${annCount.readOnly} / destructive ${annCount.destructive} / idempotent ${annCount.idempotent}`,
     ...(trustedList.length > 0 ? [`> 注：标 read 但实际启进程/有副作用(项目有意信任不确认): ${trustedList.join(', ')}`] : []),
     ``,
     `## danger-api 工具（L2 安全回归优先）`,

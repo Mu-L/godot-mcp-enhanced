@@ -109,17 +109,18 @@ const toolGroupMap = buildToolGroupMap();
  * Rules (conservative — never over-claim safety):
  * - readOnlyHint:    true only if every action is 'read'
  * - destructiveHint: true if any action is 'destructive'
- * - idempotentHint:  true only if readOnlyHint（idempotent 的定义是「多次执行结果一致/重试安全」,
- *                    写操作本身也可幂等——如设同值、覆盖写、替换;但本项目工具是 merged action
- *                    模式,每个写工具混合了幂等写 save_scene/edit_script 与非幂等创建删除
- *                    add_node/remove_node/project_replace,整体无法判定幂等,故保守只在纯读时
- *                    标 true。readOnly 是 idempotent 的充分条件而非定义）
+ * - idempotentHint:  true if readOnly OR pure-write（idempotent 的定义是「多次执行结果一致/重试安全」。
+ *                    纯读无副作用 ⇒ 幂等;纯写（全部 write,无 destructive/process）覆盖/设置/创建同值
+ *                    结果一致,重试不放大副作用,亦判幂等。混合 read+write 的工具因 merged action
+ *                    模式无法整体判定（如 save_scene 幂等但 create_node 不幂等）,保守 false。
+ *                    destructive（删除不可重试）与 process（执行副作用不可逆）一律 false。
+ *                    readOnly 是 idempotent 的充分条件而非定义）
  * - openWorldHint:   omitted (tools operate on Godot's closed world; default false)
  *
  * Tools without actionRisks default to write semantics (readOnlyHint=false),
  * matching the registry's default readonly=false for untagged tools (A-10).
  */
-function deriveMcpHints(actionRisks?: Record<string, RiskLevel>): {
+export function deriveMcpHints(actionRisks?: Record<string, RiskLevel>): {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   idempotentHint: boolean;
@@ -132,12 +133,16 @@ function deriveMcpHints(actionRisks?: Record<string, RiskLevel>): {
     return { readOnlyHint: false, destructiveHint: false, idempotentHint: false };
   }
   const hasDestructive = risks.some(r => r === 'destructive');
+  const hasProcess = risks.some(r => r === 'process');
   const hasWrite = risks.some(r => r === 'write' || r === 'destructive' || r === 'process');
   const isReadOnly = !hasWrite; // every action is 'read'
+  // P1-1: 纯写工具（全部 write,无 destructive/process）幂等 —— 覆盖/设置/创建同值结果一致。
+  // 混合 read+write 不判幂等:merged action 模式下整体无法判定。
+  const isPureWrite = !hasDestructive && !hasProcess && risks.every(r => r === 'write');
   return {
     readOnlyHint: isReadOnly,
     destructiveHint: hasDestructive,
-    idempotentHint: isReadOnly,
+    idempotentHint: isReadOnly || isPureWrite,
   };
 }
 

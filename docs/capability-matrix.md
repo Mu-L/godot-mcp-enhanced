@@ -5,9 +5,10 @@
 ## 概览
 - 工具总数：38
 - securityLevel：danger-api 10 / guarded 17 / safe 11
-- risk：read 107 / write 80 / destructive 10 / process 13
+- risk：read 108 / write 80 / destructive 10 / process 13
 - L2 覆盖：covered 0 / partial 0 / none 38
 - token 预算：tools/list ≈ 70883B / ~17721 tokens（description 10567B / schema 60316B，schema 占 85%）
+- annotations：readOnly 9 / destructive 5 / idempotent 12
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
