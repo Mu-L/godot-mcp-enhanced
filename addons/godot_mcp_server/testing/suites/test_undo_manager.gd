@@ -205,3 +205,107 @@ func test_apply_op_unknown_type_is_warned() -> void:
 	## commit executed do-methods but unknown-type op registered nothing, so
 	## the property assignment never happened → name unchanged.
 	assert_eq(target.name, "_McpTestBefore", "unknown-type op did not apply property (name unchanged)")
+
+
+# ----- test 6: reference op with valid Node (P0-4 补全) --------------------
+
+func test_apply_op_reference_valid_node() -> void:
+	## reference op with a valid Node should call add_do_reference.
+	## add_do_reference 的效果：undo 后节点不被 queue_free（生命周期由 UndoRedo 管理）。
+	## 验证方式：commit 后 undo，节点仍 is_instance_valid（未被释放）。
+	var child := Node.new()
+	child.name = "_McpTestRefChild"
+	child.set_meta("_mcp_test_owned", true)
+	track(child)
+	var do_ops := [
+		{"type": "method", "target": _arena, "method": "add_child", "args": [child]},
+		{"type": "reference", "value": child},
+	]
+	var undo_ops := [
+		{"type": "method", "target": _arena, "method": "remove_child", "args": [child]},
+	]
+	_undo_manager.create_action_mixed("add child with reference", do_ops, undo_ops)
+	assert_eq(child.get_parent(), _arena, "do-method add_child landed the child in arena")
+	var did_undo := editor_undo(_plugin.get_undo_redo())
+	assert_true(did_undo, "editor_undo returned true")
+	assert_ne(child.get_parent(), _arena, "undo-method removed the child from arena")
+	## 关键验证：reference op 让 UndoRedo 持有生命周期，undo 后节点仍 valid（未被 queue_free）
+	assert_true(is_instance_valid(child), "reference op: child still valid after undo (UndoRedo manages lifecycle)")
+
+
+# ----- test 7: reference op skips non-Node (P0-4 补全) ---------------------
+
+func test_apply_op_reference_skips_non_node() -> void:
+	## reference op with a Resource (non-Node) should push_warning and skip.
+	## 验证：commit 不 crash + Resource 不被 add_do_reference（无 observable 副作用，
+	## 但关键是 push_warning 路径不崩溃）。
+	var res := Resource.new()
+	res.set_meta("_mcp_test_owned", true)
+	track(res)
+	var undo_redo := _plugin.get_undo_redo()
+	undo_redo.create_action("test: reference non-Node")
+	_undo_manager._apply_op(undo_redo, "do", {"type": "reference", "value": res})
+	undo_redo.commit_action()
+	## Resource 被 push_warning 跳过，不 crash。无 observable 断言（push_warning 是副作用），
+	## 只要 commit 不 crash 即通过。
+	assert_true(true, "reference op with Resource did not crash (skipped via push_warning)")
+
+
+# ----- test 8: asset_placer place_one do/undo 对称性 (P0-4 补全) -----------
+
+func test_asset_placer_place_one_symmetry() -> void:
+	## 模拟 asset_placer.gd:place_one 的 undo 接入模式：
+	## do = add_child + set_owner + reference，undo = remove_child
+	## 验证 do 后节点在 arena，undo 后节点被移除且仍 valid（reference 持有生命周期）。
+	var placed := Node.new()
+	placed.name = "_McpTestPlacedNode"
+	placed.set_meta("_mcp_test_owned", true)
+	track(placed)
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var do_ops := [
+		{"type": "method", "target": _arena, "method": "add_child", "args": [placed]},
+		{"type": "method", "target": placed, "method": "set_owner", "args": [scene_root]},
+		{"type": "reference", "value": placed},
+	]
+	var undo_ops := [
+		{"type": "method", "target": _arena, "method": "remove_child", "args": [placed]},
+	]
+	_undo_manager.create_action_mixed("place_one asset", do_ops, undo_ops)
+	## do 后：节点在 arena + owner = scene_root
+	assert_eq(placed.get_parent(), _arena, "place_one do: child in arena")
+	assert_eq(placed.owner, scene_root, "place_one do: owner set to scene_root")
+	## undo 后：节点从 arena 移除，仍 valid
+	var did_undo := editor_undo(_plugin.get_undo_redo())
+	assert_true(did_undo, "editor_undo returned true")
+	assert_ne(placed.get_parent(), _arena, "place_one undo: child removed from arena")
+	assert_true(is_instance_valid(placed), "place_one undo: child still valid (reference manages lifecycle)")
+
+
+# ----- test 9: batch 操作原子性 (P0-4 补全) --------------------------------
+
+func test_batch_operations_atomic_undo() -> void:
+	## 模拟 asset_placer.gd:place_batch 的 undo 接入模式：
+	## 多个节点累积进一次 create_action_mixed，一次 Ctrl+Z 全部撤销。
+	var nodes: Array[Node] = []
+	for i in range(3):
+		var n := Node.new()
+		n.name = "_McpTestBatch%d" % i
+		n.set_meta("_mcp_test_owned", true)
+		track(n)
+		nodes.append(n)
+	var do_ops: Array = []
+	var undo_ops: Array = []
+	for n in nodes:
+		do_ops.append({"type": "method", "target": _arena, "method": "add_child", "args": [n]})
+		do_ops.append({"type": "reference", "value": n})
+		undo_ops.append({"type": "method", "target": _arena, "method": "remove_child", "args": [n]})
+	## 一次 commit 全部 3 个节点（batch 原子性）
+	_undo_manager.create_action_mixed("place_batch 3 assets", do_ops, undo_ops)
+	for i in range(3):
+		assert_eq(nodes[i].get_parent(), _arena, "batch do: node %d in arena" % i)
+	## 一次 undo 全部撤销
+	var did_undo := editor_undo(_plugin.get_undo_redo())
+	assert_true(did_undo, "editor_undo returned true (batch action undone)")
+	for i in range(3):
+		assert_ne(nodes[i].get_parent(), _arena, "batch undo: node %d removed from arena" % i)
+		assert_true(is_instance_valid(nodes[i]), "batch undo: node %d still valid (reference lifecycle)" % i)

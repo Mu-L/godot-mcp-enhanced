@@ -1,3 +1,25 @@
+## MCP Undo/Redo Manager — EditorUndoRedoManager 包装
+##
+## AI 触发的 mutation 经此 wrapper 接入 Godot 编辑器的 undo 栈，
+## 用户 Ctrl+Z 可逐步撤销 AI 操作（UX 信任保障）。
+##
+## 接入 undo 的 handler（8 个）：
+## - node_commands.gd（add_node/remove_node/edit_node 等 6 处）
+## - ui_commands.gd（create_control/set_layout/set_theme 等 14 处）
+## - animation_commands.gd（7 处）
+## - asset/asset_placer.gd（place_one/place_batch 等 7 处，经 asset_commands.gd 间接调用）
+## - particle_commands.gd（5 处）
+## - nav_commands.gd（5 处）
+## - animtree_commands.gd（4 处）
+## - scene_commands.gd（instance_scene/set_instance_property 2 处）
+##
+## 不接入 undo 的 handler（含理由）：
+## - export_commands.gd：落盘文件不可逆，无 undo 语义
+## - recording_commands.gd：editor 路径被禁用（强制走 Bridge），与 editor-only UndoRedoManager 矛盾
+## - sync_commands.gd：纯观察者（connect/disconnect 信号 + 只读序列化），无场景树 mutation
+## - test_commands.gd：测试命令不产生场景 mutation（仅注入 undo_manager 到测试上下文）
+## - scene_commands.gd open/save：场景级 open/save 不应被 Ctrl+Z 跨场景切换
+##
 extends Node
 
 var _plugin: EditorPlugin
