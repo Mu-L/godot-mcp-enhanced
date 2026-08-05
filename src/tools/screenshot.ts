@@ -198,12 +198,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         if (!isPng) {
           return opsErrorResult('INVALID_PARAMS', 'detail=ascii 仅支持 PNG 图像(当前: ' + ext + ')。');
         }
-        const cols = (args.ascii_cols as number) ?? 80;
-        const rows = (args.ascii_rows as number) ?? 40;
+        // review Nit 3: 正数校验,0/负数 clamp 到默认
+        const cols = Math.max(1, (args.ascii_cols as number) ?? 80);
+        const rows = Math.max(1, (args.ascii_rows as number) ?? 40);
         const asciiArt = downsampleToAscii(imageBuffer, cols, rows);
+        // review Nit 1: 用实测维度标注(可能被 clamp/纵向二次采样截断,与入参不等)
+        const actualLines = asciiArt.split('\n');
+        const actualCols = actualLines[0]?.length ?? 0;
         return {
           content: [
-            { type: 'text' as const, text: `ASCII art (${cols}×${rows}, brightness mapped):\n\`\`\`\n${asciiArt}\n\`\`\`` },
+            { type: 'text' as const, text: `ASCII art (${actualCols}×${actualLines.length}, brightness mapped, requested ${cols}×${rows}):\n\`\`\`\n${asciiArt}\n\`\`\`` },
             { type: 'text' as const, text: question },
           ],
         };
@@ -214,7 +218,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         if (!isPng) {
           return opsErrorResult('INVALID_PARAMS', 'detail=thumbnail 仅支持 PNG 图像(当前: ' + ext + ')。');
         }
-        const targetWidth = (args.thumbnail_width as number) ?? 256;
+        // review Nit 3: 正数校验
+        const targetWidth = Math.max(1, (args.thumbnail_width as number) ?? 256);
         const thumb = downsampleToThumbnail(imageBuffer, targetWidth);
         return {
           content: [
