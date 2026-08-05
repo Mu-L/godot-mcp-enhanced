@@ -58,6 +58,8 @@ import * as asset from '../tools/asset/asset-ops.js';
 import * as blender from '../tools/blender.js';
 import * as selfUpdate from '../tools/self-update.js';
 import * as testing from '../tools/testing.js';
+import * as runtimeAssert from '../tools/runtime-assert.js';
+import * as help from '../tools/help.js';
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -78,6 +80,8 @@ const ALL_MODULES: ToolModule[] = [
   blender,
   selfUpdate,
   testing,
+  runtimeAssert,
+  help,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

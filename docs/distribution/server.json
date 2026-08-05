@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.wgt19861219/godot-mcp-enhanced",
-  "description": "Free open-source Godot MCP server — 36 tools, 3-layer architecture, security guards.",
+  "description": "Free open-source Godot MCP server — 38 tools, 3-layer architecture, security guards.",
   "repository": {
     "url": "https://github.com/wgt19861219/godot-mcp-enhanced",
     "source": "github"
