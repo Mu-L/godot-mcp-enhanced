@@ -37,6 +37,10 @@ jobs:
         # 校验手写工具数/action 数与 capability-matrix.json 一致；漂移 exit 1。
         # 覆盖独立副本同步约束（rule-templates.ts vs .claude/rules/），补 check-rules-version-bump 的内容盲区。
         run: node scripts/check-tool-count.mjs
+      - name: Check contract consistency（P1-6：跨工具契约一致性,参考 breakpoint contract_check）
+        # 6 项校验:annotations 三 hint / danger-api+destructive 必 guarded / securityLevel-guarded 一致 /
+        # offlineCapable-needsGodot 互斥 / description+inputSchema / riskDistribution 计数。
+        run: node scripts/check-contract.mjs
       - name: Check rules version bump（spec §4 不变式）
         run: node scripts/check-rules-version-bump.mjs
       - name: Check version metadata consistency
