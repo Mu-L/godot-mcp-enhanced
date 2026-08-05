@@ -8,6 +8,7 @@ import { readFile, stat } from 'fs/promises';
 import { resolve, join, extname, sep, basename } from 'path';
 import { parseTscnSummary } from './tscn/tscn-parser.js';
 import { parseConfigValue, safeRealPath, scanFiles, iterativeDecode, isPathInAllowedRoots, resolveWithinRoot } from './helpers.js';
+import { getGateStatus } from './core/action-gate.js';
 import { getActiveGroups, TOOL_GROUPS } from './core/tool-registry.js';
 
 const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB — reject files larger than this
@@ -424,6 +425,7 @@ export function listResources(projectPath: string | undefined): McpResource[] {
   resources.push(
     { uri: 'godot://health', name: 'Health Monitor', description: 'Server health statistics and connection status', mimeType: 'application/json' },
     { uri: 'godot://tool-groups', name: 'Tool Groups', description: 'Current tool group activation status', mimeType: 'application/json' },
+    { uri: 'godot://capabilities', name: 'Capabilities', description: 'Action gate status — privileged groups and gated actions', mimeType: 'application/json' },
     { uri: 'godot://project-context', name: 'Project Context', description: 'Project documentation summary for AI context', mimeType: 'text/markdown' },
     { uri: 'godot://console-errors', name: 'Console Errors', description: 'Recent Godot engine errors and warnings (requires Bridge)', mimeType: 'application/json' },
     { uri: 'godot://scene-tree', name: 'Scene Tree', description: 'Current scene tree snapshot (requires Bridge)', mimeType: 'application/json' },
@@ -538,6 +540,9 @@ export async function readResource(uri: string, projectPath: string | undefined)
           toolCount: def.tools.length,
         }));
         return { uri, mimeType: 'application/json', text: JSON.stringify({ groups: result }, null, 2) };
+      }
+      case 'capabilities': {
+        return { uri, mimeType: 'application/json', text: JSON.stringify(getGateStatus(), null, 2) };
       }
       case 'project-context':
         return { uri, mimeType: 'text/markdown', text: await buildProjectContext(projectPath) };

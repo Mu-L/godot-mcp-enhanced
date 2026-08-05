@@ -17,6 +17,7 @@ import {
   peekToken,
   TOKEN_TTL_MS,
 } from '../guard.js';
+import { isActionGated, isActionAllowed, resolveEnabledGroups } from './action-gate.js';
 import {
   getAllToolDefinitions,
   getModuleForTool,
@@ -234,6 +235,16 @@ export class ToolDispatcher {
     if (!isToolAllowed(name)) {
       log('executeToolCall: tool %s not in active groups (profile enforcement)', name);
       return opsErrorResult('TOOL_NOT_ALLOWED', `Tool "${name}" is not available in the active tool groups (TOOL_GROUPS/slim profile).`);
+    }
+
+    // P0-3 action-gate：action 级权限拦截（默认 gate RCE action）
+    // 与 profile（工具级编译时）+ manage_tools（工具级运行时）互补：
+    // action-gate 是最细粒度——tools/list 仍暴露工具，仅 gated action 调用被拒。
+    const _action = typeof args.action === 'string' ? args.action : '';
+    if (isActionGated(name, _action) && !isActionAllowed(name, _action, resolveEnabledGroups())) {
+      log('executeToolCall: action %s.%s gated by capability gate', name, _action);
+      return opsErrorResult('ACTION_GATED',
+        `action '${_action}' is gated (security: code-execution). Set GODOT_MCP_PRIVILEGED_GROUPS=code-execution to enable.`);
     }
     // Snapshot current mode + executor for consistent routing throughout this call
     const currentMode = this.connectionMode;
