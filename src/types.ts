@@ -1,6 +1,5 @@
 import type { ChildProcess } from 'child_process';
 import type { CallToolResult, InputRequiredResult } from "@modelcontextprotocol/server";
-import type { LogLevel } from './core/logger.js';
 
 // ─── Shared type definitions for tool handlers ─────────────────────────────
 
@@ -30,9 +29,6 @@ export interface ToolContext {
   checkEditorSceneSave?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
   /** MCP Progress 通知 emitter（per-request，dispatcher 注入）。无 progressToken 时 undefined，调用方用 ctx.progress?.()。 */
   progress?: (progress: number, total: number, message?: string) => void;
-  /** P1-7 (SEP-2577): 当前请求的 logLevel(null=客户端未设/'off'=关闭/具体级别)。
-   *  工具一般无需自查(logger 单例自动过滤),仅供需要按级别发详细诊断的工具使用。 */
-  requestLogLevel?: LogLevel | 'off' | null;
 }
 
 // Helper to create a text result

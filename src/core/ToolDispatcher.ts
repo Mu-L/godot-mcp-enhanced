@@ -220,10 +220,14 @@ export class ToolDispatcher {
       progressToken !== undefined ? createProgressEmitter(progressToken) : undefined;
 
     // P1-7 (SEP-2577): 提取 per-request logLevel(io.modelcontextprotocol/logLevel)。
-    // 客户端在 _meta 里设此字段,server 按此级别过滤 notifications/message。
-    // 未设(meta 里无此键)→ undefined → withRequestLogLevelAsync(null,...) → 保持旧行为。
+    // ⚠️ 关键:SDK v2 在 dispatch 前 liftWireOnlyMaterial 会把 RESERVED_ENVELOPE_META_KEYS
+    // (含 logLevel)从 request.params._meta **delete 掉**搬到 ctx.mcpReq.envelope
+    // (node_modules/.../src-CX2iR2pK.mjs:6003-6041)。故必须从 srvCtx.mcpReq.envelope 读,
+    // 从 request.params._meta 读恒得 undefined(第三方审查 I1 发现)。
+    // envelope 是 Partial<RequestMetaEnvelope>(运行时含 reserved key,类型上是空对象),用字符串索引读。
     const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
-    const rawLogLevel = meta?.['io.modelcontextprotocol/logLevel'] as string | undefined;
+    const envelope = srvCtx?.mcpReq?.envelope as Record<string, unknown> | undefined;
+    const rawLogLevel = envelope?.['io.modelcontextprotocol/logLevel'] as string | undefined;
     const requestLogLevel: LogLevel | 'off' | null =
       rawLogLevel === undefined ? null
       : rawLogLevel === 'off' ? 'off'
@@ -743,8 +747,8 @@ export class ToolDispatcher {
         perCallCtx.checkEditorTextResourceWrite = (p: string) => this._checkEditorGuard('guard_text_resource_write', p);
         perCallCtx.checkEditorSceneSave = (p: string) => this._checkEditorGuard('guard_offline_scene_save', p);
       }
-      // P1-7 (SEP-2577): per-request logLevel 包裹移到 executeToolCall 最外层(包裹 dispatchTool),
-      // 因 dispatchTool 被 confirm_and_execute 等多处复用,requestLogLevel 在 executeToolCall 作用域可用。
+      // P1-7 (SEP-2577): per-request logLevel 包裹在 handleCall 层(withRequestLogLevelAsync
+      // 包裹 executeMiddleware),此处 dispatchTool 内的工具调用自动继承 _currentRequestLogLevel。
       result = await targetMod.handleTool(effectiveToolName, effectiveArgs, perCallCtx);
     } catch (err) {
       const duration = Date.now() - startTime;

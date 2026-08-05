@@ -124,10 +124,11 @@ export class GodotServer {
         },
         instructions: readInstructions(),
         // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。
-        // SDK v2 在 2026-era 请求的响应里自动填充这两个字段;2025-era 请求不受影响。
+        // ⚠️ era-gated:SDK v2 的 fillCacheFields 只在 modern-era(2026-07-28+)encodeResult 跑。
+        // enhanced 当前默认 supportedProtocolVersions 仅 legacy era,故 cacheHints 当前对客户端是 no-op
+        // (配置合法,SDK 不报错;面向未来准备 —— enhanced opt-in modern era 或 SDK 默认支持 modern 版本后生效)。
         // 策略依据:工具/prompts/模板清单启动后基本静态(仅 manage_tools 主动切组时变,
         // 已配 listChanged 通知立即失效缓存);resources 依赖 project_path 且文件可变,短 TTL + private。
-        // 缺省(不配)时 SDK 用保守默认 ttlMs:0/cacheScope:'private'(等于不缓存)。
         cacheHints: {
           'tools/list': { ttlMs: 300_000, cacheScope: 'public' },         // 5min,工具清单所有用户相同
           'prompts/list': { ttlMs: 600_000, cacheScope: 'public' },        // 10min,prompts 启动后静态

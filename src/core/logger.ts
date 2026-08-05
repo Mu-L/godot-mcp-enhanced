@@ -562,4 +562,6 @@ export function resetLogger(): void {
   }
   _mcpServer = null;
   _clientReady = false;
+  // P1-7 review N3: 防御性复位,避免测试在 async 包裹中途调 resetLogger 致状态泄漏
+  _currentRequestLogLevel = null;
 }

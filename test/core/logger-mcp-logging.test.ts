@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger, withRequestLogLevel, getCurrentRequestLogLevel } from '../../src/core/logger.js';
+import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger, withRequestLogLevel, withRequestLogLevelAsync, getCurrentRequestLogLevel } from '../../src/core/logger.js';
 
 describe('MCP Logging emitToClient', () => {
   let mockServer: { sendLoggingMessage: ReturnType<typeof vi.fn> };
@@ -168,6 +168,29 @@ describe('P1-7 per-request logLevel filtering', () => {
         throw new Error('boom');
       });
     }).toThrow('boom');
+    expect(getCurrentRequestLogLevel()).toBe(null);
+  });
+
+  // P1-7 review: async 版测试(生产路径 ToolDispatcher 用 withRequestLogLevelAsync)
+  it('withRequestLogLevelAsync 在 await 期间保持 logLevel,完成后复位', async () => {
+    const logger = getLogger();
+    await withRequestLogLevelAsync('debug', async () => {
+      // await 期间 _currentRequestLogLevel 应为 debug
+      expect(getCurrentRequestLogLevel()).toBe('debug');
+      await Promise.resolve(); // 模拟异步操作
+      logger.info('mod', 'async in scope');  // 应发(debug 模式)
+    });
+    expect(getCurrentRequestLogLevel()).toBe(null);  // 复位
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('withRequestLogLevelAsync 抛错也复位(async finally 语义)', async () => {
+    await expect(
+      withRequestLogLevelAsync('debug', async () => {
+        await Promise.resolve();
+        throw new Error('async boom');
+      }),
+    ).rejects.toThrow('async boom');
     expect(getCurrentRequestLogLevel()).toBe(null);
   });
 });
