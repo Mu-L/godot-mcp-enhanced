@@ -1,8 +1,9 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/self-update.ts
 // 单工具 self_update + action enum=[check,update]。
 // ⚠️ 粒度选择：不能用两个独立无-action工具——guard.ts:65 action==null → return false
 //    会导致 update 的 confirm 门静默失效。action enum 让 args.action='update' 命中确认门。
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsSuccess, opsErrorResult } from './shared.js';

@@ -1,6 +1,8 @@
 // test/core/module-loader-slim.test.ts
 // P2-12: slimSchema pass 直接单测（补 docs/reviews/2026-07-31-coverage-batch.md N-2 缺口）。
 //
+import type { Tool } from "@modelcontextprotocol/server";
+
 // 背景：slimSchema（src/core/module-loader.ts:191-224）在 registerAllModules 链路对超阈值
 // 工具瘦身——移除 action 专属参数、追加 description 提示。此前零直接单测；ui-tools.test.js
 // 直 import barrel 绕过 registerAllModules 后处理，读的是未 slim 的原始 schema，slim 回归无测试捕获。
@@ -10,7 +12,6 @@
 import { describe, it, expect } from 'vitest';
 import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES } from '../../src/core/module-loader.js';
 import { getToolDefinition } from '../../src/core/tool-registry.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 // 直 import barrel —— 用于路径隔离断言（证明 registry 路径与 barrel 路径产出不同）
 import { getToolDefinitions as getUiDefsDirect } from '../../src/tools/ui-tools.js';
 

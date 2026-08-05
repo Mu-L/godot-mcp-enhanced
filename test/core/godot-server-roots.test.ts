@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 // ─── Mock MCP SDK Server 类——可控 oninitialized / getClientCapabilities / ─────
 // listRoots / setNotificationHandler（驱动 SDK 不 await 的 async 钩子）
-vi.mock('@modelcontextprotocol/sdk/server/index.js', () => {
+vi.mock('@modelcontextprotocol/server', () => {
   return {
     Server: class {
       oninitialized: (() => void) | null = null;
@@ -37,11 +37,11 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => {
   };
 });
 
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/server/stdio', () => ({
   StdioServerTransport: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/types.js', async (importOriginal) => {
+vi.mock('@modelcontextprotocol/core', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,

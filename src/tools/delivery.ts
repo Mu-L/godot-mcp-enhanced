@@ -1,5 +1,6 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/delivery.ts
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, scanFiles } from '../helpers.js';

@@ -1,7 +1,6 @@
 // test/core/module-loader-tags.test.ts
+import type { Tool } from "@modelcontextprotocol/server";
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 // Mock tool-registry to capture registered definitions while keeping TOOL_GROUPS
 const capturedTools: Tool[] = [];
 vi.mock('../../src/core/tool-registry.js', async (importOriginal) => {

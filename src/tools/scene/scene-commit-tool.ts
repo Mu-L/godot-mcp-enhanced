@@ -1,7 +1,7 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/scene-commit-tool.ts
 // P2: MCP tool wrapper for scene_commit.
-
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';

@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { userInfo } from 'os';
 import { execFileSync } from 'child_process';
 import type { ChildProcess } from 'child_process';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';

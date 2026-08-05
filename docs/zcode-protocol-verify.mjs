@@ -1,12 +1,12 @@
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { Client } from "@modelcontextprotocol/client";
+
 // 模拟 ZCode 接入 godot-mcp-enhanced（stdio 客户端 → initialize → tools/list）
 // ZCode 是 stdio MCP 客户端，行为与官方 JS SDK 等价（都遵循 MCP spec）。
 // 能被这个脚本列出的工具，ZCode 也能列出。
 //
 // 用法：先 `npm run build`，再 `node docs/zcode-protocol-verify.mjs`
 // 来源范式：docs/使用指南-Warp.md §6.2（协议层验证脚本）
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-
 const transport = new StdioClientTransport({
   command: 'node',
   args: ['build/index.js'],

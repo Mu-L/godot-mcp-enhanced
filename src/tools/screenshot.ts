@@ -1,6 +1,6 @@
 import { isAbsolute, resolve, join, extname } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';

@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import fc from 'fast-check';
 import {
-  requiresConfirmation, createPendingToken, consumeToken, pendingCount, resetState,
+  requiresConfirmation, createPendingToken, consumeToken, peekToken, pendingCount, resetState,
   TOKEN_TTL_MS,
 } from '../src/guard.js';
 import { registerAllModules } from '../src/core/module-loader.js';
@@ -265,11 +265,31 @@ describe('Property: guard', () => {
   });
 });
 
+// ─── peekToken (P0-2 MRTR) ────────────────────────────────────────────────
+
+describe('peekToken (P0-2 MRTR)', () => {
+  beforeEach(() => resetState());
+
+  it('peekToken does not consume the token', () => {
+    const token = createPendingToken('test_tool', { action: 'write' });
+    const peeked = peekToken(token);
+    expect(peeked).not.toBeNull();
+    expect(peeked.toolName).toBe('test_tool');
+    // Token still available for consumeToken
+    const consumed = consumeToken(token);
+    expect(consumed).not.toBeNull();
+  });
+
+  it('peekToken returns null for nonexistent token', () => {
+    expect(peekToken('nonexistent_token')).toBeNull();
+  });
+});
+
 // ─── TOKEN_TTL_MS (CRITICAL-3 子项1) ───────────────────────────────────────
 
 describe('TOKEN_TTL_MS', () => {
-  it('CRITICAL-3: TTL tightened to 60s (from 180s)', () => {
-    expect(TOKEN_TTL_MS).toBe(60_000);
+  it('P0-2 MRTR: TTL adjusted to 120s (from 60s, MRTR round-trip)', () => {
+    expect(TOKEN_TTL_MS).toBe(120_000);
   });
 });
 

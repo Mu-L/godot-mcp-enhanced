@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolResult } from '../types.js';
 import { textResult as okResult, errorResult } from '../types.js';
 import { validateProjectRoot, resolveWithinRoot, ensureDir } from '../helpers.js';

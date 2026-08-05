@@ -72,7 +72,7 @@ describe('Group change notifications', () => {
   it('sendToolListChanged sends notifications/tools/list_changed', async () => {
     // Verify that GodotServer.sendToolListChanged() calls server.notification()
     // with the correct method by importing and testing the wiring.
-    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+    const { Server } = await import('@modelcontextprotocol/server');
     const notificationSpy = vi.fn();
 
     // Create a minimal server mock

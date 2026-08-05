@@ -1,8 +1,8 @@
 // src/tools/cpp.ts
 // GDExtension (C++) 脚手架生成工具。纯文件生成,不联网/不编译。
+import type { Tool } from "@modelcontextprotocol/server";
 import { existsSync, readdirSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';

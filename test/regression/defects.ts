@@ -121,10 +121,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       // fixed(2026-07-13 P0 审查): AI 自确认根因 — token 明文回传 AI + consumeToken 不验 caller,
       //   单客户端 caller 绑定无效(AI 同 session 产生+消费 token)。加 confirm_and_execute
       //   elicitation out-of-band gate(consumeToken 成功后调 this.elicitFn + ELICITATION_DENIED)。
-      //   detect: 截断模式 + gate 缺失任一命中即复发。
+      // P0-2 MRTR (2026-08-05): elicit push 改为 inputRequired(...) 双时代模式。SDK shim 自动
+      //   处理 2025-era elicit push + 2026-era InputRequiredResult。检测器升级为 era-aware：
+      //   gate 完整 = (elicitFn 路径 || inputRequired 路径) && ELICITATION_DENIED 拒绝语义保留。
       const truncateBug = countMatchesInFile('src/guard.ts', /substring\(0,\s*200\)/g);
       const td = readSrc('src/core/ToolDispatcher.ts');
-      const hasGate = /this\.elicitFn\(/.test(td) && /ELICITATION_DENIED/.test(td);
+      const hasElicitGate = /this\.elicitFn\(/.test(td);  // 旧路径（middleware elicit）
+      const hasMrtrGate = /inputRequired\(/.test(td);      // P0-2 MRTR 新路径
+      const hasDenial = /ELICITATION_DENIED/.test(td);     // 拒绝语义（双路径共用）
+      const hasGate = (hasElicitGate || hasMrtrGate) && hasDenial;
       return truncateBug + (hasGate ? 0 : 1);
     } },
   { key: 'ts-gdscript-tool-drift', status: 'fixed', severity: 'CRITICAL', dimension: 'Architecture',

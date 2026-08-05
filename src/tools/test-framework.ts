@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
 import { validatePath } from '../helpers.js';

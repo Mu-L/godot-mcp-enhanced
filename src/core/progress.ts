@@ -7,7 +7,7 @@
  *
  * 失败安全：progress 是观测层，绝不影响主流程（guard + fire-and-forget）。
  */
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from "@modelcontextprotocol/server";
 
 export type ProgressToken = string | number;
 export type ProgressEmitter = (progress: number, total: number, message?: string) => void;

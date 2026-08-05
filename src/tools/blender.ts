@@ -1,7 +1,7 @@
 import { join, dirname } from 'path';
 import { existsSync, writeFileSync, unlinkSync, statSync } from 'fs';
 import { tmpdir } from 'os';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';

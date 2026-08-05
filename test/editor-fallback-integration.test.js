@@ -7,7 +7,7 @@ const mockSetNotificationHandler = vi.fn();
 const mockServerClose = vi.fn().mockResolvedValue(undefined);
 const mockServerConnect = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+vi.mock('@modelcontextprotocol/server', () => ({
   Server: vi.fn().mockImplementation(function (_, options) {
     this._instructions = options?.instructions;
     this.setRequestHandler = mockSetRequestHandler;
@@ -17,11 +17,11 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/server/stdio', () => ({
   StdioServerTransport: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
+vi.mock('@modelcontextprotocol/core', () => ({
   CallToolRequestSchema: 'CallToolRequestSchema',
   ListToolsRequestSchema: 'ListToolsRequestSchema',
   ListResourcesRequestSchema: 'ListResourcesRequestSchema',

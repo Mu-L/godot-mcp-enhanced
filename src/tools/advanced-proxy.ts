@@ -9,8 +9,9 @@
  * Belongs to the 'dynamic' group. Provides fuzzy matching suggestions for
  * invalid tool names, and structured dynamic routing for unknown godot_ tools.
  */
+import type { Tool } from "@modelcontextprotocol/server";
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+// src/tools/advanced-proxy.ts
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, getErrorMessage, type ToolCallDelegate } from '../types.js';
 import { opsError } from './shared.js';
@@ -217,7 +218,7 @@ async function delegateCall(targetTool: string, args: Record<string, unknown>): 
     return textResult(JSON.stringify(opsError('INVALID_PARAMS', `toolArgs too large (${toolArgsBytes} > 256KB), refuse to proxy`)));
   }
   try {
-    return await delegate(targetTool, toolArgs);
+    return await delegate(targetTool, toolArgs) as ToolResult;
   } catch (err) {
     return textResult(JSON.stringify(opsError('PROXY_ERROR', getErrorMessage(err))));
   }

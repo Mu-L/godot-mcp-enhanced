@@ -1,16 +1,5 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  CompleteRequestSchema,
-  RootsListChangedNotificationSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { Server } from "@modelcontextprotocol/server";
 import { join } from 'path';
 import { readInstructions } from './core/instructions.js';
 import { waitForEditorSecret } from './core/editor-auth.js';
@@ -145,27 +134,27 @@ export class GodotServer {
     });
     this.dispatcher = dispatcher;
 
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    this.server.setRequestHandler('tools/list', async () => ({
       tools: dispatcher.getFilteredTools(),
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, (request) =>
-      dispatcher.handleCall(request)
+    this.server.setRequestHandler('tools/call', (request, ctx) =>
+      dispatcher.handleCall(request, ctx)
     );
 
     // ── MCP Resources handlers ──────────────────────────────────────────────
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    this.server.setRequestHandler('resources/list', async () => {
       const projectPath = resolveProjectPath();
       const resources = listMcpResources(projectPath);
       return { resources };
     });
 
-    this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    this.server.setRequestHandler('resources/templates/list', async () => {
       const templates = listMcpResourceTemplates();
       return { resourceTemplates: templates };
     });
 
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    this.server.setRequestHandler('resources/read', async (request) => {
       const { uri } = request.params;
       const projectPath = resolveProjectPath();
       const content = await readMcpResource(uri, projectPath);
@@ -191,17 +180,17 @@ export class GodotServer {
     ));
 
     // ── MCP Prompts handlers (Phase 5b) ────────────────────────────────────────
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    this.server.setRequestHandler('prompts/list', async () => ({
       prompts: listPrompts(),
     }));
 
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    this.server.setRequestHandler('prompts/get', async (request) => {
       const { name, arguments: promptArgs } = request.params;
       return getPrompt(name, (promptArgs ?? {}) as Record<string, string>);
     });
 
     // ── MCP Prompt Completion handler（Phase P2-6）──────────────────────────
-    this.server.setRequestHandler(CompleteRequestSchema, async (request) => {
+    this.server.setRequestHandler('completion/complete', async (request) => {
       const { ref, argument } = request.params;
       return handleCompletion(
         ref as { type: string; name: string },
@@ -260,7 +249,7 @@ export class GodotServer {
       }
     };
 
-    this.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+    this.server.setNotificationHandler('notifications/roots/list_changed', async () => {
       await applyRoots(true);
     });
   }

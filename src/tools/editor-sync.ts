@@ -1,5 +1,6 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/editor-sync.ts — Editor real-time scene tree sync tools
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';

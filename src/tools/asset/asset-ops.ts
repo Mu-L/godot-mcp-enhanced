@@ -1,3 +1,5 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/asset/asset-ops.ts — merged asset 工具（7 action）
 //
 // 单工具聚合：create / path / batch / undo / save / list_shapes / list_materials。
@@ -21,8 +23,6 @@
 //
 // 因此本 handleTool **不**实现 ctx.editorExecutor 探索块（写动作靠 editor-method-map
 // 盲转命中；list_* 靠 -32601 回退）。
-
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import type { RiskLevel } from '../../core/tool-registry.js';
 import { opsErrorResult } from '../shared.js';

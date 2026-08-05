@@ -7,7 +7,7 @@
  */
 
 import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel, type ToolModule } from './tool-registry.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 
 // ─── Tool module imports ─────────────────────────────────────────────────────
 import * as runtime from '../tools/runtime.js';
@@ -207,21 +207,24 @@ export function slimSchema(defs: Tool[]): Tool[] {
     if (!inputSchema?.properties) return def;
 
     const removed: string[] = [];
-    const newProperties: Record<string, object> = {};
-    for (const [key, value] of Object.entries(inputSchema.properties)) {
+    const oldProperties = inputSchema.properties as Record<string, unknown>;
+    const newProperties: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(oldProperties)) {
       if (config.removeProps.includes(key)) {
         removed.push(key);
       } else {
-        newProperties[key] = value as object;
+        newProperties[key] = value;
       }
     }
     if (removed.length === 0) return def;
 
+    // v2 SDK 的 Tool.inputSchema.properties 类型收紧为 JSON Schema 叶节点联合类型，
+    // slimSchema 是运行时变换（JSON.stringify 后逐属性过滤），用类型断言保持兼容。
     return {
       ...def,
       description: def.description + config.descHint,
       inputSchema: { ...inputSchema, properties: newProperties },
-    };
+    } as Tool;
   });
 }
 

@@ -1,9 +1,10 @@
 // src/core/ToolDispatcher.ts
-import type { ToolResult, ToolContext, DispatchContext, Middleware, ToolCallDelegate } from '../types.js';
+import type { ToolResult, HandlerResult, ToolContext, DispatchContext, Middleware, ToolCallDelegate } from '../types.js';
 import type { ChildProcess } from 'child_process';
 import type { ReadOnlyGuard } from './ReadOnlyGuard.js';
+import type { Tool, ServerContext } from "@modelcontextprotocol/server";
+import { inputRequired, acceptedContent } from "@modelcontextprotocol/server";
 import type { EditorToolExecutor } from './EditorToolExecutor.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware, createElicitationMiddleware } from './middleware.js';
 import { createElicitFn, type ElicitFn } from './elicit.js';
 import { getCallRecorder, extractErrorMessage } from './call-recorder.js';
@@ -13,6 +14,7 @@ import {
   requiresConfirmation,
   createPendingToken,
   consumeToken,
+  peekToken,
   TOKEN_TTL_MS,
 } from '../guard.js';
 import {
@@ -118,7 +120,7 @@ export class ToolDispatcher {
       if (targetTool === 'godot_advanced_tool') {
         return opsErrorResult('PROXY_RECURSION', 'Cannot proxy godot_advanced_tool through itself');
       }
-      return this.handleCall({ params: { name: targetTool, arguments: toolArgs } });
+      return this.handleCall({ params: { name: targetTool, arguments: toolArgs } }) as Promise<ToolResult>;
     });
   }
 
@@ -187,7 +189,7 @@ export class ToolDispatcher {
     return allTools;
   }
 
-  async handleCall(request: { params: { name: string; arguments?: Record<string, unknown> } }): Promise<ToolResult> {
+  async handleCall(request: { params: { name: string; arguments?: Record<string, unknown> } }, srvCtx?: ServerContext): Promise<HandlerResult> {
     // Apply deferred mode switch before processing
     this._applyPendingModeSwitch();
 
@@ -219,11 +221,11 @@ export class ToolDispatcher {
     const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before' };
 
     return executeMiddleware(this.middleware, ctx, async () => {
-      return this.executeToolCall(name, args, startTime, progressEmitter);
+      return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
     });
   }
 
-  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter): Promise<ToolResult> {
+  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
     // ── Task 3 (A-RCE #3): profile 硬隔离入口强制 ──
     // isToolAllowed 原只在 getFilteredTools 广告层(:183),被转发 MCP 客户端(拿完整
     // tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/slim 过滤的工具。此处对称补强:
@@ -290,98 +292,67 @@ export class ToolDispatcher {
       const pathErr = this.validatePathArgs(args);
       if (pathErr) return pathErr;
 
-      // ── 2. confirm_and_execute 分支 ──
+      // ── 2. confirm_and_execute 分支（P0-2 MRTR 改造）──
       if (name === 'confirm_and_execute') {
         const token = args.token as string;
         if (!token || typeof token !== 'string') {
           return opsErrorResult('MISSING_TOKEN', 'confirmation_token is required');
         }
-        const pending = consumeToken(token);
-        if (!pending) {
-          return opsErrorResult('INVALID_TOKEN', 'Invalid or expired confirmation token');
-        }
 
-        // I-07: Refuse execution if args were truncated — the code/data would be incomplete
-        if (pending.wasTruncated) {
-          return opsErrorResult('ARGS_TRUNCATED',
+        // P0-2 MRTR：读第二轮的用户响应（SDK LegacyInputRequiredShim 在 2025-era 自动收集）。
+        // confirmed === undefined 表示第一轮（无 inputResponses）；非 undefined 表示第二轮。
+        const confirmed = srvCtx?.mcpReq?.inputResponses
+          ? acceptedContent<{ confirm: boolean }>(srvCtx.mcpReq.inputResponses, 'confirm')
+          : undefined;
+
+        // opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时跳过 elicitation（保留现有语义）。
+        // 降级路径在第一轮就消费 token + 执行，不走 MRTR。
+        if (process.env.GODOT_MCP_ALLOW_UNSAFE_CONFIRM === 'true' && confirmed === undefined) {
+          const pending = consumeToken(token);
+          if (!pending) return opsErrorResult('INVALID_TOKEN', 'Invalid or expired confirmation token');
+          if (pending.wasTruncated) return opsErrorResult('ARGS_TRUNCATED',
             `Confirmation token args were truncated (exceeded 10KB limit). ` +
             `Please call the original tool again — the server will re-generate a fresh token with the full args.`);
+          console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
+          // 跳到执行段（下面 confirmedPending 赋值后共用）
+          return this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
         }
 
-        // CRITICAL(2026-07-13 安全 P0): out-of-band 用户确认 — 堵 AI 自读自确认 token。
-        // confirm_and_execute 由 AI in-band 调用,token 在原工具返回值明文回传 AI,故 consumeToken
-        // 只验 token 值无法区分 AI 自确认 vs 用户授权(单客户端下 caller/session 绑定无效:AI 产生
-        // 与消费 token 同 session)。此处经 MCP elicitInput(server→client→user UI) 请求用户
-        // out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。elicitFn 返回 null(client 不支持
-        // elicitation / decline / cancel / throw)或 confirm!==true 一律拒绝 — 强制 out-of-band。
-        // I-1(security review): 消息含 args 预览(>500 字截断),让用户知情确认而非盲批
-        // (防 AI 构造恶意 args 如删关键节点/写恶意 class_name — 07-12 RCE 复合链场景)。
-        //
-        // I-2(security review): opt-in 降级 — GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 时根本不调
-        // elicitFn(不弹窗),直接走 token 路径(token 已 consumeToken 验证)。前置检查(2026-07-15):
-        // 原实现降级检查在 elicitFn 调用之后,Claude Code 等支持 elicitation 的 client 仍弹窗,且
-        // decline 后放行致"用户拒绝却被执行"悖论;现前置对齐"跳过 elicitation"语义,真正免确认。
-        // 默认 fail-closed(堵 AI 自确认)。降级记 console.warn 审计。仅可信本地/CI,生产保持默认未设。
-        // 与仓库 GODOT_MCP_UNRESTRICTED/BRIDGE_PERSISTENT_SECRET/BRIDGE_EXTRA_METHODS 惯例一致。
-        if (process.env.GODOT_MCP_ALLOW_UNSAFE_CONFIRM === 'true') {
-          console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
-        } else {
+        if (confirmed === undefined) {
+          // ── 第一轮：peek token + 返回 InputRequiredResult ──
+          const pending = peekToken(token);
+          if (!pending) return opsErrorResult('INVALID_TOKEN', 'Invalid or expired confirmation token');
+          if (pending.wasTruncated) return opsErrorResult('ARGS_TRUNCATED',
+            `Confirmation token args were truncated (exceeded 10KB limit). ` +
+            `Please call the original tool again — the server will re-generate a fresh token with the full args.`);
+
+          // CRITICAL(2026-07-13 安全 P0): out-of-band 用户确认 — 堵 AI 自读自确认 token。
+          // P0-2 MRTR: 返回 InputRequiredResult，SDK 自动处理双时代：
+          //   2025-era：LegacyInputRequiredShim 自动转 elicitation/create push（server→client→user UI）
+          //   2026-era：直接放 InputRequiredResult 到 wire，client 弹 UI 后重发请求
           const argsJson = JSON.stringify(pending.args);
           const argsPreview = argsJson.length > 500 ? argsJson.slice(0, 500) + '...(截断)' : argsJson;
-          const consent = await this.elicitFn(
-            { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
-            `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
-          );
-          if (!consent || consent.confirm !== true) {
-            return opsErrorResult('ELICITATION_DENIED',
-              `执行 "${pending.toolName}" 需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。可信环境可设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 降级。`);
-          }
+          return inputRequired({
+            inputRequests: {
+              confirm: inputRequired.elicit({
+                message: `确认执行 "${pending.toolName}" (action: ${String(pending.args.action ?? 'n/a')})?\n参数摘要: ${argsPreview}\n此操作经 confirm_and_execute,需用户 out-of-band 确认(防 AI 自确认)。拒绝请点 cancel/decline。`,
+                requestedSchema: { type: 'object' as const, properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
+              }),
+            },
+            requestState: token,
+          });
         }
 
-        // 二次 guard 检查
-        const confirmedGuardResult = this.readOnlyGuard.check(pending.toolName);
-        if (confirmedGuardResult.blocked) {
-          return opsErrorResult(String(confirmedGuardResult.errorCode ?? 'READ_ONLY'), confirmedGuardResult.message ?? 'Operation blocked in read-only mode');
+        // ── 第二轮：用户已响应 ──
+        if (!confirmed || confirmed.confirm !== true) {
+          consumeToken(token);  // 消费掉防止重放
+          return opsErrorResult('ELICITATION_DENIED',
+            `执行需用户经 elicitation out-of-band 确认。Elicitation 被 decline/cancel/不支持或返回非确认,中止(堵 AI 自确认)。可信环境可设 GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true 降级。`);
         }
 
-        // 二次路径校验（pending.args 可能包含与外层 args 不同的 project_path）
-        const confirmedPathErr = this.validatePathArgs(pending.args);
-        if (confirmedPathErr) return confirmedPathErr;
-
-        // CR-2: 基于 pending.args(原始工具 args)重新计算 findGodotOverride,而非复用入口处
-        // 基于 confirm_and_execute 自身 args(只有 token)算出的 override。godot_path 校验
-        // 在产生 token 的那次调用里已执行过(第 229-234 行),token 有 3min TTL + 单次消费
-        // + 服务端生成,客户端无法伪造,故此处无需重新 validateGodotBinary。
-        const { override: confirmedFindGodotOverride, error: confirmedFindGodotErr } =
-          await this.resolveFindGodotOverride(pending.args);
-        if (confirmedFindGodotErr) return confirmedFindGodotErr;
-
-        // 复用同一 editor/headless 分支逻辑
-        log('[CONFIRM] Executing confirmed tool: %s', pending.toolName);
-        if (currentMode === 'editor' && currentExecutor) {
-          const logger = getLogger();
-          const confirmCallId = logger.toolStart(pending.toolName, pending.args);
-          const editorResult = await currentExecutor.execute(pending.toolName, pending.args);
-          // P1-1b (2026-07-11): confirm 路径同样检测 -32601 回退（与下方普通 dispatch 的
-          // _isUnknownMethod 分支对齐）。confirm_and_execute 经 confirm 的写工具（scene
-          // add_node/edit_node/remove_node 等未登记 editor-method-map 的）editor 转发
-          // command_handler 命中兜底 -32601，此前 confirm 分支直接返回 editorResult 致无回退
-          // headless（bug：scene editor -32601 失效）。检测到 -32601 则回退 dispatchTool 走文件/headless 路径。
-          if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
-            logger.toolEnd(confirmCallId, pending.toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
-            return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
-          }
-          const duration = Date.now() - startTime;
-          logger.toolEnd(confirmCallId, pending.toolName, duration);
-          // I-08: Only append _duration_ms if the editor plugin didn't already include it
-          const hasDuration = editorResult.content?.some((c: { type?: string; text?: string }) =>
-            typeof c.text === 'string' && c.text.startsWith('_duration_ms:'));
-          const content = hasDuration
-            ? editorResult.content
-            : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-          return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
-        }
-        return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
+        const pending = consumeToken(token);
+        if (!pending) return opsErrorResult('TOKEN_EXPIRED', 'Confirmation token expired during MRTR round-trip');
+        return this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
       }
 
       // ── 3. 确认令牌检查（IMP-6: 前置 legacy 映射，防 legacy name 如 remove_node 绕过 guard）──
@@ -659,6 +630,55 @@ export class ToolDispatcher {
     }
     // Project-aware findGodot — uses .godot/mcp-godot.json, project.godot [godot_mcp], etc.
     return { override: () => this.options.findGodot(projectPathForGodot), error: null };
+  }
+
+  /**
+   * P0-2 MRTR: confirm_and_execute 的执行段（从 executeToolCall 提取）。
+   * 第一轮（inputRequired 返回）和第二轮（用户确认后）共用此方法。
+   * 含二次 guard 检查 + 路径校验 + findGodotOverride + editor/headless 分支。
+   */
+  private async _confirmExecute(
+    pending: { toolName: string; args: Record<string, unknown>; wasTruncated?: boolean },
+    startTime: number,
+    progressEmitter: ProgressEmitter | undefined,
+    currentMode: 'headless' | 'editor',
+    currentExecutor: EditorToolExecutor | null,
+  ): Promise<ToolResult> {
+    // 二次 guard 检查
+    const confirmedGuardResult = this.readOnlyGuard.check(pending.toolName);
+    if (confirmedGuardResult.blocked) {
+      return opsErrorResult(String(confirmedGuardResult.errorCode ?? 'READ_ONLY'), confirmedGuardResult.message ?? 'Operation blocked in read-only mode');
+    }
+
+    // 二次路径校验（pending.args 可能包含与外层 args 不同的 project_path）
+    const confirmedPathErr = this.validatePathArgs(pending.args);
+    if (confirmedPathErr) return confirmedPathErr;
+
+    // CR-2: 基于 pending.args 重新计算 findGodotOverride
+    const { override: confirmedFindGodotOverride, error: confirmedFindGodotErr } =
+      await this.resolveFindGodotOverride(pending.args);
+    if (confirmedFindGodotErr) return confirmedFindGodotErr;
+
+    // 复用同一 editor/headless 分支逻辑
+    log('[CONFIRM] Executing confirmed tool: %s', pending.toolName);
+    if (currentMode === 'editor' && currentExecutor) {
+      const logger = getLogger();
+      const confirmCallId = logger.toolStart(pending.toolName, pending.args);
+      const editorResult = await currentExecutor.execute(pending.toolName, pending.args);
+      if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
+        logger.toolEnd(confirmCallId, pending.toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
+        return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
+      }
+      const duration = Date.now() - startTime;
+      logger.toolEnd(confirmCallId, pending.toolName, duration);
+      const hasDuration = editorResult.content?.some((c: { type?: string; text?: string }) =>
+        typeof c.text === 'string' && c.text.startsWith('_duration_ms:'));
+      const content = hasDuration
+        ? editorResult.content
+        : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
+      return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
+    }
+    return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
   }
 
   private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter): Promise<ToolResult> {

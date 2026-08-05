@@ -7,7 +7,7 @@ import type { ProgressEmitter } from '../../src/core/progress.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
 import type { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
 import type { ToolResult } from '../../src/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import { resolveProjectPath as _mockResolveProjectPath } from '../../src/core/path-utils.js';
 
 // ─── Hoisted Mocks (vi.hoisted ensures these are available inside vi.mock factories) ──
@@ -21,6 +21,7 @@ const {
   mockRequiresConfirmation,
   mockCreatePendingToken,
   mockConsumeToken,
+  mockPeekToken,
   mockIsPathInAllowedRoots,
   mockIsToolAllowed,
   mockSetActiveGroups,
@@ -36,6 +37,7 @@ const {
   mockRequiresConfirmation: vi.fn(),
   mockCreatePendingToken: vi.fn(),
   mockConsumeToken: vi.fn(),
+  mockPeekToken: vi.fn(),
   mockIsPathInAllowedRoots: vi.fn().mockReturnValue(true),
   mockIsToolAllowed: vi.fn().mockReturnValue(true),
   mockSetActiveGroups: vi.fn(),
@@ -60,7 +62,8 @@ vi.mock('../../src/guard.js', () => ({
   requiresConfirmation: mockRequiresConfirmation,
   createPendingToken: mockCreatePendingToken,
   consumeToken: mockConsumeToken,
-  TOKEN_TTL_MS: 60_000,  // CRITICAL-3 子项1: ToolDispatcher import TOKEN_TTL_MS, factory 须提供
+  peekToken: mockPeekToken,
+  TOKEN_TTL_MS: 120_000,  // P0-2 MRTR: TTL 调整为 120s
 }));
 
 vi.mock('../../src/helpers.js', () => ({
@@ -327,6 +330,22 @@ describe('ToolDispatcher.handleCall', () => {
     return new ToolDispatcher(createOptions(overrides));
   }
 
+  // P0-2 MRTR: 构造第二轮 srvCtx（模拟用户已 accept）。
+  // acceptedContent 只在 action='accept' 时返回 content；decline/cancel 返 undefined
+  // 会被源码 :321 误判为第一轮，故拒绝场景用 accept + confirm:false（acceptedContent 返
+  // {confirm:false}，源码 :347 !confirmed || confirmed.confirm !== true → ELICITATION_DENIED）。
+  function mkSrvCtx(accepted: boolean = true) {
+    return {
+      mcpReq: {
+        inputResponses: {
+          confirm: accepted
+            ? { action: 'accept' as const, content: { confirm: true } }
+            : { action: 'accept' as const, content: { confirm: false } },
+        },
+      },
+    } as any;
+  }
+
   // [T1] rawArgs undefined → 空 args {}
   it('handles undefined rawArgs gracefully', async () => {
     const guard = createMockGuard(false);
@@ -391,18 +410,21 @@ describe('ToolDispatcher.handleCall', () => {
     expect(text).toContain('Invalid or expired');
   });
 
-  // [T6b] consumeToken 返回 wasTruncated → 拒绝执行(S2,ARGS_TRUNCATED)
+  // [T6b] P0-2 MRTR: peekToken 返回 wasTruncated → 第一轮返 ARGS_TRUNCATED（不消费 token）
   it('refuses execution when token args were truncated (ARGS_TRUNCATED) (S2)', async () => {
-    mockConsumeToken.mockReturnValue({
+    mockPeekToken.mockReturnValue({
       toolName: 'script',
       args: { action: 'execute_gdscript', code: 'a'.repeat(11_000) },
       wasTruncated: true,
     });
     const dispatcher = createDispatcherForHandleCall();
+    // 第一轮（无 inputResponses）→ peekToken 检测 wasTruncated → 立即返 ARGS_TRUNCATED
     const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'truncated-token' } } });
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('ARGS_TRUNCATED');
+    // peekToken 不消费 token，consumeToken 不应被调
+    expect(mockConsumeToken).not.toHaveBeenCalled();
   });
 
   // [B2] elicitation middleware 强制顶层 required(elicitFn=null,纯校验)
@@ -436,65 +458,101 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
-  // [T7] confirm 分支二次 readOnlyGuard 检查
+  // [T7] P0-2 MRTR: confirm 分支二次 readOnlyGuard 检查（第二轮 _confirmExecute 内）
   it('re-checks readOnlyGuard for confirmed tool', async () => {
     const guard = createMockGuard(false);
     (guard.check as ReturnType<typeof vi.fn>).mockImplementation((name: string) => {
       if (name === 'confirm_and_execute') return { blocked: false };
       return { blocked: true, errorCode: -32001, message: 'blocked after confirm' };
     });
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: {}, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: {} });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
-    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute 内二次 guard 拦截
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('blocked');
   });
 
-  // [T8] confirm 分支 editor 模式 dispatch
+  // [T8] P0-2 MRTR: confirm 分支 editor 模式 dispatch（第二轮 _confirmExecute 内）
   it('dispatches confirmed tool via editor executor', async () => {
     const guard = createMockGuard(false);
     const mockExecutor = { execute: vi.fn().mockResolvedValue(mockToolResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
     dispatcher.setEditorExecutor(mockExecutor);
-    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute → editor dispatch
+    await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(mockExecutor.execute).toHaveBeenCalledWith('scene', { action: 'read_scene' });
   });
 
-  // [T9] confirm 分支 headless dispatch
+  // [T9] P0-2 MRTR: confirm 分支 headless dispatch（第二轮 _confirmExecute 内）
   it('dispatches confirmed tool via headless when no executor', async () => {
     const guard = createMockGuard(false);
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'headless' });
-    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute → headless dispatch
+    await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
   });
 
-  // [T11] CRITICAL(2026-07-13 安全): confirm_and_execute elicitation out-of-band gate
-  // 堵 AI 自读自确认 token。单客户端下 caller/session 绑定无效(AI 产生与消费 token 同 session),
-  // 故 confirm_and_execute(AI in-band 调用,token 明文回传 AI) 须经 MCP elicitInput
-  // (server→client→user UI) 请求用户 out-of-band 确认,AI 无法伪造响应(非其 tools/call 通道)。
+  // [T11] CRITICAL(2026-07-13 安全): P0-2 MRTR 双轮模式 — confirm_and_execute 的 out-of-band gate
+  // 堵 AI 自读自确认 token。第一轮 peekToken + 返 inputRequired（SDK shim 自动 elicit push），
+  // 第二轮读 inputResponses.confirm（AI 无法伪造——非其 tools/call 通道）。elicitFn 不再被调。
   it('requires user elicitInput consent before executing confirmed tool (T11)', async () => {
     const elicitFn = vi.fn().mockResolvedValue({ confirm: true });
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
-    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
-    expect(elicitFn).toHaveBeenCalledTimes(1);
+
+    // 第一轮（无 inputResponses）→ 返 inputRequired，不执行工具
+    const r1 = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // inputRequired 返回结构：含 inputRequests + requestState，不含 content/isError
+    expect((r1 as any).resultType).toBe('input_required');
+    expect((r1 as any).inputRequests).toBeDefined();
+    expect((r1 as any).requestState).toBe('valid');
+    expect(elicitFn).not.toHaveBeenCalled();  // P0-2 MRTR: elicit push 由 SDK shim 处理
+    expect(mockModule.handleTool).not.toHaveBeenCalled();
+
+    // 第二轮（用户 accept）→ consumeToken + 执行
+    const r2 = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(mockModule.handleTool).toHaveBeenCalledWith('scene', { action: 'read_scene' }, expect.anything());
   });
 
+  // P0-2 MRTR: 原 null/declined 语义（elicitFn 返 null）现已迁移到 MRTR 第二轮
+  // acceptedContent 返回 {confirm:false}（accept 但用户拒绝）→ ELICITATION_DENIED。
+  // 真正的 cancel/decline action 由 SDK 直接拦在 client 侧（不发第二轮 tools/call）。
   it('refuses confirmed execution when elicitation unsupported/declined/cancel (null) (T11)', async () => {
     const elicitFn = vi.fn().mockResolvedValue(null);
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
-    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮：inputResponses.confirm 缺失（decline）→ acceptedContent 返 undefined → ELICITATION_DENIED
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(false),
+    );
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('ELICITATION_DENIED');
@@ -505,9 +563,19 @@ describe('ToolDispatcher.handleCall', () => {
     const elicitFn = vi.fn().mockResolvedValue({ confirm: false });
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
-    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮：accept 但 content.confirm=false → acceptedContent 返 {confirm:false} → !confirmed.confirm 拒绝
+    const srvCtxDecline = {
+      mcpReq: {
+        inputResponses: { confirm: { action: 'accept' as const, content: { confirm: false } } },
+      },
+    } as any;
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      srvCtxDecline,
+    );
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('ELICITATION_DENIED');
@@ -519,9 +587,19 @@ describe('ToolDispatcher.handleCall', () => {
     const elicitFn = vi.fn().mockResolvedValue({ confirm: 'true' });
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'remove_node' } });
     const dispatcher = createDispatcherForHandleCall({ elicitFn });
-    const result = await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮：accept 但 content.confirm="true"（string）→ confirm !== true → ELICITATION_DENIED
+    const srvCtxTruthy = {
+      mcpReq: {
+        inputResponses: { confirm: { action: 'accept' as const, content: { confirm: 'true' as any } } },
+      },
+    } as any;
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      srvCtxTruthy,
+    );
     expect(result.isError).toBe(true);
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
@@ -569,7 +647,7 @@ describe('ToolDispatcher.handleCall', () => {
     expect(parsed.requires_confirmation).toBe(true);
     expect(parsed.confirmation_token).toBe('test-token-123');
     expect(parsed.tool).toBe('scene');
-    expect(parsed.ttl_seconds).toBe(60);  // CRITICAL-3: ttl_seconds 与 TOKEN_TTL_MS/1000 一致, 不再硬编码 180
+    expect(parsed.ttl_seconds).toBe(120);  // P0-2 MRTR: TOKEN_TTL_MS=120_000 → 120s（MRTR 双轮需更长时间）
   });
 
   // [T10b] IMP-6: legacy 工具名路由时 guard 前置 tryLegacyMapping,防 legacy name 绕过 guard
@@ -709,10 +787,15 @@ describe('ToolDispatcher.handleCall', () => {
     const mockExecutor = { execute: vi.fn().mockResolvedValue(flatUnknownResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'add_node', node_type: 'Node3D', node_name: 'X' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'add_node', node_type: 'Node3D', node_name: 'X' } });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
     dispatcher.setEditorExecutor(mockExecutor);
-    await dispatcher.handleCall({ params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute → editor -32601 → fallback headless
+    await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(mockExecutor.execute).toHaveBeenCalledWith('scene', { action: 'add_node', node_type: 'Node3D', node_name: 'X' });
     expect(mockModule.handleTool).toHaveBeenCalledWith('scene', expect.objectContaining({ action: 'add_node' }), expect.anything());
   });
@@ -985,15 +1068,20 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
-  // [V13] confirm_and_execute 分支使用 pending.args（包含 project_path: 123），
+  // [V13] P0-2 MRTR: confirm_and_execute 分支使用 pending.args（包含 project_path: 123），
   // 但 validateCommonArgs 只校验 request.params.arguments 中的参数，所以 pending.args 不被拦截
   it('does not validate pending.args in confirm_and_execute branch', async () => {
     const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { project_path: 123 }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { project_path: 123 } });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
-    const result = await dispatcher.handleCall({
-      params: { name: 'confirm_and_execute', arguments: { token: 'valid' } },
-    });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute → headless dispatch（不校验 pending.args 类型）
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(result.isError).not.toBe(true);
     const text = (result.content[result.content.length - 1] as { text: string }).text;
     expect(text).toMatch(/(_duration_ms|status)/);
@@ -1058,31 +1146,37 @@ describe('ToolDispatcher.handleCall', () => {
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
-  // [P3] confirm_and_execute 中 pending.args 包含不允许的路径 → 被拦截
+  // [P3] P0-2 MRTR: confirm_and_execute 第二轮 _confirmExecute 中 pending.args 包含不允许的路径 → 被拦截
   it('rejects disallowed project_path in confirm_and_execute pending.args (I-02)', async () => {
     const guard = createMockGuard(false);
     mockIsPathInAllowedRoots.mockImplementation((p: string) => !p.includes('forbidden'));
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { project_path: '/forbidden/path', action: 'read_scene' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { project_path: '/forbidden/path', action: 'read_scene' } });
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
-    const result = await dispatcher.handleCall({
-      params: { name: 'confirm_and_execute', arguments: { token: 'valid' } },
-    });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute 二次路径校验拦截
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(result.isError).toBe(true);
     const parsed = JSON.parse((result.content[0] as { text: string }).text);
     expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
   });
 
-  // [P4] confirm_and_execute editor 分支中 pending.args 包含不允许的路径 → 被拦截
+  // [P4] P0-2 MRTR: confirm_and_execute editor 分支第二轮 _confirmExecute pending.args 路径 → 被拦截
   it('rejects disallowed path in confirm_and_execute editor mode (I-02)', async () => {
     const guard = createMockGuard(false);
     mockIsPathInAllowedRoots.mockImplementation((p: string) => !p.includes('evil'));
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { project_path: '/evil/path', action: 'remove_node' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { project_path: '/evil/path', action: 'remove_node' } });
     const mockExecutor = { execute: vi.fn().mockResolvedValue(mockToolResult), destroy: vi.fn() } as unknown as EditorToolExecutor;
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard, connectionMode: 'editor' });
     dispatcher.setEditorExecutor(mockExecutor);
-    const result = await dispatcher.handleCall({
-      params: { name: 'confirm_and_execute', arguments: { token: 'valid' } },
-    });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute 二次路径校验拦截（不进 editor）
+    const result = await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      mkSrvCtx(true),
+    );
     expect(result.isError).toBe(true);
     const parsed = JSON.parse((result.content[0] as { text: string }).text);
     expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
@@ -1395,21 +1489,33 @@ describe('ToolDispatcher: findGodot override propagation (CR-1/CR-2)', () => {
     expect(mockModule.handleTool).not.toHaveBeenCalled();
   });
 
-  // [FG3] CR-2: confirm_and_execute 应基于 pending.args(原始工具 args)的 godot_path 计算 override
+  // [FG3] CR-2: P0-2 MRTR — confirm_and_execute 第二轮 _confirmExecute 基于 pending.args.godot_path 计算 override
   it('CR-2: confirm_and_execute uses pending.args godot_path for findGodot override', async () => {
     const guard = createMockGuard(false);
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
     // pending.args 携带原始调用的 godot_path(confirm_and_execute 自身 args 只有 token)
+    mockPeekToken.mockReturnValue({
+      toolName: 'scene',
+      args: { action: 'remove_node', godot_path: '/pending/godot.exe' },
+      wasTruncated: false,
+    });
     mockConsumeToken.mockReturnValue({
       toolName: 'scene',
       args: { action: 'remove_node', godot_path: '/pending/godot.exe' },
     });
     const dispatcher = makeDispatcher({ readOnlyGuard: guard, connectionMode: 'headless' });
 
-    await dispatcher.handleCall({
-      params: { name: 'confirm_and_execute', arguments: { token: 'valid-token' } },
-    });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute 用 pending.args 重算 override
+    const srvCtx = {
+      mcpReq: {
+        inputResponses: { confirm: { action: 'accept' as const, content: { confirm: true } } },
+      },
+    } as any;
+    await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid-token' } } },
+      srvCtx,
+    );
 
     expect(mockModule.handleTool).toHaveBeenCalled();
     const ctx = mockModule.handleTool.mock.calls[0][2] as { findGodot: (p?: string) => Promise<string> };
@@ -1587,18 +1693,26 @@ describe('executeToolCall schema validation (Task 3)', () => {
     expect(mockModule.handleTool).toHaveBeenCalled();
   });
 
-  // [S4] getToolDefinition 返 undefined(内联工具如 confirm_and_execute)→ 跳过校验,不误伤
+  // [S4] P0-2 MRTR: getToolDefinition 返 undefined(内联工具如 confirm_and_execute)→ 跳过校验,不误伤
   it('inline tool (getToolDefinition undefined) skips validateArgs', async () => {
     mockGetToolDefinition.mockReturnValue(undefined);
     const guard = createMockGuard(false);
+    mockPeekToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' }, wasTruncated: false });
     mockConsumeToken.mockReturnValue({ toolName: 'scene', args: { action: 'read_scene' } });
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
     mockGetModuleForTool.mockReturnValue(mockModule);
     const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
 
-    await dispatcher.handleCall({
-      params: { name: 'confirm_and_execute', arguments: { token: 'valid' } },
-    });
+    // 第二轮（用户已确认）→ consumeToken → _confirmExecute → headless dispatch
+    const srvCtx = {
+      mcpReq: {
+        inputResponses: { confirm: { action: 'accept' as const, content: { confirm: true } } },
+      },
+    } as any;
+    await dispatcher.handleCall(
+      { params: { name: 'confirm_and_execute', arguments: { token: 'valid' } } },
+      srvCtx,
+    );
 
     // confirm_and_execute 路径应正常执行(内联工具无 inputSchema → 跳过)
     expect(mockModule.handleTool).toHaveBeenCalled();

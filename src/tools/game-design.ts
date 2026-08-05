@@ -7,6 +7,8 @@ export interface GDDIssue {
   suggestion?: string;
 }
 
+import type { Tool } from "@modelcontextprotocol/server";
+
 export interface GDDValidationResult {
   passed: boolean;
   sections_found: string[];
@@ -265,7 +267,6 @@ export function chainOfVerification(verdict: string, context: string): CoVResult
 
 import { readFileSync } from "fs";
 import { opsErrorResult } from './shared.js';
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from "../helpers.js";
