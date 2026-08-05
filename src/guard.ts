@@ -13,7 +13,7 @@ interface PendingToken {
   // 的 out-of-band elicitation gate 堵。clientId 仅在未来多客户端时需加(防跨连接重放,与 elicitation 正交)。
 }
 
-export const TOKEN_TTL_MS = 60_000; // 60s — CRITICAL-3 子项1: 收紧重放窗口(原 180s)
+export const TOKEN_TTL_MS = 120_000; // 120s — P0-2 MRTR 多一次 round-trip（原 60s 在 MRTR 下可能不够用户响应）
 const MAX_TOKENS = 100;
 const TOKEN_RATE_LIMIT = 5; // max new tokens per second
 const MAX_ARGS_JSON_SIZE = 10_000; // I-02: Truncate args JSON to prevent memory bloat from large GDScript code blocks
@@ -122,6 +122,22 @@ export function consumeToken(token: string): { toolName: string; args: Record<st
     return null;
   }
   pendingTokens.delete(token);
+  return { toolName: pending.toolName, args: pending.args, wasTruncated: pending.wasTruncated };
+}
+
+/**
+ * Peek a pending confirmation token without consuming it.
+ *
+ * P0-2 MRTR: confirm_and_execute 第一轮 peek（验证有效但不消费），返回 InputRequiredResult；
+ * 第二轮收到 inputResponses 后才 consumeToken。两步分离避免第一轮误消费致第二轮 requestState 校验失败。
+ */
+export function peekToken(token: string): { toolName: string; args: Record<string, unknown>; wasTruncated?: boolean } | null {
+  const pending = pendingTokens.get(token);
+  if (!pending) return null;
+  if (Date.now() - pending.createdAt > TOKEN_TTL_MS) {
+    pendingTokens.delete(token);
+    return null;
+  }
   return { toolName: pending.toolName, args: pending.args, wasTruncated: pending.wasTruncated };
 }
 

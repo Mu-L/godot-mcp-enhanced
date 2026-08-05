@@ -218,7 +218,7 @@ async function delegateCall(targetTool: string, args: Record<string, unknown>): 
     return textResult(JSON.stringify(opsError('INVALID_PARAMS', `toolArgs too large (${toolArgsBytes} > 256KB), refuse to proxy`)));
   }
   try {
-    return await delegate(targetTool, toolArgs);
+    return await delegate(targetTool, toolArgs) as ToolResult;
   } catch (err) {
     return textResult(JSON.stringify(opsError('PROXY_ERROR', getErrorMessage(err))));
   }

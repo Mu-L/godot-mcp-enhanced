@@ -1,9 +1,12 @@
 import type { ChildProcess } from 'child_process';
-import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { CallToolResult, InputRequiredResult } from "@modelcontextprotocol/server";
 
 // ─── Shared type definitions for tool handlers ─────────────────────────────
 
 export type ToolResult = CallToolResult;
+
+/** P0-2 MRTR: handleCall 返回类型含 InputRequiredResult（confirm_and_execute 双时代兼容） */
+export type HandlerResult = CallToolResult | InputRequiredResult;
 
 export interface ToolContext {
   opsScript: string;

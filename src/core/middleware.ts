@@ -5,7 +5,8 @@
 import { getLogger } from './logger.js';
 import type { Tool } from "@modelcontextprotocol/server";
 import { errorResult } from '../types.js';
-import type { DispatchContext, Middleware, MiddlewareResult, ToolResult } from '../types.js';
+import type { DispatchContext, Middleware, MiddlewareResult, ToolResult, HandlerResult } from '../types.js';
+import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { isFeatureEnabled } from './feature-flags.js';
 import type { RequestedSchema } from './elicit.js';
 
@@ -22,9 +23,9 @@ import type { RequestedSchema } from './elicit.js';
 export async function executeMiddleware(
   middleware: Middleware[],
   ctx: DispatchContext,
-  executeTool: () => Promise<ToolResult>,
-): Promise<ToolResult> {
-  let result: ToolResult = errorResult('No middleware result');
+  executeTool: () => Promise<HandlerResult>,
+): Promise<HandlerResult> {
+  let result: HandlerResult = errorResult('No middleware result');
   let rejected = false;
 
   // ── Phase 1: Before hooks ───────────────────────────────────────────────────
@@ -57,10 +58,11 @@ export async function executeMiddleware(
   }
 
   // ── Phase 3: After hooks (always run) ──────────────────────────────────────
+  // P0-2 MRTR: InputRequiredResult 是协议级控制流（confirm_and_execute 双时代），跳过 after hooks
   for (const mw of middleware) {
-    if (mw.after) {
+    if (mw.after && !isInputRequiredResult(result)) {
       try {
-        result = await mw.after(ctx, result);
+        result = await mw.after(ctx, result as ToolResult);
       } catch {
         // After hooks must not crash the pipeline — silently catch
         getLogger().warn('middleware', `After hook "${mw.name}" threw, ignoring`);

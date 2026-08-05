@@ -138,8 +138,8 @@ export class GodotServer {
       tools: dispatcher.getFilteredTools(),
     }));
 
-    this.server.setRequestHandler('tools/call', (request) =>
-      dispatcher.handleCall(request)
+    this.server.setRequestHandler('tools/call', (request, ctx) =>
+      dispatcher.handleCall(request, ctx)
     );
 
     // ── MCP Resources handlers ──────────────────────────────────────────────
