@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger } from '../../src/core/logger.js';
+import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger, withRequestLogLevel, getCurrentRequestLogLevel } from '../../src/core/logger.js';
 
 describe('MCP Logging emitToClient', () => {
   let mockServer: { sendLoggingMessage: ReturnType<typeof vi.fn> };
@@ -89,5 +89,85 @@ describe('MCP Logging emitToClient', () => {
     expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
     const params = mockServer.sendLoggingMessage.mock.calls[0][0];
     expect(params.level).toBe('error');
+  });
+});
+
+// P1-7 (SEP-2577): per-request logLevel 过滤
+describe('P1-7 per-request logLevel filtering', () => {
+  let mockServer: { sendLoggingMessage: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    resetLogger();
+    mockServer = { sendLoggingMessage: vi.fn() };
+    setLoggerServer(mockServer as any);
+    setLoggerClientReady(true);
+  });
+
+  it('withRequestLogLevel(null,...) 保持旧行为(仅 warn/error 发,info/debug 不发)', () => {
+    const logger = getLogger();
+    withRequestLogLevel(null, () => {
+      logger.debug('mod', 'd');
+      logger.info('mod', 'i');
+      logger.warn('mod', 'w');
+      logger.error('mod', 'e');
+    });
+    // null = 旧行为:仅 warn/error
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(2);
+    const levels = mockServer.sendLoggingMessage.mock.calls.map((c: unknown[]) => (c[0] as { level: string }).level);
+    expect(levels).toContain('warning');
+    expect(levels).toContain('error');
+  });
+
+  it('withRequestLogLevel("off",...) 完全不发', () => {
+    const logger = getLogger();
+    withRequestLogLevel('off', () => {
+      logger.warn('mod', 'w');
+      logger.error('mod', 'e');
+    });
+    expect(mockServer.sendLoggingMessage).not.toHaveBeenCalled();
+  });
+
+  it('withRequestLogLevel("debug",...) 发所有级别(debug/info/warning/error)', () => {
+    const logger = getLogger();
+    withRequestLogLevel('debug', () => {
+      logger.debug('mod', 'd');
+      logger.info('mod', 'i');
+      logger.warn('mod', 'w');
+      logger.error('mod', 'e');
+    });
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(4);
+    const levels = mockServer.sendLoggingMessage.mock.calls.map((c: unknown[]) => (c[0] as { level: string }).level);
+    expect(levels).toEqual(['debug', 'info', 'warning', 'error']);
+  });
+
+  it('withRequestLogLevel("info",...) 发 info 及以上(debug 不发)', () => {
+    const logger = getLogger();
+    withRequestLogLevel('info', () => {
+      logger.debug('mod', 'd');   // 不发(< info)
+      logger.info('mod', 'i');    // 发
+      logger.warn('mod', 'w');    // 发
+      logger.error('mod', 'e');   // 发
+    });
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('withRequestLogLevel 执行完自动复位(后续日志回到旧行为)', () => {
+    const logger = getLogger();
+    withRequestLogLevel('debug', () => {
+      logger.info('mod', 'in scope');  // 发(debug 模式)
+    });
+    expect(getCurrentRequestLogLevel()).toBe(null);  // 复位
+    logger.info('mod', 'out of scope');  // 不发(回到旧行为)
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('withRequestLogLevel 抛错也复位(finally 语义)', () => {
+    const logger = getLogger();
+    expect(() => {
+      withRequestLogLevel('debug', () => {
+        throw new Error('boom');
+      });
+    }).toThrow('boom');
+    expect(getCurrentRequestLogLevel()).toBe(null);
   });
 });

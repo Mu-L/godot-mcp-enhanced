@@ -35,7 +35,7 @@ import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
-import { getLogger } from './logger.js';
+import { getLogger, withRequestLogLevelAsync, type LogLevel } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
 import { record as recordTelemetry, hashProject, isTelemetryEnabled } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
@@ -219,11 +219,28 @@ export class ToolDispatcher {
     const progressEmitter: ProgressEmitter | undefined =
       progressToken !== undefined ? createProgressEmitter(progressToken) : undefined;
 
+    // P1-7 (SEP-2577): 提取 per-request logLevel(io.modelcontextprotocol/logLevel)。
+    // 客户端在 _meta 里设此字段,server 按此级别过滤 notifications/message。
+    // 未设(meta 里无此键)→ undefined → withRequestLogLevelAsync(null,...) → 保持旧行为。
+    const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
+    const rawLogLevel = meta?.['io.modelcontextprotocol/logLevel'] as string | undefined;
+    const requestLogLevel: LogLevel | 'off' | null =
+      rawLogLevel === undefined ? null
+      : rawLogLevel === 'off' ? 'off'
+      : VALID_LOG_LEVELS.has(rawLogLevel) ? (rawLogLevel as LogLevel)
+      : null;  // 非法值视为 null(旧行为);SEP-2577 建议返 -32602 但 enhanced 在 middleware 层不阻断
+
     const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before' };
 
-    return executeMiddleware(this.middleware, ctx, async () => {
-      return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
-    });
+    // P1-7 (SEP-2577): per-request logLevel 包裹整个工具调用链(middleware + executeToolCall +
+    // dispatchTool + confirm_and_execute)。withRequestLogLevelAsync 在 await 期间保持
+    // _currentRequestLogLevel,emitToClient 据此过滤 notifications/message。
+    // null = 客户端未设 _meta['io.modelcontextprotocol/logLevel'],保持旧行为(仅 warn/error 发)。
+    return withRequestLogLevelAsync(requestLogLevel, () =>
+      executeMiddleware(this.middleware, ctx, async () => {
+        return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
+      }),
+    );
   }
 
   private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
@@ -726,6 +743,8 @@ export class ToolDispatcher {
         perCallCtx.checkEditorTextResourceWrite = (p: string) => this._checkEditorGuard('guard_text_resource_write', p);
         perCallCtx.checkEditorSceneSave = (p: string) => this._checkEditorGuard('guard_offline_scene_save', p);
       }
+      // P1-7 (SEP-2577): per-request logLevel 包裹移到 executeToolCall 最外层(包裹 dispatchTool),
+      // 因 dispatchTool 被 confirm_and_execute 等多处复用,requestLogLevel 在 executeToolCall 作用域可用。
       result = await targetMod.handleTool(effectiveToolName, effectiveArgs, perCallCtx);
     } catch (err) {
       const duration = Date.now() - startTime;

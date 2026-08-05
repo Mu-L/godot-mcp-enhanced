@@ -117,6 +117,10 @@ export class GodotServer {
           resources: { listChanged: true },
           prompts: { listChanged: true },
           completions: {},
+          // P1-7 (SEP-2577): emit notifications/message 的 server MUST 声明 logging capability。
+          // 此前未声明 → SDK sendLoggingMessage 静默 no-op(logger.ts:155 warn/error 推送失效),
+          // 且 GodotServer 直发 notification(notifications/message) 抛 SdkError 被 catch 吞。
+          logging: {},
         },
         instructions: readInstructions(),
         // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。
@@ -400,16 +404,17 @@ export class GodotServer {
     await this.initMultiInstance();
 
     // Phase 5d: Project context notification
+    // P1-7 (SEP-2577): 改用 sendLoggingMessage(走 SDK 正规 logging 路径)。
+    // 此前用 notification({method:'notifications/message'}) 直发,被 SDK assertNotificationCapability
+    // 抛 SdkError(因 capabilities 未声明 logging)→ 被 catch 吞,通知没发出。
+    // 声明 logging capability + 改用 sendLoggingMessage 后,SDK 正常发通知。
     setImmediate(() => {
       try {
-        const maybePromise = this.server.notification({
-          method: 'notifications/message',
-          params: {
-            level: 'info',
-            data: '[Godot MCP] Project context available at godot://project-context. Read it for coding guidelines and architecture notes.',
-          },
+        const maybePromise = this.server.sendLoggingMessage({
+          level: 'info',
+          logger: 'server',
+          data: '[Godot MCP] Project context available at godot://project-context. Read it for coding guidelines and architecture notes.',
         });
-        // Handle both sync and async notification returns
         if (maybePromise && typeof maybePromise === 'object' && 'catch' in maybePromise) {
           (maybePromise as Promise<void>).catch(() => {});
         }
