@@ -1906,6 +1906,103 @@
       }
     },
     {
+      "name": "help",
+      "group": "core",
+      "description": "获取任意工具的完整文档。可用工具名：android, animation, animation_track, animtree, asset, audio, blender, cpp, csv_to_resources, docs, editor, game, godot_advanced_tool, godot_get_context, godot_list_dynamic_routes, godot_list_instances, godot_select_instance, help, load_skill, manage_tools, material, nav, particles, physics, profiler, project, runtime, runtime_assert, scene, screenshot, script, self_update, signal, testing, tilemap, ui, validation, workflow。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "enum": [
+              "android",
+              "animation",
+              "animation_track",
+              "animtree",
+              "asset",
+              "audio",
+              "blender",
+              "cpp",
+              "csv_to_resources",
+              "docs",
+              "editor",
+              "game",
+              "godot_advanced_tool",
+              "godot_get_context",
+              "godot_list_dynamic_routes",
+              "godot_list_instances",
+              "godot_select_instance",
+              "help",
+              "load_skill",
+              "manage_tools",
+              "material",
+              "nav",
+              "particles",
+              "physics",
+              "profiler",
+              "project",
+              "runtime",
+              "runtime_assert",
+              "scene",
+              "screenshot",
+              "script",
+              "self_update",
+              "signal",
+              "testing",
+              "tilemap",
+              "ui",
+              "validation",
+              "workflow"
+            ],
+            "description": "要查询的工具名"
+          }
+        },
+        "required": [
+          "tool_name"
+        ]
+      },
+      "requiredParams": [
+        "tool_name"
+      ],
+      "optionalParams": [],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 0,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 603,
+        "schemaBytes": 600,
+        "totalBytes": 1203
+      }
+    },
+    {
       "name": "load_skill",
       "group": "code",
       "description": "从本地知识库(GodotPrompter/gd-agentic 等)按关键词检索 SKILL.md。两级检索:name/description 高精度→全文 fallback。返回带来源标注(source/path)和相关性 score 的匹配。缺失库进 missing_libraries 不报错。",
@@ -3307,6 +3404,137 @@
         "descBytes": 98,
         "schemaBytes": 1532,
         "totalBytes": 1630
+      }
+    },
+    {
+      "name": "runtime_assert",
+      "group": "core",
+      "description": "运行时断言：在运行中的游戏上验证节点状态/场景结构/屏幕文本/性能/截图对比。agent 可任意时刻调用，不必走 workflow.dev_loop。全部依赖 game-bridge（需先 game_bridge_install + 游戏运行中）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "node_state",
+              "scene_structure",
+              "screen_text",
+              "perf",
+              "screenshot_diff"
+            ],
+            "description": "断言类型"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "项目路径（可选）"
+          },
+          "path": {
+            "type": "string",
+            "description": "node_state: 节点路径（如 /root/Main/Player）"
+          },
+          "expect": {
+            "type": "object",
+            "description": "node_state: 期望的属性键值对（如 {\"health\": 100, \"position\": {\"x\": 0}}）"
+          },
+          "tolerance": {
+            "type": "number",
+            "description": "node_state/perf: 数值容差（默认 0，精确匹配）"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "期望的节点类型（可选）"
+                },
+                "absent": {
+                  "type": "boolean",
+                  "description": "true = 断言节点不存在"
+                }
+              }
+            },
+            "description": "scene_structure: 期望的节点列表"
+          },
+          "text": {
+            "type": "string",
+            "description": "screen_text: 要查找的文本"
+          },
+          "present": {
+            "type": "boolean",
+            "description": "screen_text: true=断言文本存在（默认），false=断言不存在"
+          },
+          "baseline": {
+            "type": "object",
+            "description": "perf: 期望的性能基线（如 {\"fps\": 60}）"
+          },
+          "reference": {
+            "type": "string",
+            "description": "screenshot_diff: 参考截图路径（res:// 或绝对路径）"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "screenshot_diff: 相似度阈值（0-1，默认 0.85）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "project_path",
+        "path",
+        "expect",
+        "tolerance",
+        "nodes",
+        "text",
+        "present",
+        "baseline",
+        "reference",
+        "threshold"
+      ],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "danger-api",
+      "riskDistribution": {
+        "read": 5,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 246,
+        "schemaBytes": 1387,
+        "totalBytes": 1633
       }
     },
     {

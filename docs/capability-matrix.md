@@ -3,18 +3,20 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：36
-- securityLevel：danger-api 8 / guarded 17 / safe 11
-- risk：read 102 / write 80 / destructive 10 / process 13
-- L2 覆盖：covered 0 / partial 0 / none 36
-- token 预算：tools/list ≈ 68047B / ~17012 tokens（description 9718B / schema 58329B，schema 占 86%）
+- 工具总数：38
+- securityLevel：danger-api 10 / guarded 17 / safe 11
+- risk：read 107 / write 80 / destructive 10 / process 13
+- L2 覆盖：covered 0 / partial 0 / none 38
+- token 预算：tools/list ≈ 70883B / ~17721 tokens（description 10567B / schema 60316B，schema 占 85%）
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
 - `godot_get_context` (core)
+- `help` (core)
 - `manage_tools` (core)
 - `project` (core)
 - `runtime` (core)
+- `runtime_assert` (core)
 - `scene` (core)
 - `script` (core)
 - `ui` (ui)
@@ -38,6 +40,7 @@
 - `godot_list_dynamic_routes` (dynamic)
 - `godot_list_instances` (multi_instance)
 - `godot_select_instance` (multi_instance)
+- `help` (core)
 - `load_skill` (code)
 - `manage_tools` (core)
 - `material` (visual)
@@ -47,6 +50,7 @@
 - `profiler` (profiler)
 - `project` (core)
 - `runtime` (core)
+- `runtime_assert` (core)
 - `scene` (core)
 - `screenshot` (visual)
 - `script` (core)

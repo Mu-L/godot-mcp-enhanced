@@ -200,7 +200,7 @@ describe('tool-registry groups and profiles', () => {
       expect(LITE_TOOLS.has('validation')).toBe(true);
     });
 
-    it('MINIMAL_TOOLS should contain only core 7 tools', () => {
+    it('MINIMAL_TOOLS should contain only core 9 tools', () => {
       expect(MINIMAL_TOOLS.has('project')).toBe(true);
       expect(MINIMAL_TOOLS.has('scene')).toBe(true);
       expect(MINIMAL_TOOLS.has('script')).toBe(true);
@@ -208,7 +208,9 @@ describe('tool-registry groups and profiles', () => {
       expect(MINIMAL_TOOLS.has('validation')).toBe(true);
       expect(MINIMAL_TOOLS.has('confirm_and_execute')).toBe(true);
       expect(MINIMAL_TOOLS.has('godot_get_context')).toBe(true);
-      expect(MINIMAL_TOOLS.size).toBe(7);
+      expect(MINIMAL_TOOLS.has('runtime_assert')).toBe(true);
+      expect(MINIMAL_TOOLS.has('help')).toBe(true);
+      expect(MINIMAL_TOOLS.size).toBe(9);
     });
   });
 });
