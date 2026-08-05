@@ -5,8 +5,9 @@
  * Tools for discovering and selecting Godot instances in multi-instance mode.
  * Belongs to the 'multi_instance' group. Only available when GODOT_MCP_MULTI_INSTANCE=true.
  */
+import type { Tool } from "@modelcontextprotocol/server";
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+// src/tools/instance-tools.ts
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, getErrorMessage } from '../types.js';
 import { opsSuccess, opsError } from './shared.js';

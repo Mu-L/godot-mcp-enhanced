@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';

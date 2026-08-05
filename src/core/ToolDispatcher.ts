@@ -2,8 +2,8 @@
 import type { ToolResult, ToolContext, DispatchContext, Middleware, ToolCallDelegate } from '../types.js';
 import type { ChildProcess } from 'child_process';
 import type { ReadOnlyGuard } from './ReadOnlyGuard.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { EditorToolExecutor } from './EditorToolExecutor.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeMiddleware, createRateLimitMiddleware, createElicitationMiddleware } from './middleware.js';
 import { createElicitFn, type ElicitFn } from './elicit.js';
 import { getCallRecorder, extractErrorMessage } from './call-recorder.js';

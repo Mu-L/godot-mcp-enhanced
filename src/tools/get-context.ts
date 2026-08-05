@@ -4,7 +4,9 @@
  * 一次返回模式/项目/连接/场景快照/调用统计/工具组/workflow/rules/performance，
  * 减少 AI 反复 list_nodes/get_scene_tree/manage_tools(sync)/health 摸环境。
  */
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
+
+// src/tools/get-context.ts
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsSuccess } from './shared.js';

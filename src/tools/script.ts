@@ -1,6 +1,6 @@
 import { join, basename, extname } from 'path';
 import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, renameSync, unlinkSync, copyFileSync } from 'fs';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';

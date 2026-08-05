@@ -9,7 +9,7 @@ import { writeSync, closeSync, openSync, mkdirSync, readdirSync, unlinkSync } fr
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from "@modelcontextprotocol/server";
 
 // ---------------------------------------------------------------------------
 // 类型定义

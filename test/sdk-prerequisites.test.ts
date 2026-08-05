@@ -1,7 +1,6 @@
 // test/sdk-prerequisites.test.ts
+import type { Tool } from "@modelcontextprotocol/server";
 import { describe, it, expect } from 'vitest';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 describe('SDK Prerequisites', () => {
   it('supports annotations.tags on Tool definitions', () => {
     const tool: Tool = {
@@ -21,7 +20,7 @@ describe('SDK Prerequisites', () => {
   });
 
   it('Server.notification method exists in type', async () => {
-    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+    const { Server } = await import('@modelcontextprotocol/server');
     const server = new Server(
       { name: 'test', version: '0.0.0' },
       { capabilities: { tools: {} } }
@@ -29,9 +28,15 @@ describe('SDK Prerequisites', () => {
     expect(typeof server.notification).toBe('function');
   });
 
-  it('ListPromptsRequestSchema is importable', async () => {
-    const schemas = await import('@modelcontextprotocol/sdk/types.js');
-    expect(schemas.ListPromptsRequestSchema).toBeDefined();
-    expect(schemas.GetPromptRequestSchema).toBeDefined();
+  it('v2 setRequestHandler accepts method string', async () => {
+    // v2 范式：setRequestHandler 改用方法字符串（如 'prompts/list'），不再需要 Schema 常量
+    // Schema 常量已移到 @modelcontextprotocol/core（仅向后兼容用）
+    const { Server } = await import('@modelcontextprotocol/server');
+    const server = new Server(
+      { name: 'test', version: '0.0.0' },
+      { capabilities: { prompts: {} } }
+    );
+    // 验证方法字符串注册不抛错（v2 范式）
+    expect(() => server.setRequestHandler('prompts/list', async () => ({ prompts: [] }))).not.toThrow();
   });
 });

@@ -1,5 +1,5 @@
 import { existsSync, writeFileSync, readFileSync } from 'fs';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsErrorResult, validateTimeout } from './shared.js';

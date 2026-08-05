@@ -24,6 +24,8 @@ export function parseCsv(text: string): ParseCsvResult {
   return { ok: true, headers };
 }
 
+import type { Tool } from "@modelcontextprotocol/server";
+
 // T3: generateImportScript — 生成 GDScript 脚本,CSV 值通过 FileAccess.get_csv_line 运行时读取
 // (零进脚本字符串 = CRITICAL-1 注入根治)。4 参数(classPath/outputDir/filenameCol/csvTmpPath)
 // 经 gdEscape 转义后插值,防闭串注入。
@@ -230,7 +232,6 @@ export function generateImportScript(o: ImportScriptOpts): string {
 import { writeFileSync, readFileSync, unlinkSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';

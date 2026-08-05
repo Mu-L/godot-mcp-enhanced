@@ -3,10 +3,10 @@
 // Middleware pipeline executor and connection-check middleware factory.
 
 import { getLogger } from './logger.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import { errorResult } from '../types.js';
 import type { DispatchContext, Middleware, MiddlewareResult, ToolResult } from '../types.js';
 import { isFeatureEnabled } from './feature-flags.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { RequestedSchema } from './elicit.js';
 
 // ─── Pipeline Executor ────────────────────────────────────────────────────────

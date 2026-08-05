@@ -1,11 +1,12 @@
 // test/core/ToolDispatcher.telemetry.test.ts
 // 验证 ToolDispatcher.buildMiddleware 接入的 telemetry after-hook：
 // 每次工具调用后调 record({tool,success,duration_ms,error_category?,project_hash?})。
+import type { Tool } from "@modelcontextprotocol/server";
+
 // buildMiddleware 为 private，经 handleCall 全链路触发，断言 record mock 调用契约。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { DispatcherOptions } from '../../src/core/ToolDispatcher.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../../src/types.js';
 
 // ─── Hoisted Mocks ──────────────────────────────────────────────────────────

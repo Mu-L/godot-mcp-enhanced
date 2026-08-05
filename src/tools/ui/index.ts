@@ -1,6 +1,6 @@
-// UI tool entry point: definitions, handler, and meta.
+import type { Tool } from "@modelcontextprotocol/server";
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+// UI tool entry point: definitions, handler, and meta.
 import type { ToolContext, ToolResult } from '../../types.js';
 import type { RiskLevel } from '../../core/tool-registry.js';
 import { getErrorMessage } from '../../types.js';

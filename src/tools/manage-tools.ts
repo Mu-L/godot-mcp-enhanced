@@ -1,9 +1,9 @@
+import type { Tool } from "@modelcontextprotocol/server";
+
 // src/tools/manage-tools.ts — manage_tools meta-tool (Task 4)
 //
 // Always-available tool for dynamically managing tool group activation.
 // Belongs to the protected 'core' group and cannot be deactivated.
-
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';

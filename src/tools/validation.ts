@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
 import { promisify } from 'util';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsErrorResult, validateTimeout } from './shared.js';

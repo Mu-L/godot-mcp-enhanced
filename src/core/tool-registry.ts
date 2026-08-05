@@ -1,6 +1,6 @@
-// src/core/tool-registry.ts
+import type { Tool, Server } from "@modelcontextprotocol/server";
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+// src/core/tool-registry.ts
 import type { ToolResult, ToolContext } from '../types.js';
 import { getLogger } from './logger.js';
 
@@ -350,9 +350,6 @@ export function tryLegacyMapping(toolName: string): { tool: string; action: stri
 }
 
 // ─── listChanged notification ────────────────────────────────────────────────
-
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-
 let mcpServer: Server | null = null;
 
 /** 注入 MCP Server 实例（GodotServer 启动时调用一次）。 */

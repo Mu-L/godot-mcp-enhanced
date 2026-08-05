@@ -7,7 +7,7 @@ import type { ProgressEmitter } from '../../src/core/progress.js';
 import type { ReadOnlyGuard } from '../../src/core/ReadOnlyGuard.js';
 import type { EditorToolExecutor } from '../../src/core/EditorToolExecutor.js';
 import type { ToolResult } from '../../src/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import { resolveProjectPath as _mockResolveProjectPath } from '../../src/core/path-utils.js';
 
 // ─── Hoisted Mocks (vi.hoisted ensures these are available inside vi.mock factories) ──

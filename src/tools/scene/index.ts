@@ -1,8 +1,8 @@
 // Scene tool entry point: definitions, handler, and meta.
 
 import { join, dirname } from 'path';
+import type { Tool } from "@modelcontextprotocol/server";
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult, errorResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, parseMcpScriptOutput } from '../../helpers.js';

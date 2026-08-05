@@ -1,5 +1,6 @@
+import type { PromptMessage } from "@modelcontextprotocol/server";
+
 // src/prompts.ts — MCP Prompt templates for guided workflows
-import type { PromptMessage } from '@modelcontextprotocol/sdk/types.js';
 import { scanFiles } from './core/file-scanner.js';
 import { relative } from 'node:path';
 

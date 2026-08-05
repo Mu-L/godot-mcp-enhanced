@@ -11,7 +11,7 @@
  *
  * 失败安全：client 不支持 / decline / cancel / throw → 返回 null（middleware fallback MISSING_PARAM）。
  */
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from "@modelcontextprotocol/server";
 
 export interface RequestedSchema {
   type: 'object';

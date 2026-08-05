@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'child_process';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from "@modelcontextprotocol/server";
 
 // ─── Shared type definitions for tool handlers ─────────────────────────────
 

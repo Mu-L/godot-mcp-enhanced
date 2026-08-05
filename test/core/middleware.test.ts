@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ToolResult, MiddlewareResult, DispatchContext, Middleware } from '../../src/types.js';
 import { executeMiddleware, createConnectionCheckMiddleware, createElicitationMiddleware } from '../../src/core/middleware.js';
 import { textResult, errorResult } from '../../src/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/server";
 import type { RequestedSchema } from '../../src/core/elicit.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

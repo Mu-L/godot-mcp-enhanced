@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ─── Mock MCP SDK (must be before GodotServer import) ────────────────────────
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+
 const mockSetRequestHandler = vi.fn();
 const mockSetNotificationHandler = vi.fn();
 const mockServerClose = vi.fn().mockResolvedValue(undefined);
 const mockServerConnect = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+vi.mock('@modelcontextprotocol/server', () => ({
   Server: vi.fn().mockImplementation(function (_, options) {
     this._instructions = options?.instructions;
     this.setRequestHandler = mockSetRequestHandler;
@@ -16,11 +18,11 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/server/stdio', () => ({
   StdioServerTransport: vi.fn().mockImplementation(function() { return {}; }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
+vi.mock('@modelcontextprotocol/core', () => ({
   CallToolRequestSchema: 'CallToolRequestSchema',
   ListToolsRequestSchema: 'ListToolsRequestSchema',
   ListResourcesRequestSchema: 'ListResourcesRequestSchema',
@@ -84,7 +86,6 @@ vi.mock('../src/core/process-state.js', () => ({
 
 // ─── Import SUT (after mocks) ────────────────────────────────────────────────
 import { GodotServer, clearGodotPathCache, getCachedGodotPath } from '../src/GodotServer.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { EditorConnection } from '../src/core/EditorConnection.js';
 import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';
 
@@ -285,7 +286,7 @@ describe('GodotServer', () => {
 
     // Helper: get tool names from the ListTools handler
     async function getToolNamesFromHandler(handlers) {
-      const listToolsHandler = handlers.get('ListToolsRequestSchema');
+      const listToolsHandler = handlers.get('tools/list');
       expect(listToolsHandler).toBeTruthy();
       const result = await listToolsHandler();
       return result.tools.map(t => t.name);
