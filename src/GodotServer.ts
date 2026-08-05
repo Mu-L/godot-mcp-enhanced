@@ -109,8 +109,29 @@ export class GodotServer {
     this.server = new Server(
       { name: 'godot-mcp-enhanced', version: pkgVersion },
       {
-        capabilities: { tools: {}, resources: {}, prompts: {}, completions: {} },
+        // P1-4: 补全 listChanged 声明。enhanced 实际会发 notifications/tools/list_changed
+        // (manage_tools activate/deactivate 触发),但此前 capabilities 未声明 → 客户端可能
+        // 忽略通知。声明后客户端才会订阅,配合 ttlMs 让缓存能在切组时立即失效。
+        capabilities: {
+          tools: { listChanged: true },
+          resources: { listChanged: true },
+          prompts: { listChanged: true },
+          completions: {},
+        },
         instructions: readInstructions(),
+        // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。
+        // SDK v2 在 2026-era 请求的响应里自动填充这两个字段;2025-era 请求不受影响。
+        // 策略依据:工具/prompts/模板清单启动后基本静态(仅 manage_tools 主动切组时变,
+        // 已配 listChanged 通知立即失效缓存);resources 依赖 project_path 且文件可变,短 TTL + private。
+        // 缺省(不配)时 SDK 用保守默认 ttlMs:0/cacheScope:'private'(等于不缓存)。
+        cacheHints: {
+          'tools/list': { ttlMs: 300_000, cacheScope: 'public' },         // 5min,工具清单所有用户相同
+          'prompts/list': { ttlMs: 600_000, cacheScope: 'public' },        // 10min,prompts 启动后静态
+          'resources/list': { ttlMs: 60_000, cacheScope: 'private' },      // 1min,依赖 project_path(用户特定)
+          'resources/templates/list': { ttlMs: 600_000, cacheScope: 'public' }, // 10min,模板静态
+          'resources/read': { ttlMs: 30_000, cacheScope: 'private' },      // 30s,读取特定资源,短 TTL
+          'server/discover': { ttlMs: 300_000, cacheScope: 'public' },     // 5min,服务器能力静态
+        },
       }
     );
     setMcpServer(this.server);
