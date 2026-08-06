@@ -1,5 +1,7 @@
 import { join, basename, extname } from 'path';
 import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, renameSync, unlinkSync, copyFileSync } from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
@@ -10,6 +12,8 @@ import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { getTemplateSuggestion } from './code-templates.js';
 import { gdEscape, opsErrorResult } from './shared.js';
+
+const execFileAsync = promisify(execFile);
 import { validateTimeout } from './shared.js';
 import { getLogger } from '../core/logger.js';
 import type { RiskLevel } from '../core/tool-registry.js';
@@ -106,6 +110,52 @@ async function validateAndRevert(
     return `⚠️ Validation skipped (Godot unavailable): ${(e as Error).message}\nEdit was applied but not validated.`;
   }
   return null;
+}
+
+/**
+ * C# edit_script 验证回滚：调 dotnet build,失败则回滚。
+ * 与 validateAndRevert(GDScript)平行,但错误处理更粗粒度(不做行号解析,
+ * dotnet 输出格式解析是老规划阶段二的 L 工作量)。
+ *
+ * 优雅降级:无 .csproj / dotnet CLI 不可用时返回 skipNote(不阻断编辑)。
+ */
+async function csharpValidateAndRevert(
+  fullPath: string,
+  rawFile: string,
+  projectPath: string
+): Promise<string | null> {
+  // 检测 .csproj 存在(复用 validation.ts:908 的逻辑)
+  const csprojExists = existsSync(join(projectPath, '*.csproj')) ||
+    readdirSync(projectPath).some(f => f.endsWith('.csproj'));
+  if (!csprojExists) {
+    return null; // 无 .csproj,无法验证,不阻断(调用方显示 skipNote)
+  }
+  try {
+    await execFileAsync('dotnet', ['build', '--no-restore'], {
+      cwd: projectPath,
+      timeout: 30000,
+      encoding: 'utf-8',
+    });
+    return null; // build 成功
+  } catch (e: unknown) {
+    const err = e as Record<string, unknown>;
+    // dotnet CLI 不在 PATH → 无法验证,不阻断
+    if (err.code === 'ENOENT') {
+      return null;
+    }
+    // build 失败 → 回滚
+    try {
+      writeFileSync(fullPath, rawFile, 'utf-8');
+    } catch (rollbackErr) {
+      return `⚠️ CRITICAL: C# build error detected AND rollback failed!\n` +
+        `Rollback error: ${rollbackErr}\nFile may be in a corrupted state: ${fullPath}`;
+    }
+    const output = (err.stdout as string) || (err.message as string) || 'dotnet build failed';
+    // 截取关键错误行(MSBuild error/warning 行),保留前 1500 字符
+    const errorSection = output.split('\n').filter(l => /error|Error|FAILED/.test(l)).join('\n');
+    const trimmed = (errorSection || output).substring(0, 1500);
+    return `⚠️ Edit REVERTED due to C# build error:\n  ${trimmed.split('\n').join('\n  ')}\n\nOriginal file restored. Please fix the edit content and retry.`;
+  }
 }
 
 const ACTIONS = [
@@ -351,6 +401,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         let csClassName = '';
         let csNamespace = '';
         let csBaseClass = '';
+        const csUsings: string[] = [];
         for (const line of lines) {
           const nsMatch = line.match(/^\s*namespace\s+(\S+)/);
           if (nsMatch) csNamespace = nsMatch[1]!;
@@ -358,6 +409,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (clsMatch && !csClassName) csClassName = clsMatch[1]!;
           const baseMatch = line.match(/^\s*(?:public\s+)?(?:partial\s+)?class\s+[A-Za-z_]\w*\s*:\s*([A-Za-z_]\w*)/);
           if (baseMatch) csBaseClass = baseMatch[1]!;
+          const usingMatch = line.match(/^\s*using\s+([^;]+);/);
+          if (usingMatch && csUsings.length < 50) csUsings.push(usingMatch[1]!.trim());
         }
         return textResult(JSON.stringify({
           path: sp,
@@ -365,6 +418,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           namespace: csNamespace,
           class_name: csClassName,
           extends: csBaseClass,
+          usings: csUsings,
           lines: lines.length,
           content,
         }, null, 2));
@@ -454,6 +508,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const autoValidate = args.auto_validate !== false;
 
       let godotPath: string | null = null;
+      const isCsharp = fullPath.endsWith('.cs');
       if (autoValidate && fullPath.endsWith('.gd')) {
         try {
           godotPath = await ctx.findGodot();
@@ -501,6 +556,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             const revertMsg = await validateAndRevert(fullPath, rawFile, godotPath, projectPath);
             if (revertMsg) return textResult(revertMsg);
           }
+          if (isCsharp && autoValidate) {
+            const revertMsg = await csharpValidateAndRevert(fullPath, rawFile, projectPath);
+            if (revertMsg) return textResult(revertMsg);
+          }
 
           const count = normalizedContent.split(normalizedSearch).length - 1;
 
@@ -543,6 +602,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
         if (godotPath) {
           const revertMsg = await validateAndRevert(fullPath, rawFile, godotPath, projectPath);
+          if (revertMsg) return textResult(revertMsg);
+        }
+        if (isCsharp && autoValidate) {
+          const revertMsg = await csharpValidateAndRevert(fullPath, rawFile, projectPath);
           if (revertMsg) return textResult(revertMsg);
         }
 
@@ -671,6 +734,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const revertMsg = await validateAndRevert(fullPath, rawFile, godotPath, projectPath, ctxInfo);
         if (revertMsg) return textResult(revertMsg);
       }
+      if (isCsharp && autoValidate) {
+        const revertMsg = await csharpValidateAndRevert(fullPath, rawFile, projectPath);
+        if (revertMsg) return textResult(revertMsg);
+      }
 
       const afterLines = adjustedLines;
       const diffHeader = `Edited ${fullPath}: replaced lines ${startLine}-${endLine} (${beforeLines.length} lines → ${afterLines.length} lines)`;
@@ -683,8 +750,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const ctxAfter = contextAfter.length > 0 ? `\n--- Context (after) ---\n${contextAfter.join('\n')}` : '';
 
       const warnings = formatDuplicateWarnings(detectDuplicateLines(lines));
-      const skipNote = (autoValidate && !fullPath.endsWith('.gd'))
-        ? "\nNote: Auto-validate only supports .gd files. Other file types are not validated."
+      const skipNote = (autoValidate && !fullPath.endsWith('.gd') && !fullPath.endsWith('.cs'))
+        ? "\nNote: Auto-validate only supports .gd (Godot parse) and .cs (dotnet build) files. Other file types are not validated."
         : "";
 
       let editLintSection = '';
@@ -861,7 +928,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const p = requireProjectPath(args);
       const search = args.search as string;
       const replace = (args.replace as string) ?? '';
-      const ALLOWED_EXTENSIONS = new Set(['.gd', '.tscn', '.tres', '.gdshader', '.cfg', '.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.toml', '.csv']);
+      const ALLOWED_EXTENSIONS = new Set(['.gd', '.cs', '.tscn', '.tres', '.gdshader', '.cfg', '.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.toml', '.csv']);
       const HARDCODED_EXCLUDE = new Set(['.git', 'node_modules']);
       const rawExtensions: string[] = (args.extensions as string[]) || ['.gd'];
       const extensions = rawExtensions.filter(ext => ALLOWED_EXTENSIONS.has(ext));

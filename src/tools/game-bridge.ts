@@ -73,6 +73,12 @@ let _socketAuthenticated = false;
 let _socketBuffer = '';
 let _connectionLock: Promise<Socket> | null = null;
 
+// P3-6: push 模式。常驻 data handler 收到 bridge/event 消息时调此回调。
+// 由 GodotServer 注册(转发为 MCP notification)。null 时 push 消息被忽略。
+let _pushMessageHandler: ((params: Record<string, unknown>) => void) | null = null;
+// 常驻 push handler 的缓冲区(独立于 sendToBridge 的临时 buffer,避免互相消费)
+let _pushBuffer = '';
+
 // Request serialization: ensures only one sendToBridge uses the socket at a time.
 // Without this, concurrent calls register overlapping 'data' handlers on the shared
 // socket, causing each handler to see partial/mixed response data.
@@ -140,6 +146,17 @@ function _invalidateSocket(): void {
   }
   _socketAuthenticated = false;
   _socketBuffer = '';
+  _pushBuffer = '';  // P3-6: 清理 push buffer
+}
+
+/**
+ * P3-6: 注册 push 消息回调。Bridge addon 在 watch/monitor push 模式下,
+ * 事件产生时主动推送 {method:"bridge/event", params:{type, data}} 消息。
+ * 此回调由 GodotServer 注册,将 push 事件转发为 MCP notification。
+ * 传 null 注销回调。
+ */
+export function registerBridgePushHandler(handler: ((params: Record<string, unknown>) => void) | null): void {
+  _pushMessageHandler = handler;
 }
 
 /** Perform the actual TCP connection and auth handshake. */
@@ -189,6 +206,29 @@ async function _doConnect(timeout: number): Promise<Socket> {
             sock.removeAllListeners('data');
             sock.removeAllListeners('error');
             sock.removeAllListeners('close');
+            // P3-6: 注册常驻 push data handler(与 sendToBridge 临时 handler 共存)。
+            // 只处理 method 字段存在的 push 消息(bridge/event);有 id 的响应由 sendToBridge
+            // 的临时 handler 处理(两者各自维护独立 buffer,EventEmitter 广播不互相消费)。
+            _pushBuffer = '';
+            sock.on('data', (data: Buffer) => {
+              if (_socket !== sock) return;  // P1-8 守卫
+              _pushBuffer += data.toString();
+              let idx: number;
+              while ((idx = _pushBuffer.indexOf('\n')) !== -1) {
+                const line = _pushBuffer.substring(0, idx).trim();
+                _pushBuffer = _pushBuffer.substring(idx + 1);
+                if (!line) continue;
+                try {
+                  const msg = JSON.parse(line) as { method?: string; params?: Record<string, unknown>; id?: number };
+                  // 只处理 push 消息(有 method 无 id);响应消息(id 存在)交给 sendToBridge
+                  if (msg.method && msg.id === undefined && _pushMessageHandler) {
+                    _pushMessageHandler(msg.params ?? {});
+                  }
+                } catch {
+                  // 非 JSON 或部分数据,忽略(sendToBridge 的临时 handler 会处理响应行)
+                }
+              }
+            });
             // Register persistent monitors so a dead/lost connection is detected automatically
             // P1-8: 守卫 _socket === sock — 防止已废弃 socket 的延迟 close/error 事件错误 invalidate
             // 新 socket(A 被 B 替换后,A.destroy() 的 close 异步触发,此时 _socket 已是 B,无守卫会 destroy B)。
@@ -294,7 +334,10 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
           if (!line) continue;
           try {
             const resp = JSON.parse(line) as BridgeResponse;
-            if (resp.id != null && resp.id !== id) continue;
+            // P3-6 修复: push 消息(method 存在、id 为空)不是响应,跳过(由常驻 push handler 处理)。
+            // 原逻辑 resp.id != null 在 push(无 id)时为 false → 不 continue → 误把 push 当响应 resolve。
+            // 修正:响应必须有 id 且匹配当前 request id;无 id 的消息(push/通知)一律跳过。
+            if (resp.id == null || resp.id !== id) continue;
             sock.removeListener('data', onData);
             // N-1 (2026-06-24 审查): 成功 resolve 后移除本次 once 监听器。持久 _socket 上 error/close
             // 健康时永不触发,once 不移除 → 每请求泄漏 2 listener → 长连接累积至 MaxListenersExceededWarning。
@@ -398,6 +441,7 @@ export function getToolDefinitions(): Tool[] {
           interval_frames: { type: 'number', description: 'monitor_start: 采样间隔帧数（默认 10，最小 1，最大 300）' },
           signal_name: { type: 'string', description: 'watch_start: 要监听的信号名（如 "pressed"、"health_changed"）' },
           max_events: { type: 'number', description: 'watch_start: 最大记录事件数（默认 1000，最大 5000）' },
+          push: { type: 'boolean', description: 'P3-6 watch_start/monitor_start: 启用 push 模式（事件/采样产生时主动推送 MCP notification，无需 poll）。client 需订阅 resources/subscribe 才能收到' },
           pattern: { type: 'string', description: 'find_ui_elements: 名称/文字匹配模式（Godot match 语法）' },
           type: { type: 'string', description: 'find_ui_elements: 按类型过滤（如 "Button"、"Label"）' },
           visible_only: { type: 'boolean', description: 'find_ui_elements: 仅返回可见元素（默认 true）' },
@@ -787,6 +831,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           node_path: args.node_path as string,
           properties: args.properties as string[],
           interval_frames: (args.interval_frames as number) ?? 10,
+          push: args.push === true,  // P3-6: 传递 push 模式标志到 addon
         }, ctx, clampTimeoutMs(args.timeout));
       }
       case 'monitor_stop':
@@ -804,6 +849,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           node_path: args.node_path as string,
           signal_name: args.signal_name as string,
           max_events: (args.max_events as number) ?? 1000,
+          push: args.push === true,  // P3-6: 传递 push 模式标志到 addon
         }, ctx, clampTimeoutMs(args.timeout));
       }
       case 'watch_stop':

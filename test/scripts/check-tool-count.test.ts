@@ -20,7 +20,7 @@ function writeAllFiles(root: string, n: number = TC, a: number = AC) {
   writeFileSync(join(root, 'README.en.md'),
     `: ${n} MCP tools (merged\n| Tools | **${n}** |\n## Tools (${n})\n> **${n} MCP tools**`);
   mkdirSync(join(root, 'docs', 'distribution'), { recursive: true });
-  writeFileSync(join(root, 'docs', 'distribution', 'server.json'), `"— ${n} tools"`);
+  writeFileSync(join(root, 'server.json'), `{"description": "test — ${n} tools"}`);
   writeFileSync(join(root, 'docs', 'distribution', 'README.md'),
     `with ${n} merged tools\n,${n} 个工具覆盖\nengine. ${n} tools (`);
   writeFileSync(join(root, 'docs', 'migration-from-coding-solo.md'),

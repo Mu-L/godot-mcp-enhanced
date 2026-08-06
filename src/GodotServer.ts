@@ -11,6 +11,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 import { join } from 'path';
 import { readInstructions } from './core/instructions.js';
 import { waitForEditorSecret } from './core/editor-auth.js';
+import { registerBridgePushHandler } from './tools/game-bridge.js';
 import {
   listResources as listMcpResources,
   listResourceTemplates as listMcpResourceTemplates,
@@ -251,6 +252,24 @@ export class GodotServer {
         argument as { name: string; value: string },
         resolveProjectPath(),
       );
+    });
+
+    // P3-6: Subscriptions/listen — bridge 事件主动推送
+    // resources/subscribe: 客户端订阅(SDK 返回 EmptyResult,实际推送由 notification 完成)
+    // bridge/event push:addon 侧 watch/monitor push 模式产生的事件 → 转发为 MCP notification
+    this.server.setRequestHandler('resources/subscribe', async () => ({}));
+    this.server.setRequestHandler('resources/unsubscribe', async () => ({}));
+    registerBridgePushHandler((params) => {
+      // bridge push 消息 → MCP notification(notifications/resources/updated 携带事件数据)
+      // 客户端订阅 bridge://events 后,事件到达即推送(无需轮询 watch_poll/monitor_poll)
+      try {
+        this.server.notification({
+          method: 'notifications/resources/updated',
+          params: { uri: 'bridge://events', ...params },
+        });
+      } catch {
+        // notification 发送可能因 client 未订阅/断连而抛 SdkError,吞掉不中断
+      }
     });
 
     // Phase 2b: Multi-instance initialization moved to initMultiInstance() (async fs)

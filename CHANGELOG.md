@@ -6,39 +6,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added — MCP 生态调研升级方案 P2 全 6 项（2026-08-06，分支 `feat/p2-wave1`）
+（无）
 
-基于 `docs/plans/2026-08-05-mcp-ecosystem-research-and-upgrade-plan.md` 第三部分。核查发现 6 项里 2 项已实质落地、1 项建议跳，实际实现 3 项 + 关闭 2 项 + 调整 1 项。commits: `9d7ab76`(Wave1) + `ff45af5`(Wave2) + 审查修复。
+## [0.25.7] - 2026-08-06
 
-- **P2-1 overrides 注入 autoload**：`game_bridge` 工具新增 `install_override`/`uninstall_override` action，启动游戏前注入任意调试脚本（日志钩子/状态快照）到项目 `[autoload]` 段，key 用 `MCPOVERRIDE_` 前缀。新建 `src/core/overrides.ts`（参数化 game-bridge 的 project.godot 改写逻辑）。源/目标路径过 `isPathInAllowedRoots`。`--overrides=` CLI flag / `GODOT_MCP_OVERRIDES` env 声明默认脚本（close 时批量卸载；⚠️ CLI flag 本身不 install，须 agent 调 action）。
-- **P2-4 确定性 playtest 四原语**：`game_playtest` action 新增 5 方法 — `playtest.seed`（锁全局 RNG）、`playtest.fixed_delta`（锁 physics 步长 `physics_ticks_per_second` + `max_physics_steps_per_frame=1` + `physics_jitter_fix=0`，不碰 `time_scale`）、`playtest.step`（单步推进 N 帧，走哨兵+pending 队列延迟响应）、`playtest.snapshot`/`playtest.restore`（结构+属性快照，5 个 accept 限制：不保信号拓扑/Resource 用 resource_path/不复活 free 节点/不保物理流/monitor 不在范围）。
-- **P2-5 SEP-2133 extensions 声明**：`GodotServer` capabilities 加 `extensions['io.godot-mcp/runtime-bridge']`（description/version/capabilities），让 modern-era 客户端发现 enhanced 的 runtime-bridge + 确定性 playtest 能力。era-gated（2026-07-28 引入，legacy SDK strip 无害）。
-- **P2-6 recipe 验证闭环**：`ui_draw_recipe` 绘制后 `await process_frame` 读回 `draw_result`（draw_signal_connected + node_valid），非 fire-and-forget。
+### Added — P3 选做三批（分支 `feat/p3-selection`）
 
-### Changed — P2 收尾与审查修复
+基于 `docs/plans/2026-08-06-p3-review-and-selection-plan.md`（3 路并行 Explore 核查）。commits: `9d73e72`(P3-1/P3-2) + `021fb6a`(P3-7) + `4a1031a`(P3-6) + `90f065e`(审查修复)。
 
-- **P2-2 validate_scripts autoload**（关闭+纠偏）：核查发现 plan 措辞错误 —— autoload 感知早在 `validate_scripts`（`validation.ts:200-202` `extends SceneTree` + `_initialize` + `load`）落地，`validate_gdd` 实为纯 markdown 校验。补回归测试 + plan 纠偏块。
-- **P2-3 nodeType RCE 审计收尾**：`scene-commit` node_add 从黑名单（9 项敏感类）收紧为白名单（`ALLOWED_COMMIT_NODE_TYPES` 58 类镜像 GD `ALLOWED_HEADLESS_TYPES`），堵第三方 addon 注册的 extends Node 恶意 class_name RCE。
+- **P3-1/P3-2 版本同步收口**：`version-sync.mjs` 的 `TARGET_FILES` 加 `server.json`/`Dockerfile`，根治分发产物版本漂移（根 server.json 0.25.0、Dockerfile 0.24.0 vs package.json 0.25.7）。A 类 5 文件同步到 0.25.7。删除 `docs/distribution/server.json`（0.20.0 旧副本），根 server.json 为唯一真相源；`check-tool-count.mjs` 改读根。审查 SHIPPED WITH NITS（`docs/reviews/2026-08-06-p3-three-batches.md`）。
+- **P3-7 C# 阶段一收尾**：`project_replace` 白名单加 `.cs`（原反向禁止）；`read_script` C# 分支补 `using` 列表提取；`edit_script` 验证回滚新增 `csharpValidateAndRevert`（调 `dotnet build --no-restore`，失败回滚；无 .csproj/dotnet 不可用时优雅降级）。generate_test/NUnit 延后。
+- **P3-6 subscriptions/listen**：bridge 事件主动推送（server→client notification），三层改造 — addon GDScript `_push_event_to_peer`（watch/monitor `push:true` 模式）+ TS bridge 常驻 data handler（与 sendToBridge 临时 handler 共存）+ GodotServer `registerBridgePushHandler` → `notifications/resources/updated`。opt-in（默认 false，watch_poll/monitor_poll 保留向后兼容）。
+
+### Fixed — P3-6 审查 BLOCKING（commit `90f065e`）
+
+- **sendToBridge 误把 push 消息当响应 resolve**：`sendToBridge` L337 原 `resp.id != null && resp.id !== id` 在收到无 id 的 push 消息时不 continue，误 resolve 正在等待的 request。改为 `resp.id == null || resp.id !== id`（无 id 一律跳过）。76 个 bridge 测试验证无回归。
+
+### Fixed — P2 第三方审查 B-1/I-1/I-2/I-3 + N1/N2/N4（commit `3b57b8b` + `d6fdbf7`）
+
 - **审查 B-1 修复（critical security）**：`mcp_bridge.gd` 的 `BLOCKED_PROPERTIES` 新抄第 4 副本漏 `"instance"`，重开 I-2 ExtResource 注入 RCE。已补 instance + 扩 `defects.ts` detect 扫描范围到 `src/scripts/*.gd`。
 - **审查 I-2 修复**：`playtest.step` 的 `frames=1` 在同一 `_process` tick 完成（physics 未推进），加 `_added_this_frame` 标记让加入帧不递减。
 - **审查 I-3 修复**：`check:gdscript` 扩编译范围到 `src/scripts/`（原只编译 `addons/`，漏 `mcp_bridge.gd`）；补 GD 侧契约测试（B-1 类 BLOCKED_PROPERTIES 漂移守护）。
+
+## [0.25.6] - 2026-08-06
+
+### Added — P2 Wave2（commit `ff45af5`）
+
+- **P2-4 确定性 playtest 四原语**：`game_playtest` action 新增 5 方法 — `playtest.seed`（锁全局 RNG）、`playtest.fixed_delta`（锁 physics 步长 `physics_ticks_per_second` + `max_physics_steps_per_frame=1` + `physics_jitter_fix=0`，不碰 `time_scale`）、`playtest.step`（单步推进 N 帧，走哨兵+pending 队列延迟响应）、`playtest.snapshot`/`playtest.restore`（结构+属性快照，5 个 accept 限制：不保信号拓扑/Resource 用 resource_path/不复活 free 节点/不保物理流/monitor 不在范围）。
+- **P2-5 SEP-2133 extensions 声明**：`GodotServer` capabilities 加 `extensions['io.godot-mcp/runtime-bridge']`（description/version/capabilities），让 modern-era 客户端发现 enhanced 的 runtime-bridge + 确定性 playtest 能力。era-gated（2026-07-28 引入，legacy SDK strip 无害）。
+
+## [0.25.5] - 2026-08-06
+
+### Added — P2 Wave1（commit `9d7ab76`）
+
+- **P2-1 overrides 注入 autoload**：`game_bridge` 工具新增 `install_override`/`uninstall_override` action，启动游戏前注入任意调试脚本（日志钩子/状态快照）到项目 `[autoload]` 段，key 用 `MCPOVERRIDE_` 前缀。新建 `src/core/overrides.ts`。源/目标路径过 `isPathInAllowedRoots`。`--overrides=` CLI flag / `GODOT_MCP_OVERRIDES` env 声明默认脚本（close 时批量卸载；⚠️ CLI flag 本身不 install，须 agent 调 action）。
+- **P2-6 recipe 验证闭环**：`ui_draw_recipe` 绘制后 `await process_frame` 读回 `draw_result`（draw_signal_connected + node_valid），非 fire-and-forget。
+
+### Changed — P2 收尾
+
+- **P2-2 validate_scripts autoload**（关闭+纠偏）：核查发现 plan 措辞错误 —— autoload 感知早在 `validate_scripts`（`validation.ts:200-202` `extends SceneTree` + `_initialize` + `load`）落地，`validate_gdd` 实为纯 markdown 校验。补回归测试 + plan 纠偏块。
+- **P2-3 nodeType RCE 审计收尾**：`scene-commit` node_add 从黑名单（9 项敏感类）收紧为白名单（`ALLOWED_COMMIT_NODE_TYPES` 58 类镜像 GD `ALLOWED_HEADLESS_TYPES`），堵第三方 addon 注册的 extends Node 恶意 class_name RCE。
+
+## [0.25.4] - 2026-08-05
+
+### Added — MCP 生态调研升级方案 P0（6/6）+ P1（7/7）
+
+基于 `docs/plans/2026-08-05-mcp-ecosystem-research-and-upgrade-plan.md`。P0 协议层关键路径 + P1 协议适配。commits: `5887f2f`~`857f69d`(P0-1/P0-2) + `09b212d`(P0-4) + `d964c7c`(P0-3) + `7315325`(P0-5/P0-6) + `81f7c12`~`8b7e78d`(P1 全 7 项)。
+
+- **P0-1 SDK v2 升级**：`@modelcontextprotocol/sdk` 1.29 → `@modelcontextprotocol/server` 2.0（包名拆分 / `setRequestHandler` method 字符串化 / Node 20+ / zod v4）。用 `serveStdio` 默认双时代行为，2025-era 客户端零破坏。
+- **P0-2 MRTR 改造**：`confirm_and_execute` 改用 `inputRequired` 双时代模式（2026-era 返 `inputRequired` result，2025-era 走 `elicitInput`）。
+- **P0-3 action 级 capability gate**：默认 gate RCE action（execute_gdscript/execute_bpy/blender），`manage_tools` activate/deactivate 动态开关。
+- **P0-4 UndoRedoManager 补全测试**：reference op + asset_placer undo 回归测试。
+- **P0-5 runtime_assert 工具**：agent 任意时刻验证节点状态/场景结构/屏幕文本/性能/截图对比，不必走 workflow。
+- **P0-6 help 工具**：工具表分层压缩 + help 按需展开，省 4000-8000 tokens。
+- **P1-1/P1-2 idempotentHint + annotations 进 matrix**：idempotentHint 派生规则改进 + annotations 进 capability-matrix。
+- **P1-3 SEP-2575 opt-in modern era**：双时代支持（2026-07-28 modern era opt-in）。
+- **P1-4 SEP-2549 cacheHints**：cacheHints 配置 + listChanged capabilities 补全。
+- **P1-5 视觉成本层级**：`detail=full/thumbnail/ascii`（screenshot 工具 token 成本分层）。
+- **P1-6 契约检查独立 CI job**：`check-contract.mjs`，6 项核心校验。
+- **P1-7 SEP-2577 per-request logLevel**：logging 合规化（修 2 个 pre-existing bug）。
 
 ### Changed — 测试覆盖加固批次（P2-8..P2-12 + P1-2/P1-3/P1-4 + N-1，审查 SHIPPED WITH NITS）
 
 纯测试加固，无用户可见行为变化。对应 2026-07-10 测试覆盖审计遗留项 + coverage batch 审查 nit 闭环。
 
-- **P2-8 health-monitor 状态恢复断言 + P1-2 WS 断连批量 reject 故障注入**（`20b20c8`）：health-monitor ping 成功后补 `getState()==='connected'` 断言（原只断言 pingFn 调用次数漏状态恢复）；editor-connection 补 3 并发 request + server close 全 reject 带 `CONNECTION_LOST` 故障注入（原 close handler 批量 reject 逻辑零故障注入）。
-- **P2-9 resetReconnectState 直接单测**（`196485e`）：补 EditorConnection.resetReconnectState 4 行为分支覆盖（attempt→0 / enabled 重置含 reconnect:false 不变量 / timer 清理 / 无 timer 边界）。
-- **P2-10 场景树并发竞争真测试**（`641738d`）：注入 50ms 延时版 spawnGodot，3 并发 edit_node 占满 shortRunning slot（同步 acquire），断言 `getShortRunningCount()===3` 落在延时窗内（非 flaky，能真观察并发）。
-- **P1-4 scene 操作状态反查断言**（`d7f5347`）：add_node 无 properties 路径走 writeFileSync 真落盘后用 read_scene 反查真 `.tscn`，诚实标注 edit_node/remove_node 走 spawnGodot 不写文件的 mock 鸿沟。
-- **P1-3 统一 executeGdscript happy/失败 mock 工厂**（`1010860` + `125239d`）：阶段 A 抽 mock-results.js mockSuccessResult/mockFailureResult 统一 happy mock；阶段 B 补 particles 失败分支（compile/run/sandbox/binary 四 kind 经 parseGdscriptResult 真路径，非 mock 自证）。
-- **P2-11 ui schema 瘦身消除 check-token-budget WARN**（`bbca356`）：超阈值工具把低频 action 专属参数（theme 系列/tree/ops 共 13 个）从 properties 移到 description 提示，参数仍可经 additionalProperties 传入。ui inputSchema 8921B→3560B，check-token-budget 零 WARN。不改运行时 handler 行为。
-- **N-1 修复 build-matrix TOP5 渲染乱码**（`2985d1b`）：`src/capability/build-matrix.ts` `...top5Lines`（top5Lines 是 join 后字符串，spread 按字符迭代）导致 `docs/capability-matrix.md` TOP5 段每行单字符。去掉 `.join('\n')` 让 spread 作用于数组。预存 bug，P2-11 重跑 build-matrix 时再生产。
-- **P2-12 slimSchema 直接单测**（`f31c95a`，补 coverage-batch 审查 N-2 缺口）：新建 `test/core/module-loader-slim.test.ts`（6 用例），经 registry 查询 API 取 def（非直 import barrel，后者绕过 registerAllModules 后处理读未 slim 原始 def），覆盖 slimSchema 全部主要分支 + 路径隔离断言。非假绿验证（调高阈值/清空 removeProps → 用例转 RED）。
+- **P2-8 health-monitor 状态恢复断言 + P1-2 WS 断连批量 reject 故障注入**（`20b20c8`）。
+- **P2-9 resetReconnectState 直接单测**（`196485e`）。
+- **P2-10 场景树并发竞争真测试**（`641738d`）。
+- **P1-4 scene 操作状态反查断言**（`d7f5347`）。
+- **P1-3 统一 executeGdscript happy/失败 mock 工厂**（`1010860` + `125239d`）。
+- **P2-11 ui schema 瘦身消除 check-token-budget WARN**（`bbca356`）：ui inputSchema 8921B→3560B。
+- **N-1 修复 build-matrix TOP5 渲染乱码**（`2985d1b`）。
+- **P2-12 slimSchema 直接单测**（`f31c95a`）。
 
-### Fixed — N-3/N-4 流程清理（本 commit）
+### Fixed — N-3 流程清理
 
-- **N-3 mock-results.js docstring 精度**（coverage-batch 审查 N-3）：去易漂移的具体行号（`:1008/:1021/:1044/:1116` 把 kill-switch 误列且工厂无对应 kind；`:68` 标 `:1116` 为 compile 实际是 write-temp-failed），改述为"对齐 ExecuteGdscriptResult 的 compile/run/sandbox/binary 四种字段形态"，因下游 parseGdscriptResult 只看字段形态不看 executor 内部 early-return 行号。
+- **N-3 mock-results.js docstring 精度**（coverage-batch 审查 N-3）：去易漂移的具体行号，改述为"对齐 ExecuteGdscriptResult 的 compile/run/sandbox/binary 四种字段形态"。
+
 
 ## [0.25.3] - 2026-08-01
 

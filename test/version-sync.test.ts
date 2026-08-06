@@ -24,11 +24,13 @@ function fixture(files: Record<string, string>): void {
   }
 }
 
-/** 生成 6 文件全一致的 fixture(CHANGELOG 默认含 [Unreleased] 段) */
+/** 生成 7 文件全一致的 fixture(CHANGELOG 默认含 [Unreleased] 段) */
 function baseFixture(version: string): Record<string, string> {
   return {
     'package.json': JSON.stringify({ name: 'test', version }, null, 2) + '\n',
     'manifest.json': JSON.stringify({ name: 'test', version }, null, 2) + '\n',
+    'server.json': JSON.stringify({ name: 'test', version, description: `test — 38 tools` }, null, 2) + '\n',
+    'Dockerfile': `FROM node:18-slim\nRUN npm install -g godot-mcp-enhanced@${version}\n`,
     'addons/godot_mcp_server/plugin.cfg': `[plugin]\n\nname="MCP Server"\nversion="${version}"\nscript="plugin.gd"\n`,
     'docs/使用指南.md': `# 使用指南\n\n> **版本**：${version} ｜ **适用 Godot**：4.x\n`,
     'CHANGELOG.md': `# Changelog\n\n## [Unreleased]\n\n## [${version}] - 2026-06-27\n\n### Fixed\n\n- test\n`,
@@ -120,10 +122,12 @@ describe('--check 校验模式', () => {
 // ---------------------------------------------------------------------------
 
 describe('默认写入模式', () => {
-  it('写入同步:A 类 3 文件版本各异 → 写入后 == package version', () => {
+  it('写入同步:A 类文件版本各异 → 写入后 == package version', () => {
     fixture({
       ...baseFixture('0.20.0'),
       'manifest.json': JSON.stringify({ name: 'test', version: '0.19.0' }, null, 2) + '\n',
+      'server.json': JSON.stringify({ name: 'test', version: '0.19.0', description: 'test' }, null, 2) + '\n',
+      'Dockerfile': `FROM node:18-slim\nRUN npm install -g godot-mcp-enhanced@0.19.0\n`,
       'addons/godot_mcp_server/plugin.cfg': `[plugin]\n\nversion="0.18.2"\n`,
       'docs/使用指南.md': `# 使用指南\n\n> **版本**：0.18.2 ｜ x\n`,
     });
@@ -133,6 +137,12 @@ describe('默认写入模式', () => {
     const manifest = JSON.parse(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8'));
     expect(manifest.version).toBe('0.20.0');
 
+    const serverJson = JSON.parse(readFileSync(join(tmpRoot, 'server.json'), 'utf-8'));
+    expect(serverJson.version).toBe('0.20.0');
+
+    const dockerfile = readFileSync(join(tmpRoot, 'Dockerfile'), 'utf-8');
+    expect(dockerfile).toContain('godot-mcp-enhanced@0.20.0');
+
     const cfg = readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8');
     expect(cfg).toContain('version="0.20.0"');
 
@@ -140,14 +150,18 @@ describe('默认写入模式', () => {
     expect(guide).toContain('**版本**：0.20.0');
   });
 
-  it('幂等:已一致时再写入 → 3 个 A 类文件内容不变 + stdout 含"跳过"', () => {
+  it('幂等:已一致时再写入 → A 类文件内容不变 + stdout 含"跳过"', () => {
     fixture(baseFixture('0.19.1'));
     const beforeManifest = readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8');
+    const beforeServerJson = readFileSync(join(tmpRoot, 'server.json'), 'utf-8');
+    const beforeDockerfile = readFileSync(join(tmpRoot, 'Dockerfile'), 'utf-8');
     const beforeCfg = readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8');
     const beforeGuide = readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8');
     const r = run(false);
     expect(r.status).toBe(0);
     expect(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8')).toBe(beforeManifest);
+    expect(readFileSync(join(tmpRoot, 'server.json'), 'utf-8')).toBe(beforeServerJson);
+    expect(readFileSync(join(tmpRoot, 'Dockerfile'), 'utf-8')).toBe(beforeDockerfile);
     expect(readFileSync(join(tmpRoot, 'addons/godot_mcp_server/plugin.cfg'), 'utf-8')).toBe(beforeCfg);
     expect(readFileSync(join(tmpRoot, 'docs/使用指南.md'), 'utf-8')).toBe(beforeGuide);
     expect(r.stdout).toContain('跳过');
@@ -166,10 +180,14 @@ describe('默认写入模式', () => {
     fixture({
       ...baseFixture('0.20.0-rc.1'),
       'manifest.json': JSON.stringify({ name: 'test', version: '0.20.0' }, null, 2) + '\n',
+      'server.json': JSON.stringify({ name: 'test', version: '0.20.0', description: 'test' }, null, 2) + '\n',
+      'Dockerfile': `FROM node:18-slim\nRUN npm install -g godot-mcp-enhanced@0.20.0\n`,
     });
     expect(run(false).status).toBe(0);
     const manifest = JSON.parse(readFileSync(join(tmpRoot, 'manifest.json'), 'utf-8'));
     expect(manifest.version).toBe('0.20.0-rc.1');
+    const serverJson = JSON.parse(readFileSync(join(tmpRoot, 'server.json'), 'utf-8'));
+    expect(serverJson.version).toBe('0.20.0-rc.1');
   });
 
   it('CRLF 行尾:写入后仅版本字段变化,行尾 CRLF 保持(I2)', () => {
@@ -177,6 +195,8 @@ describe('默认写入模式', () => {
     fixture({
       'package.json': JSON.stringify({ name: 'test', version: '0.20.0' }, null, 2).replace(/\n/g, eol) + eol,
       'manifest.json': JSON.stringify({ name: 'test', version: '0.19.0' }, null, 2).replace(/\n/g, eol) + eol,
+      'server.json': JSON.stringify({ name: 'test', version: '0.19.0', description: 'test' }, null, 2).replace(/\n/g, eol) + eol,
+      'Dockerfile': `FROM node:18-slim${eol}RUN npm install -g godot-mcp-enhanced@0.19.0${eol}`,
       'addons/godot_mcp_server/plugin.cfg': `[plugin]${eol}${eol}version="0.19.0"${eol}`,
       'docs/使用指南.md': `# 使用指南${eol}${eol}> **版本**：0.19.0 ｜ x${eol}`,
       'CHANGELOG.md': `# Changelog${eol}${eol}## [Unreleased]${eol}${eol}## [0.20.0] - 2026-06-27${eol}`,
@@ -199,6 +219,14 @@ describe('默认写入模式', () => {
     expect(guide).toContain('**版本**：0.20.0');
     expect(guide).toContain('\r\n');
     expect(guide).not.toMatch(/[^\r]\n/);
+
+    // server.json(JSON) + Dockerfile(文本)CRLF 保持
+    const serverJson = readFileSync(join(tmpRoot, 'server.json'), 'utf-8');
+    expect(serverJson).toContain('0.20.0');
+    expect(serverJson).toContain('\r\n');
+    const dockerfile = readFileSync(join(tmpRoot, 'Dockerfile'), 'utf-8');
+    expect(dockerfile).toContain('godot-mcp-enhanced@0.20.0');
+    expect(dockerfile).toContain('\r\n');
   });
 
   it('M-2: 写入模式遇损坏锚点(manifest 缺 version)→ exit 1(不静默通过)', () => {

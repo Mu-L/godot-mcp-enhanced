@@ -1608,6 +1608,10 @@
             "type": "number",
             "description": "watch_start: 最大记录事件数（默认 1000，最大 5000）"
           },
+          "push": {
+            "type": "boolean",
+            "description": "P3-6 watch_start/monitor_start: 启用 push 模式（事件/采样产生时主动推送 MCP notification，无需 poll）。client 需订阅 resources/subscribe 才能收到"
+          },
           "pattern": {
             "type": "string",
             "description": "find_ui_elements: 名称/文字匹配模式（Godot match 语法）"
@@ -1657,6 +1661,7 @@
         "interval_frames",
         "signal_name",
         "max_events",
+        "push",
         "pattern",
         "type",
         "visible_only",
@@ -1700,8 +1705,8 @@
       },
       "size": {
         "descBytes": 909,
-        "schemaBytes": 4023,
-        "totalBytes": 4932
+        "schemaBytes": 4239,
+        "totalBytes": 5148
       },
       "annotations": {
         "readOnlyHint": false,

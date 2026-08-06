@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // scripts/version-sync.mjs
 // 版本漂移根治:package.json version 作单一真相源,同步到 A 类元数据文件,
-// --check 模式校验全部 5 文件版本一致(CI 门禁)。
+// --check 模式校验全部文件版本一致(CI 门禁)。
 //
 // 风格遵循 scripts/check-rules-version-bump.mjs(shebang/0-1 退出码/修复指引),
 // 但比对方式不同:本脚本用 readFileSync 读工作区文件(CI 有效),不依赖 git
 // (范本的 git diff 在 CI checkout 后工作区==HEAD 会失效,仅本地有效)。
 //
 // 用法:
-//   node scripts/version-sync.mjs            # 写入:同步 A 类 3 文件到 package.json version
-//   node scripts/version-sync.mjs --check    # 校验:5 文件一致 exit 0,否则 exit 1
+//   node scripts/version-sync.mjs            # 写入:同步 A 类文件到 package.json version
+//   node scripts/version-sync.mjs --check    # 校验:全文件一致 exit 0,否则 exit 1
 //   node scripts/version-sync.mjs --root <dir>  # 指定项目根(默认 cwd;测试用)
 // 退出码:0=成功/一致,1=失败/漂移
 
@@ -21,13 +21,15 @@ const TARGET_FILES = {
   packageJson: 'package.json',
   manifest: 'manifest.json',
   pluginCfg: 'addons/godot_mcp_server/plugin.cfg',
+  serverJson: 'server.json',
+  dockerfile: 'Dockerfile',
   guide: 'docs/使用指南.md',
   changelog: 'CHANGELOG.md',
   readme: 'README.md',
 };
 
 // A 类:写入目标(当前版本单值)
-const WRITE_TARGETS = ['manifest', 'pluginCfg', 'guide'];
+const WRITE_TARGETS = ['manifest', 'pluginCfg', 'serverJson', 'dockerfile', 'guide'];
 // B 类:仅校验(版本历史,首条版本号)
 const CHECK_ONLY = ['changelog', 'readme'];
 
@@ -46,7 +48,8 @@ function readVersionFromFile(filepath, logicalName) {
   const content = readFileSync(filepath, 'utf-8');
   switch (logicalName) {
     case 'packageJson':
-    case 'manifest': {
+    case 'manifest':
+    case 'serverJson': {
       const obj = JSON.parse(content);
       if (typeof obj?.version !== 'string' || !obj.version) {
         throw new AnchorError(filepath, 'JSON 缺 version 字段');
@@ -56,6 +59,12 @@ function readVersionFromFile(filepath, logicalName) {
     case 'pluginCfg': {
       const m = content.match(/^version="([^"\r]*)"/m);
       if (!m) throw new AnchorError(filepath, '未找到 version="..." 字段(格式可能被改动)');
+      return m[1];
+    }
+    case 'dockerfile': {
+      // Dockerfile: godot-mcp-enhanced@<version>(npm install -g 行);支持 prerelease 后缀(如 0.20.0-rc.1)
+      const m = content.match(/godot-mcp-enhanced@([0-9][0-9.\w-]*)/);
+      if (!m) throw new AnchorError(filepath, '未找到 godot-mcp-enhanced@<version>(格式可能被改动)');
       return m[1];
     }
     case 'guide': {
@@ -89,6 +98,16 @@ function writeVersionToFile(filepath, logicalName, version) {
       break;
     case 'pluginCfg':
       updated = content.replace(/^version="[^"\r]*"/m, `version="${version}"`);
+      break;
+    case 'serverJson': {
+      // server.json 有两处 version:顶层 version + packages[0].version,全替换
+      const before = content;
+      let next = content.replace(/"version"\s*:\s*"[^"\r]*"/g, `"version": "${version}"`);
+      updated = next;
+      break;
+    }
+    case 'dockerfile':
+      updated = content.replace(/(godot-mcp-enhanced@)[0-9.]+/, `$1${version}`);
       break;
     case 'guide':
       updated = content.replace(/(\*\*版本\*\*：)[^\s｜\r]+/, `$1${version}`);
@@ -163,7 +182,7 @@ function main() {
       for (const m of result.mismatches) {
         console.error(`  ${m.file}: ${m.actual} ≠ ${m.expected}`);
       }
-      console.error('  修复:npm run version-sync(同步 A 类 manifest/plugin.cfg/使用指南)');
+      console.error('  修复:npm run version-sync(同步 A 类 manifest/plugin.cfg/server.json/Dockerfile/使用指南)');
       console.error('       + 手动补 CHANGELOG.md / README.md 版本表(B 类,描述需人写)');
       process.exit(1);
     }
