@@ -43,6 +43,12 @@ var _monitor_states: Dictionary = {}
 const WATCH_DEFAULT_MAX_EVENTS := 1000
 var _watch_states: Dictionary = {}
 
+# P3-6 push 模式:watch/monitor 事件产生时主动推送(无需 poll)
+# push_enabled 的 peer,事件/样本产生时立即 put_data 推送 notification 消息
+# 消息格式:{"jsonrpc":"2.0","method":"bridge/event","params":{"type":"watch|monitor",...}}
+# TS 侧常驻 data handler 接收后转发为 MCP notification
+var _push_peers: Dictionary = {}  # pid -> true(peer 启用了 push 模式)
+
 # P2-4 确定性 playtest 状态:seed/fixed_delta 锁定 + snapshot 存储 + step pending 队列
 # seed 注入全局 RNG(仅覆盖 randi/randf,per-instance RandomNumberGenerator 不受影响)
 # fixed_delta 设 physics_ticks_per_second + max_physics_steps_per_frame=1 + jitter_fix=0 三连(不碰 time_scale)
@@ -223,10 +229,16 @@ func _process(_delta: float) -> void:
 			var values: Dictionary = {}
 			for prop in (ms["properties"] as Array):
 				values[prop] = _jsonify(node.get(prop))
-			(ms["samples"] as Array).append({
+			var sample_dict := {
 				"frame": Engine.get_process_frames(),
 				"time": Time.get_ticks_msec() / 1000.0,
 				"values": values
+			}
+			(ms["samples"] as Array).append(sample_dict)
+			# P3-6: push 模式下立即推送采样(不等 poll)
+			_push_event_to_peer(peer_id, "monitor", {
+				"node_path": str(ms["node_path"]),
+				"sample": sample_dict
 			})
 			if (ms["samples"] as Array).size() >= int(ms["max_samples"]):
 				(ms["samples"] as Array)[-1]["stopped_reason"] = "max_samples_reached"
@@ -1218,6 +1230,9 @@ func _cmd_monitor_start(params: Dictionary, pid: int) -> Variant:
 		"samples": [],
 		"max_samples": MONITOR_DEFAULT_MAX_SAMPLES,
 	}
+	# P3-6: push 模式注册(monitor.start 带 push:true 时启用主动推送)
+	if bool(params.get("push", false)):
+		_push_peers[pid] = true
 
 	var result_dict: Dictionary = {
 		"monitoring": true,
@@ -1297,6 +1312,29 @@ func _cmd_monitor_poll(pid: int) -> Variant:
 
 # --- Signal watch commands (C-07: per-peer) ---
 
+# P3-6: 向启用了 push 模式的 peer 主动推送事件(无需等 poll)
+# type: "watch" | "monitor";payload: 事件数据(单个 sample 或 event)
+func _push_event_to_peer(pid: int, event_type: String, payload: Dictionary) -> void:
+	if not _push_peers.get(pid, false):
+		return
+	# 找到对应的 peer StreamPeerTCP
+	var target_peer: StreamPeerTCP = null
+	for p in _peers:
+		if p.get_instance_id() == pid:
+			target_peer = p
+			break
+	if target_peer == null:
+		return
+	if target_peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+		return
+	var msg := JSON.stringify({
+		"jsonrpc": "2.0",
+		"method": "bridge/event",
+		"params": {"type": event_type, "data": payload}
+	}) + "\n"
+	target_peer.put_data(msg.to_utf8_buffer())
+
+
 func _on_watched_signal_0(pid: int) -> void:
 	_record_watch_event([], pid)
 
@@ -1322,10 +1360,17 @@ func _record_watch_event(raw_args: Array, peer_id: int) -> void:
 	var safe_args: Array = []
 	for arg in raw_args:
 		safe_args.append(_jsonify(arg))
-	(ws["events"] as Array).append({
+	var event_dict := {
 		"frame": Engine.get_process_frames(),
 		"time": Time.get_ticks_msec() / 1000.0,
 		"args": safe_args,
+	}
+	(ws["events"] as Array).append(event_dict)
+	# P3-6: push 模式下立即推送(不等 poll)
+	_push_event_to_peer(peer_id, "watch", {
+		"node_path": str(ws.get("node_path", "")),
+		"signal_name": str(ws.get("signal_name", "")),
+		"event": event_dict
 	})
 	if (ws["events"] as Array).size() >= int(ws["max_events"]):
 		_do_watch_disconnect(peer_id)
@@ -1404,6 +1449,9 @@ func _cmd_watch_start(params: Dictionary, pid: int) -> Variant:
 		"max_events": max_events,
 		"connected": false,
 	}
+	# P3-6: push 模式注册(watch.start 带 push:true 时启用主动推送)
+	if bool(params.get("push", false)):
+		_push_peers[pid] = true
 
 	var callable := _get_watch_callable(pid)
 	var err := node.connect(signal_name, callable)
@@ -1468,6 +1516,8 @@ func _cleanup_peer_state(pid: int) -> void:
 		_watch_states.erase(pid)
 	if _monitor_states.has(pid):
 		_monitor_states.erase(pid)
+	# P3-6: 清理 push 模式注册
+	_push_peers.erase(pid)
 
 
 # ─── UI discovery commands ──────────────────────────────────────────────
