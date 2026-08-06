@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — MCP 生态调研升级方案 P2 全 6 项（2026-08-06，分支 `feat/p2-wave1`）
+
+基于 `docs/plans/2026-08-05-mcp-ecosystem-research-and-upgrade-plan.md` 第三部分。核查发现 6 项里 2 项已实质落地、1 项建议跳，实际实现 3 项 + 关闭 2 项 + 调整 1 项。commits: `9d7ab76`(Wave1) + `ff45af5`(Wave2) + 审查修复。
+
+- **P2-1 overrides 注入 autoload**：`game_bridge` 工具新增 `install_override`/`uninstall_override` action，启动游戏前注入任意调试脚本（日志钩子/状态快照）到项目 `[autoload]` 段，key 用 `MCPOVERRIDE_` 前缀。新建 `src/core/overrides.ts`（参数化 game-bridge 的 project.godot 改写逻辑）。源/目标路径过 `isPathInAllowedRoots`。`--overrides=` CLI flag / `GODOT_MCP_OVERRIDES` env 声明默认脚本（close 时批量卸载；⚠️ CLI flag 本身不 install，须 agent 调 action）。
+- **P2-4 确定性 playtest 四原语**：`game_playtest` action 新增 5 方法 — `playtest.seed`（锁全局 RNG）、`playtest.fixed_delta`（锁 physics 步长 `physics_ticks_per_second` + `max_physics_steps_per_frame=1` + `physics_jitter_fix=0`，不碰 `time_scale`）、`playtest.step`（单步推进 N 帧，走哨兵+pending 队列延迟响应）、`playtest.snapshot`/`playtest.restore`（结构+属性快照，5 个 accept 限制：不保信号拓扑/Resource 用 resource_path/不复活 free 节点/不保物理流/monitor 不在范围）。
+- **P2-5 SEP-2133 extensions 声明**：`GodotServer` capabilities 加 `extensions['io.godot-mcp/runtime-bridge']`（description/version/capabilities），让 modern-era 客户端发现 enhanced 的 runtime-bridge + 确定性 playtest 能力。era-gated（2026-07-28 引入，legacy SDK strip 无害）。
+- **P2-6 recipe 验证闭环**：`ui_draw_recipe` 绘制后 `await process_frame` 读回 `draw_result`（draw_signal_connected + node_valid），非 fire-and-forget。
+
+### Changed — P2 收尾与审查修复
+
+- **P2-2 validate_scripts autoload**（关闭+纠偏）：核查发现 plan 措辞错误 —— autoload 感知早在 `validate_scripts`（`validation.ts:200-202` `extends SceneTree` + `_initialize` + `load`）落地，`validate_gdd` 实为纯 markdown 校验。补回归测试 + plan 纠偏块。
+- **P2-3 nodeType RCE 审计收尾**：`scene-commit` node_add 从黑名单（9 项敏感类）收紧为白名单（`ALLOWED_COMMIT_NODE_TYPES` 58 类镜像 GD `ALLOWED_HEADLESS_TYPES`），堵第三方 addon 注册的 extends Node 恶意 class_name RCE。
+- **审查 B-1 修复（critical security）**：`mcp_bridge.gd` 的 `BLOCKED_PROPERTIES` 新抄第 4 副本漏 `"instance"`，重开 I-2 ExtResource 注入 RCE。已补 instance + 扩 `defects.ts` detect 扫描范围到 `src/scripts/*.gd`。
+- **审查 I-2 修复**：`playtest.step` 的 `frames=1` 在同一 `_process` tick 完成（physics 未推进），加 `_added_this_frame` 标记让加入帧不递减。
+- **审查 I-3 修复**：`check:gdscript` 扩编译范围到 `src/scripts/`（原只编译 `addons/`，漏 `mcp_bridge.gd`）；补 GD 侧契约测试（B-1 类 BLOCKED_PROPERTIES 漂移守护）。
+
 ### Changed — 测试覆盖加固批次（P2-8..P2-12 + P1-2/P1-3/P1-4 + N-1，审查 SHIPPED WITH NITS）
 
 纯测试加固，无用户可见行为变化。对应 2026-07-10 测试覆盖审计遗留项 + coverage batch 审查 nit 闭环。

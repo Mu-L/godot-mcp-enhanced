@@ -359,9 +359,10 @@ describe('Imp-1: scene_commit BLOCKED_PROPS (防绕过 edit_node S1 拦截)', ()
   });
 
   it('node_add properties 含 script 被过滤,正常属性保留', () => {
+    // P2-3: type 必须用白名单内的类(Node3D);裸 Node 已被白名单拒(防 extends Node RCE)
     const script = generateCommitScript(
       'res://scenes/Level.tscn',
-      [{ op: 'node_add', type: 'Node', name: 'X', parent: '.', properties: { script: 'res://evil.gd', position: { x: 1, y: 0, z: 2 } } }],
+      [{ op: 'node_add', type: 'Node3D', name: 'X', parent: '.', properties: { script: 'res://evil.gd', position: { x: 1, y: 0, z: 2 } } }],
       true,
     );
     expect(script).not.toContain('.script = ');

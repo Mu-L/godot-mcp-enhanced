@@ -19,10 +19,13 @@ describe('game-bridge tool definitions', () => {
     expect(actionEnum).toEqual([
       'game_bridge_install',
       'game_bridge_uninstall',
+      'install_override',
+      'uninstall_override',
       'game_query',
       'game_write',
       'game_input',
       'game_wait',
+      'game_playtest',
       'monitor_start',
       'monitor_stop',
       'monitor_poll',

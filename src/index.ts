@@ -75,11 +75,32 @@ export async function startMcpServer(args: string[]): Promise<void> {
   const readOnly = process.env.GODOT_MCP_READ_ONLY === 'true' || process.env.READ_ONLY_MODE === 'true';
   const noFallback = process.env.GODOT_MCP_NO_FALLBACK === 'true';
 
+  // P2-1: --overrides=<path>(可重复) 或 env GODOT_MCP_OVERRIDES=path1;path2
+  // 用途:声明默认 override 脚本,graceful shutdown 时对操作过的项目批量卸载(防半装状态)。
+  // ⚠️ I-1 诚实说明(P2-4 审查):CLI flag 本身不触发 install —— server 启动时不知目标项目,
+  //    实际 install 由 agent 调 game_bridge install_override action 完成(项目路径在工具调用时传)。
+  //    CLI flag 的价值仅在于 close() 时清理(对 agent 装的 MCPOVERRIDE_* 条目)。"启动时自动注入"
+  //    需 run_project 拿到 projectPath 后调 installOverrides,推迟 P3。
+  const overridesFromArgs = args
+    .filter(a => a.startsWith('--overrides='))
+    .map(a => a.split('=')[1]!)
+    .filter(Boolean);
+  const overridesFromEnv = process.env.GODOT_MCP_OVERRIDES
+    ? process.env.GODOT_MCP_OVERRIDES.split(';').map(s => s.trim()).filter(Boolean)
+    : [];
+  const overrides = [...overridesFromArgs, ...overridesFromEnv];
+  if (overrides.length > 0) {
+    getLogger().warn('godot-mcp',
+      `--overrides / GODOT_MCP_OVERRIDES 已声明 ${overrides.length} 个脚本,但 CLI flag 不自动 install。` +
+      `请用 game_bridge install_override action 注入到目标项目。CLI flag 仅用于 close() 时清理。`);
+  }
+
   const server = new GodotServer(join(__dirname, 'scripts', 'godot_operations.gd'), {
     mode: toolMode,
     connectionMode,
     readOnly,
     noFallback,
+    overrides: overrides.length > 0 ? overrides : undefined,
   });
 
   let shuttingDown = false;

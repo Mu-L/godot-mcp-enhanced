@@ -82,6 +82,8 @@ export interface ServerOptions {
   connectionMode?: 'headless' | 'editor';
   readOnly?: boolean;
   noFallback?: boolean;
+  /** P2-1: --overrides CLI flag 指定的默认 override 脚本路径列表,graceful shutdown 时批量卸载 */
+  overrides?: string[];
 }
 
 export class GodotServer {
@@ -129,6 +131,17 @@ export class GodotServer {
           // 此前未声明 → SDK sendLoggingMessage 静默 no-op(logger.ts:155 warn/error 推送失效),
           // 且 GodotServer 直发 notification(notifications/message) 抛 SdkError 被 catch 吞。
           logging: {},
+          // P2-5 (SEP-2133): extensions 声明让 modern-era 客户端发现 enhanced 的 runtime-bridge 能力。
+          // ⚠️ era-gated:extensions 是 2026-07-28 引入,legacy-era 客户端不认识 → SDK encode 时 strip,对 legacy 无害。
+          // runtime-bridge:TCP 通道(game_query/input/write/wait + 确定性 playtest 四原语 P2-4)。
+          // 注:具体 method(如 bridge.status)待 SDK extensions method routing 成熟后补,当前为发现性声明。
+          extensions: {
+            'io.godot-mcp/runtime-bridge': {
+              description: 'Godot runtime bridge: TCP channel for game queries/inputs/asserts and deterministic playtest (seed/fixed_delta/step/snapshot/restore)',
+              version: '1',
+              capabilities: ['game_query', 'game_input', 'game_write', 'game_wait', 'game_playtest', 'install_override'],
+            },
+          },
         },
         instructions: readInstructions(),
         // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。
@@ -627,9 +640,21 @@ export class GodotServer {
   async close(): Promise<void> {
     // P2: 整体 try/finally 兜底，finally 保证 server.close + 模块级引用清理必执行。
     // 各步骤虽多 best-effort，但 agentCtx.destroy()/server.close() 抛错会中断后续清理 →
-    // 模块级单例引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
+    // 模块级引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
     let serverClosed = false;
     try {
+      // P2-1: 自动卸载 overrides(graceful shutdown 时清理,防半装状态)。
+      // 仅对已知项目路径卸载(editorProjectPath);headless 模式下项目路径不持久化,
+      // agent 须手动调 uninstall_override action。
+      if (this.options.overrides && this.options.overrides.length > 0 && this.editorProjectPath) {
+        try {
+          const { uninstallAllOverrides } = await import('./core/overrides.js');
+          const n = uninstallAllOverrides(this.editorProjectPath);
+          if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${this.editorProjectPath}`);
+        } catch (err) {
+          getLogger().warn('godot-mcp', `Override auto-uninstall failed (best effort): ${err instanceof Error ? err.message : err}`);
+        }
+      }
       // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
       if (this.orphanScanTimer) {
         clearInterval(this.orphanScanTimer);

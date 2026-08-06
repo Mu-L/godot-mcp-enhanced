@@ -392,6 +392,20 @@ describe('genUiDrawRecipeScript', () => {
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
     expect(script).toContain('if not node is Control:');
   });
+
+  // P2-6 (2026-08-06): draw_result 验证闭环——绘制后 await 一帧再读回,非 fire-and-forget
+  it('P2-6: emits draw_result verification after awaiting one frame', () => {
+    const ops = [{ kind: 'rect', position: [0, 0], size: [1, 1], color: [1, 1, 1] }];
+    const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
+    // await process_frame 让 _draw 触发(参考 material-ops.ts:470 / navigation.ts:42 先例)
+    expect(script).toContain('await process_frame');
+    // draw_result 读回:确认 draw 信号仍连接 + 节点仍有效
+    expect(script).toContain('_mcp_output("draw_result"');
+    expect(script).toContain('draw_signal_connected');
+    expect(script).toContain('is_instance_valid(node)');
+    // 原 attach 确认保留(attach 在 await 前,result 在 await 后,语义分层)
+    expect(script).toContain('_mcp_output("draw_recipe_attached"');
+  });
 });
 
 // ─── genUiBuildLayoutScript ────────────────────────────────────────────────

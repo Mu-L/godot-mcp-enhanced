@@ -177,6 +177,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
         + (/_is_headless_allowed|ALLOWED_HEADLESS_TYPES/.test(readSrc('src/scripts/godot_operations.gd')) ? 1 : 0);
       return total > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
     } },
+  { key: 'scene-commit-nodetype-blacklist', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      // P2-3 fixed：scene-commit node_add 从黑名单收紧为白名单。原 SENSITIVE_NODE_TYPES 黑名单(9 项)
+      // 漏第三方 addon 注册的 extends Node 恶意 class_name → ${op.type}.new() 跑 _ready() → OS.execute RCE。
+      // 命中「scene-commit.ts 含 SENSITIVE_NODE_TYPES 黑名单 或 不含 ALLOWED_COMMIT_NODE_TYPES 白名单」即复发。
+      const src = readSrc('src/tools/scene/scene-commit.ts');
+      const hasBlacklist = /SENSITIVE_NODE_TYPES/.test(src);
+      const hasWhitelist = /ALLOWED_COMMIT_NODE_TYPES/.test(src);
+      return (hasBlacklist || !hasWhitelist) ? 1 : 0;
+    } },
   // ── IMPORTANT 架构/安全（行 282-381）──
   { key: 'allow-by-default-missing-config', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
@@ -690,9 +700,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   // _is_safe_property 也拒)。detect: BLOCKED_PROPERTIES 数组定义段含 "instance" 字面量(移除即复发)。
   { key: 'instance-property-blocked-gd', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      const f = readSrc('src/scripts/godot_operations.gd');
-      const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
-      return m && /"instance"/.test(m[0]) ? 0 : 1;
+      // P2-4 审查 B-1 修复:扩展扫描范围,覆盖所有含 BLOCKED_PROPERTIES 的 .gd 文件
+      // (godot_operations.gd + mcp_bridge.gd 两份副本都必须含 instance,任一漏即复发)
+      const files = ['src/scripts/godot_operations.gd', 'src/scripts/mcp_bridge.gd'];
+      for (const fpath of files) {
+        const f = readSrc(fpath);
+        const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
+        if (!m || !/"instance"/.test(m[0])) return 1;  // 任一副本漏 instance 即复发
+      }
+      return 0;
     } },
   // spec editor-version-tear §1: editor 侧 coerce_property_value 统一 helper（只 coerce 不 set，
   // 与 headless _set_property_with_coerce 刻意不对称——editor 要 per-property undo）。

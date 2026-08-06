@@ -147,9 +147,10 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   undo-manager-dead-create-action(F6 删 create_action+create_action_with_props 死代码,YAGNI) +
 //   asset-placer-no-undo-mgr-null-guard(F9 place_one/place_batch undo_mgr null 守卫+callv fallback 对齐 node_commands);
 //   F7 stale(node_commands C11 孤儿扫描已闭环)/ F8 won't-fix(EditorPlugin 虚函数禁 super);fixes 在 commits d7c4485..132b1af(D-ADV Task1-3),合计 126。
-    expect(FIXED_DEFECTS.length).toBe(126);
+//   +1(2026-08-06 P2-3): scene-commit-nodetype-blacklist(node_add 黑名单→白名单,堵第三方恶意 class_name RCE);合计 127。
+    expect(FIXED_DEFECTS.length).toBe(127);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(126);
+    expect(new Set(keys).size, '存在重名 key').toBe(127);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

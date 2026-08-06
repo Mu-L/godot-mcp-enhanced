@@ -47,3 +47,45 @@ describe('headless instantiate_class whitelist (P1 RCE)', () => {
     expect(m![0]).not.toMatch(/is_parent_class\(\s*base_type\s*,\s*"Node"\s*\)/);
   });
 });
+
+// P2-3 (2026-08-06): scene-commit node_add 从黑名单收紧为白名单。
+// 原黑名单(SENSITIVE_NODE_TYPES 9 项)漏第三方 addon 注册的 extends Node 恶意 class_name,
+// ${op.type}.new() 跑 _ready() → OS.execute RCE(不经 execute_gdscript 沙箱)。
+// 白名单须与 headless ALLOWED_HEADLESS_TYPES 同步(defects detect 守护)。
+const COMMIT = readFileSync(
+  join(__dirname, '..', '..', 'src', 'tools', 'scene', 'scene-commit.ts'),
+  'utf-8',
+);
+
+describe('scene-commit node_add whitelist (P2-3)', () => {
+  it('has ALLOWED_COMMIT_NODE_TYPES const (whitelist, not blacklist)', () => {
+    expect(COMMIT).toMatch(/const ALLOWED_COMMIT_NODE_TYPES = new Set\(/);
+    // 反向：不再用黑名单 SENSITIVE_NODE_TYPES(防回退到 IMP-4 黑名单方案)
+    expect(COMMIT).not.toMatch(/const SENSITIVE_NODE_TYPES/);
+    expect(COMMIT).not.toMatch(/SENSITIVE_NODE_TYPES\.has/);
+  });
+
+  it('whitelist mirrors headless ALLOWED_HEADLESS_TYPES (Node3D/Node2D/Control representatives)', () => {
+    // 白名单覆盖三大家族的代表类(与 godot_operations.gd:195-211 同源)
+    expect(COMMIT).toMatch(/'Node3D'/);
+    expect(COMMIT).toMatch(/'Node2D'/);
+    expect(COMMIT).toMatch(/'Control'/);
+    expect(COMMIT).toMatch(/'Button'/);
+    // 反向:白名单不含敏感类(网络/系统/执行)
+    const wlBlock = COMMIT.match(/const ALLOWED_COMMIT_NODE_TYPES[\s\S]{0,3000}?\]\)/);
+    expect(wlBlock, 'ALLOWED_COMMIT_NODE_TYPES block found').toBeTruthy();
+    expect(wlBlock![0]).not.toMatch(/'HTTPRequest'/);
+    expect(wlBlock![0]).not.toMatch(/'Thread'/);
+    expect(wlBlock![0]).not.toMatch(/'OS'/);
+    expect(wlBlock![0]).not.toMatch(/'ClassDB'/);
+  });
+
+  it('node_add branch rejects non-allowlist types (whitelist membership check)', () => {
+    // 匹配 node_add case 从白名单守卫到 reject 错误信息(含 "Type not in allowlist")
+    const m = COMMIT.match(/ALLOWED_COMMIT_NODE_TYPES\.has\(op\.type\)[\s\S]{0,400}?Type not in allowlist/);
+    expect(m, 'node_add whitelist reject branch found').toBeTruthy();
+    expect(m![0]).toMatch(/ALLOWED_COMMIT_NODE_TYPES\.has\(op\.type\)/);
+    // 反向:不再用黑名单 has 检查
+    expect(COMMIT).not.toMatch(/SENSITIVE_NODE_TYPES\.has/);
+  });
+});
