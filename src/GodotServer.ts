@@ -131,6 +131,17 @@ export class GodotServer {
           // 此前未声明 → SDK sendLoggingMessage 静默 no-op(logger.ts:155 warn/error 推送失效),
           // 且 GodotServer 直发 notification(notifications/message) 抛 SdkError 被 catch 吞。
           logging: {},
+          // P2-5 (SEP-2133): extensions 声明让 modern-era 客户端发现 enhanced 的 runtime-bridge 能力。
+          // ⚠️ era-gated:extensions 是 2026-07-28 引入,legacy-era 客户端不认识 → SDK encode 时 strip,对 legacy 无害。
+          // runtime-bridge:TCP 通道(game_query/input/write/wait + 确定性 playtest 四原语 P2-4)。
+          // 注:具体 method(如 bridge.status)待 SDK extensions method routing 成熟后补,当前为发现性声明。
+          extensions: {
+            'io.godot-mcp/runtime-bridge': {
+              description: 'Godot runtime bridge: TCP channel for game queries/inputs/asserts and deterministic playtest (seed/fixed_delta/step/snapshot/restore)',
+              version: '1',
+              capabilities: ['game_query', 'game_input', 'game_write', 'game_wait', 'game_playtest', 'install_override'],
+            },
+          },
         },
         instructions: readInstructions(),
         // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。

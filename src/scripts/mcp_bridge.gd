@@ -43,6 +43,17 @@ var _monitor_states: Dictionary = {}
 const WATCH_DEFAULT_MAX_EVENTS := 1000
 var _watch_states: Dictionary = {}
 
+# P2-4 确定性 playtest 状态:seed/fixed_delta 锁定 + snapshot 存储 + step pending 队列
+# seed 注入全局 RNG(仅覆盖 randi/randf,per-instance RandomNumberGenerator 不受影响)
+# fixed_delta 设 physics_ticks_per_second + max_physics_steps_per_frame=1 + jitter_fix=0 三连(不碰 time_scale)
+# snapshot 用 _cmd_get_node_properties 序列化器复用(BLOCKED_PROPERTIES 跳过 script/owner 等危险属性)
+var _playtest_active: bool = false
+var _playtest_snapshot: Dictionary = {}  # {path: {properties: {}, parent: String}}
+var _playtest_fixed_delta_saved: Dictionary = {}  # 原值,restore 时还原
+var _playtest_step_pending: Array = []  # [{peer: StreamPeerTCP, pid: int, id: Variant, frames: int, coroutine: Callable, result: Dictionary}]
+var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buffer_bytes 取用
+
+
 const BLOCKED_PROPERTIES := [
 	"script", "owner", "process_mode", "process_priority", "process_input",
 	"process_unhandled_input", "process_unhandled_key_input", "process_internal",
@@ -152,6 +163,41 @@ func _process(_delta: float) -> void:
 		_auth_fail_count.erase(pid)
 		_auth_locked_until.erase(pid)
 		_peers.remove_at(i)
+
+	# ─── P2-4 playtest.step pending:每帧递减 frames_remaining,到 0 时 push 响应 ──
+	# step 语义:推进 N 帧后返回。_process 每帧调一次,递减计数即"推进"。
+	# 到 0 时取当前 get_tree 信息作为 step 结果(节点数 + process_frame 计数),push 给 client。
+	if _playtest_step_pending.size() > 0:
+		var completed: Array = []
+		for idx in range(_playtest_step_pending.size()):
+			var entry: Dictionary = _playtest_step_pending[idx]
+			entry["frames_remaining"] = int(entry["frames_remaining"]) - 1
+			if int(entry["frames_remaining"]) <= 0:
+				completed.append(idx)
+		# 倒序处理完成的(避免索引漂移)
+		completed.reverse()
+		for idx in completed:
+			var entry: Dictionary = _playtest_step_pending[idx]
+			_playtest_step_pending.remove_at(idx)
+			var peer_id: int = int(entry["peer_id"])
+			# 找到对应 peer(peer 可能已断开)
+			var target_peer: StreamPeerTCP = null
+			for p in _peers:
+				if p.get_instance_id() == peer_id:
+					target_peer = p
+					break
+			if target_peer == null:
+				continue  # peer 已断开,丢响应
+			var step_result := JSON.stringify({
+				"id": entry["id"],
+				"result": {
+					"success": true,
+					"frames_stepped": true,
+					"frame_count": Engine.get_process_frames(),
+					"nodes": get_tree().root.get_child_count(),
+				}
+			})
+			target_peer.put_data((step_result + "\n").to_utf8_buffer())
 
 	# ─── Property monitor sampling (C-07: per-peer) ─────────────────────────
 	var dead_monitors: Array = []
@@ -498,7 +544,18 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				_peer_buffers[key] = raw
 				return true
 		var response := _handle_message(line, pid)
-		peer.put_data((response + "\n").to_utf8_buffer())
+		# P2-4: playtest.step 返回特殊标记 —— 启动 coroutine 延迟 push,不立即 put_data
+		# coroutine 在 _process 末尾处理:await N 帧 physics_frame 后 push 响应
+		if response.begins_with("__PLAYTEST_STEP__"):
+			var frames := int(response.split("__")[2])
+			_playtest_step_pending.append({
+				"peer_id": peer.get_instance_id(),
+				"pid": pid,
+				"id": _last_step_request_id,
+				"frames_remaining": frames,
+			})
+		else:
+			peer.put_data((response + "\n").to_utf8_buffer())
 	_peer_buffers[key] = raw
 	return false
 
@@ -577,6 +634,17 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_find_ui_elements(params)
 		"click_button":
 			result = _cmd_click_button(params)
+		# P2-4 确定性 playtest 四原语(seed/fixed_delta/snapshot/restore 同步;step 走 coroutine)
+		"playtest.seed":
+			result = _cmd_playtest_seed(params)
+		"playtest.fixed_delta":
+			result = _cmd_playtest_fixed_delta(params)
+		"playtest.snapshot":
+			result = _cmd_playtest_snapshot(params)
+		"playtest.restore":
+			result = _cmd_playtest_restore(params)
+		"playtest.step":
+			result = _cmd_playtest_step(params)
 		_:
 			error = {"code": -32601, "message": "Method not found: %s. 若为新增 method（如 get_node_layout），项目根 mcp_bridge.gd 可能版本过旧，请重新 game_bridge_install 或同步上游 src/scripts/mcp_bridge.gd。" % method}
 
@@ -585,6 +653,10 @@ func _handle_message(raw: String, pid: int) -> String:
 	if error.is_empty() and result is Dictionary and result.has("error"):
 		error = result["error"]
 		result = null
+	# P2-4: playtest.step 特殊处理 —— 返回哨兵字符串,让 _process_buffer_bytes 启动 coroutine
+	if error.is_empty() and result is Dictionary and result.has("__playtest_step__"):
+		_last_step_request_id = id
+		return "__PLAYTEST_STEP__%d__" % int(result["frames"])
 	if error.is_empty():
 		return JSON.stringify({"id": id, "result": result})
 	else:
@@ -1511,8 +1583,100 @@ func _cmd_click_button(params: Dictionary) -> Variant:
 	}
 
 
+# ─── P2-4 确定性 playtest 四原语 ─────────────────────────────────────────────
+# seed/fixed_delta/snapshot/restore 同步(不需 await 帧);
+# step 走 coroutine(await get_tree().physics_frame),响应延迟 push(见 _process 末尾)。
+# 5 个 accept 限制(spec):① 不保信号连接运行时拓扑 ② Resource 用 resource_path ③ 不复活已 free 节点
+# ④ 不保 RigidBody 物理速度(靠 seed+fixed_delta 重放) ⑤ monitor samples 不在 snapshot 范围
+
+func _cmd_playtest_seed(params: Dictionary) -> Variant:
+	var seed_value: int = int(params.get("seed", 0))
+	seed(seed_value)  # @GlobalScope.seed,影响全局 randi/randf
+	_playtest_active = true
+	return {"success": true, "seed": seed_value, "note": "global RNG seeded (per-instance RandomNumberGenerator unaffected)"}
+
+func _cmd_playtest_fixed_delta(params: Dictionary) -> Variant:
+	var hz: int = int(params.get("hz", 60))
+	if hz < 1 or hz > 1000:
+		return {"error": {"code": -1, "message": "hz must be 1-1000, got %d" % hz}}
+	# 保存原值(restore 时还原)
+	if _playtest_fixed_delta_saved.is_empty():
+		_playtest_fixed_delta_saved = {
+			"physics_ticks_per_second": Engine.physics_ticks_per_second,
+			"max_physics_steps_per_frame": Engine.max_physics_steps_per_frame,
+			"physics_jitter_fix": Engine.physics_jitter_fix,
+		}
+	# 三连:固定 tick 率 + 单帧单步 + 关 jitter(每帧恰好 1 个 physics tick,delta = 1/hz)
+	Engine.physics_ticks_per_second = hz
+	Engine.max_physics_steps_per_frame = 1
+	Engine.physics_jitter_fix = 0.0
+	_playtest_active = true
+	return {"success": true, "hz": hz, "delta": 1.0 / float(hz)}
+
+func _cmd_playtest_snapshot(params: Dictionary) -> Variant:
+	# 复用 _cmd_get_node_properties 序列化器:遍历场景树,每个节点存 {properties, parent}
+	_playtest_snapshot.clear()
+	var root := get_tree().root
+	_collect_node_snapshot(root, "")
+	return {"success": true, "nodes": _playtest_snapshot.size(), "note": "snapshot saved (signals/physics/freed nodes not preserved)"}
+
+func _collect_node_snapshot(node: Node, parent_path: String) -> void:
+	var path: String = str(node.get_path())
+	var props: Dictionary = {}
+	for prop in node.get_property_list():
+		var name: String = prop["name"]
+		if name.begins_with("_") or name.begins_with("theme_override") or name in BLOCKED_PROPERTIES:
+			continue
+		var val: Variant = node.get(name)
+		if val is Resource:
+			val = {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
+		elif val is Node:
+			val = str(val.get_path())
+		props[name] = val
+	_playtest_snapshot[path] = {"properties": props, "parent": parent_path}
+	for child in node.get_children():
+		_collect_node_snapshot(child, path)
+
+func _cmd_playtest_restore(params: Dictionary) -> Variant:
+	if _playtest_snapshot.is_empty():
+		return {"error": {"code": -1, "message": "No snapshot saved. Call playtest_snapshot first."}}
+	var restored: int = 0
+	var skipped_freed: int = 0
+	for path in _playtest_snapshot.keys():
+		var entry: Dictionary = _playtest_snapshot[path]
+		var node := get_node_or_null(path)
+		if node == null:
+			skipped_freed += 1  # 限制 ③:不复活已 free 节点
+			continue
+		var props: Dictionary = entry["properties"]
+		for prop_name in props.keys():
+			if prop_name in BLOCKED_PROPERTIES:
+				continue  # 安全命脉:restore 跳过 BLOCKED_PROPERTIES(防 script 注入 RCE)
+			node.set(prop_name, props[prop_name])
+		restored += 1
+	# 还原 fixed_delta 原值
+	if not _playtest_fixed_delta_saved.is_empty():
+		Engine.physics_ticks_per_second = int(_playtest_fixed_delta_saved["physics_ticks_per_second"])
+		Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
+		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
+		_playtest_fixed_delta_saved.clear()
+	return {"success": true, "restored": restored, "skipped_freed": skipped_freed}
+
+func _cmd_playtest_step(params: Dictionary) -> Dictionary:
+	# step 走 coroutine:await get_tree().physics_frame 推进一帧。
+	# _handle_message 检测此命令的特殊返回,启动 coroutine,响应延迟 push(见 _process 末尾)。
+	var frames: int = int(params.get("frames", 1))
+	if frames < 1 or frames > 60:
+		return {"error": {"code": -1, "message": "frames must be 1-60, got %d" % frames}}
+	# 返回特殊标记:_handle_message 据此启动 coroutine 而非同步 put_data
+	return {"__playtest_step__": true, "frames": frames}
+
+
 func _input(event: InputEvent) -> void:
 	if not _recording:
+		return
+	# P2-4: playtest 激活时跳过录制,避免 playtest 注入的输入污染录制序列
+	if _playtest_active:
 		return
 	# Note: field is 'time_offset' (renamed from 'time_ms' in v0.18.0).
 	# Existing recordings with 'time_ms' field are incompatible.

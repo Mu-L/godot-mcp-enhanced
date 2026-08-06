@@ -356,6 +356,7 @@ const ACTIONS = [
   'game_write',
   'game_input',
   'game_wait',
+  'game_playtest',
   'monitor_start',
   'monitor_stop',
   'monitor_poll',
@@ -370,7 +371,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'game',
-      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
+      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -384,11 +385,11 @@ export function getToolDefinitions(): Tool[] {
           source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 autoload/MCPOVERRIDE_<basename>）' },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property',
+            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)',
           },
           params: {
             type: 'object',
-            description: '方法参数。game_query: 因方法而异。game_write: set_node_property {path, property, value}, call_method {path, method, args}。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}',
+            description: '方法参数。game_query: 因方法而异。game_write: set_node_property {path, property, value}, call_method {path, method, args}。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数',
           },
           timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
@@ -435,6 +436,11 @@ const INPUT_METHODS = new Set([
 
 const WAIT_METHODS = new Set([
   'wait_for_node', 'wait_for_property',
+]);
+
+// P2-4 确定性 playtest 四原语(snapshot/restore 同步;step 走 coroutine 延迟响应)
+export const PLAYTEST_METHODS = new Set([
+  'playtest.seed', 'playtest.fixed_delta', 'playtest.snapshot', 'playtest.restore', 'playtest.step',
 ]);
 
 /**
@@ -745,6 +751,31 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(JSON.stringify(result, null, 2));
       }
 
+      // P2-4 确定性 playtest 四原语:seed/fixed_delta/snapshot/restore 同步;step 走 coroutine 延迟响应
+      case 'game_playtest': {
+        ensureProjectDir(ctx, args);
+        const method = args.method as string;
+        if (!PLAYTEST_METHODS.has(method)) {
+          return textResult(`Error: Unknown playtest method "${method}". Supported: ${[...PLAYTEST_METHODS].join(', ')}`);
+        }
+        const rawParams = args.params;
+        const params = (rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams))
+          ? rawParams as Record<string, unknown>
+          : {};
+        // step 走 coroutine 延迟响应,需要更长 timeout(N 帧推进)
+        const isStep = method === 'playtest.step';
+        const rawTimeout = clampTimeoutMs(args.timeout);
+        const timeout = Math.min(isStep ? Math.max(rawTimeout, 10000) : rawTimeout, 60000);
+        const response = await sendToBridge(method, params, timeout);
+        if (response.error) {
+          if (response.error.code === -32001 || response.error.code === -32002) {
+            _cachedSecret = null;
+          }
+          return errorResult(`Bridge error (${response.error.code}): ${response.error.message}`);
+        }
+        return textResult(JSON.stringify(response.result, null, 2));
+      }
+
       case 'monitor_start': {
         if (!args.node_path || typeof args.node_path !== 'string') {
           return opsErrorResult('INVALID_PARAMS', 'node_path is required for monitor_start');
@@ -841,6 +872,7 @@ export const TOOL_META: Record<
       install_override: 'write',
       uninstall_override: 'write',
       game_write: 'process',
+      game_playtest: 'process',  // P2-4: playtest 改引擎时间/帧推进/snapshot restore
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
 };

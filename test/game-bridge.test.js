@@ -25,6 +25,7 @@ describe('game-bridge tool definitions', () => {
       'game_write',
       'game_input',
       'game_wait',
+      'game_playtest',
       'monitor_start',
       'monitor_stop',
       'monitor_poll',
