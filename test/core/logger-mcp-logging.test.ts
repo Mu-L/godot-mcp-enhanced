@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger, withRequestLogLevel, withRequestLogLevelAsync, getCurrentRequestLogLevel } from '../../src/core/logger.js';
+import { getLogger, setLoggerServer, setLoggerClientReady, resetLogger, withRequestLogLevel, withRequestLogLevelAsync, withRequestLogFn, getCurrentRequestLogLevel, getCurrentRequestLogFn } from '../../src/core/logger.js';
 
 describe('MCP Logging emitToClient', () => {
   let mockServer: { sendLoggingMessage: ReturnType<typeof vi.fn> };
@@ -192,5 +192,77 @@ describe('P1-7 per-request logLevel filtering', () => {
       }),
     ).rejects.toThrow('async boom');
     expect(getCurrentRequestLogLevel()).toBe(null);
+  });
+});
+
+// P1-3 完整推进: SDK 官方 ctx.mcpReq.log 注入
+describe('P1-3 withRequestLogFn (SDK ctx.mcpReq.log injection)', () => {
+  let mockServer: { sendLoggingMessage: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    resetLogger();
+    mockServer = { sendLoggingMessage: vi.fn() };
+    setLoggerServer(mockServer as any);
+    setLoggerClientReady(true);
+  });
+
+  it('withRequestLogFn 注入时 emitToClient 走 requestLogFn(而非 server 级 sendLoggingMessage)', async () => {
+    const requestLogFn = vi.fn().mockResolvedValue(undefined);
+    const logger = getLogger();
+    await withRequestLogFn(requestLogFn, async () => {
+      logger.warn('mod', 'via requestLogFn');
+    });
+    // requestLogFn 被调(SDK 官方路径)
+    expect(requestLogFn).toHaveBeenCalledTimes(1);
+    const [level, data, loggerName] = requestLogFn.mock.calls[0]!;
+    expect(level).toBe('warning');
+    expect(data).toMatchObject({ msg: 'via requestLogFn', module: 'mod' });
+    expect(loggerName).toBe('mod');
+    // server 级 sendLoggingMessage 不被调(优先 requestLogFn)
+    expect(mockServer.sendLoggingMessage).not.toHaveBeenCalled();
+  });
+
+  it('withRequestLogFn 注入时 debug/info 也发(SDK 自动按 severity 过滤,非 enhanced 自管)', async () => {
+    const requestLogFn = vi.fn().mockResolvedValue(undefined);
+    const logger = getLogger();
+    await withRequestLogFn(requestLogFn, async () => {
+      logger.debug('mod', 'debug via SDK');
+      logger.info('mod', 'info via SDK');
+    });
+    // SDK 接收所有级别,由 SDK 内部按 envelope logLevel / setLevel 过滤
+    expect(requestLogFn).toHaveBeenCalledTimes(2);
+    expect(requestLogFn.mock.calls[0]![0]).toBe('debug');
+    expect(requestLogFn.mock.calls[1]![0]).toBe('info');
+  });
+
+  it('withRequestLogFn 完成后复位(后续日志走降级路径)', async () => {
+    const requestLogFn = vi.fn().mockResolvedValue(undefined);
+    const logger = getLogger();
+    await withRequestLogFn(requestLogFn, async () => {
+      logger.warn('mod', 'in scope');
+    });
+    expect(getCurrentRequestLogFn()).toBe(null);  // 复位
+    // 复位后走降级路径(server 级 sendLoggingMessage)
+    logger.warn('mod', 'out of scope');
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('withRequestLogFn 抛错也复位(async finally)', async () => {
+    const requestLogFn = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      withRequestLogFn(requestLogFn, async () => {
+        await Promise.resolve();
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(getCurrentRequestLogFn()).toBe(null);
+  });
+
+  it('无 withRequestLogFn 时保持旧行为(server 级 sendLoggingMessage + P1-7 自管过滤)', () => {
+    const logger = getLogger();
+    logger.warn('mod', 'legacy path');
+    // 走降级路径:server 级 sendLoggingMessage
+    expect(mockServer.sendLoggingMessage).toHaveBeenCalledTimes(1);
+    expect(mockServer.sendLoggingMessage.mock.calls[0]![0].level).toBe('warning');
   });
 });

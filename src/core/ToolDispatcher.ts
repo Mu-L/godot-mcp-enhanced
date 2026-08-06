@@ -35,7 +35,7 @@ import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
-import { getLogger, withRequestLogLevelAsync, type LogLevel } from './logger.js';
+import { getLogger, withRequestLogLevelAsync, withRequestLogFn, type LogLevel } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
 import { record as recordTelemetry, hashProject, isTelemetryEnabled } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
@@ -240,10 +240,17 @@ export class ToolDispatcher {
     // dispatchTool + confirm_and_execute)。withRequestLogLevelAsync 在 await 期间保持
     // _currentRequestLogLevel,emitToClient 据此过滤 notifications/message。
     // null = 客户端未设 _meta['io.modelcontextprotocol/logLevel'],保持旧行为(仅 warn/error 发)。
-    return withRequestLogLevelAsync(requestLogLevel, () =>
-      executeMiddleware(this.middleware, ctx, async () => {
-        return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
-      }),
+    //
+    // P1-3 完整推进: 叠加 withRequestLogFn 注入 SDK 官方 ctx.mcpReq.log(自动处理 era + severity)。
+    // emitToClient 优先用 _requestLogFn(SDK 官方),无它时降级到 _currentRequestLogLevel(自管)。
+    // srvCtx.mcpReq.log 由 SDK buildContext 构造,may be undefined(legacy 无 envelope / 非 request 上下文)。
+    const requestLogFn = srvCtx?.mcpReq?.log as ((level: string, data: unknown, logger?: string) => Promise<void>) | undefined;
+    return withRequestLogFn(requestLogFn ?? null, () =>
+      withRequestLogLevelAsync(requestLogLevel, () =>
+        executeMiddleware(this.middleware, ctx, async () => {
+          return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
+        }),
+      ),
     );
   }
 
