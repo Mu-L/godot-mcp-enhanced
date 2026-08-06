@@ -73,9 +73,9 @@ const RULES = [
     ],
   },
   {
-    file: 'docs/distribution/server.json',
+    file: 'server.json',
     checks: [
-      { re: /—\s*(\d+)\s*tools/, expectKey: 'toolCount', asString: true, desc: 'server.json:4 MCP Registry 材料' },
+      { re: /—\s*(\d+)\s*tools/, expectKey: 'toolCount', asString: true, desc: 'server.json description MCP Registry 材料' },
     ],
   },
   {
