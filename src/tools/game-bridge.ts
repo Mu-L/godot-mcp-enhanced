@@ -334,7 +334,10 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
           if (!line) continue;
           try {
             const resp = JSON.parse(line) as BridgeResponse;
-            if (resp.id != null && resp.id !== id) continue;
+            // P3-6 修复: push 消息(method 存在、id 为空)不是响应,跳过(由常驻 push handler 处理)。
+            // 原逻辑 resp.id != null 在 push(无 id)时为 false → 不 continue → 误把 push 当响应 resolve。
+            // 修正:响应必须有 id 且匹配当前 request id;无 id 的消息(push/通知)一律跳过。
+            if (resp.id == null || resp.id !== id) continue;
             sock.removeListener('data', onData);
             // N-1 (2026-06-24 审查): 成功 resolve 后移除本次 once 监听器。持久 _socket 上 error/close
             // 健康时永不触发,once 不移除 → 每请求泄漏 2 listener → 长连接累积至 MaxListenersExceededWarning。
