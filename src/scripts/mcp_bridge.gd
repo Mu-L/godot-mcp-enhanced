@@ -550,8 +550,8 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				_peer_buffers[key] = raw
 				return true
 		var response := _handle_message(line, pid)
-		# P2-4: playtest.step 返回特殊标记 —— 启动 coroutine 延迟 push,不立即 put_data
-		# coroutine 在 _process 末尾处理:await N 帧 physics_frame 后 push 响应
+		# P2-4: playtest.step 返回特殊标记 —— 存 pending 延迟 push,不立即 put_data
+		# _process 末尾递减 frames_remaining(I-2:加入帧不递减),到 0 时 push 响应(计数器轮询,非 coroutine)
 		if response.begins_with("__PLAYTEST_STEP__"):
 			var frames := int(response.split("__")[2])
 			_playtest_step_pending.append({
