@@ -700,9 +700,15 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   // _is_safe_property 也拒)。detect: BLOCKED_PROPERTIES 数组定义段含 "instance" 字面量(移除即复发)。
   { key: 'instance-property-blocked-gd', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
-      const f = readSrc('src/scripts/godot_operations.gd');
-      const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
-      return m && /"instance"/.test(m[0]) ? 0 : 1;
+      // P2-4 审查 B-1 修复:扩展扫描范围,覆盖所有含 BLOCKED_PROPERTIES 的 .gd 文件
+      // (godot_operations.gd + mcp_bridge.gd 两份副本都必须含 instance,任一漏即复发)
+      const files = ['src/scripts/godot_operations.gd', 'src/scripts/mcp_bridge.gd'];
+      for (const fpath of files) {
+        const f = readSrc(fpath);
+        const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
+        if (!m || !/"instance"/.test(m[0])) return 1;  // 任一副本漏 instance 即复发
+      }
+      return 0;
     } },
   // spec editor-version-tear §1: editor 侧 coerce_property_value 统一 helper（只 coerce 不 set，
   // 与 headless _set_property_with_coerce 刻意不对称——editor 要 per-property undo）。

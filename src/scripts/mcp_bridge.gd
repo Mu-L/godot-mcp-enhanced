@@ -59,6 +59,7 @@ const BLOCKED_PROPERTIES := [
 	"process_unhandled_input", "process_unhandled_key_input", "process_internal",
 	"physics_process_mode", "physics_interpolation_mode", "name", "meta",
 	"input_event", "ready", "tree_entered", "tree_exited", "tree_exiting",
+	"instance",  # I-2 (P2-4 审查 B-1 修复): instance 可注入 ExtResource 实例化恶意场景 _ready,与 script 同级危险。对齐 godot_operations.gd:735 / command_helpers.gd:179。
 ]
 
 # I-06: get_property_list removed from remote-allowed methods to prevent property enumeration.
@@ -166,11 +167,16 @@ func _process(_delta: float) -> void:
 
 	# ─── P2-4 playtest.step pending:每帧递减 frames_remaining,到 0 时 push 响应 ──
 	# step 语义:推进 N 帧后返回。_process 每帧调一次,递减计数即"推进"。
-	# 到 0 时取当前 get_tree 信息作为 step 结果(节点数 + process_frame 计数),push 给 client。
+	# I-2 修复(P2-4 审查):刚加入的 entry(_added_this_frame=true)本帧不递减,
+	# 否则 frames=1 在同一 _process tick 立即完成,physics_frame 未推进 → 拿到 pre-step 状态。
+	# 下一帧 _added_this_frame 清 false 后才开始递减计数。
 	if _playtest_step_pending.size() > 0:
 		var completed: Array = []
 		for idx in range(_playtest_step_pending.size()):
 			var entry: Dictionary = _playtest_step_pending[idx]
+			if bool(entry.get("_added_this_frame", false)):
+				entry["_added_this_frame"] = false  # 下一帧开始递减
+				continue
 			entry["frames_remaining"] = int(entry["frames_remaining"]) - 1
 			if int(entry["frames_remaining"]) <= 0:
 				completed.append(idx)
@@ -553,6 +559,7 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				"pid": pid,
 				"id": _last_step_request_id,
 				"frames_remaining": frames,
+				"_added_this_frame": true,  # I-2 修复:本帧不递减,下一帧才开始计帧
 			})
 		else:
 			peer.put_data((response + "\n").to_utf8_buffer())
@@ -1663,12 +1670,13 @@ func _cmd_playtest_restore(params: Dictionary) -> Variant:
 	return {"success": true, "restored": restored, "skipped_freed": skipped_freed}
 
 func _cmd_playtest_step(params: Dictionary) -> Dictionary:
-	# step 走 coroutine:await get_tree().physics_frame 推进一帧。
-	# _handle_message 检测此命令的特殊返回,启动 coroutine,响应延迟 push(见 _process 末尾)。
+	# step 走延迟响应:_handle_message 返回哨兵字符串,_process_buffer_bytes 存 pending,
+	# _process 每帧递减 frames_remaining(I-2 修复:加入帧不递减,下一帧起计),到 0 时 push 响应。
+	# 非真 await physics_frame coroutine(bridge TCP 同步模型不支持),而是 _process 计数器轮询,
+	# 每个递减对应一次 _process 调用 ≈ 推进一帧(physics 在 _process 前由引擎跑)。
 	var frames: int = int(params.get("frames", 1))
 	if frames < 1 or frames > 60:
 		return {"error": {"code": -1, "message": "frames must be 1-60, got %d" % frames}}
-	# 返回特殊标记:_handle_message 据此启动 coroutine 而非同步 put_data
 	return {"__playtest_step__": true, "frames": frames}
 
 

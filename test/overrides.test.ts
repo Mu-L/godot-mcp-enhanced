@@ -189,4 +189,25 @@ describe('P2-1 overrides.ts', () => {
       expect(OVERRIDE_AUTOLOAD_PREFIX).toBe('autoload/MCPOVERRIDE_');
     });
   });
+
+  // N-2 (P2-4 审查): 路径白名单强制测试 —— 不设 UNRESTRICTED 时越权路径必须抛错
+  describe('path allowlist enforcement (N-2)', () => {
+    it('installOverride 拒绝越权源脚本路径(不设 UNRESTRICTED)', () => {
+      delete process.env.GODOT_MCP_UNRESTRICTED;
+      // 越权路径:/outside/allow/evil.gd(不在 tmpRoot 也不在 cwd)
+      const outside = join(tmpdir(), `outside-${Date.now()}.gd`);
+      writeFileSync(outside, 'extends Node\n', 'utf-8');
+      expect(() => installOverride(outside, projectDir)).toThrow(/not in allowed roots/i);
+      // 清理
+      try { require('fs').unlinkSync(outside); } catch { /* best effort */ }
+    });
+
+    it('installOverride 拒绝越权目标项目路径(不设 UNRESTRICTED)', () => {
+      delete process.env.GODOT_MCP_UNRESTRICTED;
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+      // projectDir 在 tmpRoot,但 UNRESTRICTED 关闭后须 ALLOWED_PROJECT_PATHS 显式允许
+      expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots/i);
+    });
+  });
 });

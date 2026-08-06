@@ -41,5 +41,7 @@ test/fixtures/**/*.png
 test/fixtures/**/*.png.import
 # M3c: gdscript 检查项目运行时复制的 addon(保留 project.godot 源)
 test/fixtures/gdscript-check/addons/
+# I-3 (P2-4 审查): gdscript 检查项目运行时复制的 src/scripts(check-gdscript.ts 扩编译范围)
+test/fixtures/gdscript-check/src/
 # A0-3: e2e-resilience-editor 复制的 addon(同 M3c 模式,保留 project.godot 源)
 test/fixtures/real-project/addons/

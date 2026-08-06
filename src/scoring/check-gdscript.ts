@@ -50,8 +50,13 @@ export function listGd(root: string): string[] {
 // ===== main(IO 层) =====
 
 const SRC_ADDON = resolve(process.cwd(), 'addons', 'godot_mcp_server');
+// I-3 (P2-4 审查): 扩编译范围到 src/scripts/(mcp_bridge.gd 等运行时脚本)。
+// 原只编译 addons/,漏 src/scripts/mcp_bridge.gd(P2-4 五个 _cmd_playtest_* 主战场),
+// 致 BLOCKED_PROPERTIES 漂移(B-1)静默通过。两目录都拷进 CHECK_PROJECT 让 Godot --import 编译。
+const SRC_SCRIPTS = resolve(process.cwd(), 'src', 'scripts');
 const CHECK_PROJECT = resolve(process.cwd(), 'test', 'fixtures', 'gdscript-check');
 const CHECK_ADDON = resolve(CHECK_PROJECT, 'addons', 'godot_mcp_server');
+const CHECK_SCRIPTS = resolve(CHECK_PROJECT, 'src', 'scripts');
 const REPORT_OUT = resolve(process.cwd(), 'coverage', 'gdscript-report.json');
 
 function writeReport(r: GdscriptReport): void {
@@ -75,12 +80,19 @@ async function main(): Promise<void> {
   }
 
   const srcFiles = listGd(SRC_ADDON);
-  const expected = srcFiles.length;
+  const scriptFiles = listGd(SRC_SCRIPTS);
+  const expected = srcFiles.length + scriptFiles.length;
 
-  // ② 复制 addon 进检查项目(每次新拷最新源)
+  // ② 复制 addon + src/scripts 进检查项目(每次新拷最新源)
   mkdirSync(CHECK_ADDON, { recursive: true });
   for (const f of srcFiles) {
     const dst = resolve(CHECK_ADDON + f.slice(SRC_ADDON.length));
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(f, dst);
+  }
+  mkdirSync(CHECK_SCRIPTS, { recursive: true });
+  for (const f of scriptFiles) {
+    const dst = resolve(CHECK_SCRIPTS + f.slice(SRC_SCRIPTS.length));
     mkdirSync(dirname(dst), { recursive: true });
     copyFileSync(f, dst);
   }
@@ -99,8 +111,8 @@ async function main(): Promise<void> {
   const parsed = parseGdscriptOutput(result.stdout + '\n' + result.stderr);
 
   // ⑤ false negative 断言:setup 坏 → incomplete(不产出虚假 0/0)
-  // files 断言
-  const checkFiles = listGd(CHECK_ADDON);
+  // files 断言(I-3:含 addon + src/scripts 两处)
+  const checkFiles = [...listGd(CHECK_ADDON), ...listGd(CHECK_SCRIPTS)];
   if (checkFiles.length !== expected) {
     writeReport({ ...parsed, files: checkFiles.length, incomplete: true,
                   reason: `files 断言失败: 检查项目 ${checkFiles.length} ≠ 源 ${expected}` });
