@@ -1,5 +1,13 @@
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { Server } from "@modelcontextprotocol/server";
+
+// P1-3: legacy era 版本列表(SDK core SUPPORTED_PROTOCOL_VERSIONS 的快照,避免测试 mock 耦合)。
+// SDK 更新此列表时需同步(低频,约每年新版本);核实命令:
+//   node -e "console.log(require('@modelcontextprotocol/server').SUPPORTED_PROTOCOL_VERSIONS)"
+// 追加 '2026-07-28' 实现双时代 opt-in(modern era)。
+const SUPPORTED_PROTOCOL_VERSIONS = [
+  '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07',
+] as const;
 import { join } from 'path';
 import { readInstructions } from './core/instructions.js';
 import { waitForEditorSecret } from './core/editor-auth.js';
@@ -109,8 +117,41 @@ export class GodotServer {
     this.server = new Server(
       { name: 'godot-mcp-enhanced', version: pkgVersion },
       {
-        capabilities: { tools: {}, resources: {}, prompts: {}, completions: {} },
+        // P1-4: 补全 listChanged 声明。enhanced 实际会发 notifications/tools/list_changed
+        // (manage_tools activate/deactivate 触发),但此前 capabilities 未声明 → 客户端可能
+        // 忽略通知。声明后客户端才会订阅,配合 ttlMs 让缓存能在切组时立即失效。
+        capabilities: {
+          tools: { listChanged: true },
+          resources: { listChanged: true },
+          prompts: { listChanged: true },
+          completions: {},
+          // P1-7 (SEP-2577): emit notifications/message 的 server MUST 声明 logging capability。
+          // 此前未声明 → SDK sendLoggingMessage 静默 no-op(logger.ts:155 warn/error 推送失效),
+          // 且 GodotServer 直发 notification(notifications/message) 抛 SdkError 被 catch 吞。
+          logging: {},
+        },
         instructions: readInstructions(),
+        // P1-4 (SEP-2549): 为 cacheable result 提供 ttlMs/cacheScope 提示。
+        // ⚠️ era-gated:SDK v2 的 fillCacheFields 只在 modern-era(2026-07-28+)encodeResult 跑。
+        // enhanced 当前默认 supportedProtocolVersions 仅 legacy era,故 cacheHints 当前对客户端是 no-op
+        // (配置合法,SDK 不报错;面向未来准备 —— enhanced opt-in modern era 或 SDK 默认支持 modern 版本后生效)。
+        // 策略依据:工具/prompts/模板清单启动后基本静态(仅 manage_tools 主动切组时变,
+        // 已配 listChanged 通知立即失效缓存);resources 依赖 project_path 且文件可变,短 TTL + private。
+        cacheHints: {
+          'tools/list': { ttlMs: 300_000, cacheScope: 'public' },         // 5min,工具清单所有用户相同
+          'prompts/list': { ttlMs: 600_000, cacheScope: 'public' },        // 10min,prompts 启动后静态
+          'resources/list': { ttlMs: 60_000, cacheScope: 'private' },      // 1min,依赖 project_path(用户特定)
+          'resources/templates/list': { ttlMs: 600_000, cacheScope: 'public' }, // 10min,模板静态
+          'resources/read': { ttlMs: 30_000, cacheScope: 'private' },      // 30s,读取特定资源,短 TTL
+          'server/discover': { ttlMs: 300_000, cacheScope: 'public' },     // 5min,服务器能力静态
+        },
+        // P1-3 (SEP-2575): opt-in modern era(2026-07-28)。SDK 检测到 modern 版本后:
+        // 1) 自动注册 server/discover handler(_ondiscover,返 supportedVersions+capabilities)
+        // 2) 启用 modern codec → fillCacheFields(cacheHints 上 wire)+ envelope lift(logLevel 等 reserved key 搬到 ctx.mcpReq.envelope)
+        // 双时代自动:legacy 客户端仍走 initialize 握手 + oninitialized;modern 客户端走 server/discover + per-request _meta。
+        // Roots 影响:modern era 无连接级状态,oninitialized 不触发 → Roots 走 env baseline(ALLOWED_PROJECT_PATHS),
+        // 这是预期降级(modern 无状态与 enhanced 连接级安全白名单语义有根本张力,详见 initRootsIntegration 注释)。
+        supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, '2026-07-28'],
       }
     );
     setMcpServer(this.server);
@@ -210,6 +251,14 @@ export class GodotServer {
    * oninitialized 检测 client 能力 → listRoots 拉取 → parseFileRootUris 解析 → setAllowedRootsFromClient 注入。
    * list_changed 热更新。initial 失败 fail-to-env-baseline；re-fetch 失败 + 已有 roots 保留旧（不静默切作用域）。
    * SDK oninitialized: () => void（非 Promise），async 赋值后 SDK 不 await——首次 fetch 完成前工具调用走 env baseline（fail-safe 朝收紧方向）。
+   *
+   * P1-3 (SEP-2575): modern era(2026-07-28)降级行为:
+   * - oninitialized 不触发(modern 无 initialize 握手)→ Roots 走 env baseline(ALLOWED_PROJECT_PATHS)
+   * - listRoots() 在 modern era 抛错(_assertPushApiInServedEra)→ 被 try/catch 兜底,降级 env baseline
+   * - getClientCapabilities() 在 modern era 是 per-request 快照(非连接级)→ oninitialized 不触发故不影响
+   * - notifications/roots/list_changed 移除(modern 用 subscriptions/listen)→ legacy 客户端仍工作
+   * 这是预期降级:modern era 的无状态特性与 enhanced 的"连接级安全白名单"语义有根本张力。
+   * 用户通过 ALLOWED_PROJECT_PATHS 环境变量配置 modern era 的路径白名单。
    */
   private async initRootsIntegration(): Promise<void> {
     const applyRoots = async (isRefetch: boolean): Promise<void> => {
@@ -379,16 +428,17 @@ export class GodotServer {
     await this.initMultiInstance();
 
     // Phase 5d: Project context notification
+    // P1-7 (SEP-2577): 改用 sendLoggingMessage(走 SDK 正规 logging 路径)。
+    // 此前用 notification({method:'notifications/message'}) 直发,被 SDK assertNotificationCapability
+    // 抛 SdkError(因 capabilities 未声明 logging)→ 被 catch 吞,通知没发出。
+    // 声明 logging capability + 改用 sendLoggingMessage 后,SDK 正常发通知。
     setImmediate(() => {
       try {
-        const maybePromise = this.server.notification({
-          method: 'notifications/message',
-          params: {
-            level: 'info',
-            data: '[Godot MCP] Project context available at godot://project-context. Read it for coding guidelines and architecture notes.',
-          },
+        const maybePromise = this.server.sendLoggingMessage({
+          level: 'info',
+          logger: 'server',
+          data: '[Godot MCP] Project context available at godot://project-context. Read it for coding guidelines and architecture notes.',
         });
-        // Handle both sync and async notification returns
         if (maybePromise && typeof maybePromise === 'object' && 'catch' in maybePromise) {
           (maybePromise as Promise<void>).catch(() => {});
         }

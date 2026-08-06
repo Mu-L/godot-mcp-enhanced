@@ -6,6 +6,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
+import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii } from './screenshot-detail.js';
 import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots } from '../helpers.js';
 
 const TOOL_NAMES = ['screenshot'] as const;
@@ -39,6 +40,16 @@ export function getToolDefinitions(): Tool[] {
           // analyze params
           image_path: { type: 'string', description: 'analyze: Absolute path to the image file (PNG or JPG)' },
           question: { type: 'string', description: 'analyze: Question for the AI to answer about the image. Default: "Describe what you see in this game screenshot."', default: 'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.' },
+          // P1-5 视觉成本层级:full(完整 base64)/ thumbnail(缩略图)/ ascii(ASCII art 文本)
+          detail: {
+            type: 'string',
+            enum: ['full', 'thumbnail', 'ascii'],
+            description: 'P1-5 视觉成本层级:full(完整 base64 图像,高 token) / thumbnail(缩放至 thumbnail_width 的 PNG,中 token) / ascii(ASCII art 文本,低 token)。默认 full。',
+            default: 'full',
+          },
+          thumbnail_width: { type: 'number', description: 'detail=thumbnail: 目标宽度像素(默认 256,保持纵横比)', default: 256 },
+          ascii_cols: { type: 'number', description: 'detail=ascii: 字符列数(默认 80)', default: 80 },
+          ascii_rows: { type: 'number', description: 'detail=ascii: 字符行数(默认 40)', default: 40 },
           godot_path: { type: 'string', description: '覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）' },
         },
         required: ['action'],
@@ -171,9 +182,56 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       const imageBuffer = readFileSync(imagePath);
-      const base64 = imageBuffer.toString('base64');
       const ext = extname(imagePath).toLowerCase();
-      const mimeType = (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : 'image/png';
+      const isPng = ext !== '.jpg' && ext !== '.jpeg';
+
+      // P1-5 视觉成本层级:按 detail 参数选择返回精度
+      let detail: 'full' | 'thumbnail' | 'ascii';
+      try {
+        detail = parseDetailLevel(args.detail);
+      } catch (e) {
+        return opsErrorResult('INVALID_PARAMS', (e as Error).message);
+      }
+
+      // detail=ascii:返回 ASCII art 文本(最低 token 成本)
+      if (detail === 'ascii') {
+        if (!isPng) {
+          return opsErrorResult('INVALID_PARAMS', 'detail=ascii 仅支持 PNG 图像(当前: ' + ext + ')。');
+        }
+        // review Nit 3: 正数校验,0/负数 clamp 到默认
+        const cols = Math.max(1, (args.ascii_cols as number) ?? 80);
+        const rows = Math.max(1, (args.ascii_rows as number) ?? 40);
+        const asciiArt = downsampleToAscii(imageBuffer, cols, rows);
+        // review Nit 1: 用实测维度标注(可能被 clamp/纵向二次采样截断,与入参不等)
+        const actualLines = asciiArt.split('\n');
+        const actualCols = actualLines[0]?.length ?? 0;
+        return {
+          content: [
+            { type: 'text' as const, text: `ASCII art (${actualCols}×${actualLines.length}, brightness mapped, requested ${cols}×${rows}):\n\`\`\`\n${asciiArt}\n\`\`\`` },
+            { type: 'text' as const, text: question },
+          ],
+        };
+      }
+
+      // detail=thumbnail:返回降采样 PNG base64(中等 token 成本)
+      if (detail === 'thumbnail') {
+        if (!isPng) {
+          return opsErrorResult('INVALID_PARAMS', 'detail=thumbnail 仅支持 PNG 图像(当前: ' + ext + ')。');
+        }
+        // review Nit 3: 正数校验
+        const targetWidth = Math.max(1, (args.thumbnail_width as number) ?? 256);
+        const thumb = downsampleToThumbnail(imageBuffer, targetWidth);
+        return {
+          content: [
+            { type: 'image' as const, data: thumb.base64, mimeType: thumb.mimeType },
+            { type: 'text' as const, text: `Thumbnail ${thumb.width}×${thumb.height}px (resized to width ${targetWidth}). ${question}` },
+          ],
+        };
+      }
+
+      // detail=full(默认):完整 base64 图像(当前行为,最高 token 成本)
+      const base64 = imageBuffer.toString('base64');
+      const mimeType = isPng ? 'image/png' : 'image/jpeg';
 
       return {
         content: [

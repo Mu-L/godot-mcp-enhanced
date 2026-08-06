@@ -20,3 +20,40 @@ describe('buildMarkdown token budget', () => {
     expect(md).toMatch(/schema 占 \d+%/);
   });
 });
+
+// P1-2: annotations 进 matrix —— 派生 hint 落到每条 cap 记录
+describe('P1-2 annotations in capability matrix', () => {
+  it('every cap record has annotations with three boolean hints', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    const missing = caps.filter(
+      c =>
+        !c.annotations ||
+        typeof c.annotations.readOnlyHint !== 'boolean' ||
+        typeof c.annotations.destructiveHint !== 'boolean' ||
+        typeof c.annotations.idempotentHint !== 'boolean',
+    );
+    expect(
+      missing.map(c => c.name),
+      `caps missing annotations: ${missing.map(c => c.name).join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('pure-write tool (particles) is flagged idempotentHint=true (P1-1 rule)', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    const particles = caps.find(c => c.name === 'particles');
+    expect(particles, 'particles tool should exist').toBeDefined();
+    // P1-1: 纯写工具（全部 write,无 destructive/process）判幂等
+    expect(particles!.annotations!.idempotentHint).toBe(true);
+    expect(particles!.annotations!.readOnlyHint).toBe(false);
+    expect(particles!.annotations!.destructiveHint).toBe(false);
+  });
+
+  it('buildMarkdown includes annotations summary line', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    const md = buildMarkdown(caps);
+    expect(md).toMatch(/annotations：readOnly \d+ \/ destructive \d+ \/ idempotent \d+/);
+  });
+});

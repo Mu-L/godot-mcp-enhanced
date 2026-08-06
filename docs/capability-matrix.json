@@ -107,6 +107,11 @@
         "descBytes": 166,
         "schemaBytes": 856,
         "totalBytes": 1022
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -375,6 +380,11 @@
         "descBytes": 334,
         "schemaBytes": 3157,
         "totalBytes": 3491
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
       }
     },
     {
@@ -537,6 +547,11 @@
         "descBytes": 241,
         "schemaBytes": 1709,
         "totalBytes": 1950
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
       }
     },
     {
@@ -710,6 +725,11 @@
         "descBytes": 243,
         "schemaBytes": 2356,
         "totalBytes": 2599
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -909,6 +929,11 @@
         "descBytes": 210,
         "schemaBytes": 2014,
         "totalBytes": 2224
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1027,6 +1052,11 @@
         "descBytes": 260,
         "schemaBytes": 1147,
         "totalBytes": 1407
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1111,6 +1141,11 @@
         "descBytes": 310,
         "schemaBytes": 567,
         "totalBytes": 877
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1207,6 +1242,11 @@
         "descBytes": 283,
         "schemaBytes": 826,
         "totalBytes": 1109
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -1309,6 +1349,11 @@
         "descBytes": 337,
         "schemaBytes": 922,
         "totalBytes": 1259
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -1398,6 +1443,11 @@
         "descBytes": 94,
         "schemaBytes": 675,
         "totalBytes": 769
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -1468,6 +1518,11 @@
         "descBytes": 181,
         "schemaBytes": 241,
         "totalBytes": 422
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -1639,6 +1694,11 @@
         "descBytes": 592,
         "schemaBytes": 3274,
         "totalBytes": 3866
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1696,6 +1756,11 @@
         "descBytes": 206,
         "schemaBytes": 205,
         "totalBytes": 411
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1760,6 +1825,11 @@
         "descBytes": 175,
         "schemaBytes": 388,
         "totalBytes": 563
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -1808,6 +1878,11 @@
         "descBytes": 85,
         "schemaBytes": 105,
         "totalBytes": 190
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1849,6 +1924,11 @@
         "descBytes": 105,
         "schemaBytes": 33,
         "totalBytes": 138
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1903,6 +1983,11 @@
         "descBytes": 119,
         "schemaBytes": 239,
         "totalBytes": 358
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -1970,7 +2055,7 @@
       "guarded": false,
       "securityLevel": "danger-api",
       "riskDistribution": {
-        "read": 0,
+        "read": 1,
         "write": 0,
         "destructive": 0,
         "process": 0
@@ -2000,6 +2085,11 @@
         "descBytes": 603,
         "schemaBytes": 600,
         "totalBytes": 1203
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -2065,6 +2155,11 @@
         "descBytes": 246,
         "schemaBytes": 354,
         "totalBytes": 600
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -2139,6 +2234,11 @@
         "descBytes": 236,
         "schemaBytes": 308,
         "totalBytes": 544
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -2265,6 +2365,11 @@
         "descBytes": 294,
         "schemaBytes": 1168,
         "totalBytes": 1462
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -2549,6 +2654,11 @@
         "descBytes": 370,
         "schemaBytes": 2980,
         "totalBytes": 3350
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -2796,6 +2906,11 @@
         "descBytes": 292,
         "schemaBytes": 2453,
         "totalBytes": 2745
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -2968,6 +3083,11 @@
         "descBytes": 410,
         "schemaBytes": 1717,
         "totalBytes": 2127
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -3072,6 +3192,11 @@
         "descBytes": 476,
         "schemaBytes": 1061,
         "totalBytes": 1537
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -3279,6 +3404,11 @@
         "descBytes": 109,
         "schemaBytes": 2836,
         "totalBytes": 2945
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -3404,6 +3534,11 @@
         "descBytes": 98,
         "schemaBytes": 1532,
         "totalBytes": 1630
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -3535,6 +3670,11 @@
         "descBytes": 246,
         "schemaBytes": 1387,
         "totalBytes": 1633
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -3851,6 +3991,11 @@
         "descBytes": 277,
         "schemaBytes": 4780,
         "totalBytes": 5057
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
       }
     },
     {
@@ -3912,6 +4057,31 @@
             "description": "analyze: Question for the AI to answer about the image. Default: \"Describe what you see in this game screenshot.\"",
             "default": "Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs."
           },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "full",
+              "thumbnail",
+              "ascii"
+            ],
+            "description": "P1-5 视觉成本层级:full(完整 base64 图像,高 token) / thumbnail(缩放至 thumbnail_width 的 PNG,中 token) / ascii(ASCII art 文本,低 token)。默认 full。",
+            "default": "full"
+          },
+          "thumbnail_width": {
+            "type": "number",
+            "description": "detail=thumbnail: 目标宽度像素(默认 256,保持纵横比)",
+            "default": 256
+          },
+          "ascii_cols": {
+            "type": "number",
+            "description": "detail=ascii: 字符列数(默认 80)",
+            "default": 80
+          },
+          "ascii_rows": {
+            "type": "number",
+            "description": "detail=ascii: 字符行数(默认 40)",
+            "default": 40
+          },
           "godot_path": {
             "type": "string",
             "description": "覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）"
@@ -3935,6 +4105,10 @@
         "wait_text",
         "image_path",
         "question",
+        "detail",
+        "thumbnail_width",
+        "ascii_cols",
+        "ascii_rows",
         "godot_path"
       ],
       "readonly": true,
@@ -3970,8 +4144,13 @@
       },
       "size": {
         "descBytes": 269,
-        "schemaBytes": 1922,
-        "totalBytes": 2191
+        "schemaBytes": 2516,
+        "totalBytes": 2785
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -4179,6 +4358,11 @@
         "descBytes": 339,
         "schemaBytes": 2805,
         "totalBytes": 3144
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
       }
     },
     {
@@ -4246,6 +4430,11 @@
         "descBytes": 182,
         "schemaBytes": 361,
         "totalBytes": 543
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -4356,6 +4545,11 @@
         "descBytes": 232,
         "schemaBytes": 1058,
         "totalBytes": 1290
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -4451,6 +4645,11 @@
         "descBytes": 655,
         "schemaBytes": 832,
         "totalBytes": 1487
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
       }
     },
     {
@@ -4717,6 +4916,11 @@
         "descBytes": 286,
         "schemaBytes": 3228,
         "totalBytes": 3514
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
       }
     },
     {
@@ -5010,6 +5214,11 @@
         "descBytes": 647,
         "schemaBytes": 3560,
         "totalBytes": 4207
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -5210,6 +5419,11 @@
         "descBytes": 131,
         "schemaBytes": 2436,
         "totalBytes": 2567
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     },
     {
@@ -5487,6 +5701,11 @@
         "descBytes": 228,
         "schemaBytes": 4224,
         "totalBytes": 4452
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
       }
     }
   ]

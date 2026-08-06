@@ -69,4 +69,19 @@ describe('extractCapabilities', () => {
       expect(c.size.descBytes).toBeGreaterThan(0); // 每个工具有非空描述
     }
   });
+
+  // P1-2 review Nit 3: F 组 annotations 字段在 extract 层应定义
+  it('F. populates annotations (three boolean hints) for each tool', () => {
+    registerAllModules();
+    const caps = extractCapabilities(PROJECT_ROOT);
+    expect(caps.length).toBeGreaterThan(0);
+    const missing = caps.filter(
+      c =>
+        !c.annotations ||
+        typeof c.annotations.readOnlyHint !== 'boolean' ||
+        typeof c.annotations.destructiveHint !== 'boolean' ||
+        typeof c.annotations.idempotentHint !== 'boolean',
+    );
+    expect(missing.map(c => c.name), `caps missing F.annotations: ${missing.map(c => c.name).join(', ')}`).toEqual([]);
+  });
 });

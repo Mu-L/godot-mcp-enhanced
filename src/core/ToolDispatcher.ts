@@ -35,7 +35,7 @@ import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { truncateResponse } from './response-limiter.js';
 import * as ps from './process-state.js';
-import { getLogger } from './logger.js';
+import { getLogger, withRequestLogLevelAsync, withRequestLogFn, type LogLevel } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
 import { record as recordTelemetry, hashProject, isTelemetryEnabled } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
@@ -219,11 +219,39 @@ export class ToolDispatcher {
     const progressEmitter: ProgressEmitter | undefined =
       progressToken !== undefined ? createProgressEmitter(progressToken) : undefined;
 
+    // P1-7 (SEP-2577): 提取 per-request logLevel(io.modelcontextprotocol/logLevel)。
+    // ⚠️ 关键:SDK v2 在 dispatch 前 liftWireOnlyMaterial 会把 RESERVED_ENVELOPE_META_KEYS
+    // (含 logLevel)从 request.params._meta **delete 掉**搬到 ctx.mcpReq.envelope
+    // (node_modules/.../src-CX2iR2pK.mjs:6003-6041)。故必须从 srvCtx.mcpReq.envelope 读,
+    // 从 request.params._meta 读恒得 undefined(第三方审查 I1 发现)。
+    // envelope 是 Partial<RequestMetaEnvelope>(运行时含 reserved key,类型上是空对象),用字符串索引读。
+    const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
+    const envelope = srvCtx?.mcpReq?.envelope as Record<string, unknown> | undefined;
+    const rawLogLevel = envelope?.['io.modelcontextprotocol/logLevel'] as string | undefined;
+    const requestLogLevel: LogLevel | 'off' | null =
+      rawLogLevel === undefined ? null
+      : rawLogLevel === 'off' ? 'off'
+      : VALID_LOG_LEVELS.has(rawLogLevel) ? (rawLogLevel as LogLevel)
+      : null;  // 非法值视为 null(旧行为);SEP-2577 建议返 -32602 但 enhanced 在 middleware 层不阻断
+
     const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before' };
 
-    return executeMiddleware(this.middleware, ctx, async () => {
-      return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
-    });
+    // P1-7 (SEP-2577): per-request logLevel 包裹整个工具调用链(middleware + executeToolCall +
+    // dispatchTool + confirm_and_execute)。withRequestLogLevelAsync 在 await 期间保持
+    // _currentRequestLogLevel,emitToClient 据此过滤 notifications/message。
+    // null = 客户端未设 _meta['io.modelcontextprotocol/logLevel'],保持旧行为(仅 warn/error 发)。
+    //
+    // P1-3 完整推进: 叠加 withRequestLogFn 注入 SDK 官方 ctx.mcpReq.log(自动处理 era + severity)。
+    // emitToClient 优先用 _requestLogFn(SDK 官方),无它时降级到 _currentRequestLogLevel(自管)。
+    // srvCtx.mcpReq.log 由 SDK buildContext 构造,may be undefined(legacy 无 envelope / 非 request 上下文)。
+    const requestLogFn = srvCtx?.mcpReq?.log as ((level: string, data: unknown, logger?: string) => Promise<void>) | undefined;
+    return withRequestLogFn(requestLogFn ?? null, () =>
+      withRequestLogLevelAsync(requestLogLevel, () =>
+        executeMiddleware(this.middleware, ctx, async () => {
+          return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
+        }),
+      ),
+    );
   }
 
   private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
@@ -726,6 +754,8 @@ export class ToolDispatcher {
         perCallCtx.checkEditorTextResourceWrite = (p: string) => this._checkEditorGuard('guard_text_resource_write', p);
         perCallCtx.checkEditorSceneSave = (p: string) => this._checkEditorGuard('guard_offline_scene_save', p);
       }
+      // P1-7 (SEP-2577): per-request logLevel 包裹在 handleCall 层(withRequestLogLevelAsync
+      // 包裹 executeMiddleware),此处 dispatchTool 内的工具调用自动继承 _currentRequestLogLevel。
       result = await targetMod.handleTool(effectiveToolName, effectiveArgs, perCallCtx);
     } catch (err) {
       const duration = Date.now() - startTime;

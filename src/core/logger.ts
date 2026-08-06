@@ -131,26 +131,71 @@ export function sanitizeMsg(msg: string): string {
   return truncate(redacted);
 }
 
-/** MCP LoggingLevel 子集映射：本项目 4 级 → MCP 8 级。debug/info 返 null（不发 client）。 */
+/** MCP LoggingLevel 子集映射：本项目 4 级 → MCP 8 级。debug/info 返 null（不发 client，连接级默认）。 */
 function toMcpLevel(level: LogLevel): 'warning' | 'error' | null {
   if (level === 'warn') return 'warning';
   if (level === 'error') return 'error';
   return null;
 }
 
+/** P1-7: syslog 级别排名(debug<info<warn<error),用于 per-request logLevel 过滤。 */
+const LEVEL_RANK: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
 /**
- * 增量第三写：按条件向 MCP client 推送 warn/error。
- * guard: _mcpServer 注入 + _clientReady + level∈{warn,error}。
+ * P1-7 (SEP-2577): 判断 entry 是否应发往 client,考虑 per-request logLevel。
+ *
+ * - _currentRequestLogLevel === null(非工具调用上下文):保持旧行为(仅 warn/error 发)。
+ *   覆盖连接级通知(GodotServer.ts 项目上下文)和启动期日志。
+ * - _currentRequestLogLevel === 'off':完全不发(客户端显式关闭)。
+ * - _currentRequestLogLevel 是具体级别:entry.level >= requested 才发(含 debug/info,
+ *   即客户端请求 debug 级别时,所有 >= debug 的日志都发)。
+ */
+function shouldEmitToClient(entry: LogEntry): boolean {
+  if (_currentRequestLogLevel === 'off') return false;
+  if (_currentRequestLogLevel === null) {
+    // 旧行为:仅 warn/error
+    return toMcpLevel(entry.level) !== null;
+  }
+  // per-request 模式:按排名过滤
+  return LEVEL_RANK[entry.level] >= LEVEL_RANK[_currentRequestLogLevel];
+}
+
+/**
+ * 增量第三写：按条件向 MCP client 推送日志。
+ *
+ * P1-3 完整推进:优先用 _requestLogFn(SDK 官方 ctx.mcpReq.log,自动 era + severity 过滤)。
+ * 无 _requestLogFn 时(连接级/启动期/legacy)降级到 server 级 sendLoggingMessage + P1-7 自管过滤。
+ *
+ * guard: _mcpServer 注入 + _clientReady + shouldEmitToClient(P1-7 per-request 过滤,仅降级路径用)。
  * 失败静默（try/catch 同步 throw + .catch async reject）——日志是观测层，绝不影响主流程。
  * 安全：entry 经 log() 的 sanitizeMsg/sanitizeMeta 脱敏后才进 writeEntry，data 已脱敏。
  */
 function emitToClient(entry: LogEntry): void {
-  if (!_mcpServer || !_clientReady) return;
-  const mcpLevel = toMcpLevel(entry.level);
-  if (!mcpLevel) return;
   const data: Record<string, unknown> = { msg: entry.msg, module: entry.module };
   if (entry.tool) data.tool = entry.tool;
   if (entry.meta) data.meta = entry.meta;
+
+  // P1-3: 优先用 SDK 官方 per-request log 函数(自动过滤 modern envelope + legacy setLevel + severity)
+  if (_requestLogFn) {
+    const mcpLevel = entry.level === 'warn' ? 'warning' : entry.level;
+    try {
+      const p = _requestLogFn(mcpLevel, data, entry.module);
+      if (p && typeof (p as Promise<unknown>).catch === 'function') {
+        (p as Promise<unknown>).catch(() => {});
+      }
+    } catch {
+      // 同步 throw 静默
+    }
+    return;
+  }
+
+  // 降级路径:无 per-request logFn,用 server 级 sendLoggingMessage + P1-7 自管过滤
+  if (!_mcpServer || !_clientReady) return;
+  if (!shouldEmitToClient(entry)) return;
+  const mcpLevel = _currentRequestLogLevel === null
+    ? toMcpLevel(entry.level)  // 旧行为:仅 warning/error
+    : (entry.level === 'warn' ? 'warning' : entry.level);  // per-request:发原始级别
+  if (!mcpLevel) return;
   try {
     const p = _mcpServer.sendLoggingMessage({ level: mcpLevel, logger: entry.module, data });
     if (p && typeof (p as Promise<unknown>).catch === 'function') {
@@ -460,6 +505,82 @@ function createLogger(opts: LoggerOptions = {}): Logger {
 let _mcpServer: Server | null = null;
 let _clientReady = false;
 
+// P1-7 (SEP-2577): per-request logLevel 过滤。
+// stdio 单请求并发场景下用 module 级变量安全(同一时刻只有一个请求在处理);
+// HTTP 多请求场景(P3-3)需升级为 AsyncLocalStorage,留 TODO。
+// null = 非工具调用上下文(连接级通知/启动期),保持旧行为(发 warn/error)。
+// 'off' = 客户端显式关闭日志。具体级别 = 按 syslog 排名过滤。
+//
+// @deprecated P1-3 完整推进:优先用 _requestLogFn(SDK 官方 ctx.mcpReq.log),
+// 它自动处理 modern envelope logLevel + legacy setLevel + severity 过滤。
+// _currentRequestLogLevel 保留作 fallback(测试 + 无 srvCtx 的 legacy 场景)。
+let _currentRequestLogLevel: LogLevel | 'off' | null = null;
+
+// P1-3 完整推进:per-request log 函数(SDK 官方 ctx.mcpReq.log)。
+// ToolDispatcher.handleCall 注入 srvCtx.mcpReq.log,emitToClient 优先用它。
+// null = 非工具调用上下文(连接级通知/启动期),降级到 server 级 sendLoggingMessage。
+// SDK 的 ctx.mcpReq.log 自动:modern era 读 envelope logLevel / legacy era 读 _loggingLevels /
+// 自动 severity 过滤。优于 P1-7 自管过滤(消除 envelope lift 陷阱)。
+type RequestLogFn = (level: string, data: unknown, logger?: string) => Promise<void>;
+let _requestLogFn: RequestLogFn | null = null;
+
+/**
+ * P1-7: 包裹器,在工具调用期间设置 per-request logLevel,执行完(含抛错)复位。
+ * ToolDispatcher.handleCall 提取 _meta['io.modelcontextprotocol/logLevel'] 后用此包裹工具执行。
+ * emitToClient 读 _currentRequestLogLevel 决定是否过滤。
+ *
+ * 同步版:用于同步代码块。工具调用是 async,用 withRequestLogLevelAsync。
+ */
+export function withRequestLogLevel<T>(level: LogLevel | 'off' | null, fn: () => T): T {
+  const prev = _currentRequestLogLevel;
+  _currentRequestLogLevel = level;
+  try {
+    return fn();
+  } finally {
+    _currentRequestLogLevel = prev;
+  }
+}
+
+/**
+ * P1-7: async 版包裹器,await 完成后才复位(同步版会在 Promise resolve 前就复位)。
+ * ToolDispatcher.executeToolCall 用此包裹 targetMod.handleTool(await)。
+ */
+export async function withRequestLogLevelAsync<T>(level: LogLevel | 'off' | null, fn: () => Promise<T>): Promise<T> {
+  const prev = _currentRequestLogLevel;
+  _currentRequestLogLevel = level;
+  try {
+    return await fn();
+  } finally {
+    _currentRequestLogLevel = prev;
+  }
+}
+
+/** 读当前 per-request logLevel(测试用,工具一般不直接读)。 */
+export function getCurrentRequestLogLevel(): LogLevel | 'off' | null {
+  return _currentRequestLogLevel;
+}
+
+/**
+ * P1-3 完整推进: async 包裹器, 在工具调用期间注入 SDK 官方 per-request log 函数。
+ * ToolDispatcher.handleCall 从 srvCtx.mcpReq.log 提取后用此包裹工具执行链。
+ * emitToClient 优先用 _requestLogFn(SDK 自动过滤), 无它时降级到自管 _currentRequestLogLevel。
+ * finally 保证复位(含抛错)。
+ */
+export async function withRequestLogFn<T>(logFn: RequestLogFn | null, fn: () => Promise<T>): Promise<T> {
+  const prev = _requestLogFn;
+  _requestLogFn = logFn;
+  try {
+    return await fn();
+  } finally {
+    _requestLogFn = prev;
+  }
+}
+
+/** 读当前 per-request log 函数(测试用)。 */
+export function getCurrentRequestLogFn(): RequestLogFn | null {
+  return _requestLogFn;
+}
+
 /** 注入 MCP Server 实例（GodotServer 构造时调）；null 清除（close/测试隔离） */
 export function setLoggerServer(server: Server | null): void {
   _mcpServer = server;
@@ -493,4 +614,8 @@ export function resetLogger(): void {
   }
   _mcpServer = null;
   _clientReady = false;
+  // P1-7 review N3: 防御性复位,避免测试在 async 包裹中途调 resetLogger 致状态泄漏
+  _currentRequestLogLevel = null;
+  // P1-3: 同理复位 per-request log 函数
+  _requestLogFn = null;
 }

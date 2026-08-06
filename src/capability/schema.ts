@@ -52,6 +52,13 @@ export interface ToolCapability {
     schemaBytes: number;
     totalBytes: number;
   };
+  // ── F. MCP 标准 ToolAnnotations hints（P1-2）──
+  /** MCP 标准 hints(module-loader deriveMcpHints 派生 + tool 定义手动 override 优先)。extract.ts 的降级 deriveMcpHints 分支当前是防御性兜底 —— 唯一 inline tool confirm_and_execute 只进 metaRegistry 不进 modules,不在 matrix 里,故降级分支不可达。保留以备未来 getAllToolDefinitions 改为也返回 inline tool。 */
+  annotations?: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+  };
 }
 
 /** 按优先级定级：danger-api > guarded > safe（spec §3.1）。 */

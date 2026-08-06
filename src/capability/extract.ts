@@ -1,5 +1,6 @@
 // src/capability/extract.ts
 import { getAllToolDefinitions, getToolMeta, getGroupForTool, getActionRisks, TOOL_GROUPS, OFFLINE_TOOLS, type RiskLevel } from '../core/tool-registry.js';
+import { deriveMcpHints } from '../core/module-loader.js';
 import { isGuardedTool } from '../guard.js';
 import { classifySecurityLevel, type ToolCapability } from './schema.js';
 import { GROUP_SOURCE_FILES, scanDangerApi, findEditorCommandForTool } from './static-grep.js';
@@ -63,6 +64,13 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
     const descBytes = Buffer.byteLength(tool.description ?? '', 'utf8');
     const schemaBytes = Buffer.byteLength(JSON.stringify(tool.inputSchema), 'utf8');
 
+    // P1-2: annotations 单一真相源 —— 优先读 tool.annotations 最终值(injectTags 已派生+override),
+    // 未走 injectTags 的 inline tool 降级到 deriveMcpHints 重算(防御性,保持与 tools/list 一致)。
+    const rawHints = tool.annotations as { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean } | undefined;
+    const annotations = rawHints && rawHints.readOnlyHint !== undefined && rawHints.destructiveHint !== undefined && rawHints.idempotentHint !== undefined
+      ? { readOnlyHint: rawHints.readOnlyHint, destructiveHint: rawHints.destructiveHint, idempotentHint: rawHints.idempotentHint }
+      : deriveMcpHints(actionRisks);
+
     return {
       name: tool.name,
       group,
@@ -87,6 +95,7 @@ export function extractCapabilities(projectRoot: string): ToolCapability[] {
       relatedDefects: [], // M2 填充
       verification: { l1: 'extracted', l2: 'none', l3: 'unverified', lastRun: null },
       size: { descBytes, schemaBytes, totalBytes: descBytes + schemaBytes },
+      annotations,
     } satisfies ToolCapability;
   });
 }

@@ -55,4 +55,23 @@ describe('diffMatrices', () => {
     const same = [cap('a')];
     expect(diffMatrices(same, same).hasDrift).toBe(false);
   });
+
+  // P1-2: annotations hint 漂移检测
+  it('P1-2: detects idempotentHint flip false → true as annotationChange', () => {
+    const prev = [cap('a', { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } })];
+    const curr = [cap('a', { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } })];
+    const r = diffMatrices(prev, curr);
+    expect(r.annotationChanges).toEqual([
+      { name: 'a', field: 'idempotentHint', from: false, to: true },
+    ]);
+    expect(r.hasDrift).toBe(true);
+  });
+
+  it('P1-2: undefined annotations treated as all-false (baseline compat)', () => {
+    // 老基线 matrix 无 annotations 字段 → 视为全 false。curr 有 idempotentHint=true → 应报 drift
+    const prev = [cap('a')]; // 无 annotations
+    const curr = [cap('a', { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } })];
+    const r = diffMatrices(prev, curr);
+    expect(r.annotationChanges).toContainEqual({ name: 'a', field: 'idempotentHint', from: false, to: true });
+  });
 });

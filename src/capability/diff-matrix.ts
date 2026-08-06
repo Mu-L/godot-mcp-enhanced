@@ -5,12 +5,13 @@ import { registerAllModules } from '../core/module-loader.js';
 import { extractCapabilities } from './extract.js';
 import type { SecurityLevel, ToolCapability } from './schema.js';
 
-/** 漂移报告：对比基线与当前矩阵的四维差异。 */
+/** 漂移报告：对比基线与当前矩阵的五维差异。 */
 export interface DriftReport {
   added: string[];
   removed: string[];
   contractChanges: string[]; // requiredParams 增减
   securityLevelDowngrades: { name: string; from: SecurityLevel; to: SecurityLevel }[];
+  annotationChanges: { name: string; field: 'readOnlyHint' | 'destructiveHint' | 'idempotentHint'; from: boolean; to: boolean }[];
   hasDrift: boolean;
 }
 
@@ -23,7 +24,7 @@ const LEVEL_RANK: Record<SecurityLevel, number> = {
 
 /**
  * 纯函数：对比两份能力矩阵，产出漂移报告。
- * 只查 4 维：added / removed / contractChanges / securityLevelDowngrades。
+ * 查 5 维：added / removed / contractChanges / securityLevelDowngrades / annotationChanges。
  * 不查 gdScriptImpl（editor 实现路径属元数据，非契约字段，不参与 drift）。
  */
 export function diffMatrices(prev: ToolCapability[], curr: ToolCapability[]): DriftReport {
@@ -35,6 +36,9 @@ export function diffMatrices(prev: ToolCapability[], curr: ToolCapability[]): Dr
 
   const contractChanges: string[] = [];
   const securityLevelDowngrades: { name: string; from: SecurityLevel; to: SecurityLevel }[] = [];
+  const annotationChanges: DriftReport['annotationChanges'] = [];
+
+  const HINT_FIELDS = ['readOnlyHint', 'destructiveHint', 'idempotentHint'] as const;
 
   for (const [name, c] of currMap) {
     const p = prevMap.get(name);
@@ -47,12 +51,20 @@ export function diffMatrices(prev: ToolCapability[], curr: ToolCapability[]): Dr
     if (LEVEL_RANK[c.securityLevel] > LEVEL_RANK[p.securityLevel]) {
       securityLevelDowngrades.push({ name, from: p.securityLevel, to: c.securityLevel });
     }
+    // annotations hint 变更：任一 hint 布尔值翻转（undefined 视为 false）
+    for (const field of HINT_FIELDS) {
+      const pv = p.annotations?.[field] ?? false;
+      const cv = c.annotations?.[field] ?? false;
+      if (pv !== cv) {
+        annotationChanges.push({ name, field, from: pv, to: cv });
+      }
+    }
   }
 
   const hasDrift =
-    added.length + removed.length + contractChanges.length + securityLevelDowngrades.length > 0;
+    added.length + removed.length + contractChanges.length + securityLevelDowngrades.length + annotationChanges.length > 0;
 
-  return { added, removed, contractChanges, securityLevelDowngrades, hasDrift };
+  return { added, removed, contractChanges, securityLevelDowngrades, annotationChanges, hasDrift };
 }
 
 /** 从 git HEAD 读取已提交的基线矩阵；无基线（首次/未提交）返回 null，不阻断。 */

@@ -51,7 +51,10 @@ export const TOOL_META = {
   'help': {
     readonly: true,
     long_running: false,
-    actionRisks: {},
+    // P1-1 review Nit 2: 空 actionRisks 会让 deriveMcpHints 走 risks.length===0 分支得全 false,
+    // 致 readonly 查询工具被标 idempotent=false(本应 true)。填 `_` 占位让 deriveMcpHints 走正常 read 分支。
+    // 参考 get-context.ts:259 的 `_: 'read'` 模式。
+    actionRisks: { _: 'read' as const },
   },
 };
 
