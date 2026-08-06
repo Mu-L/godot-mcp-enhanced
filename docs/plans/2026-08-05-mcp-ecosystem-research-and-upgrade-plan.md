@@ -73,11 +73,22 @@
 | # | 任务 | 来源 | 工作量 | 依赖 |
 |---|------|------|--------|------|
 | P2-1 | `overrides` 参数（启动时注入 autoload） | peek | S | 无 |
-| P2-2 | `validate_gdd` 改用 SceneTree `_initialize()` | tugcantopaloglu v3.1 | S | 无 |
+| P2-2 | ~~`validate_gdd` 改用 SceneTree `_initialize()`~~（2026-08-06 核查纠偏：功能已在 `validate_scripts` 落地，见下） | tugcantopaloglu v3.1 | XS | 无 |
 | P2-3 | nodeType 参数 RCE 审计 | Coding-Solo #95 | S | 无 |
 | P2-4 | 确定性 playtest 四原语 | breakpoint Plane C | M | 无 |
 | P2-5 | SEP-2133：capabilities 加 extensions 字段 | SEP-2133 | S | P0-1 |
 | P2-6 | recipe 加入验证闭环 + SAFETY 收尾 | breakpoint recipes | S | 无 |
+
+> [!warning] P2 核查纠偏（2026-08-06，3 路并行 Explore 只读核查）
+>
+> P2 表格写于调研期（基于竞品文档推断），核查后发现与代码现状有偏差：
+>
+> - **P2-2 已实质落地**：原写"validate_gdd 改用 SceneTree `_initialize()`"。核查发现 `validate_gdd`（`src/tools/game-design.ts:106-199`）是纯 markdown 文档校验器，不碰 Godot；真正要的 autoload 感知 **已在 `validate_scripts` → `src/tools/validation.ts:200-202`**（`extends SceneTree` + `func _initialize():` + `load()` + `--path projectPath`）落地。处置：关闭代码任务，补回归测试 `test/regression/validate-scripts-autoload.test.ts`，纠正本表措辞。
+> - **P2-3 双层防御已做**：nodeType 类参数的 TS 字符白名单 + GD 类白名单 + 契约测试（`test/regression/headless-whitelist.test.ts`）均已就位（commit `2a6ebcd` 堵 extends Node RCE）。**唯一 gap**：`src/tools/scene/scene-commit.ts:91-96` 的 node_add 用黑名单（9 项敏感类）而非白名单，第三方 addon 注册的恶意 class_name 不在列。处置：收尾黑名单→白名单。
+> - **P2-5 SDK 已支持**：`@modelcontextprotocol/server` v2 的 `ServerCapabilitiesSchema` 已有 `extensions` 可选字段，声明是 trivial。但 enhanced 无消费方，纯声明零价值。处置：声明 `io.godot-mcp/runtime-bridge` 发现性 extension（暴露 bridge 端口/认证/确定性能力），让 modern 客户端可发现。
+> - **P2-6 SAFETY 已天然达成**：`ui_draw_recipe` 的 7 种 op（rect/circle/line/arc/polygon/polyline/string）全是 `draw_*` immediate-mode 原语，无清屏/资源加载/代码执行；`action-gate.ts:16-22` 正确地不 gate 它；`actionRisks: 'write'` 已标。处置：仅加验证闭环（draw_result 读回），SAFETY 仅文档说明。
+>
+> 完整核查证据与处置方案见 `docs/plans/` 下 P2 实施 plan（2026-08-06）。
 
 ### P3（长期/可选，7 项）
 
@@ -143,7 +154,7 @@ P0-6(压缩)   ─→ (无下游，独立)
 | `CerebroCanibalus/heren-mcp` | 7 | **Python**（非 Rust！） | undo/redo wrapper + 视觉成本层级 + orchestrate（宣传虚假） | undo_redo_wrapper / 视觉层级 / orchestrate |
 | `PrajnaAvidya/Godot-Peek-MCP` | 10 | C++ + Go | 运行时可见性 + Unix socket 多 session + overrides | overrides 参数 |
 | `Coding-Solo/godot-mcp` | - | TS | 老牌 + RCE 修复教训（class_name 白名单） | RCE 防御审计 |
-| `tugcantopaloglu/godot-mcp` | - | TS | 157 工具 + autoload 感知 validate + C# 支持 | validate_gdd autoload 感知 |
+| `tugcantopaloglu/godot-mcp` | - | TS | 157 工具 + autoload 感知 validate + C# 支持 | autoload 感知 validate（enhanced 借鉴到 `validate_scripts`，非 `validate_gdd`；2026-08-06 核查见 P2 纠偏块） |
 | `bradypp/godot-mcp` | - | TS | ToolRegistry readOnly 标记（已停滞 14 月） | readOnly 元数据 |
 
 ### 关键竞品发现

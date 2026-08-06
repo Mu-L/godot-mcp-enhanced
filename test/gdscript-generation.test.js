@@ -367,22 +367,25 @@ describe('wrapAssertionCode — GDScript assertion wrapper', () => {
   });
 });
 
-describe('generateCommitScript node_add (IMP-4: sensitive type blacklist)', () => {
-  it('rejects sensitive types (HTTPRequest/Thread/Engine/OS) with error in generated GDScript', () => {
-    for (const badType of ['HTTPRequest', 'Thread', 'Engine', 'OS']) {
+describe('generateCommitScript node_add (P2-3: allowlist, 原 IMP-4 黑名单已收紧)', () => {
+  it('rejects non-allowlist types (含敏感类 HTTPRequest/Thread/Engine/OS + 第三方未知类)', () => {
+    // P2-3: 白名单语义——非白名单类一律拒(含原黑名单的敏感类 + 任何不在 ALLOWED_COMMIT_NODE_TYPES 的类)
+    for (const badType of ['HTTPRequest', 'Thread', 'Engine', 'OS', 'SomeRandomAddonClass']) {
       const script = generateCommitScript('res://x.tscn', [
         { op: 'node_add', parent: '.', name: 'Bad', type: badType },
       ], false);
-      expect(script).toContain('Blocked sensitive type');
+      expect(script).toContain('Type not in allowlist');
       expect(script).toContain(badType);
     }
   });
-  it('allows normal Node types (Sprite2D/Node3D/Camera3D) without block', () => {
+  it('allows allowlist types (Sprite2D/Node3D/Camera3D)', () => {
     for (const okType of ['Sprite2D', 'Node3D', 'Camera3D']) {
       const script = generateCommitScript('res://x.tscn', [
         { op: 'node_add', parent: '.', name: 'Good', type: okType },
       ], false);
-      expect(script).not.toContain('Blocked sensitive type');
+      expect(script).not.toContain('Type not in allowlist');
+      // 应生成 .new() 实例化
+      expect(script).toContain(`${okType}.new()`);
     }
   });
 });

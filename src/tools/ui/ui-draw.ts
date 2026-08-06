@@ -1,4 +1,11 @@
 // UI draw recipe operations.
+//
+// P2-6 SAFETY 说明(2026-08-06):ui_draw_recipe 的 ops 受限为 7 种 draw_* immediate-mode 原语
+// (rect/circle/line/arc/polygon/polyline/string),全部是 Control.draw 信号回调里的纯绘制调用,
+// 无清屏/无覆盖其他节点/无外部资源加载/无代码执行能力 → 无 RCE 面。
+// action-gate.ts 正确地不 gate 本工具(gate 只针对真 RCE 面 runtime.execute_gdscript / blender.execute_bpy)。
+// actionRisks 已标 'write'(ui/index.ts)。MAX_DRAW_OPS=200 已有 DoS 防护。
+// 未来若扩展 DRAW_OP_KINDS(如加 load_texture/clear/execute),须重新评估是否需 gate 或独立 SAFETY 层。
 
 import { gdEscape, SCENE_TREE_HEADER } from '../shared.js';
 import { ensureNumber } from '../shared/validation.js';
@@ -110,6 +117,10 @@ ${drawLines || '\t\tpass'}
 \tnode.draw.connect(_draw_fn)
 \tnode.queue_redraw()
 \t_mcp_output("draw_recipe_attached", {"node": "${gdEscape(nodePath)}", "ops_count": ${ops.length}})
+\t# P2-6 验证闭环:await 一帧让 _draw 触发,再读回绘制结果确认生效(非 fire-and-forget)
+\tawait process_frame
+\tvar _draw_attached = node.draw.is_connected(_draw_fn)
+\t_mcp_output("draw_result", {"node": "${gdEscape(nodePath)}", "ops_count": ${ops.length}, "draw_signal_connected": _draw_attached, "node_valid": is_instance_valid(node)})
 \t_mcp_done()
 `;
 }

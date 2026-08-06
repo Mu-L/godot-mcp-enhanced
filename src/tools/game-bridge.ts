@@ -350,6 +350,8 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
 const ACTIONS = [
   'game_bridge_install',
   'game_bridge_uninstall',
+  'install_override',
+  'uninstall_override',
   'game_query',
   'game_write',
   'game_input',
@@ -368,7 +370,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'game',
-      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
+      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -379,6 +381,7 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           port: { type: 'number', description: 'game_bridge_install: 桥接监听端口（当前忽略，始终 9081）', default: 9081 },
+          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 autoload/MCPOVERRIDE_<basename>）' },
           method: {
             type: 'string',
             description: 'game_query/game_write/game_input/game_wait 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property',
@@ -620,6 +623,47 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return textResult(JSON.stringify({ success: true, message: 'MCP Bridge uninstalled.' }));
       }
 
+      // P2-1: Autoload overrides —— 启动游戏前注入任意调试脚本(日志钩子/状态快照等)
+      case 'install_override': {
+        const projectPath = requireProjectPath(args);
+        const sourceScriptPath = args.source_script_path as string | undefined;
+        if (!sourceScriptPath) {
+          return opsErrorResult('INVALID_PARAMS', 'install_override requires source_script_path (absolute path to .gd script)');
+        }
+        try {
+          const { installOverride } = await import('../core/overrides.js');
+          const entry = installOverride(sourceScriptPath, projectPath);
+          if (entry === null) {
+            return textResult(JSON.stringify({ success: true, message: 'Override already registered, skipped.', already_installed: true }));
+          }
+          return textResult(JSON.stringify({
+            success: true,
+            message: `Override installed: ${entry.autoloadKey}`,
+            autoload_key: entry.autoloadKey,
+            dest_script: `res://${entry.destScriptName}`,
+            project_root: entry.projectRoot,
+          }));
+        } catch (err) {
+          return opsErrorResult('OVERRIDE_INSTALL_FAILED', getErrorMessage(err));
+        }
+      }
+
+      case 'uninstall_override': {
+        const projectPath = requireProjectPath(args);
+        const sourceScriptPath = args.source_script_path as string | undefined;
+        if (!sourceScriptPath) {
+          return opsErrorResult('INVALID_PARAMS', 'uninstall_override requires source_script_path (absolute path to .gd script)');
+        }
+        try {
+          const { uninstallOverride, deriveOverrideEntry } = await import('../core/overrides.js');
+          const removed = uninstallOverride(sourceScriptPath, projectPath);
+          const entry = deriveOverrideEntry(sourceScriptPath, projectPath);
+          return textResult(JSON.stringify({ success: true, removed, autoload_key: entry.autoloadKey }));
+        } catch (err) {
+          return opsErrorResult('OVERRIDE_UNINSTALL_FAILED', getErrorMessage(err));
+        }
+      }
+
       case 'game_query':
       case 'game_write':
       case 'game_input': {
@@ -794,6 +838,8 @@ export const TOOL_META: Record<
       click_button: 'read',
       game_bridge_install: 'write',
       game_bridge_uninstall: 'write',
+      install_override: 'write',
+      uninstall_override: 'write',
       game_write: 'process',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },

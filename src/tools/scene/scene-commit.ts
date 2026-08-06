@@ -88,11 +88,31 @@ function isSafeIdentifier(s: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s);
 }
 
-// IMP-4 (2026-06-26 review): node_add 类型黑名单——阻断可发网络/系统/执行的高危类实例化。
-// 白名单(Node 子类)过于庞大难维护,改黑名单已知敏感类。未来可收紧为白名单。
-const SENSITIVE_NODE_TYPES = new Set([
-  'HTTPRequest', 'HTTPClient', 'WebSocketPeer', 'StreamPeerTLS', 'JavaScriptBridge',  // 网络
-  'Thread', 'Engine', 'OS', 'ClassDB', 'EngineDebugger', 'MainLoop', 'ResourceLoader',  // 系统/执行
+// P2-3 (2026-08-06): node_add 类型从黑名单收紧为白名单。
+// 原黑名单(IMP-4)只列 9 项敏感类,第三方 addon 注册的 extends Node 恶意 class_name 不在列 →
+// ${op.type}.new() 跑其 _ready() → OS.execute RCE(不经 execute_gdscript 沙箱)。
+// 白名单镜像 headless 的 ALLOWED_HEADLESS_TYPES(src/scripts/godot_operations.gd:195-211),
+// 须与 GD 侧同步(defects detect 守护)。特殊类型请走 add_node 工具(走 GD 二次白名单校验)。
+const ALLOWED_COMMIT_NODE_TYPES = new Set([
+  // Node3D 系
+  'Node3D', 'MeshInstance3D', 'StaticBody3D', 'RigidBody3D',
+  'CharacterBody3D', 'Camera3D', 'Light3D', 'DirectionalLight3D',
+  'OmniLight3D', 'SpotLight3D', 'CollisionShape3D', 'RayCast3D',
+  'Area3D', 'Marker3D', 'PathFollow3D', 'VisibleOnScreenNotifier3D',
+  // Node2D 系
+  'Node2D', 'Sprite2D', 'AnimatedSprite2D',
+  'CollisionShape2D', 'Area2D', 'RigidBody2D', 'CharacterBody2D',
+  // 播放器/动画/定时
+  'AudioStreamPlayer', 'AudioStreamPlayer2D', 'AudioStreamPlayer3D',
+  'AnimationPlayer', 'AnimationTree', 'Timer',
+  // Control 系
+  'Control',
+  'Button', 'Label', 'Panel', 'LineEdit', 'TextEdit', 'RichTextLabel',
+  'LinkButton', 'HSlider', 'VSlider', 'CheckBox', 'CheckButton',
+  'OptionButton', 'SpinBox', 'ProgressBar', 'TextureRect', 'ColorPickerButton',
+  'TabContainer', 'Tree', 'ItemList', 'MarginContainer', 'HBoxContainer',
+  'VBoxContainer', 'GridContainer', 'CenterContainer', 'ScrollContainer',
+  'PanelContainer', 'HSplitContainer', 'VSplitContainer', 'NinePatchRect',
 ]);
 
 /**
@@ -245,10 +265,10 @@ ${errAction}
 \t# --- Op ${idx}: node_add ---
 \t_results.append({"op": "node_add", "name": "${gdEscape(op.name)}", "ok": false, "error": "Invalid type name"})`;
       }
-      if (SENSITIVE_NODE_TYPES.has(op.type)) {  // IMP-4: 阻断敏感类(网络/系统/执行)实例化
+      if (!ALLOWED_COMMIT_NODE_TYPES.has(op.type)) {  // P2-3: 白名单收尾,阻断非白名单类(含第三方恶意 class_name)实例化
         return `
 \t# --- Op ${idx}: node_add ---
-\t_results.append({"op": "node_add", "name": "${gdEscape(op.name)}", "ok": false, "error": "Blocked sensitive type: ${gdEscape(op.type)}"})`;
+\t_results.append({"op": "node_add", "name": "${gdEscape(op.name)}", "ok": false, "error": "Type not in allowlist: ${gdEscape(op.type)} (use add_node tool for special types)"})`;
       }
       const propLines = op.properties
         ? Object.entries(op.properties)

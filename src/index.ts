@@ -75,11 +75,25 @@ export async function startMcpServer(args: string[]): Promise<void> {
   const readOnly = process.env.GODOT_MCP_READ_ONLY === 'true' || process.env.READ_ONLY_MODE === 'true';
   const noFallback = process.env.GODOT_MCP_NO_FALLBACK === 'true';
 
+  // P2-1: --overrides=<path>(可重复) 或 env GODOT_MCP_OVERRIDES=path1;path2
+  // 启动游戏前注入任意调试脚本到项目 autoload(日志钩子/状态快照等)。
+  // agent 主入口走 install_override/uninstall_override action;CLI flag 是便捷入口,
+  // 存到 ServerOptions,graceful shutdown 时批量卸载(对操作过的项目)。
+  const overridesFromArgs = args
+    .filter(a => a.startsWith('--overrides='))
+    .map(a => a.split('=')[1]!)
+    .filter(Boolean);
+  const overridesFromEnv = process.env.GODOT_MCP_OVERRIDES
+    ? process.env.GODOT_MCP_OVERRIDES.split(';').map(s => s.trim()).filter(Boolean)
+    : [];
+  const overrides = [...overridesFromArgs, ...overridesFromEnv];
+
   const server = new GodotServer(join(__dirname, 'scripts', 'godot_operations.gd'), {
     mode: toolMode,
     connectionMode,
     readOnly,
     noFallback,
+    overrides: overrides.length > 0 ? overrides : undefined,
   });
 
   let shuttingDown = false;

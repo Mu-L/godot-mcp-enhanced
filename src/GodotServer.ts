@@ -82,6 +82,8 @@ export interface ServerOptions {
   connectionMode?: 'headless' | 'editor';
   readOnly?: boolean;
   noFallback?: boolean;
+  /** P2-1: --overrides CLI flag 指定的默认 override 脚本路径列表,graceful shutdown 时批量卸载 */
+  overrides?: string[];
 }
 
 export class GodotServer {
@@ -627,9 +629,21 @@ export class GodotServer {
   async close(): Promise<void> {
     // P2: 整体 try/finally 兜底，finally 保证 server.close + 模块级引用清理必执行。
     // 各步骤虽多 best-effort，但 agentCtx.destroy()/server.close() 抛错会中断后续清理 →
-    // 模块级单例引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
+    // 模块级引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
     let serverClosed = false;
     try {
+      // P2-1: 自动卸载 overrides(graceful shutdown 时清理,防半装状态)。
+      // 仅对已知项目路径卸载(editorProjectPath);headless 模式下项目路径不持久化,
+      // agent 须手动调 uninstall_override action。
+      if (this.options.overrides && this.options.overrides.length > 0 && this.editorProjectPath) {
+        try {
+          const { uninstallAllOverrides } = await import('./core/overrides.js');
+          const n = uninstallAllOverrides(this.editorProjectPath);
+          if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${this.editorProjectPath}`);
+        } catch (err) {
+          getLogger().warn('godot-mcp', `Override auto-uninstall failed (best effort): ${err instanceof Error ? err.message : err}`);
+        }
+      }
       // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
       if (this.orphanScanTimer) {
         clearInterval(this.orphanScanTimer);

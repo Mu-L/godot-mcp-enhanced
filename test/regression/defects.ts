@@ -177,6 +177,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
         + (/_is_headless_allowed|ALLOWED_HEADLESS_TYPES/.test(readSrc('src/scripts/godot_operations.gd')) ? 1 : 0);
       return total > 0 && whitelist === 0 ? 1 : 0; // 有 instantiate 调用但无任何类型白名单守卫即复发
     } },
+  { key: 'scene-commit-nodetype-blacklist', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      // P2-3 fixed：scene-commit node_add 从黑名单收紧为白名单。原 SENSITIVE_NODE_TYPES 黑名单(9 项)
+      // 漏第三方 addon 注册的 extends Node 恶意 class_name → ${op.type}.new() 跑 _ready() → OS.execute RCE。
+      // 命中「scene-commit.ts 含 SENSITIVE_NODE_TYPES 黑名单 或 不含 ALLOWED_COMMIT_NODE_TYPES 白名单」即复发。
+      const src = readSrc('src/tools/scene/scene-commit.ts');
+      const hasBlacklist = /SENSITIVE_NODE_TYPES/.test(src);
+      const hasWhitelist = /ALLOWED_COMMIT_NODE_TYPES/.test(src);
+      return (hasBlacklist || !hasWhitelist) ? 1 : 0;
+    } },
   // ── IMPORTANT 架构/安全（行 282-381）──
   { key: 'allow-by-default-missing-config', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
     detect: () => {
