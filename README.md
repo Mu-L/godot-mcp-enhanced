@@ -633,6 +633,10 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.25.7** | 2026-08-06 | **P3 选做三批**（审查 SHIPPED WITH NITS）：P3-1/P3-2 版本同步收口（server.json/Dockerfile 纳入 version-sync，根治分发产物漂移）+ P3-7 C# 阶段一收尾（project_replace 白名单/read using/edit 验证回滚）+ P3-6 subscriptions/listen（bridge 事件主动推送，watch/monitor push 模式三层改造）+ P2 第三方审查 B-1/I-2/I-3 修复。4517 测试。 |
+| **v0.25.6** | 2026-08-06 | **P2 Wave2**：P2-4 确定性 playtest 四原语（seed/fixed_delta/step/snapshot/restore）+ P2-5 SEP-2133 extensions 声明（runtime-bridge 发现性）。 |
+| **v0.25.5** | 2026-08-06 | **P2 Wave1**：P2-1 overrides 注入 autoload（启动前注入调试脚本）+ P2-6 recipe 验证闭环 + P2-2 validate_scripts autoload 纠偏 + P2-3 nodeType RCE 审计白名单收尾。 |
+| **v0.25.4** | 2026-08-05 | **P0（6/6）+ P1（7/7）协议层升级**：SDK v1→v2（`@modelcontextprotocol/server` 2.0）+ MRTR 双时代 + action 级 capability gate + runtime_assert/help 工具 + P1 全 7 项（SEP-2575 modern era/SEP-2549 cacheHints/SEP-2577 per-request logLevel/视觉成本层级/契约 CI/idempotentHint）+ 测试覆盖加固批次。 |
 | **v0.25.3** | 2026-08-01 | **全天审查收尾**（SHIPPED）：P2-12 二期 async 改造引入的 arena 前缀碰撞 BLOCKING 根治（方案 B `_mcp_test_persistent` meta opt-out，运行时对照实验闭环）+ NIT-3 抽 `_runWithOpTimeout`（含 return-await 隐藏 bug 修复）+ NIT-2 bpy-sandbox `%` 格式化构造检测 + NIT-1 删死代码。4381 测试。 |
 | **v0.25.2** | 2026-08-01 | **P2-12 McpTestSuite 移植**（editor 路线，关闭 P1-5）：AI 可写标准化 GDScript 测试套件（`extends McpTestSuite`），editor 模式 `testing` 工具执行 + 一期/二期 async coroutine 防 keepalive 饿死 + P1-2/P2 安全（execute_bpy 拼接检测/animation coerce/ui theme/export 白名单）+ P3 文档纠正（editor.exists 失真修复 7→0）。36 工具/205 action。 |
 | **v0.25.1** | 2026-07-31 | **竞品对比批①-④ 落地**（审查 SHIPPED WITH NITS）：工具数口径修正（21 处漂移 28/29/33/130+→35/203，含 rule-templates 独立副本同步防下游污染）+ `check-tool-count.mjs` CI 校验脚本根治漂移 + 进程生命周期 P0 周期 orphan 扫描/P1 启动清理（STARTUP_CLEANUP opt-in）+ command_helpers 纯函数行为测试（L2 none→partial）+ nav N1-fix（bake_mesh 末行 freed 守卫）。4293 测试 + verify_delivery 3/3 通过。 |
