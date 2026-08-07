@@ -438,9 +438,20 @@ export class GodotServer {
     const projectPath = resolveProjectPath();
 
     // 报告②P1：启动时清理上一会话残留 Godot 进程（opt-in，默认关）。
-    // 默认只跑第一层（毫秒级、安全）；不 await 避免拖慢启动。
+    // 2026-08-07 审查 P1 修复：原 STARTUP_CLEANUP 单独开启时是 no-op（_spawnedGodotPids
+    // 新会话为空 → 第一层 0 kill，需 FULL_SYSTEM_SCAN 才触发第二层）。用户按文档开
+    // STARTUP_CLEANUP 期望清理崩溃残留，实际无效果（虚假安全感）。
+    // 修复：STARTUP_CLEANUP 启用时临时设 GODOT_MCP_FULL_SYSTEM_SCAN=true，让第二层
+    // fullSystemScanGodot 也跑（只扫命令行含 projectPath 的 Godot，跳过 --editor，15s
+    // 超时，unref 不阻塞，安全过滤在 process-state.ts fullSystemScanGodot 内置）。
+    // 不改 killOrphanGodotProcesses 签名（防 orphan-scan-session-scoped defect 复发）。
     if (isFeatureEnabled('STARTUP_CLEANUP') && projectPath) {
-      void ps.killOrphanGodotProcesses(projectPath).catch(() => { /* best-effort */ });
+      const prevFullScan = process.env.GODOT_MCP_FULL_SYSTEM_SCAN;
+      process.env.GODOT_MCP_FULL_SYSTEM_SCAN = 'true';
+      void ps.killOrphanGodotProcesses(projectPath).catch(() => { /* best-effort */ }).finally(() => {
+        if (prevFullScan === undefined) delete process.env.GODOT_MCP_FULL_SYSTEM_SCAN;
+        else process.env.GODOT_MCP_FULL_SYSTEM_SCAN = prevFullScan;
+      });
     }
     if (projectPath) {
       this.stateStore = new FileStateStore(projectPath);
@@ -543,6 +554,13 @@ export class GodotServer {
    */
   private async establishEditorConnection(port: number, secret: string): Promise<{ connected: boolean; detail: string }> {
     // 清理旧连接(rebuild 场景:降级后可能有残留或并发重建)
+    // 2026-08-07 审查 P2 修复：显式 destroy 旧 editorExecutor，防 handler 残留。
+    // 当前 disconnect 的 clear() 兜底清了 handler set，但耦合脆弱——若未来 disconnect
+    // 不再 clear，旧 executor handler 会残留指向已废弃 conn。显式 destroy 是防御性加固。
+    if (this.editorExecutor) {
+      try { this.editorExecutor.destroy(); } catch { /* best-effort */ }
+      this.editorExecutor = null;
+    }
     if (this.editorConn) {
       try { this.editorConn.disconnect(); } catch { /* best-effort */ }
       this.editorConn = null;

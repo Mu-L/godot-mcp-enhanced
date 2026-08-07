@@ -57,6 +57,10 @@ var _playtest_active: bool = false
 var _playtest_snapshot: Dictionary = {}  # {path: {properties: {}, parent: String}}
 var _playtest_fixed_delta_saved: Dictionary = {}  # 原值,restore 时还原
 var _playtest_step_pending: Array = []  # [{peer: StreamPeerTCP, pid: int, id: Variant, frames: int, coroutine: Callable, result: Dictionary}]
+# 2026-08-07 审查 P2 修复：playtest 是独占模式（snapshot/fixed_delta_saved 是全局单例非 per-peer）。
+# owner_pid 记录当前持有者，_cleanup_peer_state 只在持有者断开时才还原全局状态，
+# 防多 peer 场景下 peer B 断开误清 peer A 的 physics 锁/snapshot。
+var _playtest_owner_pid: int = -1
 var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buffer_bytes 取用
 
 
@@ -655,9 +659,9 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_click_button(params)
 		# P2-4 确定性 playtest 四原语(seed/fixed_delta/snapshot/restore 同步;step 走 coroutine)
 		"playtest.seed":
-			result = _cmd_playtest_seed(params)
+			result = _cmd_playtest_seed(params, pid)
 		"playtest.fixed_delta":
-			result = _cmd_playtest_fixed_delta(params)
+			result = _cmd_playtest_fixed_delta(params, pid)
 		"playtest.snapshot":
 			result = _cmd_playtest_snapshot(params)
 		"playtest.restore":
@@ -1525,18 +1529,22 @@ func _cleanup_peer_state(pid: int) -> void:
 	_push_peers.erase(pid)
 	# 2026-08-06 审查 P1 修复：playtest physics 锁 peer 断线时必须 restore，否则
 	# Engine.physics_ticks_per_second 等全局值永久停留在测试值（游戏变慢到测试 hz 无法恢复）。
-	if not _playtest_fixed_delta_saved.is_empty():
-		Engine.physics_ticks_per_second = int(_playtest_fixed_delta_saved["physics_ticks_per_second"])
-		Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
-		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
-		_playtest_fixed_delta_saved.clear()
-		_playtest_active = false
-	# 2026-08-07 审查 P1 修复：snapshot 同属 playtest 全局状态，peer 断开必须同步 clear。
-	# 否则：(1) _playtest_snapshot（可达 50000 节点×N 属性，数十 MB）永久驻留内存（泄漏）；
-	# (2) 后续新 peer 调 playtest.restore 误读到这份陈旧快照，场景已变 → 节点状态损坏。
-	# 对齐上方 :1527 _playtest_fixed_delta_saved.clear() 的清理模式。
-	if not _playtest_snapshot.is_empty():
-		_playtest_snapshot.clear()
+	# 2026-08-07 审查 P2 修复：多 peer 场景下只在该 pid 是 playtest 持有者时才还原全局状态，
+	# 否则 peer B 断开会误清 peer A 的 physics 锁/snapshot（_playtest_owner_pid 在
+	# _cmd_playtest_seed/_cmd_playtest_fixed_delta 时赋值）。
+	if pid == _playtest_owner_pid:
+		if not _playtest_fixed_delta_saved.is_empty():
+			Engine.physics_ticks_per_second = int(_playtest_fixed_delta_saved["physics_ticks_per_second"])
+			Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
+			Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
+			_playtest_fixed_delta_saved.clear()
+			_playtest_active = false
+		# 2026-08-07 审查 P1 修复：snapshot 同属 playtest 全局状态，peer 断开必须同步 clear。
+		# 否则：(1) _playtest_snapshot（可达 50000 节点×N 属性，数十 MB）永久驻留内存（泄漏）；
+		# (2) 后续新 peer 调 playtest.restore 误读到这份陈旧快照，场景已变 → 节点状态损坏。
+		if not _playtest_snapshot.is_empty():
+			_playtest_snapshot.clear()
+		_playtest_owner_pid = -1
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
 		var i: int = _playtest_step_pending.size() - 1
@@ -1673,13 +1681,15 @@ func _cmd_click_button(params: Dictionary) -> Variant:
 # 5 个 accept 限制(spec):① 不保信号连接运行时拓扑 ② Resource 用 resource_path ③ 不复活已 free 节点
 # ④ 不保 RigidBody 物理速度(靠 seed+fixed_delta 重放) ⑤ monitor samples 不在 snapshot 范围
 
-func _cmd_playtest_seed(params: Dictionary) -> Variant:
+func _cmd_playtest_seed(params: Dictionary, pid: int) -> Variant:
 	var seed_value: int = int(params.get("seed", 0))
 	seed(seed_value)  # @GlobalScope.seed,影响全局 randi/randf
 	_playtest_active = true
+	# 2026-08-07 审查 P2 修复：记录 playtest 持有者，_cleanup_peer_state 只在 owner 断开时还原
+	_playtest_owner_pid = pid
 	return {"success": true, "seed": seed_value, "note": "global RNG seeded (per-instance RandomNumberGenerator unaffected)"}
 
-func _cmd_playtest_fixed_delta(params: Dictionary) -> Variant:
+func _cmd_playtest_fixed_delta(params: Dictionary, pid: int) -> Variant:
 	var hz: int = int(params.get("hz", 60))
 	if hz < 1 or hz > 1000:
 		return {"error": {"code": -1, "message": "hz must be 1-1000, got %d" % hz}}
@@ -1695,6 +1705,8 @@ func _cmd_playtest_fixed_delta(params: Dictionary) -> Variant:
 	Engine.max_physics_steps_per_frame = 1
 	Engine.physics_jitter_fix = 0.0
 	_playtest_active = true
+	# 2026-08-07 审查 P2 修复：记录 playtest 持有者（同 _cmd_playtest_seed）
+	_playtest_owner_pid = pid
 	return {"success": true, "hz": hz, "delta": 1.0 / float(hz)}
 
 const PLAYTEST_SNAPSHOT_HARD_STOP: int = 50000  # 对齐 _cmd_get_scene_stats 上限，防大场景 OOM/栈溢

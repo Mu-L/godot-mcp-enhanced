@@ -391,7 +391,9 @@ export async function killOrphanGodotProcesses(projectDir?: string): Promise<num
     killed++;
   }
 
-  // 第二层（opt-in 崩溃恢复兜底）
+  // 第二层（opt-in 崩溃恢复兜底，GODOT_MCP_FULL_SYSTEM_SCAN=true 门控）
+  // 注：STARTUP_CLEANUP 启用时由调用方（GodotServer.ts）临时设此 env，不在此加 options 参数
+  // （保持签名 projectDir?: string 不变，防 orphan-scan-session-scoped defect 复发）。
   if (process.env.GODOT_MCP_FULL_SYSTEM_SCAN === 'true' && projectDir) {
     killed += await fullSystemScanGodot(projectDir, runningPid);
   }

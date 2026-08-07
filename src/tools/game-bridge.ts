@@ -945,15 +945,19 @@ export const TOOL_META: Record<
 
 /** Reset all module state — for test isolation and service restart. */
 export function resetBridgeState(): void {
+  // 2026-08-07 审查 P1 修复：P3-6 引入的 push 子系统状态（_pushBuffer/_pushMessageHandler/_socket）
+  // 与 socket 独立，原注释"active socket NOT closed here"误导——这三者是模块级状态非 active socket。
+  // 不清会导致：(1) 测试隔离泄漏（旧 push handler 持有已销毁 mock server 引用，push 事件错误路由）；
+  // (2) _pushBuffer 残留半行 JSON 致下次连接解析异常；(3) _socket 句柄泄漏（FD/内存）。
+  // _invalidateSocket() 统一清 _socket + _socketBuffer + _pushBuffer（见 :142-150）。
+  _invalidateSocket();
+  _pushMessageHandler = null;
   _nextRequestId = 1;
   _permWarned = false;
   _cachedSecret = null;
   _projectDir = null;
   _cachedSecretPath = null;
   _cachedSecretAt = 0;
-  // Note: active socket connections are NOT closed here — use _invalidateSocket() for that
-  _socketAuthenticated = false;
-  _socketBuffer = '';
   _connectionLock = null;
   _sendLock = Promise.resolve();
 }

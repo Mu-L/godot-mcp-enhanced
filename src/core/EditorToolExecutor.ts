@@ -183,6 +183,9 @@ export class EditorToolExecutor {
     args: Record<string, unknown>,
     timeoutSec: number,
   ): Promise<ToolResult> {
+    // 注：startOperation reject 时（CONNECTION_LOST）直接抛出，不会进入下方 try/finally，
+    // 故 endOperation 不会被误调（finally 属于 startOperation 之后的 try，未开始则不触发）。
+    // operation_start 若部分成功后 TS 侧 reject，GD 侧 heartbeat.gd 有 hard timeout 兜底。
     await this.conn.startOperation(timeoutSec);
     try {
       const result = await this.conn.request(method, args, { timeoutMs: timeoutSec * 1000 });

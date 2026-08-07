@@ -74,9 +74,13 @@ export class HealthMonitor {
   private errors!: RingBuffer<ErrorRecord>;
 
   // Baseline (average of first BASELINE_SAMPLE_COUNT successful response times)
+  // 2026-08-07 审查 P2 修复：建立后每 BASELINE_REFRESH_INTERVAL 次成功滑动重算，
+  // 防冷启动 baseline 偏低致后续正常负载升高被误判 degraded。
   private baselineResponseMs = 0;
   private baselineSamples: number[] = [];
   private baselineEstablished = false;
+  private baselineRefreshCounter = 0;
+  private static readonly BASELINE_REFRESH_INTERVAL = 100;
 
   private lastError: ErrorRecord | null = null;
 
@@ -116,6 +120,18 @@ export class HealthMonitor {
         this.baselineResponseMs = avg(this.baselineSamples);
         this.baselineEstablished = true;
         getLogger().info('health', `Baseline established: ${this.baselineResponseMs.toFixed(1)}ms`);
+      }
+    } else {
+      // 2026-08-07 审查 P2 修复：滑动重算 baseline，防冷启动偏低致后续正常负载误判 degraded。
+      // 每 BASELINE_REFRESH_INTERVAL 次成功响应，用最近 RECENT_WINDOW 个响应时间重算 baseline，
+      // 让 baseline 随负载正常升高（冷启动缓存热→baseline 偏低→后续大场景正常升高超 2x→误判）。
+      this.baselineRefreshCounter++;
+      if (this.baselineRefreshCounter >= HealthMonitor.BASELINE_REFRESH_INTERVAL
+          && this.responseTimes.length >= RECENT_WINDOW) {
+        const newBaseline = avg(this.responseTimes.sliceLast(RECENT_WINDOW));
+        // 平滑过渡：新旧 baseline 取平均，防单次重算跳变过大
+        this.baselineResponseMs = (this.baselineResponseMs + newBaseline) / 2;
+        this.baselineRefreshCounter = 0;
       }
     }
 
@@ -303,7 +319,18 @@ export class HealthMonitor {
           this.consecutiveFails = 0;
           this.consecutiveHeartbeatFails = 0;
           this.pushRecentFlag(true);
-          if (this.state !== 'connected') this.setState('connected');
+          // 2026-08-07 审查 P2 修复：心跳证明连接活，但不证明工具层正常。
+          // 原 `if (this.state !== 'connected') setState('connected')` 会把 degraded
+          //（工具失败驱动）也切回 connected，掩盖工具层持续失败。改为只在
+          // reconnecting 时直接切 connected（连接恢复）；degraded 保留给 evaluateState
+          // 的工具层判定（:272-285 recentFailures < 2 才恢复），心跳 pushRecentFlag(true)
+          // 会让 recentFailures 逐步降低，evaluateState 会按工具层指标决定恢复时机。
+          if (this.state === 'reconnecting') {
+            this.setState('connected');
+          } else if (this.state === 'degraded') {
+            // degraded 时心跳成功，交由 evaluateState 按 recentFailures 判断是否恢复
+            this.evaluateState();
+          }
         } else {
           this.recordFailure('heartbeat', 'Ping returned false', 'heartbeat');
         }
