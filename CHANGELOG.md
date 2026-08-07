@@ -6,7 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-（无）
+### Fixed — 2026-08-06 全风险面审查修复（6 份提示词 × 44 findings 分 5 批）
+
+基于 `D:\AI\提示词精选\godot-mcp-enhanced`（通用版 + 专项1-5）对 v0.25.2~v0.25.7 新增 8 个子系统的全方位审查。报告见 Obsidian vault `开发日志/2026-08-06 *.md`（6 份）。
+
+**P0 致命 bug**：
+- **action-gate key 漏配**（`src/core/action-gate.ts:19`）：`GATED_ACTIONS['code-execution']` 写 `'runtime.execute_gdscript'`，但 execute_gdscript 实际工具名是 `script` → isActionGated 永不命中 → gate 形同虚设。一行修：`runtime` → `script`。补单测反向断言 + defects detect `action-gate-key-toolname-match`（CRITICAL 防漂移）+ check-contract C7
+- **MRTR GODOT_MCP_ALLOW_UNSAFE_CONFIRM 绕过**（`src/index.ts:15`）：启动拦截 dangerousBypassFlags 漏此 env，生产误设则 AI 可自确认 token 直执。补列表
+- **runtime_assert screenshot_diff 假阳性**（`src/tools/runtime-assert.ts:264`）：占位返 `pass()`（success:true）致 agent 视觉回归假绿。改返 `error_code: 'NOT_IMPLEMENTED'`
+
+**P1 安全沙箱对称**：
+- **overrides 注入不走沙箱**（`src/core/overrides.ts:80`）：installOverride 注入任意 .gd 到项目 autoload 段（_ready=任意代码执行），未调 scanGdscriptSandbox（与 execute_gdscript 严重不对称）。补沙箱扫描 + 双 opt-in 旁路（DISABLE_SAFETY/ALLOW_UNSAFE）
+- **C# dotnet build 无沙箱**（`src/tools/script.ts:134`）：csharpValidateAndRevert 调 dotnet build 执行任意 MSBuild Target = RCE 面。加 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` opt-in 校验；**BREAKING**：已有 C# 项目的用户编辑 .cs 需设此 env 才走 build（未设则 skip）。回滚改原子写（tmp+rename）；抽公共 `runDotnetBuild` helper 消除 `validation.ts:913` 漂移
+
+**P1 GDScript + 进程通信**：
+- **playtest physics 锁 peer 断线无 restore**（`src/scripts/mcp_bridge.gd:_cleanup_peer_state`）：peer 断线后 Engine.physics_ticks_per_second 等全局值永久停留测试值。补 restore + step_pending 按 pid 过滤
+- **`_collect_node_snapshot` 无递归上限**：大场景 OOM/栈溢风险。加 PLAYTEST_SNAPSHOT_HARD_STOP=50000 守卫
+- **set_instance_property owner 误拒**（`addons/.../scene_commands.gd:183`）：`owner != root` 误拒合法嵌套 instance 子节点。改只拒场景根
+- **test_assert property_equals 缺 BLOCKED 守卫**（`addons/.../test_commands.gd:33`）：可读 script 等敏感属性。补 BLOCKED + `_` 前缀 + `:`/`/` 守卫 + Object jsonify
+- **EditorConnection reconnectExhausted 迭代中修改**（`src/core/EditorConnection.ts:490`）：handler 内调 disconnect().clear() 致后续 handler 静默丢失。三处 fire* 统一加 `Array.from()` 快照 + reconnectExhausted 补 try/catch
+
+**测试加固**：
+- `playtest-gd-contract.test.ts` 扩 4 describe 校验三副本 BLOCKED_PROPERTIES 含 instance + 字面量一致
+- 3 个 e2e beforeAll 加 `.godot` rmSync（对齐 e2e-p1-p5:53 模式）
+- `defects.ts:705` instance detect 加 command_helpers.gd 第 3 副本
+- 新增 `runtime-assert-screenshot-diff.test.ts` 锁定 NOT_IMPLEMENTED known-limitation
+- 新增 `overrides.test.ts` 3 沙箱扫描测试
+
+**P2/P3 收尾**：
+- nav bake timeout 改可配（`navigation.ts:493`，validateTimeout clamp 30-600）
+- check-contract 新增 C7 action-gate key × tool_registry 一致性校验
+- `docs/telemetry.md` sendBatch 段标注 Stage 0 stub + 新增 dotnet MSBuild Target 外传披露 + update-checker env 门控段更新
+- help 候选路径加 `path.basename` 纵深防御
+- update-checker 加 `GODOT_MCP_UPDATE_CHECK=false` env 门控
+
+**基线订正**：T3「config.ts readFileSync 未包 try/catch」审查基线声称 open，实测 :37-39 已包 try-catch **已闭合**（提示词漂移）。
+
+**补充修复（5 个原 TODO 全部落地）**：
+
+- **#1 EditorConnection 崩溃注入 + test_undo_manager editor 实测**（原标 TODO）：新增 `.github/workflows/editor-e2e.yml`，weekly（每周日 00:00 UTC）+ manual 触发，Ubuntu + Xvfb 跑 GUI Godot editor，设 `E2E_EDITOR=1` 启用 `e2e-resilience-editor.test.ts`（SIGKILL 崩溃注入重连 + N=5 并发串行 undo 安全），跑 `test_undo_manager.gd` 5 个 undo 行为测试（经 testing 工具 test_run editor 路由）。不阻塞主 CI，失败通知 last committer
+- **#2 env 隔离 footgun lint 守护**（原标 TODO）：新增 `scripts/check-env-isolation.mjs` 扫 test/ 检测危险 env（UNRESTRICTED/DISABLE_SAFETY/SANDBOX/ALLOW_UNSAFE）直接赋值（绕过 stubEnv 致 afterEach restore 漏清），首版 warn-only（现有 60+ 处逐批迁移后升 error）+ package.json 加 `check:env-isolation` script
+- **#3 security-path-traversal-task2/3 加 isolatePathEnv**（原标 TODO）：两测试文件 beforeEach 加 `isolatePathEnv({allowed:[tmpProj]})` 三件套（清 UNRESTRICTED + 设 ALLOWED + reset），防 setup.js 全局 UNRESTRICTED=true 致路径安全测试走旁路假绿。13 测试加 env 隔离后仍全绿
+- **#4 e2e-bridge-get-node-layout 去 !CI 接 godot-matrix**（原标 TODO）：`RUN = GODOT_MCP_E2E_L2 && !CI` 改为 `RUN = GODOT_MCP_E2E_L2`（去 !CI），`.github/workflows/ci.yml` godot-matrix job 设 `GODOT_MCP_E2E_L2=1` + 把此测试加入 E2E step。bridge 字段级守护（core feature）现在 CI 真跑。e2e-asset-tools 仍需 GUI editor 不接（走 editor-e2e.yml）
+- **#5 setBridgeProjectDir 检测 _sendLock 未 settle**（原标 TODO）：`game-bridge.ts:setBridgeProjectDir` 加 in-flight 检测——若 `_sendLock !== Promise.resolve()`（有 sendToBridge in-flight），记录 warn（可视化跨项目并发切换风险）。彻底修复需 per-project 锁（架构级改造，留 follow-up）
 
 ## [0.25.7] - 2026-08-06
 

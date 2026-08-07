@@ -293,9 +293,29 @@ function _ensureConnection(timeout: number): Promise<Socket> {
   return _connectionLock;
 }
 
-/** Set the project directory for bridge secret lookup. Invalidates all cached bridge state. */
+/** Set the project directory for bridge secret lookup. Invalidates all cached bridge state.
+ *
+ * 2026-08-06 审查测试-P2（可靠性 §setBridgeProjectDir race）：
+ * 若 _sendLock 链上有 in-flight sendToBridge 请求（未 settle），直接 _invalidateSocket 会销毁
+ * in-flight 请求持有的 socket → 响应丢失 → 该请求在 timer 后 reject。跨项目切换的并发场景
+ * （client A 调 P1，client B 调 setBridgeProjectDir(P2)）下，A 失败但 B 可继续，无原子性保证。
+ *
+ * 本修复：检测到 in-flight 时记录 warn（可视化），仍 invalidate（保持现有契约——bridge 是
+ * per-server 单项目，跨项目切换是异常用法，由调用方保证不并发）。彻底修复需引入 per-project
+ * 锁 + per-project socket 状态，属架构级改造，超本轮 scope（留 follow-up）。
+ */
 export function setBridgeProjectDir(projectDir: string): void {
   if (_projectDir === projectDir) return;
+  // 检测 in-flight：_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
+  // （_sendLock 在 sendToBridge:385-388 获取，.finally(resolveLock) 释放）
+  // Promise.resolve() === _sendLock 时表示无 in-flight（初始 settled state）
+  const inflightDetected = !(_sendLock as unknown as Promise<void> === Promise.resolve());
+  if (inflightDetected) {
+    getLogger().warn('bridge',
+      `setBridgeProjectDir('${projectDir}') called while sendToBridge in-flight — ` +
+      `in-flight request will be invalidated (socket destroyed). ` +
+      `Ensure no concurrent cross-project bridge calls (bridge is per-server single-project).`);
+  }
   _projectDir = projectDir;
   _cachedSecretPath = null;
   _cachedSecret = null;

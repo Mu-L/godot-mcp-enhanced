@@ -12,6 +12,7 @@ import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { getTemplateSuggestion } from './code-templates.js';
 import { gdEscape, opsErrorResult } from './shared.js';
+import { runDotnetBuild } from './shared/validation.js';
 
 const execFileAsync = promisify(execFile);
 import { validateTimeout } from './shared.js';
@@ -124,37 +125,51 @@ async function csharpValidateAndRevert(
   rawFile: string,
   projectPath: string
 ): Promise<string | null> {
-  // 检测 .csproj 存在(复用 validation.ts:908 的逻辑)
-  const csprojExists = existsSync(join(projectPath, '*.csproj')) ||
-    readdirSync(projectPath).some(f => f.endsWith('.csproj'));
+  // 检测 .csproj 存在
+  // 注：existsSync 不展开 glob，早期版本误用 existsSync(join(projectPath, '*.csproj'))
+  // 永远返 false（死代码），实际靠 readdirSync 兜底。2026-08-06 审查 P2 删死代码。
+  const csprojExists = readdirSync(projectPath).some(f => f.endsWith('.csproj'));
   if (!csprojExists) {
     return null; // 无 .csproj,无法验证,不阻断(调用方显示 skipNote)
   }
+
+  // 2026-08-06 审查 P1 修复：dotnet build 执行任意 MSBuild <Target>/.csproj 预构建步骤
+  // = 任意代码执行面（与 execute_gdscript 同威胁），须对称走 action-gate opt-in。
+  // 默认拒（无 GODOT_MCP_PRIVILEGED_GROUPS=code-execution 时 skip build），对齐 action-gate 哲学。
+  // 旁路：设 GODOT_MCP_PRIVILEGED_GROUPS=code-execution（或 all）显式授权。
+  const privilegedGroups = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+  const codeExecAllowed = privilegedGroups === 'all'
+    || (privilegedGroups ?? '').split(',').map(s => s.trim()).includes('code-execution');
+  if (!codeExecAllowed) {
+    getLogger().warn('security',
+      `C# dotnet build skipped (not gated): GODOT_MCP_PRIVILEGED_GROUPS lacks 'code-execution'. ` +
+      `Set GODOT_MCP_PRIVILEGED_GROUPS=code-execution to enable dotnet build validation (note: MSBuild targets can execute arbitrary code).`);
+    return null; // 未 opt-in 时 skip（不阻断编辑，但也不跑 build）
+  }
+
   try {
-    await execFileAsync('dotnet', ['build', '--no-restore'], {
-      cwd: projectPath,
-      timeout: 30000,
-      encoding: 'utf-8',
-    });
-    return null; // build 成功
-  } catch (e: unknown) {
-    const err = e as Record<string, unknown>;
-    // dotnet CLI 不在 PATH → 无法验证,不阻断
-    if (err.code === 'ENOENT') {
-      return null;
+    const result = await runDotnetBuild(projectPath, execFileAsync as unknown as (cmd: string, args: string[], opts: Record<string, unknown>) => Promise<unknown>);
+    if (result.ok) {
+      return null; // build 成功（或 dotnet 不在 PATH 时 skipped）
     }
-    // build 失败 → 回滚
+    // build 失败 → 原子回滚（tmp+rename，2026-08-06 审查 P2 修复：原 writeFileSync 直写非原子，
+    // 回滚中途崩溃会留半截损坏文件）
     try {
-      writeFileSync(fullPath, rawFile, 'utf-8');
+      const tmpPath = fullPath + '.mcp-rollback-tmp';
+      writeFileSync(tmpPath, rawFile, 'utf-8');
+      renameSync(tmpPath, fullPath);
     } catch (rollbackErr) {
       return `⚠️ CRITICAL: C# build error detected AND rollback failed!\n` +
         `Rollback error: ${rollbackErr}\nFile may be in a corrupted state: ${fullPath}`;
     }
-    const output = (err.stdout as string) || (err.message as string) || 'dotnet build failed';
+    const output = result.output;
     // 截取关键错误行(MSBuild error/warning 行),保留前 1500 字符
     const errorSection = output.split('\n').filter(l => /error|Error|FAILED/.test(l)).join('\n');
     const trimmed = (errorSection || output).substring(0, 1500);
     return `⚠️ Edit REVERTED due to C# build error:\n  ${trimmed.split('\n').join('\n  ')}\n\nOriginal file restored. Please fix the edit content and retry.`;
+  } catch (e: unknown) {
+    // runDotnetBuild 内部已 catch，此处防御性兜底
+    return `⚠️ Unexpected error during C# validation: ${(e as Error).message}`;
   }
 }
 

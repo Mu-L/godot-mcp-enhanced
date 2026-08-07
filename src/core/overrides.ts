@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, renameSync, unli
 import { join, basename, extname } from 'path';
 import { isPathInAllowedRoots } from './path-utils.js';
 import { getLogger } from './logger.js';
+import { scanGdscriptSandbox } from '../gdscript-executor.js';
 
 /** overrides 注入的 autoload key 前缀(卸载时按前缀批量清理) */
 export const OVERRIDE_AUTOLOAD_PREFIX = 'autoload/MCPOVERRIDE_';
@@ -96,6 +97,25 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
   if (config.includes(entry.autoloadKey + '=')) {
     getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
     return null;
+  }
+
+  // 2026-08-06 审查 P1 修复：autoload 脚本 _ready 在游戏启动时执行 = 任意代码执行面，
+  // 与 execute_gdscript 同威胁面，须对称走沙箱扫描（gdscript-executor.ts:1013 强制扫描）。
+  // 双 opt-in 旁路对齐 execute_gdscript（gdscript-executor.ts:1017-1018）：
+  // UNRESTRICTED && (DISABLE_SAFETY || ALLOW_UNSAFE)——单 env 不够，防误设。
+  const bypassSandbox = process.env.GODOT_MCP_UNRESTRICTED === 'true'
+    && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true'
+      || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
+  if (!bypassSandbox) {
+    const overrideContent = readFileSync(sourceScriptPath, 'utf-8');
+    const sandboxWarnings = scanGdscriptSandbox(overrideContent);
+    if (sandboxWarnings.length > 0) {
+      throw new Error(
+        `Override script failed sandbox scan: ${sourceScriptPath}\n` +
+        `Dangerous patterns detected:\n${sandboxWarnings.join('\n')}\n` +
+        `Set GODOT_MCP_DISABLE_SAFETY=true + GODOT_MCP_UNRESTRICTED=true to override (P0-1 double-opt-in).`,
+      );
+    }
   }
 
   // 拷贝脚本到项目根(参考 game-bridge.ts:556 copyFileSync)

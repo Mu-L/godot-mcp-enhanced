@@ -55,6 +55,7 @@
     "check:tool-count": "node scripts/check-tool-count.mjs",
     "check:contract": "node scripts/check-contract.mjs",
     "check:test-quality": "node scripts/check-test-quality.mjs",
+    "check:env-isolation": "node scripts/check-env-isolation.mjs",
     "smoke": "vitest run test/e2e-full-tool-verification.test.ts"
   },
   "dependencies": {

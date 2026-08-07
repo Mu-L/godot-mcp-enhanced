@@ -5,6 +5,7 @@ import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, validateVector3, appendRuntimePersistWarning } from './shared.js';
+import { validateTimeout } from './shared/validation.js';
 import { ff } from './shared/value-serializer.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -365,6 +366,8 @@ export function getToolDefinitions(): Tool[] {
           },
           navigation_region: { type: 'string', description: 'query_path: NavigationRegion3D 节点路径（可选）' },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+          // 2026-08-06 审查 P2：bake_mesh timeout 改可配（原硬编码 120s，大场景 bake 会超时 false-negative）
+          timeout: { type: 'number', description: 'bake_mesh 烘焙超时秒数（默认 120，大场景可调至 600）' },
         },
         required: ['action'],
       },
@@ -490,7 +493,11 @@ export async function handleTool(
     }
 
     // Determine timeout: baking may take longer
-    const timeout = action === 'bake_mesh' ? 120 : 30;
+    // 2026-08-06 审查 P2：bake_mesh timeout 改可配（原硬编码 120s 不可配，大场景 bake 会超时强杀 Godot false-negative）
+    // 对齐 blender.ts:47+68 validateTimeout 模式；bake 默认 120s clamp 30-600，其他 action 仍 30s
+    const timeout = action === 'bake_mesh'
+      ? validateTimeout(args.timeout, 30, 600, 120)
+      : 30;
 
     const result = await executeGdscript({
       godotPath: godot,

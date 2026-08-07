@@ -1518,6 +1518,22 @@ func _cleanup_peer_state(pid: int) -> void:
 		_monitor_states.erase(pid)
 	# P3-6: 清理 push 模式注册
 	_push_peers.erase(pid)
+	# 2026-08-06 审查 P1 修复：playtest physics 锁 peer 断线时必须 restore，否则
+	# Engine.physics_ticks_per_second 等全局值永久停留在测试值（游戏变慢到测试 hz 无法恢复）。
+	if not _playtest_fixed_delta_saved.is_empty():
+		Engine.physics_ticks_per_second = int(_playtest_fixed_delta_saved["physics_ticks_per_second"])
+		Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
+		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
+		_playtest_fixed_delta_saved.clear()
+		_playtest_active = false
+	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
+	if _playtest_step_pending.size() > 0:
+		var i: int = _playtest_step_pending.size() - 1
+		while i >= 0:
+			var entry: Dictionary = _playtest_step_pending[i]
+			if int(entry.get("pid", -1)) == pid:
+				_playtest_step_pending.remove_at(i)
+			i -= 1
 
 
 # ─── UI discovery commands ──────────────────────────────────────────────
@@ -1670,14 +1686,22 @@ func _cmd_playtest_fixed_delta(params: Dictionary) -> Variant:
 	_playtest_active = true
 	return {"success": true, "hz": hz, "delta": 1.0 / float(hz)}
 
+const PLAYTEST_SNAPSHOT_HARD_STOP: int = 50000  # 对齐 _cmd_get_scene_stats 上限，防大场景 OOM/栈溢
+
 func _cmd_playtest_snapshot(params: Dictionary) -> Variant:
 	# 复用 _cmd_get_node_properties 序列化器:遍历场景树,每个节点存 {properties, parent}
 	_playtest_snapshot.clear()
 	var root := get_tree().root
 	_collect_node_snapshot(root, "")
-	return {"success": true, "nodes": _playtest_snapshot.size(), "note": "snapshot saved (signals/physics/freed nodes not preserved)"}
+	var truncated: bool = _playtest_snapshot.size() >= PLAYTEST_SNAPSHOT_HARD_STOP
+	return {"success": true, "nodes": _playtest_snapshot.size(), "truncated": truncated, "note": "snapshot saved (signals/physics/freed nodes not preserved)"}
 
 func _collect_node_snapshot(node: Node, parent_path: String) -> void:
+	# 2026-08-06 审查 P1 修复：节点数上限守卫，防大场景递归栈溢出/OOM
+	# （对齐 _cmd_get_scene_stats HARD_STOP=50000 模式）
+	if _playtest_snapshot.size() >= PLAYTEST_SNAPSHOT_HARD_STOP:
+		push_warning("[mcp_bridge] playtest snapshot hit HARD_STOP=%d, truncating (large scene may OOM)" % PLAYTEST_SNAPSHOT_HARD_STOP)
+		return
 	var path: String = str(node.get_path())
 	var props: Dictionary = {}
 	for prop in node.get_property_list():

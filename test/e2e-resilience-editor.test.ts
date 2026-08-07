@@ -39,8 +39,8 @@
  *   - addons/godot_mcp_server/(从仓库根 addons/ 复制,.gitignore 排除运行时副本)
  *   - project.godot 含 [editor_plugins] enabled=PackedStringArray("godot_mcp_server")
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync } from 'fs';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
+import { existsSync, rmSync } from 'fs';
 import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -159,6 +159,14 @@ async function waitForConnected(conn: EditorConnection, timeoutMs = 30_000): Pro
   }
   return false;
 }
+
+// 2026-08-06 审查 P1：real-project fixture .godot 缓存清理（对齐 e2e-p1-p5.test.ts:53 模式），
+// 防过期 import 缓存致假绿（addons/plugin.cfg 变更后旧缓存仍命中）。
+beforeAll(() => {
+  if (canRun) {
+    rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // E2E: kill -9 editor → 重启 → EditorConnection 自动重连(reconnect:true + PERSISTENT_SECRET)

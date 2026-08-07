@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 126 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite） + 2026-07-29 D-P2 F2 nav/ui undo×3（nav-set-params-no-undo/ui-layout-anchor-no-undo/ui-theme-no-undo） + 2026-07-29 D-P2 F3 animation-keyframe-index-no-bound×1 + 2026-07-29 D-P2 F4 websocket-outbound-no-buffer-limit×1（ws_peer 仅 set_inbound_buffer_size 无 set_outbound_buffer_size → sync 风暴/慢消费者 outbound 无界增长 OOM；fix :231 后加 set_outbound_buffer_size(4MB)）。
+// FIXED_DEFECTS 128 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite） + 2026-07-29 D-P2 F2 nav/ui undo×3（nav-set-params-no-undo/ui-layout-anchor-no-undo/ui-theme-no-undo） + 2026-07-29 D-P2 F3 animation-keyframe-index-no-bound×1 + 2026-07-29 D-P2 F4 websocket-outbound-no-buffer-limit×1（ws_peer 仅 set_inbound_buffer_size 无 set_outbound_buffer_size → sync 风暴/慢消费者 outbound 无界增长 OOM；fix :231 后加 set_outbound_buffer_size(4MB)） + 2026-08-06 P2-3 scene-commit-nodetype-blacklist×1 + 2026-08-06 审查 P0 action-gate-key-toolname-match×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -701,12 +701,58 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   { key: 'instance-property-blocked-gd', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
     detect: () => {
       // P2-4 审查 B-1 修复:扩展扫描范围,覆盖所有含 BLOCKED_PROPERTIES 的 .gd 文件
-      // (godot_operations.gd + mcp_bridge.gd 两份副本都必须含 instance,任一漏即复发)
-      const files = ['src/scripts/godot_operations.gd', 'src/scripts/mcp_bridge.gd'];
+      // 2026-08-06 审查 P2: 加 command_helpers.gd 第 3 副本(原只扫 2 文件漏 editor 路径副本)
+      const files = ['src/scripts/godot_operations.gd', 'src/scripts/mcp_bridge.gd', 'addons/godot_mcp_server/commands/command_helpers.gd'];
       for (const fpath of files) {
         const f = readSrc(fpath);
         const m = f.match(/const\s+BLOCKED_PROPERTIES\s*:?=.*?\[[\s\S]*?\]/);
         if (!m || !/"instance"/.test(m[0])) return 1;  // 任一副本漏 instance 即复发
+      }
+      return 0;
+    } },
+  // 2026-08-06 审查 P0：action-gate GATED_ACTIONS 的 key（`<工具名>.<action>`）必须与
+  // tool-registry 实际承载该 action 的工具名一致。早期版本写 'runtime.execute_gdscript'
+  // 但 execute_gdscript 实属 script 工具 → isActionGated 永不命中 → gate 形同虚设。
+  // detect: 提取 action-gate.ts 所有 key，校验 `<group>` 部分在 TOOL_GROUPS 的 tools 列表里
+  // + `<action>` 部分在该工具源文件的 const ACTIONS 数组里（I-1 修复：原只查工具名漏 action 维度）。
+  { key: 'action-gate-key-toolname-match', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/core/action-gate.ts');
+      // 只扫 GATED_ACTIONS 对象字面量内部（避注释里的旧字符串干扰）
+      const blockMatch = f.match(/const\s+GATED_ACTIONS[^{]*\{([\s\S]*?)\};/);
+      if (!blockMatch) return 1;
+      const block = blockMatch[1].split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+      const keyMatches = block.match(/'([a-z_]+\.[a-z_]+)'/g) ?? [];
+      const keys = keyMatches.map(k => k.replace(/'/g, ''));
+      if (keys.length === 0) return 1; // 无 key = GATED_ACTIONS 结构被破坏
+      // 读 tool-registry，取所有工具名集合（TOOL_GROUPS[*].tools 展平 + ALWAYS_ALLOWED）
+      const reg = readSrc('src/core/tool-registry.ts');
+      const allToolsMatch = reg.match(/tools:\s*\[([^\]]+)\]/g) ?? [];
+      const toolNames = new Set<string>();
+      for (const block of allToolsMatch) {
+        const names = block.match(/'([a-z_]+)'/g) ?? [];
+        for (const n of names) toolNames.add(n.replace(/'/g, ''));
+      }
+      // ALWAYS_ALLOWED 工具也算（如 confirm_and_execute / manage_tools）
+      const alwaysMatch = reg.match(/ALWAYS_ALLOWED[^[]*\[([^\]]+)\]/) ?? [];
+      if (alwaysMatch[1]) {
+        const names = alwaysMatch[1].match(/'([a-z_]+)'/g) ?? [];
+        for (const n of names) toolNames.add(n.replace(/'/g, ''));
+      }
+      // 每个 gate key 校验两维度
+      for (const key of keys) {
+        const [group, action] = key.split('.');
+        // 维度 1：工具名必须是真实工具
+        if (!toolNames.has(group)) return 1;
+        // 维度 2（I-1 修复）：action 必须在该工具源文件的 const ACTIONS 数组里
+        const toolSrc = readSrc(`src/tools/${group}.ts`);
+        const actionsMatch = toolSrc.match(/const\s+ACTIONS\s*=\s*\[([\s\S]*?)\]/);
+        if (actionsMatch) {
+          const actionNames = new Set(
+            (actionsMatch[1].match(/'([a-z_]+)'/g) ?? []).map(s => s.replace(/'/g, ''))
+          );
+          if (!actionNames.has(action)) return 1; // action 不属于该工具 = gate 永不命中
+        }
       }
       return 0;
     } },

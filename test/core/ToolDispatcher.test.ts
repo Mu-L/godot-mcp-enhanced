@@ -1786,6 +1786,9 @@ describe('executeToolCall profile enforcement (Task 3, A-RCE #3)', () => {
   });
 
   // [P3] 默认 isToolAllowed=true → 顶层 core 工具不误拒(防过度拦截回归)
+  // 注意：不能用 execute_gdscript 测——它是 action-gate 的 code-execution gated action，
+  // 默认无 GODOT_MCP_PRIVILEGED_GROUPS 会被 isActionGated 拦截（2026-08-06 审查 P0 修复后 key 正确命中）。
+  // 用 edit_script（同属 script 工具但非 gated）验证 core 工具正常放行。
   it('allowed core tool dispatches normally (no false rejection)', async () => {
     const guard = createMockGuard(false);
     const mockModule = { handleTool: vi.fn().mockResolvedValue(mockToolResult) };
@@ -1793,7 +1796,7 @@ describe('executeToolCall profile enforcement (Task 3, A-RCE #3)', () => {
     const dispatcher = new ToolDispatcher(createOptions({ readOnlyGuard: guard }));
 
     await dispatcher.handleCall({
-      params: { name: 'script', arguments: { project_path: '/tmp', action: 'execute_gdscript', code: 'pass' } },
+      params: { name: 'script', arguments: { project_path: '/tmp', action: 'edit_script', script_path: '/tmp/x.gd', content: 'pass' } },
     });
 
     expect(mockModule.handleTool).toHaveBeenCalled();

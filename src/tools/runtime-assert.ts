@@ -257,14 +257,20 @@ async function assertScreenshotDiff(args: Record<string, unknown>): Promise<Tool
     return textResult(JSON.stringify({ success: false, error: `Bridge error: ${resp.error.message}`, error_code: 'BRIDGE_ERROR' }));
   }
 
-  // screenshot_diff 需要图像对比逻辑——当前简化为"截图成功"占位
-  // 完整实现需复用 frame-verify/gdscripts.ts 的 referenceSimScript（余弦相似度）
-  // 但那需要 GDScript 执行器，此处先返回截图成功 + 提示手动对比
+  // screenshot_diff 需要图像对比逻辑——当前未实现真实相似度对比。
+  // 完整实现需复用 frame-verify/gdscripts.ts 的 referenceSimScript（余弦相似度），
+  // 但那需要 GDScript 执行器，超出当前 scope。
+  // 2026-08-06 审查 P0 修复：原占位返 pass()（success:true）会致 agent 视觉回归假阳性，
+  // 改返 NOT_IMPLEMENTED 让 agent 显式感知此断言不可信（不会假绿）。
   const screenshotData = resp.result as { image?: string } | undefined;
-  return pass('screenshot_diff', {
+  return textResult(JSON.stringify({
+    success: false,
+    error: 'screenshot_diff similarity comparison is not implemented (Stage 0 placeholder). ' +
+      'Screenshot was captured successfully, but no pixel/similarity comparison is performed against the reference. ' +
+      'Do not rely on this assertion for visual regression until P1 implements referenceSimScript-based cosine similarity.',
+    error_code: 'NOT_IMPLEMENTED',
     reference,
     threshold,
     screenshot_captured: !!screenshotData?.image,
-    note: '简化实现：截图成功，相似度对比需 GDScript 执行器（P1 完善）',
-  });
+  }));
 }

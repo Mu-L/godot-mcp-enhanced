@@ -15,8 +15,11 @@
  */
 const GATED_ACTIONS: Record<string, string[]> = {
   // 任意代码执行：GDScript 沙箱（enhanced 防误操作层，非不可绕过）+ bpy 全功能 Python RCE
+  // 注意：key 格式 `<工具名>.<action>`，工具名必须是 tool-registry 里实际承载该 action 的工具名。
+  // execute_gdscript action 实际挂在 `script` 工具（src/tools/script.ts）而非 `runtime`，
+  // 早期版本误写 'runtime.execute_gdscript' 致 gate 永不命中（2026-08-06 审查 P0 修复）。
   'code-execution': [
-    'runtime.execute_gdscript',
+    'script.execute_gdscript',
     'blender.execute_bpy',
   ],
 };

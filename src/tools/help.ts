@@ -8,7 +8,7 @@ import type { ToolResult, ToolContext } from '../types.js';
 import { textResult } from '../types.js';
 import type { Tool } from '@modelcontextprotocol/server';
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 // ─── Tool name enum（从 capability-matrix 动态构建，含 help 自身）────────────
@@ -72,9 +72,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
   // 开发环境：src/tools/help.ts → ../../docs/tools/
   // 构建环境：build/tools/help.js → ../../docs/tools/（docs 不打包进 build，用 cwd 兜底）
   const candidates = [
-    join(here, '..', '..', 'docs', 'tools', `${toolName}.md`),
-    join(process.cwd(), 'docs', 'tools', `${toolName}.md`),
-    join(here, '..', '..', '..', 'docs', 'tools', `${toolName}.md`),
+    // 2026-08-06 审查 P3：加 path.basename 纵深防御（当前依赖 inputSchema enum 约束，
+    // 但若未来 enum 放宽为自由 string，未 basename 则路径遍历立即暴露）
+    join(here, '..', '..', 'docs', 'tools', `${basename(toolName)}.md`),
+    join(process.cwd(), 'docs', 'tools', `${basename(toolName)}.md`),
+    join(here, '..', '..', '..', 'docs', 'tools', `${basename(toolName)}.md`),
   ];
 
   for (const docPath of candidates) {

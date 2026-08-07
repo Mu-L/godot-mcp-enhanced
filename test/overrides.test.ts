@@ -210,4 +210,54 @@ describe('P2-1 overrides.ts', () => {
       expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots/i);
     });
   });
+
+  // 2026-08-06 审查 P1：overrides 注入须对称走 scanGdscriptSandbox（与 execute_gdscript 同威胁面）
+  describe('sandbox scan (P1 fix)', () => {
+    it('installOverride 拒绝含 OS.execute 的危险 override 脚本', () => {
+      // 默认 UNRESTRICTED=true（beforeEach 设），路径白名单过；但沙箱扫描应拦
+      const srcScript = join(sourceScriptDir, 'evil.gd');
+      writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("rm", ["-rf", "/"])\n', 'utf-8');
+      expect(() => installOverride(srcScript, projectDir)).toThrow(/failed sandbox scan/i);
+      // 脚本不应被拷贝到项目根
+      expect(existsSync(join(projectDir, 'mcpoverride_evil.gd'))).toBe(false);
+    });
+
+    it('installOverride 接受安全脚本（无危险 API）', () => {
+      // 现有测试已隐式验证（extends Node 的脚本都装成功），显式断言一次
+      const srcScript = join(sourceScriptDir, 'safe.gd');
+      writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tprint("hello")\n', 'utf-8');
+      const entry = installOverride(srcScript, projectDir);
+      expect(entry).not.toBeNull();
+      expect(existsSync(join(projectDir, 'mcpoverride_safe.gd'))).toBe(true);
+    });
+
+    it('installOverride 允许危险脚本通过双 opt-in 旁路（UNRESTRICTED + DISABLE_SAFETY，对齐 execute_gdscript）', () => {
+      // N-1 修复：原测试只设 DISABLE_SAFETY 单 env（beforeEach 隐式 UNRESTRICTED），但代码
+      // 现要求真双 opt-in（UNRESTRICTED && DISABLE_SAFETY），对齐 execute_gdscript。
+      // beforeEach 已设 UNRESTRICTED=true，这里补 DISABLE_SAFETY。
+      process.env.GODOT_MCP_DISABLE_SAFETY = 'true';
+      try {
+        const srcScript = join(sourceScriptDir, 'danger.gd');
+        writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
+        const entry = installOverride(srcScript, projectDir);
+        expect(entry).not.toBeNull(); // 双 opt-in 旁路成功
+      } finally {
+        delete process.env.GODOT_MCP_DISABLE_SAFETY;
+      }
+    });
+
+    it('installOverride 单 DISABLE_SAFETY（无 UNRESTRICTED）不旁路 — 双 opt-in 强制', () => {
+      // N-1 修复后：单 env 不够，须 UNRESTRICTED + DISABLE_SAFETY 同时设
+      delete process.env.GODOT_MCP_UNRESTRICTED;  // 撤销 beforeEach 的 UNRESTRICTED
+      process.env.GODOT_MCP_DISABLE_SAFETY = 'true';
+      try {
+        const srcScript = join(sourceScriptDir, 'danger2.gd');
+        writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
+        expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots|failed sandbox scan/i);
+      } finally {
+        delete process.env.GODOT_MCP_DISABLE_SAFETY;
+        process.env.GODOT_MCP_UNRESTRICTED = 'true';  // 恢复 beforeEach 状态
+      }
+    });
+  });
 });

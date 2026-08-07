@@ -73,6 +73,17 @@ export interface UpdateCheckResult {
 
 /** 查 npm 最新版。force:true 绕缓存（供 check action）；cacheDir 测试注入。失败绝不抛。 */
 export async function checkForUpdateCached(opts?: { force?: boolean; cacheDir?: string }): Promise<UpdateCheckResult> {
+  // 2026-08-06 审查 P3：env 门控（用户可设 GODOT_MCP_UPDATE_CHECK=false 关闭启动外传，
+  // 对齐 telemetry opt-in 哲学——telemetry 都 opt-in 了 update-checker 也应可关）。
+  // 注：force=true 时仍走（self_update check action 显式查询属用户主动行为，不受 env 门控）。
+  if (!opts?.force && process.env.GODOT_MCP_UPDATE_CHECK === 'false') {
+    return {
+      current: pkgVersion,
+      latest: pkgVersion,
+      updateAvailable: false,
+      fromCache: false,
+    };
+  }
   const cachePath = getCachePath(opts?.cacheDir);
   if (!opts?.force) {
     const cached = readCache(cachePath);

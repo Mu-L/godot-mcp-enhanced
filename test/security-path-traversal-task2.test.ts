@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isolatePathEnv } from './helpers/path-isolation.js';
 
 // ─── Mocks (防御性：路径校验在 spawn 前抛错，不应到达这些 mock) ────────────────
 vi.mock('../src/tools/spawn-helper.js', () => ({
@@ -49,13 +50,18 @@ function makeCtx(overrides: Record<string, unknown> = {}) {
 // ─── Shared temp project fixture ────────────────────────────────────────────
 describe('Task 2: TS path traversal hardening (A2/A6/A7/A9)', () => {
   let tmpProj: string;
+  let restore: () => void;
 
   beforeEach(() => {
     tmpProj = mkdtempSync(join(tmpdir(), 'task2-sec-'));
     writeFileSync(join(tmpProj, 'project.godot'), '[application]\nname="Test"\n');
+    // 2026-08-06 审查测试-P2：env 隔离三件套。test/setup.js 设全局 UNRESTRICTED=true，
+    // 路径安全类测试须清 UNRESTRICTED + 设 ALLOWED 到 tmpProj，否则走 unrestricted 旁路假绿。
+    restore = isolatePathEnv({ allowed: [tmpProj] });
   });
 
   afterEach(() => {
+    restore();
     rmSync(tmpProj, { recursive: true, force: true });
   });
 

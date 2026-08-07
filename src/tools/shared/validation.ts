@@ -47,3 +47,38 @@ export function validateVector3(v: unknown): { x: number; y: number; z: number }
   }
   return { x: obj.x as number, y: obj.y as number, z: obj.z as number };
 }
+
+/**
+ * 跑 dotnet build --no-restore 做 C# 编译验证（公共 helper）。
+ *
+ * 2026-08-06 审查 P1/P2：消除 script.ts csharpValidateAndRevert 与 validation.ts validate_project
+ * 的重复 dotnet build 逻辑（漂移风险）。两处都调此 helper。
+ *
+ * ⚠️ 安全：dotnet build 执行任意 MSBuild <Target>/.csproj 预构建步骤 = 任意代码执行面，
+ * 调用方须自行做 action-gate opt-in 校验（如 script.ts 检查 GODOT_MCP_PRIVILEGED_GROUPS=code-execution）。
+ *
+ * @returns on success: { ok: true }
+ *          on ENOENT (dotnet 不在 PATH): { ok: true, skipped: true, skipReason: 'dotnet CLI not found' }
+ *          on build failure: { ok: false, output: string }
+ */
+export async function runDotnetBuild(
+  projectPath: string,
+  execFileAsync: (cmd: string, args: string[], opts: Record<string, unknown>) => Promise<unknown>,
+  timeoutMs = 30000,
+): Promise<{ ok: true } | { ok: true; skipped: true; skipReason: string } | { ok: false; output: string }> {
+  try {
+    await execFileAsync('dotnet', ['build', '--no-restore'], {
+      cwd: projectPath,
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+    });
+    return { ok: true };
+  } catch (e: unknown) {
+    const err = e as Record<string, unknown>;
+    if (err.code === 'ENOENT') {
+      return { ok: true, skipped: true, skipReason: 'dotnet CLI not found in PATH' };
+    }
+    const output = (err.stdout as string) || (err.message as string) || 'dotnet build failed';
+    return { ok: false, output };
+  }
+}

@@ -103,7 +103,8 @@ export class EditorConnection {
     if (this._disconnectFired) return;
     this._disconnectFired = true;
     // B5: 单 handler 抛错不阻断后续 handler / scheduleReconnect（对齐 health-monitor:156-160 容错模式）
-    for (const handler of this.disconnectHandlers) {
+    // 2026-08-06 审查 P2：迭代前 Array.from 快照，防 handler 内 disconnect().clear() 修改 live Set 致后续 handler 跳过
+    for (const handler of Array.from(this.disconnectHandlers)) {
       try {
         handler();
       } catch (err) {
@@ -114,7 +115,8 @@ export class EditorConnection {
 
   private fireReconnect(): void {
     // B5: 同 fireDisconnect 容错模式,单 handler 抛错不阻断后续
-    for (const handler of this.reconnectHandlers) {
+    // 2026-08-06 审查 P2：迭代前 Array.from 快照（同 fireDisconnect）
+    for (const handler of Array.from(this.reconnectHandlers)) {
       try {
         handler();
       } catch (err) {
@@ -487,7 +489,15 @@ export class EditorConnection {
       // I-04: Fire dedicated exhaustion handlers instead of relying on fireDisconnect dedup.
       // This ensures consumers (e.g. GodotServer) always get notified when reconnect is exhausted,
       // regardless of whether fireDisconnect was already called by ws.on('close').
-      for (const handler of this.reconnectExhaustedHandlers) handler();
+      // 2026-08-06 审查 P2：迭代前 Array.from 快照 + try/catch 容错（对齐 fireDisconnect/fireReconnect），
+      // 防第一个 handler 调 disconnect() 触发 reconnectExhaustedHandlers.clear() 致后续 handler 静默丢失。
+      for (const handler of Array.from(this.reconnectExhaustedHandlers)) {
+        try {
+          handler();
+        } catch (err) {
+          getLogger().warn('editor', `reconnectExhausted handler threw: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       return;
     }
     const base = Math.min(

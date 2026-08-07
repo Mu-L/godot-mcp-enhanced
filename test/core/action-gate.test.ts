@@ -16,16 +16,18 @@ describe('action-gate (P0-3)', () => {
   });
 
   describe('isActionGated', () => {
-    it('gates runtime.execute_gdscript', () => {
-      expect(isActionGated('runtime', 'execute_gdscript')).toBe(true);
+    it('gates script.execute_gdscript (not runtime — toolName 必须与 tool-registry 承载工具一致)', () => {
+      // 2026-08-06 审查 P0：原 'runtime.execute_gdscript' key 永不命中（execute_gdscript 实属 script 工具）
+      expect(isActionGated('script', 'execute_gdscript')).toBe(true);
+      expect(isActionGated('runtime', 'execute_gdscript')).toBe(false);
     });
 
     it('gates blender.execute_bpy', () => {
       expect(isActionGated('blender', 'execute_bpy')).toBe(true);
     });
 
-    it('does NOT gate runtime.record_start (over-blocking 验证)', () => {
-      expect(isActionGated('runtime', 'record_start')).toBe(false);
+    it('does NOT gate script.edit_script (over-blocking 验证)', () => {
+      expect(isActionGated('script', 'edit_script')).toBe(false);
     });
 
     it('does NOT gate unknown tool/action', () => {
@@ -38,25 +40,25 @@ describe('action-gate (P0-3)', () => {
     beforeEach(() => delete process.env.GODOT_MCP_PRIVILEGED_GROUPS);
 
     it('blocks gated action when no groups enabled', () => {
-      expect(isActionAllowed('runtime', 'execute_gdscript', [])).toBe(false);
+      expect(isActionAllowed('script', 'execute_gdscript', [])).toBe(false);
     });
 
     it('allows non-gated action regardless of groups', () => {
-      expect(isActionAllowed('runtime', 'record_start', [])).toBe(true);
+      expect(isActionAllowed('script', 'edit_script', [])).toBe(true);
       expect(isActionAllowed('scene', 'add_node', [])).toBe(true);
     });
   });
 
   describe('isActionAllowed — opt-in code-execution', () => {
     it('allows gated action when code-execution enabled', () => {
-      expect(isActionAllowed('runtime', 'execute_gdscript', ['code-execution'])).toBe(true);
+      expect(isActionAllowed('script', 'execute_gdscript', ['code-execution'])).toBe(true);
       expect(isActionAllowed('blender', 'execute_bpy', ['code-execution'])).toBe(true);
     });
   });
 
   describe('isActionAllowed — opt-in all', () => {
     it('allows all gated actions when "all" enabled', () => {
-      expect(isActionAllowed('runtime', 'execute_gdscript', ['all'])).toBe(true);
+      expect(isActionAllowed('script', 'execute_gdscript', ['all'])).toBe(true);
       expect(isActionAllowed('blender', 'execute_bpy', ['all'])).toBe(true);
     });
   });
@@ -91,7 +93,7 @@ describe('action-gate (P0-3)', () => {
       const status = getGateStatus();
       expect(status['code-execution']).toBeDefined();
       expect(status['code-execution'].enabled).toBe(false);
-      expect(status['code-execution'].actions).toContain('runtime.execute_gdscript');
+      expect(status['code-execution'].actions).toContain('script.execute_gdscript');
       expect(status['code-execution'].source).toContain('default');
     });
 

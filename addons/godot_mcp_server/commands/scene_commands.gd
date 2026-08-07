@@ -180,7 +180,11 @@ func handle_set_instance_property(params: Dictionary, request_id: int = 0) -> Di
 	if target == null:
 		return {"error": {"code": -32002, "message": "Node not found: " + node_path}}
 
-	if target == root or target.owner != root:
+	# 2026-08-06 审查 P1 修复：原判据 `target == root or target.owner != root` 误拒合法嵌套
+	# instance 子节点（PackedScene instantiate 时 set_owner 只设根 instance，其子节点 owner
+	# 可能是中间 instance 根而非场景 root）。改为只拒场景根自身（root 无 instance 可改）。
+	# 与 handle_edit_node（node_commands.gd）对齐——后者无此校验，工具间不应不一致。
+	if target == root:
 		return {"error": {"code": -32004, "message": "NODE_NOT_INSTANCE"}}
 
 	if prop_name.begins_with("_"):

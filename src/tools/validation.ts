@@ -8,6 +8,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { opsErrorResult, validateTimeout } from './shared.js';
+import { runDotnetBuild } from './shared/validation.js';
 import { requireProjectPath, resolveWithinRoot, parseMcpScriptOutput, normalizeUserProjectPath, checkVersionMismatch, scanFiles } from '../helpers.js';
 import { analyzeOutput, type AnalysisResult, type AnalyzeOptions } from '../error-analyzer.js';
 import { lintGDScript } from './gdscript-lint.js';
@@ -909,21 +910,14 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         if (csprojFiles.length === 0) {
           csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: 'No .csproj found, C# validation skipped' });
         } else {
-          try {
-            await execFileAsync('dotnet', ['build', '--no-restore'], {
-              cwd: p,
-              timeout: 30000,
-              encoding: 'utf-8',
-            });
+          // 2026-08-06 审查 P2：改用公共 runDotnetBuild helper（消除与 script.ts 的漂移）
+          const buildResult = await runDotnetBuild(p, execFileAsync as unknown as (cmd: string, args: string[], opts: Record<string, unknown>) => Promise<unknown>);
+          if (buildResult.ok && 'skipped' in buildResult) {
+            csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: buildResult.skipReason });
+          } else if (buildResult.ok) {
             csResults.push({ file: `${csFiles.length} .cs files`, status: 'valid', engine: 'dotnet' });
-          } catch (e: unknown) {
-            const err = e as Record<string, unknown>;
-            if (err.code === 'ENOENT') {
-              csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: 'dotnet CLI not found in PATH' });
-            } else {
-              const output = (err.stdout as string) || (err.message as string) || 'dotnet build failed';
-              csResults.push({ file: `${csFiles.length} .cs files`, status: 'error', engine: 'dotnet', error: output.substring(0, 2000) });
-            }
+          } else {
+            csResults.push({ file: `${csFiles.length} .cs files`, status: 'error', engine: 'dotnet', error: buildResult.output.substring(0, 2000) });
           }
         }
         scriptsSummary.csharp = csResults;

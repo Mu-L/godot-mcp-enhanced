@@ -1,7 +1,9 @@
 /**
- * 契约：本 method 字段级守护在 L2（本地），不在 CI。
- * 改 mcp_bridge.gd 字段分层后须本地跑 L2 回归（GODOT_MCP_E2E_L2=1）。
- * CI 绿不代表字段正确性通过。
+ * 契约：本 method 字段级守护——本地默认需 GODOT_MCP_E2E_L2=1 opt-in，CI godot-matrix job 显式启用。
+ *
+ * 2026-08-06 审查测试-P2-4：原 `!CI` 排除致 CI 永不执行（核心字段级回归守护形同虚设）。
+ * 现去 `!CI`——godot-matrix job 设 GODOT_MCP_E2E_L2=1 在 CI 跑（headless spawn 游戏进程，
+ * 不需 GUI editor）；本地默认仍 skip，开发者跑需显式 opt-in。
  *
  * 字段级断言：对齐 spec §3.2 字段分层（visible 横切、变换按 Node2D/Control/Node3D、
  * Sprite2D 独立 if 非 elif、rotation 走 _jsonify）。用 find_nodes 动态发现各类型节点
@@ -25,11 +27,11 @@ const GODOT_PATH = process.env.GODOT_PATH || '';
 const hasGodot = existsSync(GODOT_PATH);
 const REAL_PROJECT = resolve(__dirname, 'fixtures', 'real-project');
 const hasRealProject = existsSync(REAL_PROJECT) && existsSync(resolve(REAL_PROJECT, 'project.godot'));
-const RUN = !!process.env.GODOT_MCP_E2E_L2 && !process.env.CI;
+// 2026-08-06 审查测试-P2-4：去 !CI（原 `GODOT_MCP_E2E_L2 && !CI` 致 CI 永不执行）
+const RUN = !!process.env.GODOT_MCP_E2E_L2;
 
 if (!RUN) {
-  const _reason = process.env.CI ? 'CI environment'
-    : !hasGodot ? 'Godot not found'
+  const _reason = !hasGodot ? 'Godot not found'
     : !hasRealProject ? 'no real-project fixture'
     : 'GODOT_MCP_E2E_L2=1 not set';
   process.stderr.write(`[skip] L2 get_node_layout suite skipped — ${_reason}. Set GODOT_MCP_E2E_L2=1 + install Godot to enable.\n`);
@@ -108,6 +110,8 @@ describe.skipIf(!hasGodot || !hasRealProject || !RUN)('get_node_layout 字段级
 
   beforeAll(async () => {
     projectGodotSnap = readFileSync(resolve(REAL_PROJECT, 'project.godot'), 'utf-8');
+    // 2026-08-06 审查 P1：清 real-project .godot 缓存（对齐 e2e-p1-p5.test.ts:53 模式）
+    rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
     // 治 bridge 密钥权限循环(memory S4 陷阱):复用 secret 不收紧/删除
     process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
     if (!_registered) {

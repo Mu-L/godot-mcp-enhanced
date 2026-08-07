@@ -35,7 +35,7 @@
  *    npx vitest run test/e2e-asset-tools.test.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -88,6 +88,9 @@ let _registered = false;
 
 beforeAll(async () => {
   if (!canRunE2E) return; // skip 时 beforeAll 不装配
+
+  // 2026-08-06 审查 P1：清 real-project .godot 缓存（对齐 e2e-p1-p5.test.ts:53 模式）
+  rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
 
   if (!_registered) {
     registerAllModules();

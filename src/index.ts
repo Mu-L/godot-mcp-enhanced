@@ -13,6 +13,9 @@ export async function startMcpServer(args: string[]): Promise<void> {
     'GODOT_MCP_DISABLE_SAFETY',
     'GODOT_MCP_UNRESTRICTED',
     'GODOT_MCP_SANDBOX',
+    // 2026-08-06 审查 P0 修复：此 env=true 会绕过整个 MRTR out-of-band 确认门
+    // （ToolDispatcher.ts confirm_and_execute 分支），生产误设则 AI 可自确认 token 直执。
+    'GODOT_MCP_ALLOW_UNSAFE_CONFIRM',
   ];
   const isDev = process.env.NODE_ENV === 'development' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true';
 
@@ -32,6 +35,8 @@ export async function startMcpServer(args: string[]): Promise<void> {
     'GODOT_MCP_SANDBOX',
     'GODOT_MCP_ALLOW_UNSAFE',
     'GODOT_MCP_DISABLE_SAFETY',
+    // 2026-08-06 审查 P0 修复：同步加入 dangerousBypassFlags 的 MRTR 绕过开关
+    'GODOT_MCP_ALLOW_UNSAFE_CONFIRM',
   ];
   for (const flag of securityBypassFlags) {
     const val = process.env[flag];

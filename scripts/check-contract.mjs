@@ -151,13 +151,89 @@ export function runChecks(matrix) {
   return { errors, warnings, totalChecks: tools.length * CHECKS.length };
 }
 
+/**
+ * 2026-08-06 审查 P2 新增 C7：action-gate key × tool_registry 一致性校验。
+ *
+ * 背景：action-gate.ts 的 GATED_ACTIONS key 格式 `<工具名>.<action>`，工具名必须与
+ * tool-registry 实际承载该 action 的工具名一致，否则 isActionGated 永不命中（gate 形同虚设）。
+ * 此前 'runtime.execute_gdscript' 漏配致 execute_gdscript RCE 面无 gate 防护（批 1 P0 修复）。
+ *
+ * 2026-08-06 审查 I-1 修复：原 C7 只校验工具名（group），不校验 action 名。
+ * 原始 P0 bug 是 'runtime.execute_gdscript'，runtime 是真实工具但 execute_gdscript 不在其
+ * ACTIONS 数组——原 C7 会放过这种「错位 action」回归。现读工具源文件的 const ACTIONS 数组
+ * 校验 action 部分实际属于该工具。
+ *
+ * 此校验在 runChecks 外做（matrix-level 而非 per-tool），因 action-gate key 是全局集合。
+ */
+function checkActionGateKeys(matrix, projectRoot) {
+  const errors = [];
+  const actionGatePath = join(projectRoot, 'src', 'core', 'action-gate.ts');
+  if (!existsSync(actionGatePath)) return errors;  // 版本无 action-gate 则跳过
+  const src = readFileSync(actionGatePath, 'utf8');
+  // 只扫 GATED_ACTIONS 对象字面量内部（避注释里的旧字符串干扰，如 'runtime.execute_gdscript' 注释）
+  const blockMatch = src.match(/const\s+GATED_ACTIONS[^{]*\{([\s\S]*?)\};/);
+  if (!blockMatch) {
+    errors.push({ tool: 'action-gate', id: 'C7', msg: 'GATED_ACTIONS 块未找到（结构被破坏）' });
+    return errors;
+  }
+  // 提取所有形如 'xxx.yyy' 的单引号 key（仅数组内非注释行）
+  const block = blockMatch[1].split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const keyMatches = block.match(/'([a-z_]+\.[a-z_]+)'/g) ?? [];
+  const keys = keyMatches.map(k => k.replace(/'/g, ''));
+  if (keys.length === 0) {
+    errors.push({ tool: 'action-gate', id: 'C7', msg: 'GATED_ACTIONS 无 <group>.<action> key（结构被破坏或未登记）' });
+    return errors;
+  }
+  // 从 matrix 取所有工具名集合
+  const toolNames = new Set((matrix.tools ?? []).map(t => t.name));
+  for (const key of keys) {
+    const [group, action] = key.split('.');
+    // 维度 1：工具名必须是真实工具
+    if (!toolNames.has(group)) {
+      errors.push({
+        tool: 'action-gate',
+        id: 'C7',
+        msg: `GATED_ACTIONS key '${key}' 的工具名 '${group}' 不在 tool-registry（isActionGated 永不命中，gate 形同虚设）`,
+      });
+      continue;
+    }
+    // 维度 2（I-1 修复）：action 必须在该工具源文件的 const ACTIONS 数组里
+    const toolSrcPath = join(projectRoot, 'src', 'tools', `${group}.ts`);
+    if (existsSync(toolSrcPath)) {
+      const toolSrc = readFileSync(toolSrcPath, 'utf8');
+      // 提取 const ACTIONS = [...] 数组内容
+      const actionsMatch = toolSrc.match(/const\s+ACTIONS\s*=\s*\[([\s\S]*?)\]/);
+      if (actionsMatch) {
+        const actionNames = new Set(
+          (actionsMatch[1].match(/'([a-z_]+)'/g) ?? []).map(s => s.replace(/'/g, ''))
+        );
+        if (!actionNames.has(action)) {
+          errors.push({
+            tool: 'action-gate',
+            id: 'C7',
+            msg: `GATED_ACTIONS key '${key}' 的 action '${action}' 不在 ${group}.ts 的 ACTIONS 数组（isActionGated 永不命中 — 正是 2026-08-06 P0 'runtime.execute_gdscript' 漏配的根因模式）`,
+          });
+        }
+      }
+    }
+  }
+  return errors;
+}
+
 function main() {
   const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
   const matrix = readMatrix(projectRoot);
   const { errors, warnings, totalChecks } = runChecks(matrix);
 
+  // C7: action-gate key × tool_registry 一致性（matrix-level，非 per-tool）
+  const gateErrors = checkActionGateKeys(matrix, projectRoot);
+  errors.push(...gateErrors);
+
   console.log('[contract] 校验 %d 项 × %d 工具 = %d 检查点（真相源: docs/capability-matrix.json）',
     CHECKS.length, matrix.tools?.length || 0, totalChecks);
+  if (gateErrors.length > 0) {
+    console.log('[contract] + C7 action-gate key 一致性: %d 条额外检查', gateErrors.length);
+  }
 
   if (warnings.length > 0) {
     console.warn('[contract] ⚠ %d 条 warning（非阻断）:', warnings.length);

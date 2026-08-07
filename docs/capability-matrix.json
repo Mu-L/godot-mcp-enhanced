@@ -2603,6 +2603,10 @@
           "load_autoloads": {
             "type": "boolean",
             "description": "是否加载 Autoload 上下文（默认 true）"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "bake_mesh 烘焙超时秒数（默认 120，大场景可调至 600）"
           }
         },
         "required": [
@@ -2630,7 +2634,8 @@
         "start_pos",
         "end_pos",
         "navigation_region",
-        "load_autoloads"
+        "load_autoloads",
+        "timeout"
       ],
       "readonly": false,
       "longRunning": false,
@@ -2665,8 +2670,8 @@
       },
       "size": {
         "descBytes": 370,
-        "schemaBytes": 2980,
-        "totalBytes": 3350
+        "schemaBytes": 3094,
+        "totalBytes": 3464
       },
       "annotations": {
         "readOnlyHint": false,

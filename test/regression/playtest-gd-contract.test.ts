@@ -6,6 +6,10 @@ import { join } from 'path';
 // headless SceneTree 测不了 _process/_handle_message 的 TCP 路由。改用源码字面量断言
 // 防 B-1 类漂移(BLOCKED_PROPERTIES 多副本撕裂)+ 命令存在性。参 headless-whitelist.test.ts 模式。
 const GD = readFileSync(join(__dirname, '..', '..', 'src', 'scripts', 'mcp_bridge.gd'), 'utf-8');
+// 2026-08-06 审查 P1：BLOCKED_PROPERTIES 有 3 份 GDScript 副本 + 1 TS Set，任一漏 instance 即重开
+// ExtResource 注入 RCE。原测试只守 mcp_bridge.gd，现扩 command_helpers.gd + godot_operations.gd。
+const CMD_HELPERS_GD = readFileSync(join(__dirname, '..', '..', 'addons', 'godot_mcp_server', 'commands', 'command_helpers.gd'), 'utf-8');
+const GODOT_OPS_GD = readFileSync(join(__dirname, '..', '..', 'src', 'scripts', 'godot_operations.gd'), 'utf-8');
 
 describe('P2-4 mcp_bridge.gd playtest 契约(审查 I-3)', () => {
   describe('B-1 守护:BLOCKED_PROPERTIES 必须含 instance(防 ExtResource 注入 RCE)', () => {
@@ -17,7 +21,8 @@ describe('P2-4 mcp_bridge.gd playtest 契约(审查 I-3)', () => {
 
     it('snapshot 序列化器跳过 BLOCKED_PROPERTIES(_collect_node_snapshot)', () => {
       // _collect_node_snapshot 必须用同一个 BLOCKED_PROPERTIES 常量(不新抄)
-      const m = GD.match(/func _collect_node_snapshot[\s\S]{0,600}?for child in/);
+      // 2026-08-06 上限 600→900：P1 加了 HARD_STOP 节点数守卫后函数体变长
+      const m = GD.match(/func _collect_node_snapshot[\s\S]{0,900}?for child in/);
       expect(m, '_collect_node_snapshot found').toBeTruthy();
       expect(m![0]).toMatch(/in BLOCKED_PROPERTIES/);
     });
@@ -27,6 +32,42 @@ describe('P2-4 mcp_bridge.gd playtest 契约(审查 I-3)', () => {
       const m = GD.match(/func _cmd_playtest_restore[\s\S]*?\nfunc /);
       expect(m, '_cmd_playtest_restore found').toBeTruthy();
       expect(m![0]).toMatch(/in BLOCKED_PROPERTIES/);
+    });
+  });
+
+  // 2026-08-06 审查 P1：三副本 BLOCKED_PROPERTIES 都必须含 instance（B-1 漂移守护扩展）
+  describe('B-1 三副本守护:BLOCKED_PROPERTIES 含 instance（扩展防漂移）', () => {
+    it('command_helpers.gd BLOCKED_PROPERTIES 含 "instance"', () => {
+      const m = CMD_HELPERS_GD.match(/const BLOCKED_PROPERTIES[\s\S]{0,800}?\]/);
+      expect(m, 'command_helpers.gd BLOCKED_PROPERTIES block found').toBeTruthy();
+      expect(m![0]).toMatch(/"instance"/);
+    });
+
+    it('godot_operations.gd BLOCKED_PROPERTIES 含 "instance"', () => {
+      const m = GODOT_OPS_GD.match(/const BLOCKED_PROPERTIES[\s\S]{0,800}?\]/);
+      expect(m, 'godot_operations.gd BLOCKED_PROPERTIES block found').toBeTruthy();
+      expect(m![0]).toMatch(/"instance"/);
+    });
+
+    it('command_helpers.gd coerce_property_value 含 instance 双保险分支', () => {
+      // B-1 修复：command_helpers.gd:189 `prop in BLOCKED_PROPERTIES or prop == "instance"`
+      expect(CMD_HELPERS_GD).toMatch(/prop in BLOCKED_PROPERTIES or prop == "instance"/);
+    });
+
+    it('三副本 BLOCKED_PROPERTIES 关键属性字面量一致（script/owner/name/instance）', () => {
+      // 提取三副本的 BLOCKED_PROPERTIES 数组内容，校验关键属性都在
+      const extractBlocked = (src: string): string[] => {
+        const m = src.match(/const BLOCKED_PROPERTIES[\s\S]{0,800}?\]/);
+        if (!m) return [];
+        const props = m[0].match(/"([a-z_]+)"/g) ?? [];
+        return props.map(p => p.replace(/"/g, ''));
+      };
+      const required = ['script', 'owner', 'name', 'instance'];
+      for (const prop of required) {
+        expect(extractBlocked(GD), `mcp_bridge.gd 含 ${prop}`).toContain(prop);
+        expect(extractBlocked(CMD_HELPERS_GD), `command_helpers.gd 含 ${prop}`).toContain(prop);
+        expect(extractBlocked(GODOT_OPS_GD), `godot_operations.gd 含 ${prop}`).toContain(prop);
+      }
     });
   });
 

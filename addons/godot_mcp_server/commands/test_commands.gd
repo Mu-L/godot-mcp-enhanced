@@ -34,11 +34,23 @@ func handle_test_assert(params: Dictionary) -> Dictionary:
 			if node == null:
 				return {"result": {"passed": false, "message": "Node not found: " + path}}
 			var prop: String = params.get("property", "")
+			# 2026-08-06 审查 P1 修复：未走 BLOCKED_PROPERTIES 过滤 → 可读 script 等敏感属性，
+			# 且 Node/Resource 对象走 values_equal str fallback 永远 false/true 随机命中。
+			# 对齐 _cmd_get_node_properties（mcp_bridge.gd）+ set_instance_property 的守卫模式。
+			if prop in CommandHelpers.BLOCKED_PROPERTIES or prop.begins_with("_") or ":" in prop or "/" in prop:
+				return {"result": {"passed": false, "message": "BLOCKED_PROPERTY: " + prop}}
 			var val = node.get(prop)
+			if val is Object:
+				# Node/Resource 对象不能直接比较（str fallback 不可信）
+				if val is Resource:
+					val = {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
+				else:
+					val = str(val)  # Node → 路径字符串
 			var expected = params.get("expected")
 			# C9: 类型感知比较（CommandHelpers.values_equal），修复 str() 比较致 Vector3 vs Array / bool vs int 永不等
-			var match = CommandHelpers.values_equal(val, expected)
-			return {"result": {"passed": match, "message": "%s.%s = %s (expected: %s)" % [path, prop, str(val), str(expected)], "actual": str(val)}}
+			# 2026-08-06 N-3：var match 改 matched 避免遮蔽 GDScript match 关键字
+			var matched = CommandHelpers.values_equal(val, expected)
+			return {"result": {"passed": matched, "message": "%s.%s = %s (expected: %s)" % [path, prop, str(val), str(expected)], "actual": str(val)}}
 		"signal_connected":
 			var src_path: String = params.get("path", "")
 			var tgt_path: String = params.get("target", "")
