@@ -140,7 +140,7 @@ import('./core/update-checker.js')
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | Config | `src/telemetry/config.ts` | opt-in 判定（CI 强制 false）+ install UUID 管理 |
-| Sanitize | `src/telemetry/sanitize.ts` | `hashProject` / `safeErrorCategory` / `sanitizeVersion` |
+| Sanitize | `src/telemetry/sanitize.ts` | `hashProject` / `sanitizeVersion`（T1 修复后 `error_category` 改固定枚举 `TOOL_ERROR`，原 `safeErrorCategory` 已删） |
 | Collector | `src/telemetry/collector.ts` | fire-and-forget 队列 + flush，endpoint 空=零外传 |
 | Index | `src/telemetry/index.ts` | re-export |
 | Middleware 接入 | `src/core/dispatcher/ToolDispatcher*.ts` | after-hook：每次 tool 调用后 record |

@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.25.8] - 2026-08-07
+
+### Fixed — 2026-08-07 审查待办批量修复（5 批 × 60 项 → 26 项新代码 + 13 项核实已落地）
+
+基于 2026-08-07 六份审查报告整理的 60 项真实待办，分 5 批修复。分支 `fix/batch1-gdscript-fake-success` + `fix/batch2-ts-reliability` + `fix/batch4-test-gaps` + `fix/batch3-security-depth` + `fix/batch5-docs-cleanup`（本批）。
+
+- **批次1 GDScript 假成功与清理不对称（10 项 P1/P2）**：save_scene/load_sprite/screenshot 失败补 `quit(1)`（防假成功致数据丢失却报告成功）；_cleanup_peer_state 补清 _playtest_snapshot（防内存泄漏+误恢复）；_cmd_playtest_restore 加 Resource/Node 反向转换（防类型损坏）；export_commands/animtree/asset 类型校验与 null 守卫；recording MAX_ZERO_DELAY 达上限不重发；序列化补 _is_safe_value；inspect_node/query_scene_tree scene_path traversal 过滤。
+- **批次2 TS 可靠性（7 项 + 3 项核实已落地）**：resetBridgeState 清 push 子系统状态；STARTUP_CLEANUP 临时设 FULL_SYSTEM_SCAN 让第二层也跑（防 no-op 虚假安全感）；health-monitor baseline 滑动重算（防冷启动误判）+ degraded 不被心跳过早清除（防掩盖工具层失败）；establishEditorConnection rebuild 显式 destroy；playtest owner_pid 多 peer 独占保护。核实已落地：nav bake 超时对齐 / headless spawn orphan 清理 / 心跳降级 B-T5 分流。
+- **批次4 测试缺口（7 项 + 4 项 deferred）**：P3-6 socket 竞态并发测试（P0）；C# dotnet build 失败原子回滚测试；4 个 CI 守门脚本（rules-sync / matrix version / C7 目录式 / protocol-versions）。
+- **批次3 安全纵深（2 项 + 3 项核实已落地）**：FileAccess READ 非 Godot 协议路径拦截（决策2 升级版，对齐 load() 非 res:// 拦截）；网络回连 API（WebSocketPeer/HTTPClient/StreamPeer）进沙箱清单；stripLiterals 扩 GODOT_PROTOCOLS 支持 res://+user://。核实已落地：execute_bpy 沙箱扫描 / headless 白名单 / defects detect 修正。
+- **批次5 文档收尾（4 项 + 2 项外部提示词留用户）**：update-checker 门控文档漂移修正（README×2+CHANGELOG）；update-checker 门控语义健壮化（`=== 'false'` → `/^(false|0|no|off)$/i`，认 falsy 变体+大小写不敏感）；docs/telemetry.md safeErrorCategory 删除标注；launch_editor 崩溃恢复路径文档化（rule-templates editor 段）。
+- **外部提示词文件（`D:/AI/提示词精选/godot-mcp-enhanced/`）**：提示词画像过时（#4）+ create_action_mixed 数字滞后 38→69（#6）不在本仓库，留用户更新。本轮所有审查已跑基线实测对照画像，审查流程验证有效。
+
+### Changed — rule-templates.ts 同步（触发 version bump）
+
+- `src/tools/rule-templates.ts` editor 段补「launch_editor 崩溃恢复」文档化条目（fire-and-forget 语义 + 非 PERSISTENT_SECRET rebuild 失败说明 + B-T5 心跳降级分流）。触发 check-rules-version-bump 强制 version bump（0.25.7→0.25.8）。
+
 ## [Unreleased]
 
 ### Fixed — 2026-08-06 全风险面审查修复（6 份提示词 × 44 findings 分 5 批）
@@ -203,7 +220,7 @@ AI 可写标准化 GDScript 测试套件（`extends McpTestSuite`），editor �
 ### Added — Telemetry Skeleton (Stage 0, zero egress)
 
 - **feat(telemetry): 新增匿名遥测骨架**（`src/telemetry/`，opt-in 默认关闭，阶段 0 endpoint 空零外传）。`GODOT_MCP_TELEMETRY=true` 启用，`CI=true` 强制关闭。ToolDispatcher after-hook 记录 tool 名 + success + duration_ms + 错误分类（白名单脱敏）+ 加盐 sha256 项目 hash；红线：绝不收集源码/路径/项目名/editor 日志/邮箱 IP 账号。详见 `docs/telemetry.md`。
-- **诚实披露 update-checker 外传点**：`docs/telemetry.md` + `README.md` + `README.en.md` 明确标注——每次 MCP server 启动时 `src/core/update-checker.ts` 的 `fetch(REGISTRY_URL)` 被动 fetch npm registry（24h 缓存），**当前无 env 门控**（已 `grep GODOT_MCP_UPDATE_CHECK src/` 零匹配确认），与「默认零外传」冲突。补门控属未来 PR。
+- **诚实披露 update-checker 外传点**：`docs/telemetry.md` + `README.md` + `README.en.md` 明确标注——每次 MCP server 启动时 `src/core/update-checker.ts` 的 `fetch(REGISTRY_URL)` 被动 fetch npm registry（24h 缓存）。**[2026-08-07 更新]** v0.25.7 起已加 `GODOT_MCP_UPDATE_CHECK=false`(或 `0`/`no`/`off`,大小写不敏感)门控,原文"当前无 env 门控"已过时;`self_update` check action 不受门控(用户主动查询)。
 
 ### Fixed — Nav Bake Accuracy (C4 async-dispatch)
 
