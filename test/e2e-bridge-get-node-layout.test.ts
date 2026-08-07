@@ -111,7 +111,14 @@ describe.skipIf(!hasGodot || !hasRealProject || !RUN)('get_node_layout 字段级
   beforeAll(async () => {
     projectGodotSnap = readFileSync(resolve(REAL_PROJECT, 'project.godot'), 'utf-8');
     // 2026-08-06 审查 P1：清 real-project .godot 缓存（对齐 e2e-p1-p5.test.ts:53 模式）
-    rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
+    // 2026-08-07 CI 修复：rmSync force:true 在 Windows/Linux 上"存在但被占用/权限不足"时仍抛 EPERM，
+    // 致 beforeAll 失败 → suite failed → CI godot-matrix job 挂。try/catch 吞 EPERM（best-effort 清理，
+    // 残留缓存不阻断测试——run_project 会重建 .godot）。
+    try {
+      rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
+    } catch {
+      // EPERM（Godot 进程持有句柄/权限不足）— best-effort，run_project 会重建
+    }
     // 治 bridge 密钥权限循环(memory S4 陷阱):复用 secret 不收紧/删除
     process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
     if (!_registered) {
