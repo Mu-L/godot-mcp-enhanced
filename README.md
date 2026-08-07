@@ -633,6 +633,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.25.8** | 2026-08-07 | **5 批审查修复闭环**：批次1 GDScript 假成功（save_scene/load_sprite/screenshot 失败补 quit(1) + _cmd_playtest_restore Resource 反向转换 + _cleanup_peer_state 漏清 snapshot）+ 批次2 TS 可靠性（resetBridgeState 清 push 子系统 + STARTUP_CLEANUP.finally + health-monitor degraded 不被心跳过早清除 + playtest owner_pid 多 peer）+ 批次3 安全纵深（FileAccess READ 非 Godot 协议拦 + 网络回连 API 进沙箱 + stripLiterals 扩 user://）+ 批次4 测试缺口（P3-6 socket 竞态并发测试 + C# 回滚测试 + 4 CI 守门脚本）+ 批次5 文档收尾（update-checker 门控语义健壮化 + 文档漂移修正）。4534 测试。 |
 | **v0.25.7** | 2026-08-06 | **P3 选做三批**（审查 SHIPPED WITH NITS）：P3-1/P3-2 版本同步收口（server.json/Dockerfile 纳入 version-sync，根治分发产物漂移）+ P3-7 C# 阶段一收尾（project_replace 白名单/read using/edit 验证回滚）+ P3-6 subscriptions/listen（bridge 事件主动推送，watch/monitor push 模式三层改造）+ P2 第三方审查 B-1/I-2/I-3 修复。4517 测试。 |
 | **v0.25.6** | 2026-08-06 | **P2 Wave2**：P2-4 确定性 playtest 四原语（seed/fixed_delta/step/snapshot/restore）+ P2-5 SEP-2133 extensions 声明（runtime-bridge 发现性）。 |
 | **v0.25.5** | 2026-08-06 | **P2 Wave1**：P2-1 overrides 注入 autoload（启动前注入调试脚本）+ P2-6 recipe 验证闭环 + P2-2 validate_scripts autoload 纠偏 + P2-3 nodeType RCE 审计白名单收尾。 |

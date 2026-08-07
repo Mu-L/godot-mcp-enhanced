@@ -113,3 +113,48 @@ describe('checkForUpdateCached', () => {
     }
   });
 });
+
+// 2026-08-07 审查 I-2: update-checker 门控语义测试（原 8 个 case 无门控守护）
+// 守护 /^(false|0|no|off)$/i 正则：若改回 === 'false' 或漏 i flag，下列 case 应变红
+describe('GODOT_MCP_UPDATE_CHECK 门控语义（2026-08-07 I-2）', () => {
+  let cacheDir: string;
+  const realFetch = globalThis.fetch;
+  beforeEach(() => { cacheDir = mkdtempSync(join(tmpdir(), 'uc-gate-')); });
+  afterEach(() => {
+    delete process.env.GODOT_MCP_UPDATE_CHECK;
+    rmSync(cacheDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    globalThis.fetch = realFetch;
+  });
+
+  it.each(['false', '0', 'no', 'off', 'False', 'FALSE', 'Off', 'NO'])('="%s" 关闭启动外传（force:false，不查网）', async (val) => {
+    process.env.GODOT_MCP_UPDATE_CHECK = val;
+    // fetch 若被调用说明门控失效；mock 成 rejects 让测试明确失败
+    const fetchMock = vi.fn().mockRejectedValue(new Error('should not fetch when gated'));
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await checkForUpdateCached({ cacheDir });  // force 默认 undefined → !opts?.force === true
+    expect(r.updateAvailable, `GODOT_MCP_UPDATE_CHECK="${val}" 应关闭外传`).toBe(false);
+    expect(r.latest, `门控关闭时 latest 应为当前版本 ${pkgVersion}`).toBe(pkgVersion);
+    expect(fetchMock, '门控关闭时不应查网').not.toHaveBeenCalled();
+  });
+
+  it('force:true 绕门控（self_update 主动查询）', async () => {
+    process.env.GODOT_MCP_UPDATE_CHECK = 'false';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ version: '9.9.9' }),
+    }));
+    const r = await checkForUpdateCached({ cacheDir, force: true });
+    expect(r.latest, 'force:true 应绕门控查网').toBe('9.9.9');
+    expect(r.updateAvailable).toBe(true);
+  });
+
+  it.each(['true', '1', 'yes', 'on', '', 'random'])('="%s" 非关闭值，正常查网', async (val) => {
+    if (val === '') delete process.env.GODOT_MCP_UPDATE_CHECK;
+    else process.env.GODOT_MCP_UPDATE_CHECK = val;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ version: '9.9.9' }),
+    }));
+    const r = await checkForUpdateCached({ cacheDir });
+    expect(r.latest, `非关闭值 "${val}" 应正常查网`).toBe('9.9.9');
+  });
+});
