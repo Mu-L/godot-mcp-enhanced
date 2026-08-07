@@ -42,6 +42,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **基线订正**：T3「config.ts readFileSync 未包 try/catch」审查基线声称 open，实测 :37-39 已包 try-catch **已闭合**（提示词漂移）。
 
+**第三方审查 NIT 修复（2026-08-07，commit af63b77）**：
+
+- **NIT-1 [威胁面泄漏]**：`src/tools/validation.ts:912` validate_project 的 dotnet 调用未对称 gate（抽公共 runDotnetBuild helper 后 script.ts 做了 opt-in 但 validation.ts 漏）。补 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 校验，未 opt-in 时 `status:'skipped'`
+- **NIT-2 [workflow 必崩]**：`.github/workflows/editor-e2e.yml` undo_manager step 原用 `GodotServer.makeCtx()`（不存在）+ 错误构造签名，weekly 首跑必崩。新建 `test/e2e-testing-undo-manager.test.ts`（复用 e2e-resilience-editor 的 spawn + EditorToolExecutor 模式），workflow 改跑此 vitest 文件
+- **NIT-3 [测试盲区]**：`test/script-csharp.test.ts` 补 PRIVILEGED_GROUPS gate 测试（现有 .cs 测试都走"无 .csproj"路径到不了 gate 校验，补 1 测试建空 .csproj + 不设 env 断言 skip）
+
 **补充修复（5 个原 TODO 全部落地）**：
 
 - **#1 EditorConnection 崩溃注入 + test_undo_manager editor 实测**（原标 TODO）：新增 `.github/workflows/editor-e2e.yml`，weekly（每周日 00:00 UTC）+ manual 触发，Ubuntu + Xvfb 跑 GUI Godot editor，设 `E2E_EDITOR=1` 启用 `e2e-resilience-editor.test.ts`（SIGKILL 崩溃注入重连 + N=5 并发串行 undo 安全），跑 `test_undo_manager.gd` 5 个 undo 行为测试（经 testing 工具 test_run editor 路由）。不阻塞主 CI，失败通知 last committer

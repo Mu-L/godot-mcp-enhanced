@@ -160,4 +160,38 @@ describe('edit_script — C# 验证降级', () => {
     const edited = readFileSync(csPath, 'utf-8');
     expect(edited).toContain('int x = 100;');
   });
+
+  // 2026-08-07 审查 NIT-3：补 PRIVILEGED_GROUPS gate 分支测试。
+  // 现有 2 测试都走"无 .csproj"路径（csharpValidateAndRevert 在 csproj 检测就 return null，
+  // 到不了 gate 校验 script.ts:140-148）。本测试建空 .csproj 触发 gate 分支，
+  // 不设 PRIVILEGED_GROUPS 期望 skip（不触发 dotnet build）。
+  it('有 .csproj 但未设 PRIVILEGED_GROUPS → skip dotnet build（gate 拦截，不触发 dotnet）', async () => {
+    // 建 .csproj 触发 csprojExists=true，进入 gate 校验分支
+    writeFileSync(join(dirRef.path!, 'Test.csproj'),
+      '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net6.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n');
+    const csPath = join(dirRef.path!, 'Gate.cs');
+    writeFileSync(csPath, 'using Godot;\npublic partial class Gate : Node { public int V { get; set; } }\n');
+
+    // 不设 GODOT_MCP_PRIVILEGED_GROUPS → gate 拦截，csharpValidateAndRevert 返回 null（skip）
+    const origPriv = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    try {
+      const result = await script.handleTool('script', {
+        project_path: dirRef.path!,
+        action: 'edit_script',
+        script_path: csPath,
+        search_and_replace: { search: 'public int V', replace: 'public int NewV' },
+        auto_validate: true,
+      }, ctx);
+      const text = (result as { content: Array<{ text: string }> }).content[0]!.text;
+      // 编辑成功应用（未被回滚——gate skip 不阻断）
+      expect(text).toMatch(/replaced occurrence/);
+      const edited = readFileSync(csPath, 'utf-8');
+      expect(edited).toContain('NewV');
+      // 注：不触发 dotnet build（gate 拦截），不会因无 dotnet CLI 失败
+    } finally {
+      if (origPriv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+      else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origPriv;
+    }
+  });
 });

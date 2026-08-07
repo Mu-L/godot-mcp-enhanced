@@ -64,39 +64,14 @@ jobs:
           E2E_EDITOR: '1'  # 启用 e2e-resilience-editor 的 describe.skipIf(!canRun)
 
       # 跑 test_undo_manager.gd 经 testing 工具 test_run（editor 路由）
-      # 注：此测试用 Godot editor 实际加载 addon + 跑 GDScript 测试套件
-      # test_run(suite="undo_manager") 经 mcp_editor WebSocket 发到 editor plugin 执行
+      # 2026-08-07 审查 NIT-2 修复：原 inline node 脚本用不存在的 GodotServer.makeCtx() / 错误构造签名，
+      # 改为标准 vitest 文件（test/e2e-testing-undo-manager.test.ts）复用 e2e-resilience-editor 的
+      # spawn + EditorToolExecutor 模式，API 正确。
       - name: E2E testing tool (undo_manager GDScript suite via editor)
-        run: xvfb-run -a -s '-screen 0 1920x1080x24' node -e "
-          const { GodotServer } = require('./build/GodotServer.js');
-          const { handleTool } = require('./build/tools/testing.js');
-          const path = require('path');
-          (async () => {
-            const projectPath = path.resolve('test/fixtures/real-project');
-            const srv = new GodotServer({ godotPath: process.env.GODOT_PATH, projectPath, mode: 'editor' });
-            try {
-              await srv.run();
-              // 等 editor 启动 + addon 加载
-              await new Promise(r => setTimeout(r, 10000));
-              const result = await handleTool('testing', {
-                action: 'test_run',
-                project_path: projectPath,
-                suite: 'undo_manager',
-              }, srv.makeCtx());
-              const parsed = JSON.parse(result.content[0].text);
-              console.log(JSON.stringify(parsed, null, 2));
-              if (parsed.summary && parsed.summary.failed > 0) {
-                console.error('undo_manager suite had failures');
-                process.exit(1);
-              }
-              console.log('undo_manager suite PASSED:', parsed.summary);
-            } finally {
-              await srv.close();
-            }
-          })().catch(e => { console.error(e); process.exit(1); });
-        "
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-testing-undo-manager.test.ts --reporter=json --outputFile=coverage/editor-e2e-testing.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
+          E2E_EDITOR: '1'
 
       - name: Upload editor-e2e reports
         if: always()

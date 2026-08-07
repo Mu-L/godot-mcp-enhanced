@@ -910,14 +910,29 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         if (csprojFiles.length === 0) {
           csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: 'No .csproj found, C# validation skipped' });
         } else {
-          // 2026-08-06 审查 P2：改用公共 runDotnetBuild helper（消除与 script.ts 的漂移）
-          const buildResult = await runDotnetBuild(p, execFileAsync as unknown as (cmd: string, args: string[], opts: Record<string, unknown>) => Promise<unknown>);
-          if (buildResult.ok && 'skipped' in buildResult) {
-            csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: buildResult.skipReason });
-          } else if (buildResult.ok) {
-            csResults.push({ file: `${csFiles.length} .cs files`, status: 'valid', engine: 'dotnet' });
+          // 2026-08-07 审查 NIT-1：对齐 script.ts:140-148 的 action-gate opt-in 校验。
+          // dotnet build 执行任意 MSBuild <Target> = 任意代码执行面（与 execute_gdscript 同级），
+          // 默认拒（无 GODOT_MCP_PRIVILEGED_GROUPS=code-execution 时 skip）。
+          const privilegedGroups = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+          const codeExecAllowed = privilegedGroups === 'all'
+            || (privilegedGroups ?? '').split(',').map(s => s.trim()).includes('code-execution');
+          if (!codeExecAllowed) {
+            csResults.push({
+              file: `${csFiles.length} .cs files`,
+              status: 'skipped',
+              engine: 'dotnet',
+              warning: "C# dotnet build skipped: GODOT_MCP_PRIVILEGED_GROUPS lacks 'code-execution' (MSBuild targets can execute arbitrary code — set opt-in to enable)",
+            });
           } else {
-            csResults.push({ file: `${csFiles.length} .cs files`, status: 'error', engine: 'dotnet', error: buildResult.output.substring(0, 2000) });
+            // 2026-08-06 审查 P2：改用公共 runDotnetBuild helper（消除与 script.ts 的漂移）
+            const buildResult = await runDotnetBuild(p, execFileAsync as unknown as (cmd: string, args: string[], opts: Record<string, unknown>) => Promise<unknown>);
+            if (buildResult.ok && 'skipped' in buildResult) {
+              csResults.push({ file: `${csFiles.length} .cs files`, status: 'skipped', engine: 'dotnet', warning: buildResult.skipReason });
+            } else if (buildResult.ok) {
+              csResults.push({ file: `${csFiles.length} .cs files`, status: 'valid', engine: 'dotnet' });
+            } else {
+              csResults.push({ file: `${csFiles.length} .cs files`, status: 'error', engine: 'dotnet', error: buildResult.output.substring(0, 2000) });
+            }
           }
         }
         scriptsSummary.csharp = csResults;
