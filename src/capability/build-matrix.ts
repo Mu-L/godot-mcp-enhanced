@@ -1,5 +1,5 @@
 // src/capability/build-matrix.ts
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { registerAllModules } from '../core/module-loader.js';
@@ -76,10 +76,12 @@ function main(): void {
 
   const docsDir = join(projectRoot, 'docs');
   mkdirSync(docsDir, { recursive: true });
+  // 2026-08-07 审查 P2: 加 version 字段（从 package.json 读），供 CI 校验与 package.json 同步。
   // generatedAt 字段已移除：每次构建写 new Date() 产生无意义 git diff，diff-matrix 不读此字段。
-  writeFileSync(join(docsDir, 'capability-matrix.json'), JSON.stringify({ tools: caps }, null, 2));
+  const pkgVersion = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')).version;
+  writeFileSync(join(docsDir, 'capability-matrix.json'), JSON.stringify({ version: pkgVersion, tools: caps }, null, 2));
   writeFileSync(join(docsDir, 'capability-matrix.md'), buildMarkdown(caps));
-  console.log(`[build-matrix] ${caps.length} tools → docs/capability-matrix.{json,md}`);
+  console.log(`[build-matrix] ${caps.length} tools (v${pkgVersion}) → docs/capability-matrix.{json,md}`);
 }
 
 main();

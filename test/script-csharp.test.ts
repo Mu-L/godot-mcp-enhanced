@@ -26,6 +26,16 @@ vi.mock('../src/tools/validation.js', async (importOriginal) => {
   };
 });
 
+// 2026-08-07 审查 P1: mock runDotnetBuild 让 build 失败回滚分支可测
+// （真实 dotnet CLI 跨平台 CI 不保证可用，mock 返回 { ok: false } 模拟 build 失败）
+const { mockRunDotnetBuild } = vi.hoisted(() => ({
+  mockRunDotnetBuild: vi.fn(() => Promise.resolve({ ok: true })),
+}));
+vi.mock('../src/tools/shared/validation.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return { ...original, runDotnetBuild: mockRunDotnetBuild };
+});
+
 import * as script from '../src/tools/script.js';
 import { createToolContext, createTempProject } from './helpers/tool-context.js';
 
@@ -192,6 +202,51 @@ describe('edit_script — C# 验证降级', () => {
     } finally {
       if (origPriv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
       else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origPriv;
+    }
+  });
+});
+
+// 2026-08-07 审查 P1: C# dotnet build 失败 → 原子回滚分支测试
+// 守护 script.ts:155-160 的 tmp+rename 原子回滚（原零覆盖，"写了守卫但不知是否真工作"）
+describe('edit_script — C# dotnet build 失败原子回滚', () => {
+  it('build 失败时文件回滚到原始内容（rawFile），编辑不落盘', async () => {
+    // 建 .csproj + .cs，设 PRIVILEGED_GROUPS 让 gate 放行
+    writeFileSync(join(dirRef.path!, 'App.csproj'),
+      '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework></PropertyGroup></Project>');
+    const csPath = join(dirRef.path!, 'Player.cs');
+    const original = 'using Godot;\npublic partial class Player : Node { public int Health = 100; }\n';
+    writeFileSync(csPath, original);
+
+    // mock dotnet build 返回失败
+    mockRunDotnetBuild.mockResolvedValueOnce({ ok: false, output: 'MockBuildFailure: CS1002 ; expected' });
+
+    const origPriv = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    process.env.GODOT_MCP_PRIVILEGED_GROUPS = 'code-execution';
+    try {
+      const result = await script.handleTool('script', {
+        project_path: dirRef.path!,
+        action: 'edit_script',
+        script_path: csPath,
+        search_and_replace: { search: 'Health = 100', replace: 'Health = 999' },
+        auto_validate: true,
+      }, ctx);
+
+      // 断言 1: 结果包含 revert 提示（非静默成功）
+      const text = (result as { content: Array<{ text: string }> }).content[0]!.text;
+      expect(text).toMatch(/revert|回滚|rollback|MockBuildFailure/i);
+
+      // 断言 2: 文件回滚到原始内容（Health=100，非 999）
+      const afterEdit = readFileSync(csPath, 'utf-8');
+      expect(afterEdit).toContain('Health = 100');
+      expect(afterEdit).not.toContain('Health = 999');
+
+      // 断言 3: runDotnetBuild 确实被调用（gate 放行）
+      expect(mockRunDotnetBuild).toHaveBeenCalledTimes(1);
+    } finally {
+      if (origPriv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+      else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origPriv;
+      mockRunDotnetBuild.mockReset();
+      mockRunDotnetBuild.mockResolvedValue({ ok: true });  // 恢复默认成功
     }
   });
 });

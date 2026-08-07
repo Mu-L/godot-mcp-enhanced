@@ -169,7 +169,19 @@ function main() {
     console.error('[tool-count] 修复：改工具清单后跑 `npm run build-matrix`，再按上述位置同步手写数字');
     process.exit(1);
   }
-  console.log('[tool-count] ✓ 全部一致（%d 处校验通过）', RULES.reduce((s, r) => s + r.checks.length, 0));
+
+  // 2026-08-07 审查 P2: 校验 matrix.json.version 与 package.json 同步（防 build-matrix 后忘 commit）
+  const matrixPath = join(projectRoot, 'docs', 'capability-matrix.json');
+  const matrixVersion = JSON.parse(readFileSync(matrixPath, 'utf8')).version;
+  const pkgVersion = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')).version;
+  if (matrixVersion !== pkgVersion) {
+    console.error(`[tool-count] ✗ matrix version 漂移：matrix.json.version=${matrixVersion} vs package.json.version=${pkgVersion}`);
+    console.error('[tool-count] 修复：跑 `npm run build-matrix` 重建 matrix（含 version 字段）');
+    process.exit(1);
+  }
+
+  console.log('[tool-count] ✓ 全部一致（%d 处校验通过，matrix version=%s）',
+    RULES.reduce((s, r) => s + r.checks.length, 0), pkgVersion);
 }
 
 main();

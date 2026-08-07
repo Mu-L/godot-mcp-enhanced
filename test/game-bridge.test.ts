@@ -44,7 +44,7 @@ vi.mock('child_process', async (importOriginal) => {
 });
 vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
 
-import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState } from '../src/tools/game-bridge.js';
+import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState, registerBridgePushHandler } from '../src/tools/game-bridge.js';
 
 // ===== helpers =====
 
@@ -263,6 +263,56 @@ describe('game-bridge error & path validation', () => {
       // 成功 resolve 后(修复)移除。修复前:12 次累积 → listenerCount 13,触发 MaxListenersExceededWarning(默认 10)。
       expect(sock.listenerCount('error')).toBeLessThan(5);
       expect(sock.listenerCount('close')).toBeLessThan(5);
+    });
+  });
+
+  describe('P3-6 socket 竞态: 常驻 push handler 与 sendToBridge 临时 handler 交错到达不丢/不串/不误 resolve', () => {
+    // 2026-08-07 审查 P0: P3-6 引入的常驻 push data handler 与 sendToBridge 临时 data handler
+    // 共享同一 socket 的 EventEmitter 广播。commit 90f065e 的 BLOCKING 修复(resp.id == null 误 resolve)
+    // 证明此路径脆弱。本测试守护并发不变量:push 消息(无 id)不误 resolve pending request,
+    // response 消息(有 id)不被 push handler 消费。
+    it('push 消息先到、response 后到:push handler 被调 + sendToBridge 正确 resolve,不互相消费', async () => {
+      const sock = new EventEmitter();
+      (sock as any).write = vi.fn((data: string) => {
+        let req: { id?: number };
+        try { req = JSON.parse(data); } catch { return; }
+        if (req.id === 0) {
+          queueMicrotask(() => sock.emit('data', Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n')));
+          return;
+        }
+        // 收到 method 请求后,先 emit 无 id 的 push 行,再 emit 有 id 的 response 行
+        queueMicrotask(() => {
+          const pushLine = JSON.stringify({ method: 'bridge/event', params: { event: 'monitor', data: { fps: 60 } } }) + '\n';
+          const respLine = JSON.stringify({ id: req.id, result: { ok: true } }) + '\n';
+          sock.emit('data', Buffer.from(pushLine + respLine));
+        });
+      });
+      (sock as any).destroy = vi.fn();
+      (sock as any).writable = true;
+      mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+
+      const ctx = { projectDir: '/p' } as any;
+      // 注册 push handler
+      const pushReceived: Record<string, unknown>[] = [];
+      registerBridgePushHandler((params) => { pushReceived.push(params); });
+
+      // 发起 sendToBridge 请求(会先 auth id=0,再 method id=1)
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+
+      // 断言 1: push handler 被调一次,收到 monitor 事件
+      expect(pushReceived.length).toBe(1);
+      expect(pushReceived[0]).toMatchObject({ event: 'monitor', data: { fps: 60 } });
+
+      // 断言 2: sendToBridge 正确 resolve(收到 { ok: true } 响应,不是 push 消息)
+      const text = (result?.content?.[0] as { text: string }).text;
+      expect(text).toMatch(/"ok":\s*true/);
+      expect(text).not.toContain('bridge/event');
+
+      // 清理 push handler(防影响后续测试)
+      registerBridgePushHandler(null);
     });
   });
 

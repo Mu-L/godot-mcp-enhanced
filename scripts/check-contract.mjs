@@ -11,7 +11,7 @@
 //
 // 增量设计:CHECKS 是数组,新增校验项只需加一条 {id, desc, severity, check}。
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -197,25 +197,38 @@ function checkActionGateKeys(matrix, projectRoot) {
       });
       continue;
     }
-    // 维度 2（I-1 修复）：action 必须在该工具源文件的 const ACTIONS 数组里
-    const toolSrcPath = join(projectRoot, 'src', 'tools', `${group}.ts`);
-    if (existsSync(toolSrcPath)) {
-      const toolSrc = readFileSync(toolSrcPath, 'utf8');
-      // 提取 const ACTIONS = [...] 数组内容
-      const actionsMatch = toolSrc.match(/const\s+ACTIONS\s*=\s*\[([\s\S]*?)\]/);
-      if (actionsMatch) {
-        const actionNames = new Set(
-          (actionsMatch[1].match(/'([a-z_]+)'/g) ?? []).map(s => s.replace(/'/g, ''))
-        );
-        if (!actionNames.has(action)) {
+      // 维度 2（I-1 修复）：action 必须在该工具源文件的 const ACTIONS 数组里
+      // 2026-08-07 审查 P2 修复：原硬编码 src/tools/${group}.ts（单文件），目录式工具
+      // （scene/animation/ui 等）existsSync 返 false 静默跳过 → 未来目录式工具加 GATED_ACTIONS
+      // key 时 C7 无法发现 action 漂移。改为：单文件不存在时 fallback 扫 src/tools/${group}/ 下所有 .ts。
+      const toolSrcPath = join(projectRoot, 'src', 'tools', `${group}.ts`);
+      const toolSrcDir = join(projectRoot, 'src', 'tools', group);
+      const candidateSrcs = [];  // [{label, content}]
+      if (existsSync(toolSrcPath)) {
+        candidateSrcs.push({ label: `${group}.ts`, content: readFileSync(toolSrcPath, 'utf8') });
+      } else if (existsSync(toolSrcDir)) {
+        for (const f of readdirSync(toolSrcDir).filter(f => f.endsWith('.ts'))) {
+          candidateSrcs.push({ label: `${group}/${f}`, content: readFileSync(join(toolSrcDir, f), 'utf8') });
+        }
+      }
+      if (candidateSrcs.length > 0) {
+        // 检查 action 是否在任一候选文件的 ACTIONS 数组里
+        const hasActionsArray = candidateSrcs.some(s => /const\s+ACTIONS\s*=/.test(s.content));
+        const actionInAny = candidateSrcs.some(s => {
+          const m = s.content.match(/const\s+ACTIONS\s*=\s*\[([\s\S]*?)\]/);
+          if (!m) return false;
+          const actionNames = new Set((m[1].match(/'([a-z_]+)'/g) ?? []).map(x => x.replace(/'/g, '')));
+          return actionNames.has(action);
+        });
+        // 仅当工具确有 ACTIONS 数组但 action 不在其中时报错（无 ACTIONS 常量的工具跳过）
+        if (hasActionsArray && !actionInAny) {
           errors.push({
             tool: 'action-gate',
             id: 'C7',
-            msg: `GATED_ACTIONS key '${key}' 的 action '${action}' 不在 ${group}.ts 的 ACTIONS 数组（isActionGated 永不命中 — 正是 2026-08-06 P0 'runtime.execute_gdscript' 漏配的根因模式）`,
+            msg: `GATED_ACTIONS key '${key}' 的 action '${action}' 不在 ${candidateSrcs.map(s => s.label).join(' 或 ')} 的 ACTIONS 数组（isActionGated 永不命中 — 正是 2026-08-06 P0 'runtime.execute_gdscript' 漏配的根因模式）`,
           });
         }
       }
-    }
   }
   return errors;
 }

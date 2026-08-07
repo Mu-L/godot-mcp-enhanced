@@ -56,6 +56,8 @@
     "check:contract": "node scripts/check-contract.mjs",
     "check:test-quality": "node scripts/check-test-quality.mjs",
     "check:env-isolation": "node scripts/check-env-isolation.mjs",
+    "check:rules-sync": "node scripts/check-rules-content-sync.mjs",
+    "check:protocol-versions": "node scripts/check-protocol-versions.mjs",
     "smoke": "vitest run test/e2e-full-tool-verification.test.ts"
   },
   "dependencies": {
