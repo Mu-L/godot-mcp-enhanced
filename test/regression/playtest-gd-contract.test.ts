@@ -22,7 +22,8 @@ describe('P2-4 mcp_bridge.gd playtest 契约(审查 I-3)', () => {
     it('snapshot 序列化器跳过 BLOCKED_PROPERTIES(_collect_node_snapshot)', () => {
       // _collect_node_snapshot 必须用同一个 BLOCKED_PROPERTIES 常量(不新抄)
       // 2026-08-06 上限 600→900：P1 加了 HARD_STOP 节点数守卫后函数体变长
-      const m = GD.match(/func _collect_node_snapshot[\s\S]{0,900}?for child in/);
+      // 2026-08-07 上限 900→1300：批次1 P1 加了 Resource 反向转换 + _is_safe_value 守卫后函数体进一步变长
+      const m = GD.match(/func _collect_node_snapshot[\s\S]{0,1300}?for child in/);
       expect(m, '_collect_node_snapshot found').toBeTruthy();
       expect(m![0]).toMatch(/in BLOCKED_PROPERTIES/);
     });

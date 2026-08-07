@@ -35,8 +35,8 @@ func _init():
 		quit(1)
 		return
 
-	if not scene_path.begins_with("res://"):
-		scene_path = "res://" + scene_path
+	# 2026-08-07 审查 P2 修复：过滤 ../ traversal（对齐 godot_operations.gd:761 _sanitize_res_path）。
+	scene_path = _sanitize_scene_path(scene_path)
 
 	# Load scene
 	var scene_resource = load(scene_path)
@@ -121,3 +121,24 @@ func _output_result(data: Dictionary) -> void:
 
 func _output_error(msg: String) -> void:
 	print("___MCP_ERROR___" + JSON.stringify({"success": false, "error": msg}))
+
+
+# 2026-08-07 审查 P2 修复：scene_path traversal 过滤（对齐 godot_operations.gd:761 _sanitize_res_path）。
+# 此脚本是独立 spawn 进程，无法跨文件调用，本地副本。改 _sanitize_res_path 时同步此处。
+func _sanitize_scene_path(path: String) -> String:
+	if path.find(char(0)) != -1:
+		return "res://"
+	var normalized = path.replace("\\", "/")
+	if normalized.find("%") != -1:
+		var test = normalized.uri_decode()
+		if test != null:
+			normalized = test
+	var full = normalized if normalized.begins_with("res://") else "res://" + normalized
+	var parts = full.substr(6).split("/")
+	var result_parts = []
+	for part in parts:
+		if part == ".." or part == ".":
+			continue
+		if not part.is_empty():
+			result_parts.append(part)
+	return "res://" + "/".join(result_parts)

@@ -820,6 +820,11 @@ func _cmd_get_node_properties(params: Dictionary) -> Variant:
 			val = {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
 		elif val is Node:
 			val = str(val.get_path())
+		# 2026-08-07 审查 P2 修复：非 Resource 非 Node 的 Object 子类（如 EditorInterface、
+		# 自定义 RefCounted）进 props dict 会致 JSON.stringify 整体失败或泄露对象内部表示。
+		# 对齐 :881/:1119 的 _is_safe_value 守卫模式（读取场景用 continue 跳过，非 reject）。
+		if not _is_safe_value(val):
+			continue
 		props[name] = val
 	return {"properties": props, "node": path}
 
@@ -1526,6 +1531,12 @@ func _cleanup_peer_state(pid: int) -> void:
 		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
 		_playtest_fixed_delta_saved.clear()
 		_playtest_active = false
+	# 2026-08-07 审查 P1 修复：snapshot 同属 playtest 全局状态，peer 断开必须同步 clear。
+	# 否则：(1) _playtest_snapshot（可达 50000 节点×N 属性，数十 MB）永久驻留内存（泄漏）；
+	# (2) 后续新 peer 调 playtest.restore 误读到这份陈旧快照，场景已变 → 节点状态损坏。
+	# 对齐上方 :1527 _playtest_fixed_delta_saved.clear() 的清理模式。
+	if not _playtest_snapshot.is_empty():
+		_playtest_snapshot.clear()
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
 		var i: int = _playtest_step_pending.size() - 1
@@ -1713,6 +1724,10 @@ func _collect_node_snapshot(node: Node, parent_path: String) -> void:
 			val = {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
 		elif val is Node:
 			val = str(val.get_path())
+		# 2026-08-07 审查 P2 修复：同 _cmd_get_node_properties(:823)，非安全 Object 子类
+		# 进 snapshot dict 会致后续 JSON.stringify 整体失败。读取场景用 continue 跳过。
+		if not _is_safe_value(val):
+			continue
 		props[name] = val
 	_playtest_snapshot[path] = {"properties": props, "parent": parent_path}
 	for child in node.get_children():
@@ -1733,7 +1748,25 @@ func _cmd_playtest_restore(params: Dictionary) -> Variant:
 		for prop_name in props.keys():
 			if prop_name in BLOCKED_PROPERTIES:
 				continue  # 安全命脉:restore 跳过 BLOCKED_PROPERTIES(防 script 注入 RCE)
-			node.set(prop_name, props[prop_name])
+			# 2026-08-07 审查 P1 修复：snapshot 时 _collect_node_snapshot(:1718-1721) 把
+			# Resource 转成 {"type":..,"path":..} 字典、Node 转成路径 String。restore 必须
+			# 反向转换，否则字典/字符串原样 set 给 Resource/Node 类型属性 → 类型不匹配 →
+			# 节点 invisible / mesh 缺失 / 状态损坏（playtest restore 对真实场景基本不可用）。
+			var val: Variant = props[prop_name]
+			if val is Dictionary and val.has("type") and val.has("path"):
+				# Resource 占位：按 resource_path load 回来；空 path 或 load 失败则跳过不损坏
+				var res_path: String = String(val["path"])
+				if res_path.is_empty():
+					continue
+				var r: Resource = load(res_path)
+				if r != null:
+					val = r
+				else:
+					continue  # Resource load 失败（路径变/资源删），跳过不损坏原属性
+			elif val is String and String(val).begins_with("/root/"):
+				# Node 引用占位：跨 restore 无法复活（原节点可能已 free/路径变），跳过不损坏
+				continue
+			node.set(prop_name, val)
 		restored += 1
 	# 还原 fixed_delta 原值
 	if not _playtest_fixed_delta_saved.is_empty():

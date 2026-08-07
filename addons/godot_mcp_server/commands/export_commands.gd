@@ -37,7 +37,15 @@ func handle_export_get_preset(params: Dictionary) -> Dictionary:
 		if str(p.get("name", "")) == preset_name:
 			var data = {}
 			for key in p.get_property_list():
-				var prop_name = key["name"]
+				# 2026-08-07 审查 P1 修复：get_property_list() 可能含无 "name" 键的
+				# 元属性条目（group/section/usage flag 虚拟条目），直索引 key["name"]
+				# 触发 SCRIPT_ERROR "Invalid index 'name'" 中断整个循环 → 客户端 30s 超时。
+				# 对齐同文件 :19/:37/:76 的 .get("name","") 防御模式。
+				if not (key is Dictionary):
+					continue
+				var prop_name: String = String(key.get("name", ""))
+				if prop_name.is_empty():
+					continue
 				if prop_name.begins_with("resource_"):
 					continue
 				var val = p.get(prop_name)

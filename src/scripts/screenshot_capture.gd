@@ -245,5 +245,9 @@ func _on_process_frame() -> void:
 	else:
 		push_error("[SCREENSHOT] Save failed: error %d" % err)
 		printerr("[SCREENSHOT] Could not save to: %s (error %d)" % [_output_path, err])
+		# 2026-08-07 审查 P1 修复：写盘失败（磁盘满/权限拒绝/路径无效）必须 quit(1)，
+		# 否则调用方按 exitCode 判定成功 → 截图静默丢失（对齐 :227 img==null 分支）。
+		quit(1)
+		return
 
 	quit(0)

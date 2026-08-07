@@ -174,13 +174,18 @@ func _schedule_next_event() -> void:
 		_playback_index += 1
 
 		if delay_ms <= 1.0:
-			_fire_playback_event(entry.get("event"))
 			zero_delay_count += 1
 			if zero_delay_count >= MAX_ZERO_DELAY_PER_FRAME:
+				# 2026-08-07 审查 P2 修复：达上限时不能先 fire 再 start timer——
+				# _on_playback_timer_timeout(:205) 会重发 _playback_index-1 处的同一事件，
+				# 致第 100 个事件被重复发射一次（回放失真）。改为回退 index 让 timer
+				# 到时走正常"未 fire → timer fire"路径，当前事件只发一次。
 				push_warning("[MCP] Recording: max zero-delay events per frame reached (%d), deferring" % MAX_ZERO_DELAY_PER_FRAME)
+				_playback_index -= 1  # 撤销本次自增，让 timer timeout 的 :205 正常 fire 此事件
 				_ensure_playback_timer()
 				_playback_timer.start(0.001)
 				return
+			_fire_playback_event(entry.get("event"))
 			continue
 		else:
 			_ensure_playback_timer()

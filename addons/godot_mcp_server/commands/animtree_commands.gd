@@ -139,6 +139,12 @@ func handle_animtree_add_transition(params: Dictionary) -> Dictionary:
 				continue
 			var cond_name: String = str(cond.get("name", ""))
 			var cond_value = cond.get("value")
+			# 2026-08-07 审查 P1 修复：add_condition 的 value 运行时只支持 bool/int/float/String
+			# （状态机用这些做条件比较）。null/Dictionary/Array 无法参与比较 → 静默失效，
+			# 状态切换永不触发，AI 误判成功。拒绝这几类并报错，防静默失败。
+			var t: int = typeof(cond_value)
+			if t in [TYPE_NIL, TYPE_DICTIONARY, TYPE_ARRAY, TYPE_OBJECT, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY, TYPE_PACKED_COLOR_ARRAY]:
+				return {"error": {"code": -32005, "message": "Condition '%s' value has unsupported type (need bool/int/float/String, got %s)" % [cond_name, type_string(t)]}}
 			if cond_name != "":
 				transition.add_condition(cond_name, cond_value)
 

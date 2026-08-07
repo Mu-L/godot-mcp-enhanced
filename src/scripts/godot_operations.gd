@@ -592,11 +592,15 @@ func load_sprite(params):
 		var error = _save_atomic(packed_scene, full_scene_path)
 		if error == OK:
 			print("Sprite loaded successfully with texture: " + full_texture_path)
+			scene_root.free()
+			return
 		else:
 			log_error("Failed to save scene: " + str(error))
 	else:
 		log_error("Failed to pack scene: " + str(result))
+	# 2026-08-07 审查 P1 修复：save/pack 失败分支必须 quit(1)（同 save_scene，防假成功）
 	scene_root.free()
+	quit(1)
 
 
 func export_mesh_library(params):
@@ -717,11 +721,17 @@ func save_scene(params):
 		var error = _save_atomic(packed_scene, save_path)
 		if error == OK:
 			print("Scene saved successfully to: " + save_path)
+			scene_root.free()
+			return
 		else:
 			log_error("Failed to save scene: " + str(error))
 	else:
 		log_error("Failed to pack scene: " + str(result))
+	# 2026-08-07 审查 P1 修复：save/pack 失败分支必须 quit(1)，否则 _init() 的
+	# call_deferred("quit") 默认 quit(0) 致 TS 端按 exitCode 判定假成功（数据丢失却报告成功）。
+	# 对照 create_scene:277-278 / edit_node:433-449 / batch_add_nodes:516-532 的失败分支处理。
 	scene_root.free()
+	quit(1)
 
 
 

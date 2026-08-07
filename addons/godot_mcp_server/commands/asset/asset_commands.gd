@@ -86,7 +86,14 @@ func handle_undo(params: Dictionary, request_id: int) -> Dictionary:
 	var root := _get_root()
 	if root == null:
 		return {"error": {"code": "NO_ACTIVE_SCENE", "message": "no active scene"}}
+	# 2026-08-07 审查 P1 修复：_get_root() 通过 _get_ei() 间接守 _plugin==null，但
+	# _get_root 返回后到 :89 之间 _plugin 可能被 cleanup/场景切换置 null（竞态）→
+	# null.get_undo_redo() 抛 SCRIPT ERROR → MCP 30s 超时。显式守 _plugin + eur。
+	if _plugin == null:
+		return {"error": {"code": "NO_PLUGIN", "message": "EditorPlugin unavailable (cleanup or scene switch)"}}
 	var eur := _plugin.get_undo_redo()
+	if eur == null:
+		return {"error": {"code": "NO_UNDO_REDO", "message": "EditorUndoRedoManager unavailable"}}
 	var hid: int = eur.get_object_history_id(root)
 	var ur: UndoRedo = eur.get_history_undo_redo(hid)
 	var top: String = ur.get_current_action_name()
