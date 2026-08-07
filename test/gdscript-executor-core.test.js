@@ -583,8 +583,11 @@ describe('stripLiterals', () => {
     expect(stripLiterals('var s = """res://x.gd"""')).toBe('var s = "res://"');
   });
 
-  it('does not preserve non-res:// string content', () => {
-    expect(stripLiterals('load("user://evil.gd")')).toBe('load("")');
+  it('does not preserve non-res:// string content (except user:// since 2026-08-07 P2)', () => {
+    // 2026-08-07 审查 P2: user:// 现在和 res:// 同等保留（Godot 用户数据目录，合法用途）
+    expect(stripLiterals('load("user://evil.gd")')).toBe('load("user://")');
+    // 其他非协议字符串仍被剥光
+    expect(stripLiterals('load("foo/bar.gd")')).toBe('load("")');
   });
 });
 

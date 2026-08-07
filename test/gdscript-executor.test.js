@@ -207,6 +207,31 @@ describe('scanGdscriptSandbox', () => {
     expect(warnings.length).toBe(0);
   });
 
+  // 2026-08-07 审查 P2 修复（决策2 升级版）：默认模式拦非 Godot 协议路径读（信息泄露面）
+  // res:// / user:// 放行（项目内资源 + 用户数据目录），绝对路径/~ /.. 拦截
+  it('should block FileAccess.open READ of non-Godot-protocol path by default (2026-08-07 P2)', () => {
+    delete process.env.GODOT_MCP_SANDBOX;
+    // 绝对路径（~/.ssh）应被拦
+    const warnings1 = scanGdscriptSandbox('FileAccess.open("~/.ssh/id_rsa", FileAccess.READ)');
+    expect(warnings1.length).toBeGreaterThan(0);
+    expect(warnings1[0]).toContain('non-resource path');
+    // res:// 放行
+    const warnings2 = scanGdscriptSandbox('FileAccess.open("res://data.txt", FileAccess.READ)');
+    expect(warnings2.length).toBe(0);
+    // user:// 放行（Godot 用户数据目录）
+    const warnings3 = scanGdscriptSandbox('FileAccess.open("user://save.json", FileAccess.READ)');
+    expect(warnings3.length).toBe(0);
+  });
+
+  // 2026-08-07 审查 P2: 网络回连 API 拦截（WebSocketPeer/HTTPClient/StreamPeer/connect_to_url）
+  it('should block network callback APIs (2026-08-07 P2)', () => {
+    delete process.env.GODOT_MCP_SANDBOX;
+    expect(scanGdscriptSandbox('var ws = WebSocketPeer.new()').length).toBeGreaterThan(0);
+    expect(scanGdscriptSandbox('var c = HTTPClient.new()').length).toBeGreaterThan(0);
+    expect(scanGdscriptSandbox('var p = StreamPeerTCP.new()').length).toBeGreaterThan(0);
+    expect(scanGdscriptSandbox('ws.connect_to_url("ws://evil")').length).toBeGreaterThan(0);
+  });
+
   it('should detect Engine.set_singleton by default', () => {
     delete process.env.GODOT_MCP_SANDBOX;
     const warnings = scanGdscriptSandbox('Engine.set_singleton("MySingleton", node)');
