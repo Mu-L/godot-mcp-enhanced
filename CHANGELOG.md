@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.11] - 2026-08-08
+
+### Added — CMP-4 实时 ClassDB 内省（2026-08-08，竞品 godot-mcp-go 深度对标产出）
+
+- **新增 `engine` 工具组（editor-only）**：3 个 action——`class_info` / `search` / `get_inheritance`。走 editor 层直调 ClassDB（不经沙箱），让 AI 发现运行中引擎的实际可用类/方法/属性/信号/枚举。补静态 docs 工具（extension_api.json 4.7 快照，不含第三方 addon/自定义类/4.6/4.8 差异）的缺口。
+  - GD 侧新增 `engine_commands.gd`（3 handler + ClassDB.class_get_property_list/method_list/signal_list/enum_list + get_class_list + get_parent_class + Variant.Type 名称映射 + SEARCH_LIMIT=100 防全量返回）。
+  - 心智模型：静态查 docs / 实时查 engine。docs 是离线 4.7 快照，engine 是运行中引擎的真实 ClassDB。
+  - 9 个新测试（`test/engine-tools.test.ts` TS 契约 + GD 契约 + 注册链路 + static-grep drift）。
+
 ## [0.25.10] - 2026-08-08
 
 ### Added — CMP-3 debug 组 Phase 1 断点管理（2026-08-08，竞品 godot-mcp-go 深度对标产出）

@@ -3,12 +3,12 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：39
-- securityLevel：danger-api 10 / guarded 17 / safe 12
-- risk：read 111 / write 82 / destructive 10 / process 14
-- L2 覆盖：covered 0 / partial 0 / none 39
-- token 预算：tools/list ≈ 74234B / ~18559 tokens（description 11493B / schema 62741B，schema 占 85%）
-- annotations：readOnly 10 / destructive 5 / idempotent 13
+- 工具总数：40
+- securityLevel：danger-api 10 / guarded 17 / safe 13
+- risk：read 114 / write 82 / destructive 10 / process 14
+- L2 覆盖：covered 0 / partial 0 / none 40
+- token 预算：tools/list ≈ 75552B / ~18888 tokens（description 12205B / schema 63347B，schema 占 84%）
+- annotations：readOnly 11 / destructive 5 / idempotent 14
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
@@ -33,9 +33,10 @@
 - `blender` (blender)
 - `cpp` (code)
 - `csv_to_resources` (unknown)
-- `debug` (unknown)
+- `debug` (debug)
 - `docs` (code)
 - `editor` (editor)
+- `engine` (engine)
 - `game` (bridge)
 - `godot_advanced_tool` (dynamic)
 - `godot_get_context` (core)

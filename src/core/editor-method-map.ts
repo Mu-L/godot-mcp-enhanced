@@ -110,6 +110,13 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     clear_breakpoint: { method: 'debug_clear_breakpoint' },
     list_breakpoints: { method: 'debug_list_breakpoints' },
   },
+  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省(editor-only)
+  // 走 editor 层直调 ClassDB(不经沙箱——ClassDB 在 gdscript-executor 被列为危险模式)。
+  engine: {
+    class_info: { method: 'engine_class_info' },
+    search: { method: 'engine_search' },
+    get_inheritance: { method: 'engine_get_inheritance' },
+  },
   // IMPORTANT(2026-07-13 协议断链): 下列族 editor 漏登记 → fallback toolName → -32601
   // → headless → GD 带 undo 分支成死代码,丢 editor 实时+undo。登记后 editor 模式走 GD 带 undo。
   // recording 不登记(GD editor 主动禁用 -32009,走 bridge)。headless-only action

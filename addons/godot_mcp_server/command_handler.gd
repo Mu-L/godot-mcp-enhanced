@@ -15,6 +15,7 @@ var _recording_commands: Node
 var _ui_commands: Node
 var _asset_commands: Node
 var _debug_commands: Node  # CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
+var _engine_commands: Node  # CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
 
 func setup(plugin: EditorPlugin) -> void:
 	_undo_manager = preload("undo_manager.gd").new()
@@ -78,10 +79,15 @@ func setup(plugin: EditorPlugin) -> void:
 	_debug_commands.setup(plugin)
 	add_child(_debug_commands)
 
+	# CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省(editor-only)
+	_engine_commands = preload("commands/engine_commands.gd").new()
+	_engine_commands.setup(plugin)
+	add_child(_engine_commands)
+
 func cleanup() -> void:
 	var modules = [
 		_sync_commands, _recording_commands, _animation_commands,
-		_ui_commands, _asset_commands, _debug_commands, _scene_commands, _node_commands,
+		_ui_commands, _asset_commands, _debug_commands, _engine_commands, _scene_commands, _node_commands,
 		_test_commands, _export_commands, _particle_commands,
 		_nav_commands, _animtree_commands, _undo_manager,
 	]
@@ -96,6 +102,7 @@ func cleanup() -> void:
 	_ui_commands = null
 	_asset_commands = null
 	_debug_commands = null
+	_engine_commands = null
 	_scene_commands = null
 	_node_commands = null
 	_test_commands = null
@@ -231,6 +238,13 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _debug_commands.handle_clear_breakpoint(params)
 		"debug_list_breakpoints":
 			return _debug_commands.handle_list_breakpoints(params)
+		# --- engine (CMP-4 2026-08-08) — 实时 ClassDB 内省 --------------------------
+		"engine_class_info":
+			return _engine_commands.handle_class_info(params)
+		"engine_search":
+			return _engine_commands.handle_search(params)
+		"engine_get_inheritance":
+			return _engine_commands.handle_get_inheritance(params)
 		# Tools NOT routed here (headless-only via TS/GDScript executor):
 		#   animation (play/stop/seek/list_players) - runtime AnimationPlayer control
 		#   recording_save / recording_load - file I/O handled by TS side

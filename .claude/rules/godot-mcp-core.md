@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 39 个 MCP 工具（217 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 40 个 MCP 工具（220 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -71,6 +71,13 @@ godot-mcp-enhanced 提供 39 个 MCP 工具（217 个 action，权威数据见 d
 - **clear_breakpoint**：清除指定行断点。
 - **list_breakpoints**：列出当前活跃 tab 脚本的断点。
 - **⚠️ Phase 1 限制**：脚本必须在编辑器中打开且是当前活跃 tab。headless 模式返回 EDITOR_ONLY。
+
+### engine — 实时 ClassDB 内省（editor-only）
+
+- **class_info**：查单个类的完整结构（属性/方法/信号/枚举/继承），默认 no_inherit=true 只看本类 own 成员。
+- **search**：substring 匹配类名（返回 {name, parent} 列表，上限 100 条）。
+- **get_inheritance**：返回类的继承链（从本类到 Object）。
+- **vs docs**：docs 是静态 4.7 快照（离线），engine 是运行中引擎的真实 ClassDB（含第三方 addon/自定义类/实际版本差异）。
 
 ### run_and_verify vs 手动组合
 

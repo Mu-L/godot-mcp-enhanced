@@ -1,5 +1,5 @@
 {
-  "version": "0.25.10",
+  "version": "0.25.11",
   "tools": [
     {
       "name": "android",
@@ -1359,7 +1359,7 @@
     },
     {
       "name": "debug",
-      "group": "unknown",
+      "group": "debug",
       "description": "交互式调试器 — 断点管理（editor-only）：在 GDScript 脚本中设置/清除/列出断点。 set_breakpoint: 在指定行设置断点（走 CodeEdit gutter，进入 editor breakpoint map：gutter 可见 + 现行 game 命中 + 下次 run 同步保持）。 clear_breakpoint: 清除指定行的断点。 list_breakpoints: 列出当前活跃 tab 脚本的断点。 ⚠️ 脚本必须在编辑器中打开且是当前活跃 tab（Phase 1 限制，Phase 2 将支持自动打开）。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY。需 GODOT_MCP_MODE=editor 并安装 Godot 插件。",
       "inputSchema": {
         "type": "object",
@@ -1403,10 +1403,12 @@
         "destructive": 0,
         "process": 0
       },
-      "groupRequires": [],
+      "groupRequires": [
+        "editor"
+      ],
       "offlineCapable": false,
       "needsGodot": true,
-      "needsEditor": false,
+      "needsEditor": true,
       "gdScriptImpl": {
         "headless": {
           "exists": false,
@@ -1597,6 +1599,91 @@
         "descBytes": 181,
         "schemaBytes": 241,
         "totalBytes": 422
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "engine",
+      "group": "engine",
+      "description": "实时 ClassDB 内省（editor-only）：查询运行中引擎的实际可用类/方法/属性/信号/枚举。 class_info: 查单个类的完整结构（属性/方法/信号/枚举/继承），默认 no_inherit=true 只看本类 own 成员。 search: substring 匹配类名（返回 {name, parent} 列表，上限 100 条）。搜到类名后用 class_info 查具体成员。 get_inheritance: 返回类的继承链（从本类到 Object）。 ⚠️ 补 docs 工具的缺口：docs 是静态 4.7 快照（不含第三方 addon/自定义类/4.6/4.8 差异），engine 是运行中引擎的真实 ClassDB。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY（ClassDB 在沙箱里被拦，走 editor 层直调）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "class_info",
+              "search",
+              "get_inheritance"
+            ],
+            "description": "Action type: class_info | search | get_inheritance"
+          },
+          "class": {
+            "type": "string",
+            "description": "class_info/get_inheritance: 类名（如 Node、Sprite2D、RigidBody3D，或第三方 addon 注册的类名）"
+          },
+          "query": {
+            "type": "string",
+            "description": "search: substring 匹配类名（大小写不敏感）"
+          },
+          "no_inherit": {
+            "type": "boolean",
+            "description": "class_info: true=只看本类 own 成员（默认，翻继承链会淹没新 API）；false=含继承链合并"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "class",
+        "query",
+        "no_inherit"
+      ],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 3,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [
+        "editor"
+      ],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": true,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/engine_commands.gd"
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 719,
+        "schemaBytes": 606,
+        "totalBytes": 1325
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1796,7 +1883,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources, testing, debug",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources, testing",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1845,9 +1932,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 213,
+        "descBytes": 206,
         "schemaBytes": 205,
-        "totalBytes": 418
+        "totalBytes": 411
       },
       "annotations": {
         "readOnlyHint": false,

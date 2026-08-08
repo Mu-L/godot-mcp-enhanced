@@ -10,11 +10,11 @@ import {
 
 describe('tool-registry groups and profiles', () => {
   describe('TOOL_GROUPS', () => {
-    it('should define 20 tool groups', () => {
+    it('should define 22 tool groups', () => {
       // v0.18.0: recording→runtime, ik→animation removed as independent groups
       // blender 加入 TOOL_GROUPS（Task 4 注册接线）
       // self-update Task 4: selfupdate 组加入 TOOL_GROUPS
-      expect(Object.keys(TOOL_GROUPS)).toHaveLength(20);
+      expect(Object.keys(TOOL_GROUPS)).toHaveLength(22);
     });
 
     it('should have each group contain valid tool names as non-empty string arrays', () => {
@@ -83,8 +83,8 @@ describe('tool-registry groups and profiles', () => {
       expect(Object.keys(PROFILES)).toHaveLength(6);
     });
 
-    it('should have full profile include all 20 groups', () => {
-      expect(PROFILES.full).toHaveLength(20);
+    it('should have full profile include all 22 groups', () => {
+      expect(PROFILES.full).toHaveLength(22);
     });
 
     it('should have minimal profile only include core', () => {
