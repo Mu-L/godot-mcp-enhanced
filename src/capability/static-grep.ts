@@ -134,6 +134,9 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   guard_text_resource_write: 'editor_guards.gd',
   // P1-2 (2026-07-06 review): 场景离线保存守卫(与 guard_text_resource_write 对称, 同在 editor_guards.gd)
   guard_offline_scene_save: 'editor_guards.gd',
+  // CMP-1 (2026-08-08): editor 项目匹配检查——返回 ProjectSettings.globalize_path("res://")
+  // handler 内联在 command_handler.gd handle()(不归属子 commands,复用 websocket_server.gd _get_project_dir 逻辑)
+  editor_get_project_path: 'command_handler.gd',
 };
 
 /**

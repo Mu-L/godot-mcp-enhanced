@@ -213,6 +213,8 @@ describe('GodotServer', () => {
         addOnReconnectExhaustedHandler: vi.fn((handler) => {
           exhaustedHandlers.push(handler);
         }),
+        // CMP-1: editor_get_project_path 回当前项目根(mockExistsSync=true 时 resolveProjectPath 返回 process.cwd())
+        request: vi.fn().mockResolvedValue({ project_path: process.cwd() }),
       };
 
       vi.mocked(EditorConnection).mockImplementation(function() { return mockEditorConn; });
@@ -250,6 +252,8 @@ describe('GodotServer', () => {
         }),
         addOnReconnectHandler: vi.fn(),
         addOnReconnectExhaustedHandler: vi.fn(),
+        // CMP-1: editor_get_project_path 回当前项目根(mockExistsSync=true 时 resolveProjectPath 返回 process.cwd())
+        request: vi.fn().mockResolvedValue({ project_path: process.cwd() }),
       };
 
       vi.mocked(EditorConnection).mockImplementation(function() { return mockEditorConn; });

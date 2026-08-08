@@ -101,7 +101,7 @@ describe('game-bridge handleTool routing', () => {
   });
 
   it('game_query accepts only read methods', async () => {
-    const readMethods = ['ping', 'get_tree', 'find_nodes', 'get_node_properties', 'get_performance', 'get_viewport_info', 'take_screenshot'];
+    const readMethods = ['ping', 'get_tree', 'find_nodes', 'get_node_properties', 'get_node_layout', 'get_performance', 'get_viewport_info', 'take_screenshot', 'get_errors', 'clear_errors'];
     for (const method of readMethods) {
       const result = await handleTool('game', { action: 'game_query', method }, mockCtx);
       const text = result?.content?.[0]?.text ?? '';

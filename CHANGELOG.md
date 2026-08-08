@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.25.9] - 2026-08-08
+
+### Added — CMP-2 game bridge runtime error 捕获（2026-08-08，竞品 godot-mcp-go 深度对标产出）
+
+- **game bridge 通道新增 runtime error 捕获**（`src/scripts/mcp_bridge.gd`）：新增 `_ErrorCapture` 内部 Logger 子类，`_ready()` 注册 `OS.add_logger`，捕获游戏运行时 `push_error` / 脚本 setter 报错 / 信号回调错误，存入 ring buffer（MAX_ENTRIES=200）。AI 现在能看到游戏运行时错误，不再只靠 `take_screenshot` 间接推断——闭环调试。
+  - 新增 2 个 bridge method：`get_errors`（支持 `since_seq` 增量查询 + `clear` 读即焚）、`clear_errors`（清空 buffer）。
+  - 错误结构：`{seq, kind, message, code, function, file, line}`，`kind` 分 `error`/`script`/`shader`/`warning`。
+  - 捕获全部 4 种 Godot ErrorType（NIT-1 修复后超越竞品只捕 SCRIPT/SHADER/WARNING）。
+  - re-entrancy guard（`_in_log` flag）防 error storm 递归卡死；message/code/function/file `substr(0, 4096)` 截断防撑爆消息上限（NIT-4）；rationale 优先于 code（Godot 把错误文本拆两段，前者是人话描述）。
+  - `_exit_tree()` 注销 logger（Logger 是 RefCounted，remove_logger 让引擎 logger 链释放引用）。
+  - 11 个新测试（`test/regression/bridge-error-capture-contract.test.ts` GD 契约 + `test/game-bridge.test.js` 白名单 + `test/workflow.test.js` size 断言更新）。
+
+### Security — CMP-1 editor 项目匹配检查（2026-08-08，竞品 godot-mcp-go 深度对标产出）
+
+- **editor 连接建立后校验项目匹配**（`src/GodotServer.ts`）：连接成功后发 `editor_get_project_path` RPC 读 editor 的 `res://` 绝对路径，与 `resolveProjectPath()` 结果归一化比对。mismatch → disconnect + 返回 `connected: false`（走降级路径：`noFallback` → exit，否则 → headless）。防跨项目误操作（A 项目开 editor + MCP 配 B 项目 → 拿 A 场景树当 B 操作）。`editorProjectPath=null`（无 project.godot 上下文）→ 跳过校验不阻断。归一化：反斜杠→正斜杠 + 去尾分隔符 + Windows lowerCase + junction/symlink `safeRealPath` fallback。
+  - GD 侧新增 `editor_get_project_path` RPC（`addons/godot_mcp_server/command_handler.gd`）：复用 `ProjectSettings.globalize_path("res://")`（与 `websocket_server.gd` `_get_project_dir()` 同款），不依赖 EditorInterface/打开场景。
+  - 覆盖三条路径：首次连接（`establishEditorConnection`）、显式 rebuild（`rebuildEditorConnection`）、自动重连（`addOnReconnectHandler`，NIT-1 修复后补重校验 + handleEditorStall 降级）。
+  - 10 个新测试（`test/editor-project-check.test.ts`）+ 4 个集成测试 mock 更新（`editor-fallback-integration.test.js` + `godot-server.test.js`）。
+
+### Changed — rule-templates.ts 同步（触发 version bump 0.25.8→0.25.9）
+
+- `src/tools/rule-templates.ts` bridge 段补 `get_errors`/`clear_errors` method 表行。触发 check-rules-version-bump 强制 version bump（0.25.8→0.25.9）。
+
 ## [0.25.8] - 2026-08-07
 
 ### Fixed — 2026-08-07 审查待办批量修复（5 批 × 60 项 → 26 项新代码 + 13 项核实已落地）
@@ -21,8 +46,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed — rule-templates.ts 同步（触发 version bump）
 
 - `src/tools/rule-templates.ts` editor 段补「launch_editor 崩溃恢复」文档化条目（fire-and-forget 语义 + 非 PERSISTENT_SECRET rebuild 失败说明 + B-T5 心跳降级分流）。触发 check-rules-version-bump 强制 version bump（0.25.7→0.25.8）。
-
-## [Unreleased]
 
 ### Fixed — 2026-08-06 全风险面审查修复（6 份提示词 × 44 findings 分 5 批）
 

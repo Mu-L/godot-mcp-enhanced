@@ -94,6 +94,9 @@ describe('workflow dev_loop bridge logic', () => {
     expect(BRIDGE_READ_ONLY_METHODS.has('get_node_layout')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('get_performance')).toBe(true);
     expect(BRIDGE_READ_ONLY_METHODS.has('get_viewport_info')).toBe(true);
-    expect(BRIDGE_READ_ONLY_METHODS.size).toBe(7);
+    // CMP-2 (2026-08-08): get_errors/clear_errors 加入只读集合(只操作 bridge 内部 buffer)
+    expect(BRIDGE_READ_ONLY_METHODS.has('get_errors')).toBe(true);
+    expect(BRIDGE_READ_ONLY_METHODS.has('clear_errors')).toBe(true);
+    expect(BRIDGE_READ_ONLY_METHODS.size).toBe(9);
   });
 });

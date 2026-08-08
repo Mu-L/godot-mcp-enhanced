@@ -131,6 +131,8 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | \`get_performance\` | 获取性能统计（FPS/内存等） |
 | \`get_viewport_info\` | 获取视口信息 |
 | \`take_screenshot\` | 从运行中的游戏截图 |
+| \`get_errors\` | 查询游戏运行时错误（push_error/脚本报错/引擎错误），支持 \`since_seq\` 增量 + \`clear\` 读即焚 |
+| \`clear_errors\` | 清空错误 buffer |
 
 ### 输入 — game_input
 

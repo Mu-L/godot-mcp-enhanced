@@ -62,6 +62,9 @@ var _playtest_step_pending: Array = []  # [{peer: StreamPeerTCP, pid: int, id: V
 # 防多 peer 场景下 peer B 断开误清 peer A 的 physics 锁/snapshot。
 var _playtest_owner_pid: int = -1
 var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buffer_bytes 取用
+# CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
+# 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
+var _error_capture: _ErrorCapture = null
 
 
 const BLOCKED_PROPERTIES := [
@@ -97,6 +100,9 @@ func _ready() -> void:
 	# Godot 4.6+: extends 原生类(Node)的虚函数不可调 super()(4.6.2 Parse error "hasn't been defined"),移除 IMP-4 super()。该 convention 仅适用于 extends 自定义基类。
 	if Engine.is_editor_hint():
 		return
+	# CMP-2 (2026-08-08): 注册 runtime error 捕获(在 _start_server 前,确保任何启动错误也被捕)。
+	_error_capture = _ErrorCapture.new()
+	OS.add_logger(_error_capture)
 	# Headless 也启动 Bridge: run_project 跑 headless 游戏需 Bridge 通信(DisplayServer=headless)。
 	# --headless --script 场景若端口被占, _start_server 的 listen() 失败会安全跳过(warning+return)。
 	_start_server()
@@ -105,6 +111,11 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	# 同 _ready():extends 原生类 Node 的 _exit_tree() 虚函数不可 super()(Godot 4.6+ Parse error)。
 	_stop_server()
+	# CMP-2: 注销 error 捕获(Logger 是 RefCounted,remove_logger 让引擎 logger 链释放引用,
+	# 避免 Node 销毁后 logger 回调访问已失效上下文)。
+	if _error_capture:
+		OS.remove_logger(_error_capture)
+		_error_capture = null
 
 
 func _process(_delta: float) -> void:
@@ -637,6 +648,11 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_get_performance()
 		"get_viewport_info":
 			result = _cmd_get_viewport_info()
+		# CMP-2 (2026-08-08): runtime error 捕获——查询/清除游戏运行时错误
+		"get_errors":
+			result = _cmd_get_errors(params)
+		"clear_errors":
+			result = _cmd_clear_errors()
 		"recording.start":
 			result = _cmd_recording_start()
 		"recording.stop":
@@ -1173,6 +1189,23 @@ func _cmd_get_viewport_info() -> Dictionary:
 	return {
 		"size": {"x": vp.get_visible_rect().size.x, "y": vp.get_visible_rect().size.y},
 	}
+
+
+# ─── CMP-2: runtime error 捕获 (2026-08-08) ──────────────────────────────────
+
+func _cmd_get_errors(params: Dictionary) -> Dictionary:
+	if _error_capture == null:
+		return {"error": {"code": -32003, "message": "Error capture not initialized"}}
+	var since_seq := int(params.get("since_seq", 0))
+	var clear := bool(params.get("clear", false))
+	return _error_capture.poll(since_seq, clear)
+
+
+func _cmd_clear_errors() -> Dictionary:
+	if _error_capture == null:
+		return {"error": {"code": -32003, "message": "Error capture not initialized"}}
+	_error_capture.clear()
+	return {"status": "ok", "cleared": true}
 
 
 # ─── Recording ───────────────────────────────────────────────────────────────
@@ -1858,3 +1891,68 @@ func _is_safe_value(value: Variant, depth: int = 0) -> bool:
 				return false
 		return true
 	return false
+
+
+# ─── CMP-2 (2026-08-08): runtime error 捕获 Logger 子类 ──────────────────────
+# 竞品 game_error_log.gd 验证过的设计:re-entrancy guard 防 error storm 递归、
+# rationale 优先于 code(Godot 把错误文本拆两段)、ring buffer pop_front、
+# 只捕 SCRIPT/SHADER/WARNING 放过普通 print。
+# 不放 backtrace 深栈:Godot 4 _script_backtraces 是扁平字符串数组解析不可靠,
+# 首帧(function/file/line)已在 _log_error 参数,够用。
+class _ErrorCapture extends Logger:
+	const MAX_ENTRIES := 200
+	const MAX_TEXT_LEN := 4096  # NIT-4: 截断超长 message/code/function/file 防撑爆 MAX_MESSAGE_SIZE
+
+	var _entries: Array[Dictionary] = []
+	var _seq := 0
+	var _in_log := false  # re-entrancy guard:push_error 递归触发 logger 再触发 error 会卡死
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array) -> void:
+		if _in_log:
+			return
+		# 捕获全部 4 种错误类型(ERROR/SCRIPT/SHADER/WARNING)。
+		# NIT-1 (2026-08-08 第三方审查): 补 ERROR_TYPE_ERROR 覆盖引擎层运行时错误
+		# (null 解引用/API 误用/FileAccess 失败/callv 参数错误),超越竞品只捕 SCRIPT/SHADER/WARNING。
+		# 注意:_log_error 不被普通 print() 触发(走 _log_message),这里不会收到 print。
+		if error_type != ERROR_TYPE_ERROR and error_type != ERROR_TYPE_SCRIPT and error_type != ERROR_TYPE_SHADER and error_type != ERROR_TYPE_WARNING:
+			return
+		_in_log = true
+		_seq += 1
+		var kind := "warning"
+		if error_type == ERROR_TYPE_ERROR:
+			kind = "error"
+		elif error_type == ERROR_TYPE_SCRIPT:
+			kind = "script"
+		elif error_type == ERROR_TYPE_SHADER:
+			kind = "shader"
+		# rationale 是引擎错误的人话描述,code 是 push_error 的原始文本;前者更可读。
+		# NIT-4 (2026-08-08 第三方审查): 截断防超长文本撑爆 MAX_MESSAGE_SIZE。
+		var msg := (rationale if rationale != "" else code).substr(0, MAX_TEXT_LEN)
+		var code_clipped := code.substr(0, MAX_TEXT_LEN)
+		_entries.append({
+			"seq": _seq,
+			"kind": kind,
+			"message": msg,
+			"code": code_clipped,
+			"function": function.substr(0, MAX_TEXT_LEN),
+			"file": file.substr(0, MAX_TEXT_LEN),
+			"line": line,
+		})
+		if _entries.size() > MAX_ENTRIES:
+			_entries.pop_front()
+		_in_log = false
+
+	# 增量查询:返回 seq > since_seq 的条目 + 下次查询用的 next_seq 游标。
+	# clear=true 在查询后清空 buffer(读即焚,适合 AI 确认已处理完旧错误)。
+	func poll(since_seq: int, clear: bool) -> Dictionary:
+		var out: Array = []
+		for e in _entries:
+			if int(e["seq"]) > since_seq:
+				out.append(e)
+		var next := _seq
+		if clear:
+			_entries.clear()
+		return {"errors": out, "next_seq": next}
+
+	func clear() -> void:
+		_entries.clear()

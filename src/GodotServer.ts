@@ -48,7 +48,7 @@ import { killProcess } from './core/process-state.js';
 import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.js';
 import { setProgressSender, setProgressClientReady } from './core/progress.js';
 import { setElicitServer } from './core/elicit.js';
-import { resolveProjectPath } from './core/path-utils.js';
+import { resolveProjectPath, safeRealPath } from './core/path-utils.js';
 import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
 import { FileStateStore } from './core/state-store.js';
@@ -575,6 +575,18 @@ export class GodotServer {
     });
     try {
       await this.editorConn.connect();
+      // CMP-1 (2026-08-08): 连接成功后立即校验 editor 对应的项目根,防跨项目误操作。
+      // 发 editor_get_project_path RPC 读 editor 的 res:// 绝对路径,与 this.editorProjectPath
+      // (resolveProjectPath 结果)归一化比对。mismatch → disconnect + 返回失败(走降级路径)。
+      // editorProjectPath=null(resolveProjectPath 返 undefined,无 project.godot 上下文)→ 跳过,不阻断。
+      const projectCheck = await this.verifyEditorProject();
+      if (!projectCheck.ok) {
+        try { this.editorConn.disconnect(); } catch { /* best-effort */ }
+        this.editorConn = null;
+        const expected = projectCheck.expected ?? '(unknown)';
+        const actual = projectCheck.actual ?? '(unreadable)';
+        return { connected: false, detail: `Editor project mismatch: expected ${expected}, got ${actual}` };
+      }
       // B-T3: hm 提前到 EditorToolExecutor 构造前复用，注入 _executeInner 半开 HOL 预检
       // （reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待，避免串行 executeChain ×30s 放大）。
       const hm = this.dispatcher?.getHealthMonitor();
@@ -591,6 +603,15 @@ export class GodotServer {
       // 本 handler 复位 hm→恢复;重连耗尽→上面 reconnectExhausted handler→handleEditorStall 兜底降级。
       this.editorConn.addOnReconnectHandler(() => {
         if (hm) hm.reset();
+        // CMP-1 NIT-1 (2026-08-08 第三方审查): 自动重连后重新校验项目匹配。
+        // editor 可能重连后对应不同项目(如端口被另一个项目的 editor 接管),需重校验。
+        // fire-and-forget:不阻塞重连流程;mismatch 则 handleEditorStall 降级。
+        void this.verifyEditorProject().then((check) => {
+          if (!check.ok) {
+            getLogger().warn('auth', `Editor project changed after reconnect: expected ${check.expected ?? '(unknown)'}, got ${check.actual ?? '(unreadable)'} — degrading to headless.`);
+            this.handleEditorStall();
+          }
+        });
       });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
@@ -637,6 +658,47 @@ export class GodotServer {
       const msg = err instanceof Error ? err.message : String(err);
       this.editorConn = null;
       return { connected: false, detail: `Editor connection failed: ${msg}` };
+    }
+  }
+
+  /**
+   * CMP-1 (2026-08-08): 校验 editor 连接对应的项目根与当前配置一致。
+   * 发 editor_get_project_path RPC 读 editor 的 res:// 绝对路径,与 this.editorProjectPath
+   * (resolveProjectPath 结果)归一化比对。mismatch → ok:false(调用方 disconnect + 降级)。
+   * editorProjectPath=null(无 project.godot 上下文)→ 跳过校验(ok:true,不阻断)。
+   */
+  private async verifyEditorProject(): Promise<{ ok: boolean; expected?: string; actual?: string }> {
+    if (this.editorProjectPath === null) {
+      // 无期望路径(不在项目内 / resolveProjectPath 返 undefined)→ 无法对照,不阻断。
+      return { ok: true };
+    }
+    if (!this.editorConn) {
+      return { ok: false, expected: this.editorProjectPath, actual: '(no connection)' };
+    }
+    try {
+      const resp = await this.editorConn.request('editor_get_project_path', {}, { timeoutMs: 5000 }) as Record<string, unknown> | null;
+      const actual = String(resp?.project_path ?? '');
+      if (!actual) {
+        return { ok: false, expected: this.editorProjectPath, actual: '(empty)' };
+      }
+      if (normalizeForCompare(actual) !== normalizeForCompare(this.editorProjectPath)) {
+        // NIT-3 (2026-08-08 第三方审查): 字面比对不等时,再做一次 realpath 归一化比對。
+        // 防junction/symlink启动 editor 致两端返回不同表示(D:\projects vs C:\real\projects)。
+        // safeRealPath 走 realpathSync(失败则 walk-up 找祖先解析),对存在的路径必成功。
+        try {
+          const realActual = safeRealPath(actual);
+          const realExpected = safeRealPath(this.editorProjectPath);
+          if (normalizeForCompare(realActual) === normalizeForCompare(realExpected)) {
+            return { ok: true };
+          }
+        } catch { /* realpath 失败则用字面比对结果(保守拒绝) */ }
+        return { ok: false, expected: this.editorProjectPath, actual };
+      }
+      return { ok: true };
+    } catch (err) {
+      // RPC 超时 / error → 保守拒绝(读不到 project_path 不应静默通过)。
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, expected: this.editorProjectPath, actual: `(unreadable: ${msg})` };
     }
   }
 
@@ -752,4 +814,14 @@ export class GodotServer {
       log('Server shut down');
     }
   }
+}
+
+/**
+ * CMP-1 (2026-08-08): 路径归一化用于跨端比对(editor 返回的 res:// 绝对路径 vs resolveProjectPath 结果)。
+ * 反斜杠→正斜杠;去尾部分隔符;Windows 下 lowerCase(盘符大小写不敏感);Linux/macOS 保留大小写。
+ */
+function normalizeForCompare(p: string): string {
+  let s = p.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (process.platform === 'win32') s = s.toLowerCase();
+  return s;
 }

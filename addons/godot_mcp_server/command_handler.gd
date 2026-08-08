@@ -243,6 +243,12 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			if scene_guard_result.is_empty():
 				return {"result": {"status": "ok", "path": scene_guard_path}}
 			return scene_guard_result
+		# CMP-1 (2026-08-08): 返回 editor 当前项目根,供 MCP 端连接时校验项目匹配。
+		# 复用 websocket_server.gd _get_project_dir() 同款逻辑(ProjectSettings.globalize_path)。
+		# 不依赖 EditorInterface / 打开场景,ProjectSettings 是全局单例。
+		"editor_get_project_path":
+			var res_root: String = ProjectSettings.globalize_path("res://")
+			return {"result": {"project_path": res_root.rstrip("/")}}
 		_:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
 

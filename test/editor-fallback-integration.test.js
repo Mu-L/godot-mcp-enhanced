@@ -118,7 +118,11 @@ describe('editor fallback end-to-end (P0-1)', () => {
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
-        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        // CMP-1: editor_get_project_path 需回当前项目根(与 resolveProjectPath 在 mockExistsSync=true 下返回 process.cwd() 一致)
+        const result = msg.method === 'editor_get_project_path'
+          ? { project_path: process.cwd() }
+          : { status: 'ok' };
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
       });
     });
 
@@ -155,7 +159,11 @@ describe('editor fallback end-to-end (P0-1)', () => {
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
-        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        // CMP-1: editor_get_project_path 需回当前项目根(与 resolveProjectPath 在 mockExistsSync=true 下返回 process.cwd() 一致)
+        const result = msg.method === 'editor_get_project_path'
+          ? { project_path: process.cwd() }
+          : { status: 'ok' };
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
       });
     });
 
@@ -187,7 +195,11 @@ describe('editor fallback end-to-end (P0-1)', () => {
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
-        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        // CMP-1: editor_get_project_path 需回当前项目根(与 resolveProjectPath 在 mockExistsSync=true 下返回 process.cwd() 一致)
+        const result = msg.method === 'editor_get_project_path'
+          ? { project_path: process.cwd() }
+          : { status: 'ok' };
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
       });
     });
 
@@ -217,7 +229,11 @@ describe('editor fallback end-to-end (P0-1)', () => {
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
-        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        // CMP-1: editor_get_project_path 需回当前项目根(与 resolveProjectPath 在 mockExistsSync=true 下返回 process.cwd() 一致)
+        const result = msg.method === 'editor_get_project_path'
+          ? { project_path: process.cwd() }
+          : { status: 'ok' };
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
       });
     });
 
