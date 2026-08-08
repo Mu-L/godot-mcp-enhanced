@@ -37,6 +37,11 @@ jobs:
         # 校验手写工具数/action 数与 capability-matrix.json 一致；漂移 exit 1。
         # 覆盖独立副本同步约束（rule-templates.ts vs .claude/rules/），补 check-rules-version-bump 的内容盲区。
         run: node scripts/check-tool-count.mjs
+      - name: Check tool groups invariant（CMP-12/13：module 注册 ↔ TOOL_GROUPS 归组一致性）
+        # 校验 module-loader 注册的每个工具都在 TOOL_GROUPS 的 tools 或 ALWAYS_ALLOWED 里。
+        # 防"module 注册了但 TOOL_GROUPS 漏加"→ isToolAllowed 恒 false → 工具发现层隐藏 + 执行层不可用。
+        # 源于 CMP-4 第三方审查 B-1（engine/debug 第三次重蹈 D1 asset/android 覆辙）。读 build/ 产物，须在 build 后。
+        run: npm run check:tool-groups
       - name: Check contract consistency（P1-6：跨工具契约一致性,参考 breakpoint contract_check）
         # 6 项校验:annotations 三 hint / danger-api+destructive 必 guarded / securityLevel-guarded 一致 /
         # offlineCapable-needsGodot 互斥 / description+inputSchema / riskDistribution 计数。
@@ -157,7 +162,7 @@ jobs:
       - name: Gate gdscript（errors/incomplete → fail；真 blocking 在此，非 check:gdscript 退出码）
         run: node -e "const r=require('./coverage/gdscript-report.json'); if(r.incomplete||r.errors>0){console.error('gdscript gate FAIL',JSON.stringify(r));process.exit(1)}"
       - name: E2E + GDScript unit (real Godot ${{ matrix.name }})
-        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           # 2026-08-06 审查测试-P2-4：启用 L2 bridge 字段级守护（headless spawn 游戏进程，不需 GUI editor）
