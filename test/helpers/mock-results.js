@@ -98,3 +98,61 @@ export function mockSuccessSpawn(overrides = {}) {
     ...overrides,
   };
 }
+
+/**
+ * P2-F (2026-08-08): spawnGodot 进程崩溃结果工厂。
+ * 模拟 Godot 进程因 SIGSEGV/SIGABRT/原生异常崩溃退出（exitCode≠0 + stderr 含信号）。
+ * 与 run_error（GDScript 异常）不同：崩溃是进程级，GDScript 层来不及报错。
+ * @param {{ signal?: string, exitCode?: number, stderr?: string, [k: string]: any }} [opts]
+ */
+export function mockCrashSpawn(opts = {}) {
+  const signal = opts.signal ?? 'SIGSEGV';
+  return {
+    stdout: '',
+    stderr: opts.stderr ?? `Godot process crashed: Received signal ${signal}`,
+    output: '',
+    exitCode: opts.exitCode ?? (process.platform === 'win32' ? 0xC0000005 : -11), // win32 STATUS_ACCESS_VIOLATION / POSIX SIGSEGV
+    timedOut: false,
+    ...opts,
+  };
+}
+
+/**
+ * P2-F (2026-08-08): spawnGodot 超时结果工厂。
+ * 模拟 Godot 进程超时被 forceKillTree 杀掉（timedOut=true + exitCode 被 kill 置非 0）。
+ * 与 crash 不同：超时是 TS 侧主动杀，stderr 含 timeout 信息。
+ * @param {{ timeoutMs?: number, [k: string]: any }} [opts]
+ */
+export function mockTimeoutSpawn(opts = {}) {
+  return {
+    stdout: '',
+    stderr: opts.stderr ?? `Godot process timed out after ${opts.timeoutMs ?? 30000}ms (force-killed)`,
+    output: '',
+    exitCode: null, // 被 kill 杀掉的进程 exitCode 通常是 null
+    timedOut: true,
+    ...opts,
+  };
+}
+
+/**
+ * P2-F (2026-08-08): executeGdscript 进程崩溃结果工厂。
+ * 模拟 Godot headless 进程崩溃（非 GDScript 错误）——executeGdscript 层捕获后
+ * run_success=false + run_error 含崩溃信息（非编译/运行时 GDScript 错误）。
+ * 用于测 parseGdscriptResult 对崩溃 stderr 的分类（不应误判为 compile_error）。
+ * @param {{ signal?: string, stderr?: string, [k: string]: any }} [opts]
+ */
+export function mockCrashResult(opts = {}) {
+  const signal = opts.signal ?? 'SIGSEGV';
+  return {
+    success: false,
+    compile_success: true, // 崩溃发生在编译后（进程启动了但崩了），非编译错误
+    compile_error: '',
+    errors: [],
+    run_success: false,
+    run_error: opts.runError ?? `Process crashed: ${signal}`,
+    outputs: [],
+    raw_output: opts.raw_output ?? `Godot process crashed: Received signal ${signal}`,
+    duration_ms: opts.duration_ms ?? 50, // 崩溃通常很快
+    ...opts,
+  };
+}

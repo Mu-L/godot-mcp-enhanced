@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -10,17 +10,19 @@ import {
   installOverrides,
   OVERRIDE_AUTOLOAD_PREFIX,
 } from '../src/core/overrides.js';
+import { asUnrestrictedPath, isolatePathEnv } from './helpers/path-isolation.js';
 
 // P2-1 overrides 测试:验证 autoload 注入/卸载逻辑 + 路径白名单 + 幂等
 // 用真实 tmp 目录建 mock 项目(绕过 isPathInAllowedRoots 需 UNRESTRICTED)
+// P2-C (2026-08-08): env 操作迁移到 asUnrestrictedPath/isolatePathEnv 消除直接赋值 footgun
 
-const OLD_UNRESTRICTED = process.env.GODOT_MCP_UNRESTRICTED;
 let tmpRoot: string;
 let projectDir: string;
 let sourceScriptDir: string;
+let restoreEnv: () => void;
 
 beforeEach(() => {
-  process.env.GODOT_MCP_UNRESTRICTED = 'true'; // 测试环境绕过白名单
+  restoreEnv = asUnrestrictedPath(); // stubEnv 模式，afterEach restore 自动清
   tmpRoot = join(tmpdir(), `overrides-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   projectDir = join(tmpRoot, 'MyProject');
   sourceScriptDir = join(tmpRoot, 'sources');
@@ -32,8 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (OLD_UNRESTRICTED === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
-  else process.env.GODOT_MCP_UNRESTRICTED = OLD_UNRESTRICTED;
+  restoreEnv();
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
@@ -193,21 +194,30 @@ describe('P2-1 overrides.ts', () => {
   // N-2 (P2-4 审查): 路径白名单强制测试 —— 不设 UNRESTRICTED 时越权路径必须抛错
   describe('path allowlist enforcement (N-2)', () => {
     it('installOverride 拒绝越权源脚本路径(不设 UNRESTRICTED)', () => {
-      delete process.env.GODOT_MCP_UNRESTRICTED;
-      // 越权路径:/outside/allow/evil.gd(不在 tmpRoot 也不在 cwd)
-      const outside = join(tmpdir(), `outside-${Date.now()}.gd`);
-      writeFileSync(outside, 'extends Node\n', 'utf-8');
-      expect(() => installOverride(outside, projectDir)).toThrow(/not in allowed roots/i);
-      // 清理
-      try { require('fs').unlinkSync(outside); } catch { /* best effort */ }
+      // P2-C: 用 isolatePathEnv 替代手动 delete（deny-by-default 姿态）
+      const restore = isolatePathEnv();
+      try {
+        // 越权路径:/outside/allow/evil.gd(不在 tmpRoot 也不在 cwd)
+        const outside = join(tmpdir(), `outside-${Date.now()}.gd`);
+        writeFileSync(outside, 'extends Node\n', 'utf-8');
+        expect(() => installOverride(outside, projectDir)).toThrow(/not in allowed roots/i);
+        // 清理
+        try { require('fs').unlinkSync(outside); } catch { /* best effort */ }
+      } finally {
+        restore();
+      }
     });
 
     it('installOverride 拒绝越权目标项目路径(不设 UNRESTRICTED)', () => {
-      delete process.env.GODOT_MCP_UNRESTRICTED;
-      const srcScript = join(sourceScriptDir, 'log.gd');
-      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
-      // projectDir 在 tmpRoot,但 UNRESTRICTED 关闭后须 ALLOWED_PROJECT_PATHS 显式允许
-      expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots/i);
+      const restore = isolatePathEnv();
+      try {
+        const srcScript = join(sourceScriptDir, 'log.gd');
+        writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+        // projectDir 在 tmpRoot,但 UNRESTRICTED 关闭后须 ALLOWED_PROJECT_PATHS 显式允许
+        expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots/i);
+      } finally {
+        restore();
+      }
     });
   });
 
@@ -234,29 +244,26 @@ describe('P2-1 overrides.ts', () => {
     it('installOverride 允许危险脚本通过双 opt-in 旁路（UNRESTRICTED + DISABLE_SAFETY，对齐 execute_gdscript）', () => {
       // N-1 修复：原测试只设 DISABLE_SAFETY 单 env（beforeEach 隐式 UNRESTRICTED），但代码
       // 现要求真双 opt-in（UNRESTRICTED && DISABLE_SAFETY），对齐 execute_gdscript。
-      // beforeEach 已设 UNRESTRICTED=true，这里补 DISABLE_SAFETY。
-      process.env.GODOT_MCP_DISABLE_SAFETY = 'true';
-      try {
-        const srcScript = join(sourceScriptDir, 'danger.gd');
-        writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
-        const entry = installOverride(srcScript, projectDir);
-        expect(entry).not.toBeNull(); // 双 opt-in 旁路成功
-      } finally {
-        delete process.env.GODOT_MCP_DISABLE_SAFETY;
-      }
+      // P2-C: 用 vi.stubEnv 替代直接赋值（afterEach restore 自动清）
+      // beforeEach 已设 UNRESTRICTED=true（asUnrestrictedPath），这里补 DISABLE_SAFETY。
+      vi.stubEnv('GODOT_MCP_DISABLE_SAFETY', 'true');
+      const srcScript = join(sourceScriptDir, 'danger.gd');
+      writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
+      const entry = installOverride(srcScript, projectDir);
+      expect(entry).not.toBeNull(); // 双 opt-in 旁路成功
     });
 
     it('installOverride 单 DISABLE_SAFETY（无 UNRESTRICTED）不旁路 — 双 opt-in 强制', () => {
       // N-1 修复后：单 env 不够，须 UNRESTRICTED + DISABLE_SAFETY 同时设
-      delete process.env.GODOT_MCP_UNRESTRICTED;  // 撤销 beforeEach 的 UNRESTRICTED
-      process.env.GODOT_MCP_DISABLE_SAFETY = 'true';
+      // P2-C: 用 isolatePathEnv 撤销 UNRESTRICTED（deny 姿态）+ stubEnv 设 DISABLE_SAFETY
+      const restore = isolatePathEnv();
+      vi.stubEnv('GODOT_MCP_DISABLE_SAFETY', 'true');
       try {
         const srcScript = join(sourceScriptDir, 'danger2.gd');
         writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
         expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots|failed sandbox scan/i);
       } finally {
-        delete process.env.GODOT_MCP_DISABLE_SAFETY;
-        process.env.GODOT_MCP_UNRESTRICTED = 'true';  // 恢复 beforeEach 状态
+        restore();
       }
     });
   });

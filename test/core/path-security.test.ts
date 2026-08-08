@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { sanitizePath } from '../../src/core/path-security.js';
 import { isPathInAllowedRoots } from '../../src/core/path-utils.js';
+import { isolatePathEnv } from '../helpers/path-isolation.js';
 
 describe('sanitizePath', () => {
   afterEach(() => {
@@ -59,17 +60,16 @@ describe('sanitizePath', () => {
 
 // G2: deny-by-default 专项覆盖 — 无 ALLOWED_PROJECT_PATHS + 非 UNRESTRICTED 时,
 // 路径必须被拒(C-07: restrict to cwd)。isPathInAllowedRoots 无缓存,删 env 即时生效。
+// P2-C (2026-08-08): 用 isolatePathEnv 替代手动 delete/restore（消除直接赋值 footgun）
 describe('isPathInAllowedRoots deny-by-default (G2)', () => {
   it('denies paths outside cwd when no ALLOWED_PROJECT_PATHS and UNRESTRICTED unset', () => {
-    const prevU = process.env.GODOT_MCP_UNRESTRICTED;
-    delete process.env.GODOT_MCP_UNRESTRICTED;
-    delete process.env.GODOT_MCP_ALLOWED_ROOTS;
+    const restore = isolatePathEnv(); // stubEnv 模式设空字符串（=== 'true' 为 false，等同 delete）
     try {
       // 项目 cwd 外的系统路径 → 不在 cwd → deny-by-default 返回 false
       const outside = process.platform === 'win32' ? 'C:/Windows/System32' : '/etc';
       expect(isPathInAllowedRoots(outside)).toBe(false);
     } finally {
-      if (prevU !== undefined) process.env.GODOT_MCP_UNRESTRICTED = prevU;
+      restore();
     }
   });
 });

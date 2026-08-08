@@ -27,14 +27,16 @@ vi.mock('../../src/gdscript-executor.js', () => ({
 
 import { handleTool } from '../../src/tools/data-import.js';
 import { executeGdscriptTrusted } from '../../src/gdscript-executor.js';
+import { asUnrestrictedPath } from '../helpers/path-isolation.js';
 
 const mockExec = executeGdscriptTrusted as unknown as ReturnType<typeof vi.fn>;
 
 describe('csv_to_resources projectPath source (A2)', () => {
   let proj: string;
+  let restoreEnv: () => void;
   beforeEach(() => {
-    // UNRESTRICTED 绕过 isPathInAllowedRoots(tmpdir 项目不在 ALLOWED_PROJECT_PATHS)
-    process.env.GODOT_MCP_UNRESTRICTED = 'true';
+    // P2-C: 用 asUnrestrictedPath 替代直接赋值（stubEnv 模式，restore 自动清）
+    restoreEnv = asUnrestrictedPath();
     mockExec.mockClear();
     proj = mkdtempSync(join(tmpdir(), 'csv-projdir-'));
     writeFileSync(join(proj, 'project.godot'), '; test\n');
@@ -43,7 +45,7 @@ describe('csv_to_resources projectPath source (A2)', () => {
     mkdirSync(join(proj, 'resources'), { recursive: true });
   });
   afterEach(() => {
-    delete process.env.GODOT_MCP_UNRESTRICTED;
+    restoreEnv();
     try { rmSync(proj, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 

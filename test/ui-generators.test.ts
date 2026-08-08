@@ -1,0 +1,135 @@
+/**
+ * P2-E (2026-08-08): ui-create/layout/draw 纯函数单测。
+ *
+ * src/tools/ui/ui-create.ts / ui-layout.ts / ui-draw.ts 的函数生成 GDScript 脚本字符串。
+ * 这些是纯函数（无副作用），适合单测——验证生成的脚本含正确的关键结构
+ * （_initialize/load_scene/instantiate/属性赋值/anchors 等）。
+ */
+import { describe, it, expect } from 'vitest';
+import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScript } from '../src/tools/ui/ui-create.js';
+import { genUiSetLayoutScript } from '../src/tools/ui/ui-layout.js';
+
+describe('P2-E: genUiCreateControlScript', () => {
+  it('生成含 _initialize/load_scene/instantiate/add_child 的脚本', () => {
+    const script = genUiCreateControlScript('res://main.tscn', 'Button', 'MyButton', '/root/Root');
+    expect(script).toContain('func _initialize()');
+    expect(script).toContain('_mcp_load_scene("res://main.tscn")');
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('node.name = "MyButton"');
+    expect(script).toContain('parent.add_child(node)');
+    expect(script).toContain('_mcp_output("created"');
+    expect(script).toContain('_mcp_done()');
+  });
+
+  it('含 parent 查找 + null 守卫', () => {
+    const script = genUiCreateControlScript('res://main.tscn', 'Label', 'MyLabel', '/root/Root/Panel');
+    expect(script).toContain('_mcp_get_scene_node("/root/Root/Panel")');
+    expect(script).toContain('Parent node not found');
+    expect(script).toContain('Failed to instantiate');
+  });
+
+  it('properties 生成属性赋值行', () => {
+    const script = genUiCreateControlScript('res://main.tscn', 'Label', 'L', '.', { text: 'Hello', visible: true });
+    // genPropertyLines（types.ts:108）用 set() 形式赋值，非直接 node.text =
+    expect(script).toContain('Hello');
+    expect(script).toContain('node.set'); // 属性经 set() 赋值
+  });
+
+  it('无 properties 时不生成属性行', () => {
+    const script = genUiCreateControlScript('res://main.tscn', 'Label', 'L', '.');
+    // 无 properties 时不应有 node. 属性赋值（name 赋值除外）
+    expect(script).toContain('node.name = "L"');
+    // 不含额外属性行（text/visible 等）
+    expect(script).not.toContain('node.text');
+  });
+
+  it('特殊字符经 gdEscape 转义', () => {
+    const script = genUiCreateControlScript('res://main.tscn', 'Label', 'Na"me', '.');
+    // gdEscape 应转义双引号
+    expect(script).toContain('\\"');
+  });
+});
+
+describe('P2-E: genUiContainerAddScript', () => {
+  it('生成含 add_child 的容器脚本', () => {
+    // 签名: (scenePath, nodePath, childType, childName)；childType 须在 CONTROL_TYPES 白名单
+    const script = genUiContainerAddScript('res://main.tscn', '/root/Root', 'Button', 'MyButton');
+    expect(script).toContain('ClassDB.instantiate("Button")');
+    expect(script).toContain('add_child');
+    expect(script).toContain('child.name = "MyButton"'); // container 用 child 非 node
+  });
+
+  it('拒绝非白名单 Control type', () => {
+    expect(() => genUiContainerAddScript('res://main.tscn', '/root/Root', 'Node', 'N'))
+      .toThrow(/INVALID_CONTROL_TYPE/);
+  });
+});
+
+describe('P2-E: genUiAnchorPresetScript', () => {
+  it('生成含 set_anchors_preset + Control 守卫的脚本', () => {
+    // 签名: (scenePath, nodePath, presetValue: number, presetName: string)
+    const script = genUiAnchorPresetScript('res://main.tscn', '/root/Root/Node', 15, 'full_rect');
+    expect(script).toContain('_mcp_load_scene');
+    expect(script).toContain('set_anchors_preset(15)'); // 用 set_anchors_preset 整体赋值
+    expect(script).toContain('Control'); // Control 类型守卫
+    expect(script).toContain('preset_applied');
+  });
+});
+
+describe('P2-E: genUiSetLayoutScript', () => {
+  it('anchors 生成 anchor_left/right/top/bottom 赋值', () => {
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node', {
+      left: 0, right: 1, top: 0, bottom: 1,
+    });
+    expect(script).toContain('node.anchor_left = 0');
+    expect(script).toContain('node.anchor_right = 1');
+    expect(script).toContain('node.anchor_top = 0');
+    expect(script).toContain('node.anchor_bottom = 1');
+  });
+
+  it('offsets 生成 offset_left/right/top/bottom 赋值', () => {
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node',
+      undefined, // anchors
+      { left: 10, right: -10, top: 5, bottom: -5 }, // offsets
+    );
+    expect(script).toContain('node.offset_left = 10');
+    expect(script).toContain('node.offset_right = -10');
+    expect(script).toContain('node.offset_top = 5');
+    expect(script).toContain('node.offset_bottom = -5');
+  });
+
+  it('minSize 生成 custom_minimum_size Vector2 赋值', () => {
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node',
+      undefined, undefined,
+      { x: 100, y: 50 }, // minSize
+    );
+    expect(script).toContain('node.custom_minimum_size = Vector2(100,');
+    expect(script).toContain('node.custom_minimum_size = Vector2(node.custom_minimum_size.x, 50)');
+  });
+
+  it('customMinSize 生成完整 Vector2 覆盖', () => {
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node',
+      undefined, undefined, undefined,
+      { x: 200, y: 100 }, // customMinSize
+    );
+    expect(script).toContain('node.custom_minimum_size = Vector2(200, 100)');
+  });
+
+  it('growDirection 映射成 grow_horizontal/grow_vertical', () => {
+    // growDirection 经 dirMap 映射成 Control.GROW_DIRECTION_* 枚举，赋给 grow_horizontal/grow_vertical
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node',
+      undefined, undefined, undefined, undefined,
+      'both',
+    );
+    expect(script).toContain('grow_horizontal');
+    expect(script).toContain('grow_vertical');
+    expect(script).toContain('Control.GROW_DIRECTION_BOTH');
+  });
+
+  it('全部 undefined 时不生成属性行（只有 header + load）', () => {
+    const script = genUiSetLayoutScript('res://main.tscn', '/root/Root/Node');
+    expect(script).toContain('_mcp_load_scene');
+    expect(script).not.toContain('node.anchor_');
+    expect(script).not.toContain('node.offset_');
+  });
+});
