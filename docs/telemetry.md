@@ -125,7 +125,7 @@ import('./core/update-checker.js')
 > 设 `GODOT_MCP_UPDATE_CHECK=false` 即可关闭启动时的 npm registry 查询（对齐 telemetry opt-in 哲学）。
 >
 > - **默认行为（未设 env）**：启动时被动查 npm registry（24h 缓存兜底，首次必传一次）
-> - **设 `GODOT_MCP_UPDATE_CHECK=false`**：完全跳过启动外传，`checkForUpdateCached` 直接返当前版本（不 fetch、不读缓存）。注：`self_update` 的 `check` action（用户主动查询）不受此 env 门控——属用户显式行为
+> - **设 `GODOT_MCP_UPDATE_CHECK=false`**：完全跳过启动外传，`checkForUpdateCached` 直接返当前版本（不 fetch、不读缓存）。注：`self_update` 的 `check` action 不受此 env 门控——该 action 经 `force:true` 短路门控，且 risk='read' 不经确认令牌，**AI 可自主调用触发外传**（IP/UA 泄漏 npmjs.org）。严格零外传需防火墙、`NO_PROXY=registry.npmjs.org` 或 readOnly 模式拒整工具
 >
 > 此前状态（已修复）：v0.25.0~v0.25.6 期间无 env 门控，与「默认零外传」声明冲突。原 workaround（防火墙/预置缓存/代理）仍可用，但现已非必需。
 

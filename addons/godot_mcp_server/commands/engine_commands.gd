@@ -11,6 +11,8 @@ var _plugin: EditorPlugin
 
 # search 结果上限(防全量 1000+ 类 × 子串匹配返回过大)
 const SEARCH_LIMIT := 100
+# CMP-4-R1: class_info 单类成员上限(防 Node 400+ 方法序列化撑爆 1MB → send_text ERR_INVALID_DATA → -32010)
+const MEMBER_LIMIT := 200
 
 
 func setup(plugin: EditorPlugin, _undo_manager: Node = null) -> void:
@@ -36,12 +38,20 @@ func handle_class_info(params: Dictionary) -> Dictionary:
 	info["name"] = class_name_
 	info["parent"] = ClassDB.get_parent_class(class_name_)
 	info["can_instantiate"] = ClassDB.can_instantiate(class_name_)
+	# CMP-4-R1: 各类成员截断标志(任一类别超 MEMBER_LIMIT 则 truncated=true)
+	var truncated := false
 	# 属性
 	var props: Array = ClassDB.class_get_property_list(class_name_, no_inherit)
 	var prop_out: Array = []
 	for p in props:
 		# 过滤 metadata 级别 property(只有 name+usage 无 type 的)
+		# CMP-4-R2: 过滤 PROPERTY_USAGE_INTERNAL(0x2) 属性(AI 不应见 internal,误当公开 API 调)
 		if p is Dictionary and p.has("name") and p.has("type"):
+			if int(p.get("usage", 0)) & PROPERTY_USAGE_INTERNAL:
+				continue
+			if prop_out.size() >= MEMBER_LIMIT:
+				truncated = true
+				break
 			prop_out.append({"name": p["name"], "type": _type_name(int(p["type"])), "class_name": String(p.get("class_name", ""))})
 	info["properties"] = prop_out
 	info["property_count"] = prop_out.size()
@@ -50,6 +60,9 @@ func handle_class_info(params: Dictionary) -> Dictionary:
 	var method_out: Array = []
 	for m in methods:
 		if m is Dictionary and m.has("name"):
+			if method_out.size() >= MEMBER_LIMIT:
+				truncated = true
+				break
 			var args_out: Array = []
 			if m.has("args"):
 				for a in m["args"]:
@@ -63,14 +76,24 @@ func handle_class_info(params: Dictionary) -> Dictionary:
 	var signal_out: Array = []
 	for s in signals:
 		if s is Dictionary and s.has("name"):
+			if signal_out.size() >= MEMBER_LIMIT:
+				truncated = true
+				break
 			signal_out.append(s["name"])
 	info["signals"] = signal_out
 	# 枚举
 	var enums: Array = ClassDB.class_get_enum_list(class_name_, no_inherit)
 	var enum_out: Array = []
 	for e in enums:
+		if enum_out.size() >= MEMBER_LIMIT:
+			truncated = true
+			break
 		enum_out.append(e)
 	info["enums"] = enum_out
+	# CMP-4-R1: 截断时提示 AI 改用 no_inherit=true 只看本类成员(避免 1MB 撑爆)
+	info["truncated"] = truncated
+	if truncated:
+		info["truncation_hint"] = "Output truncated at %d members per category. Use no_inherit=true to see only own members, or search for a specific class." % MEMBER_LIMIT
 	return {"result": info}
 
 
@@ -83,12 +106,15 @@ func handle_search(params: Dictionary) -> Dictionary:
 	var query_lower := query.to_lower()
 	var all_classes: PackedStringArray = ClassDB.get_class_list()
 	var matches: Array = []
+	# CMP-4-R3: 用 flag 记录是否因 SEARCH_LIMIT 提前退出,避免恰好 == LIMIT 时 truncated 假阳性
+	var hit_limit := false
 	for cls in all_classes:
 		if cls.to_lower().contains(query_lower):
 			matches.append({"name": cls, "parent": ClassDB.get_parent_class(cls)})
 			if matches.size() >= SEARCH_LIMIT:
+				hit_limit = true
 				break
-	return {"result": {"matches": matches, "count": matches.size(), "truncated": matches.size() >= SEARCH_LIMIT, "query": query}}
+	return {"result": {"matches": matches, "count": matches.size(), "truncated": hit_limit, "query": query}}
 
 
 # 返回类的继承链(从本类到 Object)。
@@ -99,12 +125,15 @@ func handle_get_inheritance(params: Dictionary) -> Dictionary:
 	if not ClassDB.class_exists(class_name_):
 		return {"error": {"code": -32604, "message": "Class '%s' does not exist in ClassDB." % class_name_}}
 	var chain: Array = [class_name_]
+	# CMP-4-R4: 用 visited Set 做完整环检测,破 A→B→A 互循环(原 parent==current 只破 A→A 自引用)
+	var visited: Dictionary = {class_name_: true}
 	var current: String = class_name_
 	for i in 100:  # 防御性上限
 		var parent: String = ClassDB.get_parent_class(current)
-		if parent == "" or parent == current:
+		if parent == "" or visited.has(parent):
 			break
 		chain.append(parent)
+		visited[parent] = true
 		current = parent
 	return {"result": {"chain": chain, "depth": chain.size()}}
 
