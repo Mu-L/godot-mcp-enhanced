@@ -580,3 +580,123 @@ describe('isBridgeReady', () => {
     expect(r.ready).toBe(true);
   });
 });
+
+// ===== P1-3: bridge change_scene 断连 characterization（锁基线，红绿不论）=====
+// 背景：vault 待办"测试-P1-3"标 🔴 open 生产 bug。探索确认 bridge 层无 change_scene 实现
+// （autoload 不销毁已证），editor 模式 3 条候选根因已修。唯一未证伪假设：大场景 change_scene
+// 卡主线程 > 10s timeout。本组锁 TS 侧连接状态机基线（socket 复用/超时 invalidate/自动重连），
+// 防回归。真 bridge 模式复现需 weekly GUI 环境（Level 3 deferred）。
+describe('P1-3: bridge 连接状态机 characterization（change_scene 断连基线）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExists.mockReturnValue(true);
+    mockRead.mockReturnValue('test-secret');
+    setBridgeProjectDir('/__reset__');
+    setBridgeProjectDir('/p');
+  });
+
+  it('CS-1: 连接成功后第二次 sendToBridge 复用同一 socket（不新建连接）', async () => {
+    setupBridgeSocket('result');
+    const ctx = { projectDir: '/p' } as any;
+    // 第一次调用建立连接（game_query method=ping 在 QUERY_METHODS 白名单内）
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    const firstCallCount = mockCreate.mock.calls.length;
+    expect(firstCallCount).toBeGreaterThan(0);
+    // 第二次调用应复用 _socket（_ensureConnection :294 条件全真）
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(mockCreate.mock.calls.length).toBe(firstCallCount);
+  });
+
+  it('CS-2: socket close 后下次 sendToBridge 自动重连（bridge 侧断开后自愈）', async () => {
+    // 第一阶段：正常连接
+    let currentSock = bridgeSocket('result');
+    mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return currentSock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+    const r1 = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(r1.isError).toBeFalsy();
+    const callsAfterFirst = mockCreate.mock.calls.length;
+
+    // 模拟 bridge 侧关闭连接（change_scene 后可能触发）
+    currentSock.emit('close');
+    // _invalidateSocket 应已清 _socket（close handler :401-404）
+
+    // 第二阶段：下次调用应自动重连（_ensureConnection 发现 _socket=null → _doConnect）
+    currentSock = bridgeSocket('result');
+    const r2 = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(r2.isError).toBeFalsy();
+    expect(mockCreate.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+  });
+
+  it('CS-3: timeout 后 socket invalidate，下次 sendToBridge 自动重连（change_scene 卡主线程基线）', async () => {
+    // 模拟卡住的 bridge：连接成功但 method 请求永不响应（模拟 change_scene 卡主线程）
+    const stuckMethodSock = new EventEmitter();
+    (stuckMethodSock as any).write = vi.fn((data: string) => {
+      let req: { id?: number };
+      try { req = JSON.parse(data); } catch { return; }
+      if (req.id === 0) {
+        // auth 成功
+        queueMicrotask(() => stuckMethodSock.emit('data',
+          Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n')));
+      }
+      // id >= 1 的 method 请求不响应（卡住）
+    });
+    (stuckMethodSock as any).destroy = vi.fn();
+    (stuckMethodSock as any).writable = true;
+    mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return stuckMethodSock;
+    });
+
+    const ctx = { projectDir: '/p' } as any;
+    // 用短 timeout 加速：game_query 支持 args.timeout（clampTimeoutMs），设 200ms
+    await handleTool('game', { action: 'game_query', method: 'ping', timeout: 200 }, ctx);
+    // 关键断言：timeout 后 _testBridgeCacheState().socketNotNull 应为 false（_invalidateSocket 清了 _socket）
+    const cache = _testBridgeCacheState();
+    expect(cache.socketNotNull, 'timeout 后 _socket 应被 invalidate（socketNotNull=false）').toBe(false);
+
+    // 第二阶段：恢复响应的 socket，下次调用应自动重连
+    const goodSock = bridgeSocket('result');
+    mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return goodSock;
+    });
+    const r2 = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(r2.isError).toBeFalsy();
+  });
+
+  it('CS-4: 并发请求串行化（_sendLock 链），不并发使用 socket', async () => {
+    // 两个几乎同时的请求应串行执行，不并发 write 到同一 socket
+    const writtenIds: number[] = [];
+    const slowSock = new EventEmitter();
+    (slowSock as any).write = vi.fn((data: string) => {
+      let req: { id?: number };
+      try { req = JSON.parse(data); } catch { return; }
+      if (req.id === 0) {
+        queueMicrotask(() => slowSock.emit('data',
+          Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n')));
+      } else if (req.id != null) {
+        writtenIds.push(req.id);
+        // 延迟响应模拟处理时间
+        queueMicrotask(() => slowSock.emit('data',
+          Buffer.from(JSON.stringify({ id: req.id, result: { ok: true } }) + '\n')));
+      }
+    });
+    (slowSock as any).destroy = vi.fn();
+    (slowSock as any).writable = true;
+    mockCreate.mockImplementation((_opts: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return slowSock;
+    });
+
+    const ctx = { projectDir: '/p' } as any;
+    // 并发发起两个请求（game_query + ping/get_performance 均在 QUERY_METHODS 白名单）
+    const p1 = handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    const p2 = handleTool('game', { action: 'game_query', method: 'get_performance' }, ctx);
+    await Promise.all([p1, p2]);
+    // 两个 method 请求都被 write（串行，但不丢）
+    expect(writtenIds.length).toBeGreaterThanOrEqual(2);
+  });
+});

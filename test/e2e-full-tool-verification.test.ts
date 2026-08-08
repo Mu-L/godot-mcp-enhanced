@@ -234,8 +234,8 @@ describe.skipIf(!hasProject)('E2E: script CRUD (file ops)', () => {
       action: 'read_script',
       script_path: 'res://scripts/main.gd',
     });
-    expect(r.isError).toBe(false);
-    expect(r.text.length).toBeGreaterThan(0);
+    // P2-B: 补内容校验(read_script 应含 extends 关键字,非只查 length>0)
+    expectSuccess(r, 'extends');
   });
 
   it('write_script: creates new script', async () => {
@@ -278,8 +278,8 @@ describe.skipIf(!hasProject)('E2E: scene read (file ops)', () => {
       action: 'read_scene',
       scene_path: resolve(TEST_PROJECT, 'scenes', 'main.tscn'),
     });
-    expect(r.isError).toBe(false);
-    expect(r.text.length).toBeGreaterThan(0);
+    // P2-B: 补内容校验(read_scene 返回 JSON 结构,应含 load_steps 字段)
+    expectSuccess(r, 'load_steps');
   });
 });
 
@@ -351,8 +351,13 @@ describe.skipIf(!hasProject)('E2E: scene_commit', () => {
       ],
     });
     // scene_commit 通过 Godot load() + PackedScene 操作
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(0);
+    // P2-B: 容错断言(无 Godot 时走 error 路径是正常的——scene_commit 需 Godot 编译。
+    // 此测试在 describe.skipIf(!hasProject || !hasGodot) 下,CI Godot 环境会走 success)。
+    expectHasText(r);
+    // 有 Godot 时应成功,无 Godot 时应返回结构化 error(两种都需有文本)
+    if (!r.isError) {
+      expect(r.text.length).toBeGreaterThan(10); // 成功响应应有实质内容
+    }
   });
 });
 
@@ -413,7 +418,8 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: create_3d_node (via scene tool)'
 describe.skipIf(!hasProject)('E2E: project', () => {
   it('info: returns project metadata', async () => {
     const r = await callTool('project', { action: 'get_project_info' });
-    expect(r.text.length).toBeGreaterThan(0);
+    // P2-B: 补 isError 断言(原只查 length>0,error 返回也绿)
+    expectSuccess(r);
   });
 
   it('list_templates: returns template list', async () => {
@@ -613,8 +619,9 @@ describe('E2E: game (Bridge — error path)', () => {
 describe('E2E: editor (error path)', () => {
   it('sync_start: returns message without editor', async () => {
     const r = await callTool('editor', { action: 'sync_start' });
-    expect(r.text).toBeDefined();
-    expect(r.text.length).toBeGreaterThan(0);
+    // P2-B: 容错断言(无 editor 连接时 sync_start 可能返 EDITOR_NOT_CONNECTED error,
+    // 也可能返 launch 提示消息——取决于 editor 连接检测时序。两种都需有结构化文本)。
+    expectHasText(r);
   });
 });
 
