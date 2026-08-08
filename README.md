@@ -633,7 +633,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
-| **v0.25.12** | 2026-08-08 | **P1+P2 批次修复（18 项审查 finding 闭环）**：GD-R1~R10 GDScript 健壮性（nav status 同源/_ErrorCapture 复位重构/debug 注释/engine enum 补值+search 排序/错误诊断细化/export JSON 化/recording 路由清理）+ IPC-R1~R6 可靠性（env→显式参数/删无效 gap 检测/长操作暂停 TS 心跳/重连 stale 通知/baseline 排除离群点）+ SEC-P1-1 write/edit 沙箱扫描（对齐 execute_gdscript）+ CMP-7 editor instance discovery（addon registry + pid liveness）。三次第三方审查全通过。4667 测试。 |
+| **v0.26.0** | 2026-08-08 | **P1+P2 批次修复（18 项审查 finding 闭环）**：GD-R1~R10 GDScript 健壮性（nav status 同源/_ErrorCapture 复位重构/debug 注释/engine enum 补值+search 排序/错误诊断细化/export JSON 化/recording 路由清理）+ IPC-R1~R6 可靠性（env→显式参数/删无效 gap 检测/长操作暂停 TS 心跳/重连 stale 通知/baseline 排除离群点）+ SEC-P1-1 write/edit 沙箱扫描（对齐 execute_gdscript）+ CMP-7 editor instance discovery（addon registry + pid liveness）。三次第三方审查全通过。4667 测试。 |
 | **v0.25.11** | 2026-08-08 | **实时 ClassDB 内省**：新增 `engine` 工具组（editor-only），class_info/search/get_inheritance 走 editor 层直调 ClassDB。让 AI 发现运行中引擎的实际可用类/方法/属性（补静态 docs 的 4.7 快照缺口，含第三方 addon/自定义类/版本差异）。 |
 | **v0.25.10** | 2026-08-08 | **debug 组 Phase 1 断点管理**：新增 `debug` 工具组（editor-only），set/clear/list breakpoint 走 CodeEdit gutter（gutter 可见 + game 命中 + 跨 run 同步）。从无到有的交互式调试能力。留 Phase 2 step/resume/pause + 栈帧读取。 |
 | **v0.25.9** | 2026-08-08 | **竞品 godot-mcp-go 深度对标产出**：CMP-1 editor 项目匹配检查（连接建立后校验 project_path，mismatch 拒绝降级，防跨项目误操作；覆盖首次连接 + rebuild + 自动重连三条路径 + junction realpath fallback）+ CMP-2 game bridge runtime error 捕获（`_ErrorCapture` Logger 子类 ring buffer 200，捕获全部 4 种错误类型 ERROR/SCRIPT/SHADER/WARNING，`get_errors`/`clear_errors` 两个新 method，since-seq 增量查询，re-entrancy guard 防 error storm）。两次第三方审查均 SHIPPED。4571 测试。 |
