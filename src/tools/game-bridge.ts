@@ -10,6 +10,7 @@ import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
+import { parseAutoloadNames } from '../gdscript-executor.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
 
@@ -162,6 +163,19 @@ export function registerBridgePushHandler(handler: ((params: Record<string, unkn
 /** Perform the actual TCP connection and auth handshake. */
 async function _doConnect(timeout: number): Promise<Socket> {
   _invalidateSocket();
+
+  // CMP-5 (2026-08-08): autoload 健康预检——读磁盘 project.godot 的 [autoload] 段,
+  // 确认 MCPBridge 在里面。防"游戏进程未加载 bridge autoload"的静默失败
+  // (secret 文件存在但 autoload 被 git revert/checkout 删了)。
+  if (_projectDir) {
+    const autoloads = parseAutoloadNames(_projectDir);
+    if (autoloads.length > 0 && !autoloads.includes('MCPBridge')) {
+      throw new BridgeNotConnectedError(
+        `Bridge autoload 'MCPBridge' missing from ${_projectDir}/project.godot [autoload] section. ` +
+        'The game may have started without the Bridge autoload. Run game_bridge_install or re-run the game.',
+      );
+    }
+  }
 
   const secret = readBridgeSecret();
   if (!secret) {

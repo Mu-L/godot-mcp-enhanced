@@ -286,6 +286,8 @@ export function buildReconnectEditor(
       return { connected: false, detail: 'editor 未连接(可能未启动或已降级到 headless)。用 launch_editor / F5 启动编辑器;若已在运行,重启 MCP 服务端恢复' };
     }
     if (ec.isConnected()) return { connected: true, detail: '已连接' };
+    // CMP-8 (2026-08-08): 按连接状态返回差异化恢复指引(AI 拿到精准诊断而非泛化提示)
+    const state = 'getState' in ec ? (ec as { getState(): ConnectionState }).getState() : null;
     try {
       await ec.connect();
       return { connected: ec.isConnected(), detail: '手动重连完成' };
@@ -293,7 +295,13 @@ export function buildReconnectEditor(
       // C-RECONNECT-1: connect 一次性失败(编辑器暂未 ready/耗尽后)时启动后台自动重连循环,
       // 编辑器恢复后自动连上。避免用户须反复手动 reconnect 或重启 MCP 服务端。
       ec.requestReconnect?.();
-      return { connected: false, detail: `重连失败(已启动后台重试,编辑器恢复后自动连): ${e instanceof Error ? e.message : String(e)}` };
+      const errMsg = e instanceof Error ? e.message : String(e);
+      // CMP-8: 按 state 给差异化 hint
+      let hint = '已启动后台重试,编辑器恢复后自动连';
+      if (state === 'reconnecting') hint = '自动重连进行中,编辑器恢复后自动连上,无需反复手动 reconnect';
+      else if (state === 'degraded') hint = '连接降级(近有工具失败),编辑器可能卡住;若 launch_editor 后仍失败,重启 MCP 服务端';
+      else if (state === 'disconnected') hint = '编辑器未运行,用 launch_editor / F5 启动;若已在运行,重启 MCP 服务端恢复';
+      return { connected: false, detail: `重连失败(${hint}): ${errMsg}` };
     }
   };
 }

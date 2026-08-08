@@ -52,6 +52,38 @@ func _get_property_type(obj: Object, key: String) -> int:
 			return int(p.get("type", TYPE_NIL))
 	return -1
 
+# CMP-10 (2026-08-08): 检查 value 是否含足够分量匹配数学类型(Vector2 需 2, Vector3 需 3 等)。
+# 支持 Array(长度)、Dictionary(x/y/z/w 或 r/g/b/a 键)、Vector*(已是正确类型直接通过)。
+# 对齐竞品 PropertyParser._has_components,防 typeof(current) 陷阱(Vector2(0,0) 静默接受单值)。
+func _has_components(value: Variant, needed: int) -> bool:
+	if value is Vector2 and needed <= 2: return true
+	if value is Vector2i and needed <= 2: return true
+	if value is Vector3 and needed <= 3: return true
+	if value is Vector3i and needed <= 3: return true
+	if value is Vector4 and needed <= 4: return true
+	if value is Color and needed <= 4: return true
+	if value is Rect2 and needed <= 4: return true
+	if value is Quaternion and needed <= 4: return true
+	if value is Plane and needed <= 4: return true
+	if value is Array:
+		return (value as Array).size() >= needed
+	if value is Dictionary:
+		var d: Dictionary = value
+		# 尝试 x/y/z/w 键名
+		var xy_keys := ["x", "y", "z", "w"]
+		var count := 0
+		for k in xy_keys:
+			if d.has(k): count += 1
+		if count >= needed: return true
+		# 尝试 r/g/b/a 键名(Color)
+		var rgba_keys := ["r", "g", "b", "a"]
+		count = 0
+		for k in rgba_keys:
+			if d.has(k): count += 1
+		if count >= needed: return true
+		return false
+	return false
+
 func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
 	# 双保险：instance 即使漏加 _BLOCKED_PROPERTIES 也拒
 	# I-2: instance 可注入 ExtResource 实例化恶意场景 _ready，与 script 同级危险
@@ -72,6 +104,24 @@ func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
 		elif value is String:
 			# Resource 属性传非 res:// String → 报错非静默（解决 batch silently fail）
 			log_error("Property %s expects Resource, got plain String '%s' (use res:// path)" % [key, value])
+			return false
+	# CMP-10 (2026-08-08): 数学类型分量校验——防 Vector2 属性传单值静默变 Vector2(0,0)。
+	# 对齐竞品 _has_components:检查传入值的分量数是否匹配属性期望的数学类型。
+	elif prop_type == TYPE_VECTOR2 or prop_type == TYPE_VECTOR2I:
+		if not _has_components(value, 2):
+			log_error("Property %s expects Vector2 (2 components), got: %s" % [key, value])
+			return false
+	elif prop_type == TYPE_VECTOR3 or prop_type == TYPE_VECTOR3I:
+		if not _has_components(value, 3):
+			log_error("Property %s expects Vector3 (3 components), got: %s" % [key, value])
+			return false
+	elif prop_type == TYPE_COLOR:
+		if not _has_components(value, 3):  # Color 允许 3(r,g,b) 或 4(r,g,b,a)
+			log_error("Property %s expects Color (3-4 components), got: %s" % [key, value])
+			return false
+	elif prop_type == TYPE_RECT2 or prop_type == TYPE_RECT2I:
+		if not _has_components(value, 4):
+			log_error("Property %s expects Rect2 (4 components), got: %s" % [key, value])
 			return false
 	node.set(key, coerced)
 	return true

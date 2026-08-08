@@ -26,7 +26,7 @@ import { forceKillTree, getProjectDir, getRunningProcess, acquireShortRunningSlo
 import { buildSafeEnv } from './helpers.js';
 import { MARKER_RESULT as MARKER_RESULT_SHARED, MARKER_ERROR as MARKER_ERROR_SHARED, GD_MCP_GET_ROOT, GD_MCP_GET_NODE, GD_MCP_LOAD_MAIN_SCENE, GD_MCP_OUTPUT } from './tools/shared.js';
 import { normalizeIndentToTabs as _sharedNormalizeIndent } from './tools/shared/value-serializer.js';
-import { getLogger } from './core/logger.js';
+import { getLogger, resolveLogDir } from './core/logger.js';
 import { needsImport, runImport } from './tools/import-check.js';
 
 
@@ -1031,6 +1031,18 @@ export async function executeGdscript(
   // Hard kill switch: set ALLOW_EXECUTE_GDSCRIPT=false to disable GDScript execution
   if (process.env.ALLOW_EXECUTE_GDSCRIPT === 'false') {
     return { success: false, compile_success: false, compile_error: 'GDScript execution is disabled (ALLOW_EXECUTE_GDSCRIPT=false)', errors: [], run_success: false, run_error: '', outputs: [], raw_output: '', duration_ms: 0, autoload_detected: autoloadDetected };
+  }
+
+  // CMP-11 (2026-08-08): opt-in 审计日志——执行前把完整代码写到独立文件供事后追溯。
+  // env GODOT_MCP_AUDIT_CODE=true 开启。字符串字面量脱敏(防 secret 泄露到审计日志)。
+  if (process.env.GODOT_MCP_AUDIT_CODE === 'true') {
+    try {
+      const { appendFileSync } = await import('fs');
+      const auditPath = join(resolveLogDir(), 'audit-code.log');
+      const sanitized = code.replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '"***"'); // 字符串字面量脱敏
+      const ts = new Date().toISOString();
+      appendFileSync(auditPath, `[${ts}] project=${projectPath} autoloads=${autoloadDetected?.join(',') ?? 'none'}\n${sanitized}\n---\n`);
+    } catch { /* best-effort:审计失败不阻断执行 */ }
   }
 
   // C-SEC-02: Sandbox scan — BLOCKS execution on dangerous patterns by default

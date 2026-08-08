@@ -51,6 +51,10 @@ export class EditorConnection {
   /** Guard against duplicate fireDisconnect() calls */
   private _disconnectFired = false;
 
+  /** CMP-6 (2026-08-08): 上次活动时间戳,检测 OS 挂起/恢复(socket 假活) */
+  private _lastActivityTs = 0;
+  private static readonly RESUME_GAP_MS = 15000;
+
   /**
    * Backward-compatible setter: converts a direct assignment like
    * `conn.onDisconnect = fn` into the multicast Set pattern.
@@ -276,6 +280,13 @@ export class EditorConnection {
   private setupMessageHandler(): void {
     if (!this.ws) return;
     this.ws.on('message', (data: WebSocket.Data) => {
+      // CMP-6 (2026-08-08): OS 挂起/恢复检测——大 gap 说明笔记本合盖过,
+      // TCP 可能假活(half-open)。记日志让 health-monitor 下次心跳探活纠正。
+      const now = Date.now();
+      if (this._lastActivityTs > 0 && now - this._lastActivityTs > EditorConnection.RESUME_GAP_MS) {
+        getLogger().warn('editor', `Large activity gap (${Math.round((now - this._lastActivityTs) / 1000)}s) detected — possible OS suspend/resume. Connection may be stale.`);
+      }
+      this._lastActivityTs = now;
       const raw = typeof data === 'string' ? data : data.toString();
       try {
         if (Buffer.byteLength(raw, 'utf8') > MAX_INBOUND_MESSAGE_SIZE) {
