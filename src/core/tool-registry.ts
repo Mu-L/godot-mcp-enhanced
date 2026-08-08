@@ -246,7 +246,7 @@ for (const [group, def] of Object.entries(TOOL_GROUPS)) {
 }
 
 /** Tools that are always allowed regardless of group state. */
-export const ALWAYS_ALLOWED = new Set(['manage_tools', 'confirm_and_execute', 'godot_advanced_tool', 'godot_get_context']);
+export const ALWAYS_ALLOWED = new Set(['manage_tools', 'confirm_and_execute', 'godot_advanced_tool', 'godot_get_context', 'testing', 'csv_to_resources']);
 
 /** Set active groups (copy-on-write). Returns previous set for comparison. */
 export function setActiveGroups(groups: Set<string>): Set<string> {

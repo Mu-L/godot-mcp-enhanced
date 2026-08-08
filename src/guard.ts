@@ -111,8 +111,8 @@ export function createPendingToken(toolName: string, args: Record<string, unknow
  * SECURITY NOTE: 校验 token 值但不验证 caller 身份。单客户端 MCP 下 caller/session 绑定
  * 不堵 AI 自确认(AI 同 session 产生+消费 token,caller 校验必过)。AI 自确认改由
  * ToolDispatcher.confirm_and_execute 的 out-of-band elicitation gate 堵(2026-07-13):
- * consumeToken 成功后 elicitInput 经 server→client→user UI 问用户,AI 无法伪造响应
- * (非其 tools/call 通道)。未来若加多客户端,此处仍需 clientId 防跨连接重放(与 elicitation 正交)。
+ * consumeToken 成功后 elicitInput 经 server→client→user UI 问用户,AI 经 tools/call
+ * 通道无法伪造 elicitation 响应。未来若加多客户端,此处仍需 clientId 防跨连接重放(与 elicitation 正交)。
  */
 export function consumeToken(token: string): { toolName: string; args: Record<string, unknown>; wasTruncated?: boolean } | null {
   const pending = pendingTokens.get(token);

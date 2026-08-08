@@ -1883,7 +1883,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources, testing",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1932,9 +1932,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 206,
+        "descBytes": 179,
         "schemaBytes": 205,
-        "totalBytes": 411
+        "totalBytes": 384
       },
       "annotations": {
         "readOnlyHint": false,
