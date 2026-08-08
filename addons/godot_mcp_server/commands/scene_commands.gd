@@ -81,6 +81,10 @@ func handle_save_scene(params: Dictionary) -> Dictionary:
 		save_method = "save_scene"
 
 	if err != OK:
+		# GD-R8 (2026-08-08): save_scene_as 是 void 调用只能靠 file_exists 推断,error_string(FAILED) 无信息。
+		# save_scene 返真实 error code 可用 error_string。区分两条路径的诊断。
+		if save_method == "save_scene_as":
+			return {"error": {"code": -32000, "message": "Save failed via save_scene_as: file does not exist after save (possible permission/path/scene-error — check editor log for details). Target: %s" % normalized}}
 		return {"error": {"code": -32000, "message": "Save failed via %s: %s" % [save_method, error_string(err)]}}
 
 	return {"result": {"status": "saved", "path": normalized, "method": save_method}}

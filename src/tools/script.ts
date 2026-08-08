@@ -7,6 +7,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
+import { scanGdscriptSandbox } from '../gdscript-executor.js';
 import { runImport } from './import-check.js';
 import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
@@ -56,6 +57,37 @@ async function checkTextResourceGuard(ctx: ToolContext, path: string): Promise<T
   const guard = await ctx.checkEditorTextResourceWrite(path);
   if (guard.blocked) {
     return opsErrorResult('EDITOR_RESOURCE_OPEN', guard.message ?? `Resource open in editor: ${path}`);
+  }
+  return null;
+}
+
+/**
+ * SEC-P1-1 (2026-08-08): write_script/edit_script 沙箱扫描守卫。
+ *
+ * write_script/edit_script 写任意 content 不经沙箱扫描,与 execute_gdscript 不对齐——
+ * 客户端可写 @tool 脚本(editor 加载即执行 _ready)+ 含 OS.execute 脚本(配合 load/instantiate 触发)。
+ * 此函数对 .gd 文件内容调 scanGdscriptSandbox,发现危险模式则阻断(对齐 overrides.ts:106-119 范式)。
+ *
+ * 旁路:UNRESTRICTED && (DISABLE_SAFETY || ALLOW_UNSAFE) 双 opt-in(对齐 executeGdscript
+ * gdscript-executor.ts:1054-1055 + overrides.ts:106-108)。非 .gd 文件跳过(.cs 等不适用)。
+ *
+ * @returns opsErrorResult 若检测到危险模式且未旁路;null 表示通过(安全或已旁路)
+ */
+function scanScriptSandboxOrThrow(content: string, filePath: string): ToolResult | null {
+  // 只扫 .gd(C# 等不适用 scanGdscriptSandbox 的 GDScript 专用模式)
+  if (!filePath.endsWith('.gd')) return null;
+  // 双 opt-in 旁路(对齐 gdscript-executor.ts:1054-1055)
+  const safetyDisabled = process.env.GODOT_MCP_UNRESTRICTED === 'true'
+    && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
+  if (safetyDisabled) return null;
+  const sandboxWarnings = scanGdscriptSandbox(content);
+  if (sandboxWarnings.length > 0) {
+    return opsErrorResult(
+      'SANDBOX_VIOLATION',
+      `Script content failed sandbox scan: ${filePath}\n` +
+      `Dangerous patterns detected (write/edit shares the same threat surface as execute_gdscript — written .gd executes via run_project/@tool):\n${sandboxWarnings.join('\n')}\n` +
+      `Set GODOT_MCP_DISABLE_SAFETY=true + GODOT_MCP_UNRESTRICTED=true to override (P0-1 double-opt-in).`,
+    );
   }
   return null;
 }
@@ -308,7 +340,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'script',
-      description: '脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。测试: generate_test, create_test_scene。批量替换: project_replace。',
+      description: '脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。⚠️ write_script/edit_script 写入 .gd 前也走沙箱扫描（防 @tool 脚本编辑器加载即执行 + OS.execute 等危险模式;与 execute_gdscript 同威胁面）。测试: generate_test, create_test_scene。批量替换: project_replace。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -473,6 +505,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const textGuard = await checkTextResourceGuard(ctx, sp);
       if (textGuard) return textGuard;
 
+      // SEC-P1-1: write_script 扫沙箱(对齐 execute_gdscript,防 @tool/OS.execute 脚本写入)
+      const sandboxGuard = scanScriptSandboxOrThrow(content, sp);
+      if (sandboxGuard) return sandboxGuard;
+
       ensureDir(sp);
       writeFileSync(sp, content, 'utf-8');
 
@@ -565,6 +601,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
           const newFileContent = normalizedContent.replaceAll(normalizedSearch, normalizedReplace);
           const finalContent = joinWithLineEnding(newFileContent, hasCRLF);
+          // SEC-P1-1: edit_script 全量替换扫沙箱(扫描替换后的完整内容)
+          const sandboxGuard = scanScriptSandboxOrThrow(finalContent, fullPath);
+          if (sandboxGuard) return sandboxGuard;
           writeFileSync(fullPath, finalContent, 'utf-8');
 
           if (godotPath) {
@@ -613,6 +652,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const after = normalizedContent.substring(searchIndex + normalizedSearch.length);
         const newFileContent = before + normalizedReplace + after;
         const finalContent = joinWithLineEnding(newFileContent, hasCRLF);
+        // SEC-P1-1: edit_script 单 occurrence 替换扫沙箱(扫描替换后的完整内容)
+        const sandboxGuard = scanScriptSandboxOrThrow(finalContent, fullPath);
+        if (sandboxGuard) return sandboxGuard;
         writeFileSync(fullPath, finalContent, 'utf-8');
 
         if (godotPath) {
@@ -742,6 +784,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       lines.splice(startLine - 1, endLine - startLine + 1, ...adjustedLines);
 
       const result = joinWithLineEnding(lines.join('\n'), hasCRLF);
+      // SEC-P1-1: edit_script 行号模式扫沙箱(扫描替换后的完整内容)
+      const sandboxGuard = scanScriptSandboxOrThrow(result, fullPath);
+      if (sandboxGuard) return sandboxGuard;
       writeFileSync(fullPath, result, 'utf-8');
 
       if (godotPath) {

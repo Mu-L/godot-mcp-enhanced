@@ -88,6 +88,17 @@ describe('HealthMonitor — baseline', () => {
     for (let i = 0; i < 9; i++) monitor.recordSuccess(100);
     expect(monitor.getStats().baselineResponseMs).toBe(0);
   });
+
+  it('IPC-R6: trimmedMean 剔除离群点,单次 5000ms 卡顿不拉高 baseline', () => {
+    const monitor = new HealthMonitor();
+    // 9 个正常样本 + 1 个离群点(5000ms GC/磁盘卡顿)
+    for (let i = 0; i < 9; i++) monitor.recordSuccess(50);
+    monitor.recordSuccess(5000);
+    const stats = monitor.getStats();
+    // avg 会是 (50*9+5000)/10=545ms;trimmedMean 剔除 5000 后 ≈50ms
+    expect(stats.baselineResponseMs).toBeLessThan(100);
+    expect(stats.baselineResponseMs).toBeGreaterThan(40);  // ≈50ms 而非 545ms
+  });
 });
 
 // ─── State machine ────────────────────────────────────────────────────────────
@@ -272,6 +283,58 @@ describe('HealthMonitor — heartbeat', () => {
     expect(monitor.getState()).toBe('connected');
 
     monitor.stopHeartbeat();
+  });
+});
+
+// ─── IPC-R3 pause/resume heartbeat ────────────────────────────────────────────
+
+describe('HealthMonitor — IPC-R3 pauseHeartbeat/resumeHeartbeat', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pauseHeartbeat stops scheduling new pings', async () => {
+    const monitor = new HealthMonitor({ heartbeatIntervalMs: 100 });
+    const pingFn = vi.fn().mockResolvedValue(true);
+
+    monitor.startHeartbeat(pingFn);
+    await tick(100);
+    expect(pingFn).toHaveBeenCalledTimes(1);
+
+    monitor.pauseHeartbeat();
+    await tick(300);
+    expect(pingFn).toHaveBeenCalledTimes(1); // no more calls after pause
+  });
+
+  it('resumeHeartbeat restores scheduling', async () => {
+    const monitor = new HealthMonitor({ heartbeatIntervalMs: 100 });
+    const pingFn = vi.fn().mockResolvedValue(true);
+
+    monitor.startHeartbeat(pingFn);
+    await tick(100);
+    expect(pingFn).toHaveBeenCalledTimes(1);
+
+    monitor.pauseHeartbeat();
+    await tick(200);
+    expect(pingFn).toHaveBeenCalledTimes(1); // still paused
+
+    monitor.resumeHeartbeat();
+    await tick(100);
+    expect(pingFn).toHaveBeenCalledTimes(2); // resumed
+  });
+
+  it('resumeHeartbeat after stopHeartbeat is no-op (防 disposed 后误重启)', async () => {
+    const monitor = new HealthMonitor({ heartbeatIntervalMs: 100 });
+    const pingFn = vi.fn().mockResolvedValue(true);
+
+    monitor.startHeartbeat(pingFn);
+    monitor.stopHeartbeat();
+    monitor.resumeHeartbeat(); // should not restart
+    await tick(300);
+    expect(pingFn).not.toHaveBeenCalled();
   });
 });
 

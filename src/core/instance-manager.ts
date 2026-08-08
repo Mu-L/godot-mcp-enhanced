@@ -60,6 +60,8 @@ export interface InstanceManagerOptions {
   projectRegistryDir?: string;
   /** Stale timeout in ms. Defaults to 70000 (70s). */
   staleTimeoutMs?: number;
+  /** CMP-7: pid liveness probe override (测试注入用)。默认用 process.kill(pid, 0)。 */
+  isPidAlive?: (pid: number) => boolean;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -95,6 +97,7 @@ export class InstanceManager {
   private readonly projectRegistryDir?: string;
   private readonly staleTimeoutMs: number;
   private readonly _portRange: [number, number];
+  private readonly _isPidAlive: (pid: number) => boolean;
   private instances: Map<string, InstanceInfo> = new Map();
 
   constructor(opts: InstanceManagerOptions = {}) {
@@ -102,6 +105,7 @@ export class InstanceManager {
     this.projectRegistryDir = opts.projectRegistryDir;
     this.staleTimeoutMs = opts.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
     this._portRange = parsePortRange();
+    this._isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
   }
 
   /** Get configured port range. */
@@ -141,13 +145,18 @@ export class InstanceManager {
     return [...this.instances.values()];
   }
 
-  /** Determine status of an instance based on lastSeen timestamp. */
+  /** Determine status of an instance based on lastSeen timestamp + pid liveness. */
   getStatus(instance: InstanceInfo): InstanceStatus {
     // Phase 2: compiling overrides stale detection
     if (instance.status === 'compiling') {
       return 'alive';
     }
     if (instance.status === 'unresponsive') {
+      return 'unreachable';
+    }
+    // CMP-7 (2026-08-08): pid liveness probe——pid 不存活直接标 unreachable,
+    // 不等 lastSeen 超时(原仅靠时间戳,进程崩溃但 lastSeen 未过期的 zombie instance 误判 alive)。
+    if (!this._isPidAlive(instance.pid)) {
       return 'unreachable';
     }
     // Existing stale logic
@@ -180,6 +189,24 @@ export class InstanceManager {
       // Directory doesn't exist �?return empty
     }
     return results;
+  }
+}
+
+/**
+ * CMP-7 (2026-08-08): 检测 pid 是否存活。用 process.kill(pid, 0) 发 signal 0(不实际杀进程)。
+ * - 存活:返回 true(signal 0 成功无异常)
+ * - 不存活:返回 false(ESRCH=no such process / Windows EPERM)
+ * 跨平台:POSIX 信号 0 + Windows process.kill 都支持此语义。
+ * 注:与 src/core/process-state.ts:52 isPidAlive 同语义(模块独立重复,避免 instance-manager 依赖
+ * process-state)。若 pid 检测逻辑变化需两处同步。
+ */
+function defaultIsPidAlive(pid: number): boolean {
+  if (!pid || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;  // ESRCH (process not found) or EPERM (Windows permission)
   }
 }
 

@@ -51,10 +51,6 @@ export class EditorConnection {
   /** Guard against duplicate fireDisconnect() calls */
   private _disconnectFired = false;
 
-  /** CMP-6 (2026-08-08): 上次活动时间戳,检测 OS 挂起/恢复(socket 假活) */
-  private _lastActivityTs = 0;
-  private static readonly RESUME_GAP_MS = 15000;
-
   /**
    * Backward-compatible setter: converts a direct assignment like
    * `conn.onDisconnect = fn` into the multicast Set pattern.
@@ -280,13 +276,10 @@ export class EditorConnection {
   private setupMessageHandler(): void {
     if (!this.ws) return;
     this.ws.on('message', (data: WebSocket.Data) => {
-      // CMP-6 (2026-08-08): OS 挂起/恢复检测——大 gap 说明笔记本合盖过,
-      // TCP 可能假活(half-open)。记日志让 health-monitor 下次心跳探活纠正。
-      const now = Date.now();
-      if (this._lastActivityTs > 0 && now - this._lastActivityTs > EditorConnection.RESUME_GAP_MS) {
-        getLogger().warn('editor', `Large activity gap (${Math.round((now - this._lastActivityTs) / 1000)}s) detected — possible OS suspend/resume. Connection may be stale.`);
-      }
-      this._lastActivityTs = now;
+      // IPC-R2 (2026-08-08): 删除 CMP-6 gap 检测——它挂在 ws.on('message'),但真正
+      // 需要它的场景(OS 挂起后 TCP 假活无消息)它恰好不触发。「检测但不动作」是最差状态
+      // (误导性暗示有 OS 挂起防护)。OS 挂起靠 health-monitor 心跳探活纠正(scheduleNext;
+      // ToolDispatcher 实例化时配 heartbeatIntervalMs:15_000,默认 30s 但本项目用 15s)。
       const raw = typeof data === 'string' ? data : data.toString();
       try {
         if (Buffer.byteLength(raw, 'utf8') > MAX_INBOUND_MESSAGE_SIZE) {

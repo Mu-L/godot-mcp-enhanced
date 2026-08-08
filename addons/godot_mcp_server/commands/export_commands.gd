@@ -59,10 +59,17 @@ func handle_export_get_preset(params: Dictionary) -> Dictionary:
 						TYPE_STRING, TYPE_INT, TYPE_FLOAT, TYPE_BOOL, TYPE_NIL:
 							data[prop_name] = val
 						TYPE_ARRAY, TYPE_DICTIONARY:
-							# 容器内可能嵌套非标量，用 str 降级（best-effort，保留可读性）
-							data[prop_name] = str(val)
+							# GD-R9 (2026-08-08): 改用 JSON.stringify 保留嵌套结构(AI 可靠解析)。
+							# 原 str(val) 返 Godot print 格式("[1, 2, 3]" 带空格)非合法 JSON。
+							# P2-2 教训:容器内若嵌套 Object/Resource,JSON.stringify 会失败。
+							# GDScript 无 try/catch——靠 JSON.stringify 遇不可序列化时返 "" 检测降级回 str(val)。
+							var json_str := JSON.stringify(val)
+							if json_str != "":
+								data[prop_name] = JSON.parse_string(json_str)  # 还原为原生结构(dict 包装 JSON 化)
+							else:
+								data[prop_name] = str(val)
 						_:
-							# Object/Resource/Vector/Color 等 → str
+							# Object/Resource/Vector/Color 等 → str(无法 JSON 化)
 							data[prop_name] = str(val)
 			return {"result": data}
 	return {"error": {"code": -32002, "message": "Export preset not found: " + preset_name}}

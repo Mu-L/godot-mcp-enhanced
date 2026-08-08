@@ -196,13 +196,10 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _animation_commands.handle_animation_curve(params, request_id)
 		"animation_blend":
 			return _animation_commands.handle_animation_blend(params, request_id)
-		# --- recording ------------------------------------------------
-		"recording_start":
-			return _recording_commands.handle_recording_start(params)
-		"recording_stop":
-			return _recording_commands.handle_recording_stop(params)
-		"recording_play":
-			return _recording_commands.handle_recording_play(params)
+		# GD-R10 (2026-08-08): recording 路由移除——recording_start/play 永远返 -32009(editor 模式禁),
+		# recording_stop 在 editor 态 _recording 恒 false 无用。3 个命令是噪音。
+		# recording_commands.gd 文件保留(editor 模式下不再路由,headless/bridge recording 走 runtime 工具
+		# 的 GDScript 执行路径不经 command_handler;模块 preload+add_child 保留供未来 editor recording 恢复)。
 		# --- ui -------------------------------------------------------
 		"ui_create_control":
 			return _ui_commands.handle_ui_create_control(params, request_id)

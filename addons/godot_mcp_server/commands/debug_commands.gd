@@ -10,7 +10,7 @@ extends Node
 #   → 现行 game 命中 + 下次 run 同步 + gutter 可见 + Breakpoints 列表可见
 #
 # 设计决策(Phase 1 简化):
-# - 只对已在 script editor 打开的脚本操作(get_open_scripts 已加载的)
+# - 只对当前活跃 tab 的脚本操作(get_current_script,非 get_open_scripts 全集);Phase 1 纯同步不切 tab
 # - 不调 open_script_open_file_edit(避免异步等帧复杂度;Phase 1 纯同步)
 # - 脚本未打开 → 报错提示 AI 先用 editor 工具打开或让用户手动打开
 # - 行号 1-based(AI 友好)→ CodeEdit 0-based 内部转换
@@ -62,7 +62,8 @@ func handle_list_breakpoints(params: Dictionary) -> Dictionary:
 	if current_script != null and current_script is Script:
 		var res_path: String = current_script.resource_path
 		if filter_path == "" or res_path == filter_path:
-			var code_edit: CodeEdit = _get_current_code_edit(script_editor)
+			var ce_result: Dictionary = _get_current_code_edit(script_editor)
+			var code_edit: CodeEdit = ce_result.get("code_edit", null)
 			if code_edit != null:
 				var bp_lines: PackedInt32Array = code_edit.get_breakpointed_lines()
 				if not bp_lines.is_empty():
@@ -87,9 +88,11 @@ func _toggle_breakpoint(path: String, line: int, enabled: bool) -> Dictionary:
 	if current_script.resource_path != path:
 		return {"error": {"code": -32004, "message": "Script %s is not the active tab. Switch to it in the editor first (currently active: %s)." % [path, current_script.resource_path]}}
 	# 拿 CodeEdit
-	var code_edit: CodeEdit = _get_current_code_edit(script_editor)
+	# GD-R7: _get_current_code_edit 返回 Dictionary 含 reason,错误信息区分版本不兼容/布局异常/无 tab
+	var ce_result: Dictionary = _get_current_code_edit(script_editor)
+	var code_edit: CodeEdit = ce_result.get("code_edit", null)
 	if code_edit == null:
-		return {"error": {"code": -32003, "message": "Could not get CodeEdit from the active script editor (internal layout may have changed)"}}
+		return {"error": {"code": -32003, "message": "Could not get CodeEdit: %s" % ce_result.get("reason", "unknown error")}}
 	# 行号 1-based(AI)→ 0-based(CodeEdit 内部)
 	var line_0based: int = line - 1
 	if line_0based < 0 or line_0based >= code_edit.get_line_count():
@@ -110,13 +113,14 @@ func _toggle_breakpoint(path: String, line: int, enabled: bool) -> Dictionary:
 
 
 # 从当前活跃 editor 拿 CodeEdit(ScriptEditorBase.get_base_editor)
-func _get_current_code_edit(script_editor: ScriptEditor) -> CodeEdit:
+# GD-R7 (2026-08-08): 返回 Dictionary 含 code_edit + reason,区分"版本不兼容"vs"布局异常"vs"无活跃 tab"
+func _get_current_code_edit(script_editor: ScriptEditor) -> Dictionary:
 	var editor = script_editor.get_current_editor()
 	if editor == null:
-		return null
+		return {"code_edit": null, "reason": "No active script editor tab — open a script first"}
 	if not editor.has_method("get_base_editor"):
-		return null
+		return {"code_edit": null, "reason": "Editor version unsupported: ScriptEditorBase lacks get_base_editor method (possible Godot version incompatibility)"}
 	var base = editor.call("get_base_editor")
 	if base is CodeEdit:
-		return base as CodeEdit
-	return null
+		return {"code_edit": base as CodeEdit, "reason": ""}
+	return {"code_edit": null, "reason": "Active editor's base is not a CodeEdit (got %s) — internal layout may have changed" % ("" if base == null else base.get_class())}

@@ -111,10 +111,8 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   animation_keyframe: 'commands/animation_commands.gd',
   animation_curve: 'commands/animation_commands.gd',
   animation_blend: 'commands/animation_commands.gd',
-  // recording_commands（runtime 录制）
-  recording_start: 'commands/recording_commands.gd',
-  recording_stop: 'commands/recording_commands.gd',
-  recording_play: 'commands/recording_commands.gd',
+  // GD-R10 (2026-08-08): recording_start/stop/play editor 路由已移除(command_handler.gd 不再分发),
+  // recording_commands.gd 保留供 headless/bridge 路径。此处登记同步删除(editor 路由表一致性)。
   // ui_commands（ui 组）
   ui_create_control: 'commands/ui_commands.gd',
   ui_set_layout: 'commands/ui_commands.gd',

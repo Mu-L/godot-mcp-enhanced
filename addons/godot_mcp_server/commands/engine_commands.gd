@@ -82,13 +82,24 @@ func handle_class_info(params: Dictionary) -> Dictionary:
 			signal_out.append(s["name"])
 	info["signals"] = signal_out
 	# 枚举
+	# GD-R4 (2026-08-08): 补 enum constants(用 class_get_enum_constants),AI 可知枚举可选值。
+	# 原 class_get_enum_list 只返枚举名(如 ["Button","Vector2.Axis"]),AI 无法知道常量/值。
 	var enums: Array = ClassDB.class_get_enum_list(class_name_, no_inherit)
 	var enum_out: Array = []
+	const ENUM_CONSTANTS_LIMIT := 50  # 单 enum 常量上限(防巨型 enum 如 Key 撑爆)
 	for e in enums:
 		if enum_out.size() >= MEMBER_LIMIT:
 			truncated = true
 			break
-		enum_out.append(e)
+		var constants: PackedStringArray = ClassDB.class_get_enum_constants(class_name_, e, no_inherit)
+		var const_out: Array = []
+		for c in constants:
+			if const_out.size() >= ENUM_CONSTANTS_LIMIT:
+				truncated = true
+				break
+			# class_get_integer_constant 拿值(供 AI 理解枚举值范围)
+			const_out.append({"name": c, "value": ClassDB.class_get_integer_constant(class_name_, c)})
+		enum_out.append({"name": e, "constants": const_out})
 	info["enums"] = enum_out
 	# CMP-4-R1: 截断时提示 AI 改用 no_inherit=true 只看本类成员(避免 1MB 撑爆)
 	info["truncated"] = truncated
@@ -106,14 +117,17 @@ func handle_search(params: Dictionary) -> Dictionary:
 	var query_lower := query.to_lower()
 	var all_classes: PackedStringArray = ClassDB.get_class_list()
 	var matches: Array = []
-	# CMP-4-R3: 用 flag 记录是否因 SEARCH_LIMIT 提前退出,避免恰好 == LIMIT 时 truncated 假阳性
-	var hit_limit := false
+	# GD-R6 (2026-08-08): 先 collect 全部 matches 再字母序排序再截断(原按 ClassDB 注册序截断,
+	# AI 搜 "Node" 拿到的结果跨 Godot 版本/addon 组合不可预测,字母序靠后的相关类可能被丢弃)。
 	for cls in all_classes:
 		if cls.to_lower().contains(query_lower):
 			matches.append({"name": cls, "parent": ClassDB.get_parent_class(cls)})
-			if matches.size() >= SEARCH_LIMIT:
-				hit_limit = true
-				break
+	# 字母序排序(让 AI 看到可预测的、相关性更均匀的结果)
+	matches.sort_custom(func(a, b): return a["name"] < b["name"])
+	# 排序后截断到 SEARCH_LIMIT(用 flag 记录是否真因 limit 提前退出,避免恰好 == LIMIT 假阳性)
+	var hit_limit := matches.size() > SEARCH_LIMIT
+	if hit_limit:
+		matches = matches.slice(0, SEARCH_LIMIT)
 	return {"result": {"matches": matches, "count": matches.size(), "truncated": hit_limit, "query": query}}
 
 

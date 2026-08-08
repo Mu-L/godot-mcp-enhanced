@@ -197,7 +197,10 @@ func handle_nav_bake_mesh_async(params: Dictionary) -> Dictionary:
 	# N1 补全：对齐 :144（create_region_async 末行）。循环内/freed 分支已守，但 deadline 耗尽退出后
 	# nav 可能被并发 peer 删除（MAX_PEERS=5），末行属性访问须先 is_instance_valid 否则 SCRIPT ERROR。
 	var success: bool = is_instance_valid(nav) and nav.navigation_mesh != null and nav.navigation_mesh.get_vertices().size() > 0
-	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if _bake_state["done"] else "bake_timeout"}}
+	# GD-R1 (2026-08-08): status 与 success 同源,消除 deadline 耗尽但 mesh 已生成时
+	# success:true + status:"bake_timeout" 的矛盾语义。对齐 :162 success 派生逻辑
+	# (失败分支 async 用 bake_timeout 区分 deadline 耗尽,sync 用 bake_failed 区分无 mesh)。
+	return {"result": {"node": node_path, "success": success, "status": "bake_completed" if success else "bake_timeout"}}
 
 func handle_nav_create_agent(params: Dictionary, request_id: int) -> Dictionary:
 	var root = CommandHelpers.get_edited_scene_root(_plugin)

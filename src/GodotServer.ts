@@ -441,17 +441,14 @@ export class GodotServer {
     // 2026-08-07 审查 P1 修复：原 STARTUP_CLEANUP 单独开启时是 no-op（_spawnedGodotPids
     // 新会话为空 → 第一层 0 kill，需 FULL_SYSTEM_SCAN 才触发第二层）。用户按文档开
     // STARTUP_CLEANUP 期望清理崩溃残留，实际无效果（虚假安全感）。
-    // 修复：STARTUP_CLEANUP 启用时临时设 GODOT_MCP_FULL_SYSTEM_SCAN=true，让第二层
+    // 修复：STARTUP_CLEANUP 启用时传 { fullSystemScan: true }，让第二层
     // fullSystemScanGodot 也跑（只扫命令行含 projectPath 的 Godot，跳过 --editor，15s
     // 超时，unref 不阻塞，安全过滤在 process-state.ts fullSystemScanGodot 内置）。
-    // 不改 killOrphanGodotProcesses 签名（防 orphan-scan-session-scoped defect 复发）。
+    // IPC-R1/R5 (2026-08-08): 原实现临时设 process.env + finally 恢复(进程级全局状态),
+    // 与 60s 周期 orphan 扫描 tick 存在竞态(全系统扫跑满 15s 时 env 污染周期 tick)。
+    // 改用显式 options 参数,消除 env 隐式全局状态。
     if (isFeatureEnabled('STARTUP_CLEANUP') && projectPath) {
-      const prevFullScan = process.env.GODOT_MCP_FULL_SYSTEM_SCAN;
-      process.env.GODOT_MCP_FULL_SYSTEM_SCAN = 'true';
-      void ps.killOrphanGodotProcesses(projectPath).catch(() => { /* best-effort */ }).finally(() => {
-        if (prevFullScan === undefined) delete process.env.GODOT_MCP_FULL_SYSTEM_SCAN;
-        else process.env.GODOT_MCP_FULL_SYSTEM_SCAN = prevFullScan;
-      });
+      void ps.killOrphanGodotProcesses(projectPath, { fullSystemScan: true }).catch(() => { /* best-effort */ });
     }
     if (projectPath) {
       this.stateStore = new FileStateStore(projectPath);
@@ -612,6 +609,20 @@ export class GodotServer {
             this.handleEditorStall();
           }
         });
+        // IPC-R4 (2026-08-08): 重连后通知客户端场景树可能 stale。
+        // 重连期间 editor 侧场景可能已切换/节点增删,客户端缓存的 scene tree 状态失效。
+        // 用 sendLoggingMessage(走 SDK 正规 logging 路径,对齐 P1-7 范式 :477)。
+        // best-effort:通知失败不影响重连流程。
+        try {
+          const maybePromise = this.server.sendLoggingMessage({
+            level: 'warning',
+            logger: 'server',
+            data: 'Editor reconnected — scene tree may be stale. Re-run editor_get_scene_tree to refresh cached node paths.',
+          });
+          if (maybePromise && typeof maybePromise === 'object' && 'catch' in maybePromise) {
+            (maybePromise as Promise<void>).catch(() => {});
+          }
+        } catch { /* best-effort:通知失败不影响重连 */ }
       });
       // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
       // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。

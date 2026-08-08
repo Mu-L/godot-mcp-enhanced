@@ -370,12 +370,19 @@ const ORPHAN_SCAN_TIMEOUT_MS = 15_000;
  *   - 已退出 PID 惰性移除
  *   - 存活且脱离管理 → killPidTree（双平台清整树）
  *
- * opt-in（第二层，崩溃恢复兜底）：`GODOT_MCP_FULL_SYSTEM_SCAN=true` 且提供 projectDir 时，
+ * opt-in（第二层，崩溃恢复兜底）：`options.fullSystemScan === true` 且提供 projectDir 时，
  *   走 V-01 全系统扫描（清命令行含 projectDir 的所有 Godot，跳过 runningPid）。
+ *
+ * IPC-R1/R5 (2026-08-08): 原实现读 process.env.GODOT_MCP_FULL_SYSTEM_SCAN 进程级全局状态,
+ * STARTUP_CLEANUP 调用方临时设 env + finally 恢复,与 60s 周期 orphan 扫描 tick 存在竞态
+ * (全系统扫跑满 15s 时 env 污染周期 tick)。改用显式 options 参数消除 env 隐式全局状态。
  *
  * 30s 节流。返回清理数。
  */
-export async function killOrphanGodotProcesses(projectDir?: string): Promise<number> {
+export async function killOrphanGodotProcesses(
+  projectDir?: string,
+  options?: { fullSystemScan?: boolean },
+): Promise<number> {
   if (Date.now() - _lastOrphanScanTime < ORPHAN_SCAN_INTERVAL_MS) return 0;
   _lastOrphanScanTime = Date.now();
 
@@ -391,10 +398,10 @@ export async function killOrphanGodotProcesses(projectDir?: string): Promise<num
     killed++;
   }
 
-  // 第二层（opt-in 崩溃恢复兜底，GODOT_MCP_FULL_SYSTEM_SCAN=true 门控）
-  // 注：STARTUP_CLEANUP 启用时由调用方（GodotServer.ts）临时设此 env，不在此加 options 参数
-  // （保持签名 projectDir?: string 不变，防 orphan-scan-session-scoped defect 复发）。
-  if (process.env.GODOT_MCP_FULL_SYSTEM_SCAN === 'true' && projectDir) {
+  // 第二层（opt-in 崩溃恢复兜底，options.fullSystemScan 显式门控）
+  // IPC-R1/R5: 改用显式参数,不读 process.env(消除 env 全局状态竞态)。
+  // 周期 orphan 扫描(GodotServer.ts 定时器)和 stop_project 不传此参数,保持会话隔离。
+  if (options?.fullSystemScan === true && projectDir) {
     killed += await fullSystemScanGodot(projectDir, runningPid);
   }
   return killed;

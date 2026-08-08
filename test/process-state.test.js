@@ -619,42 +619,36 @@ describe('killOrphanGodotProcesses', () => {
     expect(count).toBe(0);
   });
 
-  it('opt-in：GODOT_MCP_FULL_SYSTEM_SCAN=true 时触发全系统扫描', async () => {  // T3c
-    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
-    const count = await killOrphanGodotProcesses('/some/project');
+  it('opt-in：options.fullSystemScan=true 时触发全系统扫描', async () => {  // T3c
+    // IPC-R1/R5: 改用显式 options 参数,不再读 process.env
+    const count = await killOrphanGodotProcesses('/some/project', { fullSystemScan: true });
     // fullSystemScanGodot 走 spawn（Win: powershell / POSIX: sh），count 取决于 mock；
-    // 关键验证：env 开启时额外 spawn 被调用（powershell 或 sh）
+    // 关键验证：fullSystemScan 开启时额外 spawn 被调用（powershell 或 sh）
     const scanSpawn = spawn.mock.calls.find(c => c[0] === 'powershell' || c[0] === 'sh');
     expect(scanSpawn).toBeDefined();
     expect(count).toBeGreaterThanOrEqual(0);
-    vi.unstubAllEnvs();
   });
 
   it('opt-in 关闭：不触发全系统扫描', async () => {  // T3c-neg
-    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'false');
     await killOrphanGodotProcesses('/some/project');
     const scanSpawn = spawn.mock.calls.find(c => c[0] === 'powershell' || c[0] === 'sh');
     expect(scanSpawn).toBeUndefined();
-    vi.unstubAllEnvs();
   });
 
   it('Windows: fullSystemScanGodot 用 literal .Contains($path)（D4，opt-in 路径）', async () => {  // T8
     if (process.platform !== 'win32') return;
-    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
     spawn.mockClear();
     const weirdPath = 'D:/my[game]/proj';
-    await killOrphanGodotProcesses(weirdPath);
+    await killOrphanGodotProcesses(weirdPath, { fullSystemScan: true });
     const psCall = spawn.mock.calls.find(c => c[0] === 'powershell');
     expect(psCall).toBeDefined();
     const cmd = psCall[1].find(a => typeof a === 'string' && a.includes('Where-Object'));
     expect(cmd).toContain('.Contains($path)');
     expect(cmd).not.toMatch(/-like\s+\('\*'\s*\+\s*\$path/);
     expect(cmd).toContain(weirdPath);
-    vi.unstubAllEnvs();
   });
 
   it('opt-in fullSystemScanGodot: spawn 15s 超时无响应 → kill + resolve(0)', async () => {  // T3c-timeout
-    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
     vi.useFakeTimers();
     let capturedPs;
     spawn.mockImplementationOnce(() => {
@@ -668,18 +662,16 @@ describe('killOrphanGodotProcesses', () => {
       };
       return capturedPs;
     });
-    const promise = killOrphanGodotProcesses('/some/project');
+    const promise = killOrphanGodotProcesses('/some/project', { fullSystemScan: true });
     // 推进 ORPHAN_SCAN_TIMEOUT_MS(15s) 触发 timer → settled + ps.kill + resolve(0)
     await vi.advanceTimersByTimeAsync(15_000);
     const count = await promise;
     expect(count).toBe(0);
     expect(capturedPs.kill).toHaveBeenCalled();
     vi.useRealTimers();
-    vi.unstubAllEnvs();
   });
 
   it('opt-in fullSystemScanGodot: spawn error（powershell/sh 不存在）→ resolve(0)', async () => {  // T3c-error
-    vi.stubEnv('GODOT_MCP_FULL_SYSTEM_SCAN', 'true');
     spawn.mockImplementationOnce(() => ({
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
@@ -688,8 +680,7 @@ describe('killOrphanGodotProcesses', () => {
       kill: vi.fn(),
       pid: 77777,
     }));
-    const count = await killOrphanGodotProcesses('/some/project');
+    const count = await killOrphanGodotProcesses('/some/project', { fullSystemScan: true });
     expect(count).toBe(0);
-    vi.unstubAllEnvs();
   });
 });

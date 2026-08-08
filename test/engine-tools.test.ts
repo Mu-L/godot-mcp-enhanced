@@ -112,7 +112,7 @@ describe('CMP-4: GD 侧 engine_commands.gd（源码字面量契约）', () => {
   it('CMP-4-R1: handle_class_info 含 MEMBER_LIMIT 截断 + truncated 标志（防大类撑爆 1MB）', () => {
     const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
     const fnStart = gd.indexOf('func handle_class_info');
-    const slice = gd.slice(fnStart, fnStart + 3000);
+    const slice = gd.slice(fnStart, fnStart + 4000);  // GD-R4 加 enum constants 后函数体增长
     // MEMBER_LIMIT 常量必须存在
     expect(slice.includes('MEMBER_LIMIT'), 'handle_class_info 缺 MEMBER_LIMIT 截断（R1 根因）').toBe(true);
     // truncated 标志必须在返回的 info 里
@@ -144,7 +144,7 @@ describe('CMP-4: GD 侧 engine_commands.gd（源码字面量契约）', () => {
   it('CMP-4-R2: handle_class_info 过滤 PROPERTY_USAGE_INTERNAL 属性（AI 不应见 internal）', () => {
     const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
     const fnStart = gd.indexOf('func handle_class_info');
-    const slice = gd.slice(fnStart, fnStart + 3000);
+    const slice = gd.slice(fnStart, fnStart + 4000);  // GD-R4 加 enum constants 后函数体增长
     // 必须过滤 PROPERTY_USAGE_INTERNAL(0x2) flag
     expect(slice.includes('PROPERTY_USAGE_INTERNAL'), 'handle_class_info 缺 PROPERTY_USAGE_INTERNAL 过滤（R2 根因）').toBe(true);
   });

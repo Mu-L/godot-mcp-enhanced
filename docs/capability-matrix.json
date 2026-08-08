@@ -1,5 +1,5 @@
 {
-  "version": "0.25.11",
+  "version": "0.25.12",
   "tools": [
     {
       "name": "android",
@@ -4340,7 +4340,7 @@
     {
       "name": "script",
       "group": "core",
-      "description": "脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。测试: generate_test, create_test_scene。批量替换: project_replace。",
+      "description": "脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。⚠️ write_script/edit_script 写入 .gd 前也走沙箱扫描（防 @tool 脚本编辑器加载即执行 + OS.execute 等危险模式;与 execute_gdscript 同威胁面）。测试: generate_test, create_test_scene。批量替换: project_replace。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4539,9 +4539,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 339,
+        "descBytes": 515,
         "schemaBytes": 2805,
-        "totalBytes": 3144
+        "totalBytes": 3320
       },
       "annotations": {
         "readOnlyHint": false,

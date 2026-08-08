@@ -81,6 +81,29 @@ describe('CMP-2: game bridge runtime error 捕获（源码字面量契约）', (
     ).toBe(true);
   });
 
+  it('CMP-2f-GD-R2: _log_error 复位 _in_log 必达(_capture_entry 辅助方法 + 紧跟复位)', () => {
+    // GD-R2/IPC-R7 (2026-08-08): GDScript 无 try/finally,引擎错误绕过控制流。
+    // 重构后:有风险操作集中到 _capture_entry,_in_log = false 紧跟调用后。
+    const classStart = gd.indexOf('class _ErrorCapture');
+    const slice = gd.slice(classStart, classStart + 3000);
+    // _capture_entry 辅助方法必须存在(有风险操作集中处)
+    expect(
+      /func\s+_capture_entry\s*\(/.test(slice),
+      '_ErrorCapture 缺少 _capture_entry 辅助方法(GD-R2: 有风险操作应集中此方法)',
+    ).toBe(true);
+    // _log_error 体内:_in_log = true → _capture_entry(...) → _in_log = false(紧跟复位)
+    const logErrIdx = slice.indexOf('func _log_error');
+    const logErrEnd = slice.indexOf('func ', logErrIdx + 10);
+    const logErrBody = slice.slice(logErrIdx, logErrEnd > 0 ? logErrEnd : logErrIdx + 500);
+    expect(logErrBody.includes('_in_log = true'), '_log_error 缺少 _in_log = true').toBe(true);
+    expect(logErrBody.includes('_capture_entry'), '_log_error 缺少 _capture_entry 调用').toBe(true);
+    expect(logErrBody.includes('_in_log = false'), '_log_error 缺少 _in_log = false 复位').toBe(true);
+    // 复位必须在 _capture_entry 调用之后(紧跟,消除 GDScript 可达提前退出路径)
+    const captureIdx = logErrBody.indexOf('_capture_entry');
+    const resetIdx = logErrBody.indexOf('_in_log = false');
+    expect(resetIdx, '_in_log = false 复位未找到').toBeGreaterThan(captureIdx);
+  });
+
   it('CMP-2g: _log_error 捕获全部 4 种错误类型(ERROR/SCRIPT/SHADER/WARNING)', () => {
     const classStart = gd.indexOf('class _ErrorCapture');
     const slice = gd.slice(classStart, classStart + 3000);

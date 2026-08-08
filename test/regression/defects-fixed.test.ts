@@ -86,7 +86,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   改 tmp+rename 原子提交,超时 kill 落在 save 中途只损 tmp,full_path 旧/完整 Godot 启动不 parse error),
 //   合计 68。
 //   +1(2026-07-22 orphan 隔离): orphan-scan-session-scoped(killOrphanGodotProcesses 默认基于
-//   _spawnedGodotPids 会话集合,全系统扫须 GODOT_MCP_FULL_SYSTEM_SCAN opt-in 门控,签名 projectDir 改可选),
+//   _spawnedGodotPids 会话集合,全系统扫须 options.fullSystemScan 显式 opt-in 门控,签名 projectDir 改可选),
 //   合计 69。
 //   +2(2026-07-23 批次 A 安全修复): asset-factory-load-traversal(A5 asset_factory load 前 has_path_traversal) /
 //   ui-scene-local-blocked-removed(A10 ui/scene 本地 blocked 删除,统一 BLOCKED_PROPERTIES),合计 71。
@@ -149,9 +149,12 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   F7 stale(node_commands C11 孤儿扫描已闭环)/ F8 won't-fix(EditorPlugin 虚函数禁 super);fixes 在 commits d7c4485..132b1af(D-ADV Task1-3),合计 126。
 //   +1(2026-08-06 P2-3): scene-commit-nodetype-blacklist(node_add 黑名单→白名单,堵第三方恶意 class_name RCE);合计 127。
 //   +1(2026-08-06 审查 P0): action-gate-key-toolname-match(GATED_ACTIONS key 必须与 tool-registry 实际工具名一致,防 gate 永不命中);合计 128。
-    expect(FIXED_DEFECTS.length).toBe(128);
+//   +3(2026-08-08 P1 批次): error-capture-in-log-no-finally(GD-R2 _capture_entry 辅助方法) +
+//   long-op-no-ts-heartbeat-pause(IPC-R3 pauseHeartbeat/resumeHeartbeat) +
+//   write-edit-script-no-sandbox-scan(SEC-P1-1 scanScriptSandboxOrThrow 4 写入点);合计 131。
+    expect(FIXED_DEFECTS.length).toBe(131);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(128);
+    expect(new Set(keys).size, '存在重名 key').toBe(131);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

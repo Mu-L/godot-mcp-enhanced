@@ -1916,7 +1916,19 @@ class _ErrorCapture extends Logger:
 		# 注意:_log_error 不被普通 print() 触发(走 _log_message),这里不会收到 print。
 		if error_type != ERROR_TYPE_ERROR and error_type != ERROR_TYPE_SCRIPT and error_type != ERROR_TYPE_SHADER and error_type != ERROR_TYPE_WARNING:
 			return
+		# GD-R2/IPC-R7 (2026-08-08): GDScript 无 try/finally,引擎错误绕过控制流。
+		# 把所有有风险操作(substr/append/pop_front)集中到 _capture_entry 辅助方法,
+		# 主方法 _log_error 用两行明确控制 _in_log——除非 _capture_entry 内部引擎错误
+		# (绕过 GDScript 控制流,此时整个 capture 子系统已失效,与现状无异),
+		# 否则 _in_log = false 必达。消除"GDScript 可达的提前退出路径致 _in_log 卡死 true"。
 		_in_log = true
+		_capture_entry(function, file, line, code, rationale, error_type)
+		_in_log = false
+
+	# GD-R2/IPC-R7: 辅助方法——集中所有有风险操作(substr/append/pop_front)。
+	# 普通方法正常情况必然返回(GDScript 无异常机制);构建 entry 全程用局部变量,
+	# 仅成功构建后才 append 到 _entries,最小化副作用。
+	func _capture_entry(function: String, file: String, line: int, code: String, rationale: String, error_type: int) -> void:
 		_seq += 1
 		var kind := "warning"
 		if error_type == ERROR_TYPE_ERROR:
@@ -1940,7 +1952,6 @@ class _ErrorCapture extends Logger:
 		})
 		if _entries.size() > MAX_ENTRIES:
 			_entries.pop_front()
-		_in_log = false
 
 	# 增量查询:返回 seq > since_seq 的条目 + 下次查询用的 next_seq 游标。
 	# clear=true 在查询后清空 buffer(读即焚,适合 AI 确认已处理完旧错误)。

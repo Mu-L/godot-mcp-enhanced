@@ -185,6 +185,53 @@ describe('InstanceManager', () => {
       expect(instances[0].id).toBe('uuid-valid');
     });
 
+    it('CMP-7 跨语言格式契约: GD instance_registry.gd 写的 JSON 被 TS loadFromRegistry 接受', async () => {
+      // B-1 回归守护: GD instance_registry.gd:59 用 Time.get_datetime_string_from_system()
+      // 写 lastSeen(ISO 8601 string)。若有人改回 epoch ms(number),TS isInstanceInfo 会静默拒绝
+      // → editor discovery 全失效。此测试模拟 GD 输出格式,验证 TS 端真接受。
+      mkdirSync(TMP, { recursive: true });
+      // 模拟 GD instance_registry.gd 的 _write_instance_json 输出格式
+      const gdOutput = {
+        id: 'editor-9090',
+        projectPath: 'D:/game',
+        projectName: 'game',
+        port: 9090,
+        pid: 12345,
+        lastSeen: '2026-08-08T12:34:56',  // Time.get_datetime_string_from_system() 格式(ISO 8601 string)
+        godotVersion: '4.6.3.stable.official',
+        capabilities: ['editor-instance'],
+        status: 'ready',
+      };
+      writeFileSync(join(TMP, 'editor-9090.json'), JSON.stringify(gdOutput));
+
+      const manager = new InstanceManager({ registryDir: TMP, isPidAlive: () => true });
+      const instances = await manager.loadFromRegistry();
+      expect(instances).toHaveLength(1);
+      expect(instances[0].id).toBe('editor-9090');
+      expect(instances[0].lastSeen).toBe('2026-08-08T12:34:56');
+    });
+
+    it('CMP-7 跨语言格式契约: number 格式 lastSeen 被拒绝(防 B-1 回归)', async () => {
+      // B-1 根因: epoch ms(number)不通过 TS typeof === 'string' 守卫,被静默跳过。
+      // 此测试锁定:若 GD 误改回 number 格式,TS 端拒绝该 JSON(而非静默接受致 getStatus 崩溃)。
+      mkdirSync(TMP, { recursive: true });
+      const badOutput = {
+        id: 'editor-bad',
+        projectPath: 'D:/game',
+        projectName: 'game',
+        port: 9090,
+        pid: 12345,
+        lastSeen: 1723100000000,  // number(epoch ms)——B-1 的 bug 格式
+        godotVersion: '4.6.3',
+        capabilities: [],
+      };
+      writeFileSync(join(TMP, 'editor-bad.json'), JSON.stringify(badOutput));
+
+      const manager = new InstanceManager({ registryDir: TMP });
+      const instances = await manager.loadFromRegistry();
+      expect(instances).toHaveLength(0);  // number lastSeen 被类型守卫拒绝
+    });
+
     it('阶段4-4: 段级检查不误拒含 .. 子串的合法段名(如 ..backup)', async () => {
       // 原 includes("..") 会误拒 "..backup"(字符串包含 ".."); 段级只拒恰好为 ".." 的段
       writeFileSync(join(TMP, 'legit.json'), JSON.stringify({
@@ -200,7 +247,7 @@ describe('InstanceManager', () => {
 
   describe('zombie detection', () => {
     it('reports alive for recent instance', () => {
-      const manager = new InstanceManager({ registryDir: TMP });
+      const manager = new InstanceManager({ registryDir: TMP, isPidAlive: () => true });
       const status = manager.getStatus({
         id: 'uuid-1',
         projectPath: 'D:/game',
@@ -215,7 +262,7 @@ describe('InstanceManager', () => {
     });
 
     it('reports stale for old instance', () => {
-      const manager = new InstanceManager({ registryDir: TMP });
+      const manager = new InstanceManager({ registryDir: TMP, isPidAlive: () => true });
       const oldDate = new Date(Date.now() - 80000).toISOString();
       const status = manager.getStatus({
         id: 'uuid-1',
@@ -228,6 +275,22 @@ describe('InstanceManager', () => {
         capabilities: [],
       });
       expect(status).toBe('stale');
+    });
+
+    it('CMP-7: dead pid → unreachable(不等 lastSeen 超时)', () => {
+      // I-2 fix: CMP-7 核心——pid liveness probe 检测崩溃进程,直接标 unreachable 不等 70s staleTimeout
+      const manager = new InstanceManager({ registryDir: TMP, isPidAlive: () => false });
+      const status = manager.getStatus({
+        id: 'uuid-dead',
+        projectPath: 'D:/game',
+        projectName: 'game',
+        port: 9081,
+        pid: 99999,
+        lastSeen: new Date().toISOString(),  // 刚刚更新,但 pid 已死
+        godotVersion: '4.4',
+        capabilities: [],
+      });
+      expect(status).toBe('unreachable');
     });
   });
 
@@ -249,7 +312,7 @@ describe('InstanceManager', () => {
     });
 
     it('treats ready status with stale heartbeat as stale', () => {
-      const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000 });
+      const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000, isPidAlive: () => true });
       const status = manager.getStatus({
         id: 'uuid-1',
         projectPath: 'D:/game',
@@ -281,7 +344,7 @@ describe('InstanceManager', () => {
     });
 
     it('treats missing status as regular heartbeat-based detection', () => {
-      const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000 });
+      const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000, isPidAlive: () => true });
       // No status field — falls through to stale logic
       const alive = manager.getStatus({
         id: 'uuid-1',

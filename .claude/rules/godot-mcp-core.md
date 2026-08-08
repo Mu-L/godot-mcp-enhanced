@@ -49,6 +49,7 @@ godot-mcp-enhanced 提供 40 个 MCP 工具（220 个 action，权威数据见 d
   - 变量间接调用：通过 `call()` / `funcref()` 的非字面量参数绕过静态扫描
   - 注释中包含危险 API 名称会导致误报拦截（安全侧失败）
   - **适用场景**：本地单用户开发环境（信任调用者）。**不适用于多用户/远程/不可信输入场景**——后者需要容器/VM 隔离 + `GODOT_MCP_ALLOW_UNSAFE=false`
+  - **write_script/edit_script 也走沙箱扫描**：写入 .gd 前对内容调 `scanGdscriptSandbox`，发现 OS.execute/@tool 等危险模式则阻断（SANDBOX_VIOLATION），与 execute_gdscript 同威胁面对齐。双 opt-in 旁路（`UNRESTRICTED + DISABLE_SAFETY`）
 
 ### edit_script — 脚本编辑
 

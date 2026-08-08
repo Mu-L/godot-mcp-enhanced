@@ -1,5 +1,5 @@
 // test/regression/defects.ts — M2 DEFECT 回归数据层
-// FIXED_DEFECTS 128 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite） + 2026-07-29 D-P2 F2 nav/ui undo×3（nav-set-params-no-undo/ui-layout-anchor-no-undo/ui-theme-no-undo） + 2026-07-29 D-P2 F3 animation-keyframe-index-no-bound×1 + 2026-07-29 D-P2 F4 websocket-outbound-no-buffer-limit×1（ws_peer 仅 set_inbound_buffer_size 无 set_outbound_buffer_size → sync 风暴/慢消费者 outbound 无界增长 OOM；fix :231 后加 set_outbound_buffer_size(4MB)） + 2026-08-06 P2-3 scene-commit-nodetype-blacklist×1 + 2026-08-06 审查 P0 action-gate-key-toolname-match×1）。
+// FIXED_DEFECTS 131 条 detect 闭包（每条 detect(): number，0=无缺陷=防复发；含 2026-07-10 三层架构审查 P1×3+P2×1 + RCE/进程通信审查 P1×1 + 2026-07-11 editor-asset/auth 审查 P1×3 + 2026-07-11 插件反馈 asset×2 + bridge headless×1 + 2026-07-12 RCE 复合链×3 + HealthMonitor 控制回路×1 + 2026-07-13 path_generator align_vertices 死循环×1 + 2026-07-19 SDD scene coerce×3 + 2026-07-19 editor-version-tear edit_node/batch editor 路由+资源落盘+coerce helper×6 + 2026-07-20 editor 路由 add_node parent root 失效×1 + 2026-07-21 P2-1 csv-import-timeout-no-atomic-write×1 + 2026-07-22 orphan-scan-session-scoped×1 + 2026-07-23 批次 A asset-factory-load-traversal/ui-scene-local-blocked-removed×2 + 2026-07-23 批次 B 可靠性 B1-B8/B10×9 + 2026-07-23 批次 C 正确性 C1/C2/C3/C5-C13×12 + 2026-07-24 批次 D 工具治理 asset-android-tool-orphan×1 + 2026-07-24 D2 follow-up nodepath-traversal-category-error×1 + 2026-07-24 批次 E animation-track-destructive-confirmation×1 + 2026-07-24 Bridge take_screenshot null-crash-swallow×1 + 2026-07-28 scene/workflow traversal detect×2 + 2026-07-29 A-telemetry T1 telemetry-error-category-pii-leak×1 + T2 telemetry-afterhook-no-optout-guard×1 + 2026-07-29 A-RCE T1 addon-update-dest-symlink-bypass×1 + T2 bpy-no-dangerous-scan×1 + T3 profile-executeToolCall-isToolAllowed-enforce×1 + T4 godotpath-allowed-paths-unimplemented×1 + T5 headless-whitelist detect 假绿修正(rce-script-branch-no-node-check 不再以 is_parent_class 为充分守卫+反向 Node 不在白名单；set-prop-no-type-whitelist 扩扫 headless) + 2026-07-29 B-Reliability T1 nav-bake-request-timeout-misalign×1 + T2 fullsystem-scan-kills-editor×1 + T3 editor-halfopen-no-precheck×1 + T4 gdscript-spawn-not-registered×1 + T5 heartbeat-blanket-catch-no-distinguish×1 + 2026-07-29 C-Correctness detect 补全×7（nav-freed-access-signal/nav-status-hardcoded/doctor-no-stripbom/readcache-no-byte-limit/addon-update-nonatomic/adapter-no-mode-preserve/adapter-env-field-overwrite） + 2026-07-29 D-P2 F2 nav/ui undo×3（nav-set-params-no-undo/ui-layout-anchor-no-undo/ui-theme-no-undo） + 2026-07-29 D-P2 F3 animation-keyframe-index-no-bound×1 + 2026-07-29 D-P2 F4 websocket-outbound-no-buffer-limit×1（ws_peer 仅 set_inbound_buffer_size 无 set_outbound_buffer_size → sync 风暴/慢消费者 outbound 无界增长 OOM；fix :231 后加 set_outbound_buffer_size(4MB)） + 2026-08-06 P2-3 scene-commit-nodetype-blacklist×1 + 2026-08-06 审查 P0 action-gate-key-toolname-match×1）。
 //   含 Task 3 review 闭环：reconnect-degrade-fail + edit-node-blocked-props-json-pollution
 //   （master 实测无缺陷，defects.md open 基于 fix 分支，移 FIXED 硬断言===0）。
 // OPEN_DEFECTS 9 条：detect() <= baseline 防恶化。含 multi-instance-hmac EXPECTED=2（spec Named risk）。
@@ -836,14 +836,16 @@ export const FIXED_DEFECTS: DefectEntry[] = [
   { key: 'orphan-scan-session-scoped', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
     // killOrphanGodotProcesses 默认走 V-01 全系统扫 → 多个并发会话操作同一项目时误杀对方的编辑器/游戏进程。
     // fix: 默认路径基于 _spawnedGodotPids 集合（仅 run_project 注册的 orphan 候选），
-    // 全系统扫描须 GODOT_MCP_FULL_SYSTEM_SCAN=true opt-in 门控（崩溃恢复兜底）；
+    // 全系统扫描须 options.fullSystemScan=true 显式 opt-in 门控（崩溃恢复兜底）；
     // killOrphanGodotProcesses 签名 projectDir: string → projectDir?: string（默认路径不依赖它）。
-    // detect: 三特征齐备（_spawnedGodotPids 集合 + GODOT_MCP_FULL_SYSTEM_SCAN 门控 + optional 签名）；任一缺失即复发。
+    // IPC-R1/R5 (2026-08-08): 门控从 process.env.GODOT_MCP_FULL_SYSTEM_SCAN 改为显式 options 参数
+    // （消除 env 全局状态与周期 orphan 扫描 tick 的竞态）。
+    // detect: 三特征齐备（_spawnedGodotPids 集合 + options.fullSystemScan 显式门控 + optional 签名）；任一缺失即复发。
     detect: () => {
       const f = readSrc('src/core/process-state.ts');
       const hasPidSet = /let _spawnedGodotPids\b/.test(f);
-      const hasOptIn = /GODOT_MCP_FULL_SYSTEM_SCAN/.test(f);
-      const hasOptionalSig = /killOrphanGodotProcesses\(projectDir\?:\s*string\)/.test(f);
+      const hasOptIn = /options\?\.\s*fullSystemScan\s*===\s*true/.test(f);
+      const hasOptionalSig = /killOrphanGodotProcesses\(\s*projectDir\?:\s*string/.test(f);
       return hasPidSet && hasOptIn && hasOptionalSig ? 0 : 1;
     } },
   // ─── 2026-07-23 批次 A 安全修复（A5/A10 detect 防复发）──────────────────────────
@@ -1491,6 +1493,41 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     detect: () => {
       const n = (readSrc('addons/godot_mcp_server/commands/asset/asset_placer.gd').match(/undo_mgr != null/g) || []).length;
       return n >= 2 ? 0 : 1;
+    } },
+  // ─── 2026-08-08 P1 批次修复登记 ──────────────────────────────────────────
+  { key: 'error-capture-in-log-no-finally', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // GD-R2/IPC-R7: mcp_bridge.gd _ErrorCapture._log_error 的 re-entrancy guard _in_log 复位无保护,
+    // append/pop_front/substr 抛错会跳过复位致 _in_log 永久 true → error capture 静默失效。
+    // fix: 有风险操作集中到 _capture_entry 辅助方法,_in_log=false 紧跟调用后(GDScript 无 try/finally)。
+    // detect: _log_error 体内 _in_log=false 必须在 _capture_entry 调用之后(紧跟复位)。
+    detect: () => {
+      const f = readSrc('src/scripts/mcp_bridge.gd');
+      const logErrIdx = f.indexOf('func _log_error');
+      if (logErrIdx < 0) return 1;
+      const slice = f.slice(logErrIdx, logErrIdx + 1000);
+      const captureIdx = slice.indexOf('_capture_entry');
+      const resetIdx = slice.indexOf('_in_log = false');
+      return captureIdx > 0 && resetIdx > captureIdx ? 0 : 1;
+    } },
+  { key: 'long-op-no-ts-heartbeat-pause', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
+    // IPC-R3: nav bake/test_run 长操作只暂停 GD 侧 heartbeat,TS 侧 health-monitor 每 15s ping 照发,
+    // GD 主循环阻塞时 75s 误降级中断 110s/290s 操作。fix: HealthMonitor 加 pauseHeartbeat/resumeHeartbeat。
+    // detect: _runWithOpTimeout 含 pauseHeartbeat + resumeHeartbeat 配对调用。
+    detect: () => {
+      const f = readSrc('src/core/EditorToolExecutor.ts');
+      const hasPause = /pauseHeartbeat\(\)/.test(f);
+      const hasResume = /resumeHeartbeat\(\)/.test(f);
+      return hasPause && hasResume ? 0 : 1;
+    } },
+  { key: 'write-edit-script-no-sandbox-scan', status: 'fixed', severity: 'CRITICAL', dimension: 'Security',
+    // SEC-P1-1: write_script/edit_script writeFileSync 写任意 content 不经 scanGdscriptSandbox,
+    // 客户端可写 @tool/OS.execute 脚本。fix: scanScriptSandboxOrThrow 在 4 写入点阻断式扫描。
+    // detect: script.ts 含 scanScriptSandboxOrThrow 定义 + write_script/edit_script 调用(至少 3 处)。
+    detect: () => {
+      const f = readSrc('src/tools/script.ts');
+      const hasHelper = /function scanScriptSandboxOrThrow/.test(f);
+      const callCount = (f.match(/scanScriptSandboxOrThrow\(/g) ?? []).length;
+      return hasHelper && callCount >= 4 ? 0 : 1;  // 1 定义 + ≥3 调用(实际 4 写入点 + 1 定义 = 5)
     } },
 ];
 

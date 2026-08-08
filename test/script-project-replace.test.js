@@ -4,13 +4,18 @@ import { join } from 'node:path';
 import { mockSuccessResult } from './helpers/mock-results.js';
 
 // Mock the executor
-vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult())),
-  parseMcpMarkers: vi.fn((raw) => ({
-    parsed: null,
-    logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
-  })),
-}));
+// SEC-P1-1: 用 importOriginal 保留 scanGdscriptSandbox 真实实现
+vi.mock('../src/gdscript-executor.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult())),
+    parseMcpMarkers: vi.fn((raw) => ({
+      parsed: null,
+      logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
+    })),
+  };
+});
 
 // Mock batchValidateScripts so validate_scripts doesn't spawn Godot
 vi.mock('../src/tools/validation.js', async (importOriginal) => {

@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.12] - 2026-08-08
+
+### Changed — P1+P2 批次修复（18 项审查 finding 闭环，竞品对标 + 可靠性 + GDScript 健壮性 + 安全）
+
+**P1 批次（7 项）**：
+- **GD-R1** nav bake_mesh_async status/success 同源（消除 deadline 耗尽但 mesh 已生成时矛盾语义）
+- **GD-R2/IPC-R7** `_ErrorCapture` _in_log 复位结构重构（GDScript 无 try/finally，有风险操作集中 _capture_entry 辅助方法）
+- **GD-R3** debug_commands 注释对齐实现（get_current_script 非 get_open_scripts）
+- **IPC-R1/R5** STARTUP_CLEANUP env 传递改显式 options 参数（消除 env 全局状态与周期 orphan 扫描竞态）
+- **IPC-R2** 删除 CMP-6 gap 检测（挂在 message 事件但 OS 挂起后无消息恰好不触发，"检测但不动作"是最差状态）
+- **IPC-R3** nav bake/test_run 长操作暂停 TS 心跳（pauseHeartbeat/resumeHeartbeat，防 75s 误降级）
+- **SEC-P1-1** write_script/edit_script 沙箱扫描（scanScriptSandboxOrThrow 4 写入点阻断式，对齐 execute_gdscript）
+
+**P2 批次（11 项）**：
+- **GD-R4** engine enum 补返回值（class_get_enum_constants + class_get_integer_constant，ENUM_CONSTANTS_LIMIT=50）
+- **GD-R5** undo_manager reference op Resource 分支警告显式化
+- **GD-R6** engine search 字母序排序（原 ClassDB 注册序不可预测）
+- **GD-R7** debug _get_current_code_edit 返 Dictionary 含 reason（区分版本不兼容/无 tab/类型不符）
+- **GD-R8** scene save_scene_as 错误诊断细化
+- **GD-R9** export Array/Dictionary JSON 化（原 str() 非 JSON）
+- **GD-R10** recording editor 路由移除（3 个永远返 -32009 的噪音路由 + static-grep 登记同步删）
+- **IPC-R4** 重连后 sendLoggingMessage 通知场景树 stale
+- **IPC-R6** health-monitor baseline 用 trimmedMean 排除离群点（防 GC 卡顿拉高 baseline）
+- **CMP-7** editor instance discovery（addon 新建 instance_registry.gd 写 JSON + 30s lastSeen + 原子写；TS 侧 pid liveness probe）
+- rule-templates.ts + .claude/rules 同步补 write/edit 沙箱扫描说明
+
+4667 测试。三次第三方审查（P1 SHIPPED / P2 初审 BLOCKING→修后 SHIPPED / 全量合并 SHIPPED WITH NITS）。
+
 ## [0.25.11] - 2026-08-08
 
 ### Added — CMP-4 实时 ClassDB 内省（2026-08-08，竞品 godot-mcp-go 深度对标产出）

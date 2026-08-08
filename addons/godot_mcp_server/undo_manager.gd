@@ -15,7 +15,7 @@
 ##
 ## 不接入 undo 的 handler（含理由）：
 ## - export_commands.gd：落盘文件不可逆，无 undo 语义
-## - recording_commands.gd：editor 路径被禁用（强制走 Bridge），与 editor-only UndoRedoManager 矛盾
+## - recording_commands.gd：editor 路由已移除(GD-R10,原 editor 路径被禁用强制走 Bridge),与 editor-only UndoRedoManager 矛盾
 ## - sync_commands.gd：纯观察者（connect/disconnect 信号 + 只读序列化），无场景树 mutation
 ## - test_commands.gd：测试命令不产生场景 mutation（仅注入 undo_manager 到测试上下文）
 ## - scene_commands.gd open/save：场景级 open/save 不应被 Ctrl+Z 跨场景切换
@@ -83,13 +83,18 @@ func _apply_op(undo_redo: EditorUndoRedoManager, mode: String, op: Dictionary) -
 			else:
 				undo_redo.add_undo_property(target, prop, val)
 		"reference":
-			# Issue 1: add_do_reference/add_undo_reference 仅限 Node，不接受 Resource
+			# Issue 1: add_do_reference/add_undo_reference 仅限 Node,不接受 Resource。
+			# GD-R5 (2026-08-08): 显式化此约束——reference op 仅对 Node 有效
+			# (Godot UndoRedo.add_do_reference 持有 Node 树引用,Resource 的 refcount 语义不同)。
+			# Resource 的 undo 靠 add_do_method 调 ref/unref,非 reference op;调用方需自行处理。
 			var val = op.value
 			if val is Node and is_instance_valid(val):
 				if mode == "do":
 					undo_redo.add_do_reference(val)
 				else:
 					undo_redo.add_undo_reference(val)
+			elif val is Resource:
+				push_warning("undo_manager: reference op does not support Resource (got %s). Use add_do_method with ref/unref for Resource undo." % val.get_class())
 			else:
 				push_warning("undo_manager: reference skipped — value is %s, not valid Node" % ("" if val == null else val.get_class()))
 		_:

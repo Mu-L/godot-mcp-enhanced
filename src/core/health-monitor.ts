@@ -88,6 +88,9 @@ export class HealthMonitor {
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private pingFn: (() => Promise<boolean>) | null = null;
   private disposed = false;
+  // IPC-R3 (2026-08-08): 长操作(nav bake/test_run)暂停 TS 侧心跳,防 GD 主循环阻塞时
+  // 75s 误降级中断 110s/290s 操作。与 GD 侧 heartbeat.gd.pause_for_operation 双保险。
+  private paused = false;
 
   // 2026-07-12 P0 控制回路：状态变化监听器（fire-and-forget，try/catch 包裹不影响状态机）
   private stateChangeListener: ((from: ConnectionState, to: ConnectionState) => void | Promise<void>) | null = null;
@@ -117,7 +120,8 @@ export class HealthMonitor {
     if (!this.baselineEstablished) {
       this.baselineSamples.push(responseTimeMs);
       if (this.baselineSamples.length >= BASELINE_SAMPLE_COUNT) {
-        this.baselineResponseMs = avg(this.baselineSamples);
+        // IPC-R6: 用 trimmedMean 替代 avg,剔除离群点(GC/磁盘 IO 致单次卡顿拉高 baseline)
+        this.baselineResponseMs = trimmedMean(this.baselineSamples);
         this.baselineEstablished = true;
         getLogger().info('health', `Baseline established: ${this.baselineResponseMs.toFixed(1)}ms`);
       }
@@ -125,10 +129,11 @@ export class HealthMonitor {
       // 2026-08-07 审查 P2 修复：滑动重算 baseline，防冷启动偏低致后续正常负载误判 degraded。
       // 每 BASELINE_REFRESH_INTERVAL 次成功响应，用最近 RECENT_WINDOW 个响应时间重算 baseline，
       // 让 baseline 随负载正常升高（冷启动缓存热→baseline 偏低→后续大场景正常升高超 2x→误判）。
+      // IPC-R6: 重算也用 trimmedMean,防长操作后首个慢样本把 baseline 抬高/压低致偶发误降级。
       this.baselineRefreshCounter++;
       if (this.baselineRefreshCounter >= HealthMonitor.BASELINE_REFRESH_INTERVAL
           && this.responseTimes.length >= RECENT_WINDOW) {
-        const newBaseline = avg(this.responseTimes.sliceLast(RECENT_WINDOW));
+        const newBaseline = trimmedMean(this.responseTimes.sliceLast(RECENT_WINDOW));
         // 平滑过渡：新旧 baseline 取平均，防单次重算跳变过大
         this.baselineResponseMs = (this.baselineResponseMs + newBaseline) / 2;
         this.baselineRefreshCounter = 0;
@@ -246,6 +251,29 @@ export class HealthMonitor {
     this.disposed = true;
   }
 
+  /**
+   * IPC-R3 (2026-08-08): 暂停心跳调度。长操作(nav bake/test_run)期间调用,
+   * 防 GD 主循环阻塞时 TS 侧 ping 5s 超时×5≈75s 误降级中断 110s/290s 操作。
+   * 清当前定时器 + 设 paused 标志(scheduleNext 入口跳过)。resumeHeartbeat 恢复。
+   */
+  pauseHeartbeat(): void {
+    this.paused = true;
+    if (this.heartbeatTimer !== null) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  /**
+   * IPC-R3: 恢复心跳调度。与 pauseHeartbeat 配对。disposed 后调此方法是 no-op
+   * (防 stopHeartbeat 后误重启)。清 paused 标志 + 重新 scheduleNext。
+   */
+  resumeHeartbeat(): void {
+    if (this.disposed) return;  // 防 disposed 后误重启
+    this.paused = false;
+    this.scheduleNext();
+  }
+
   // ── Internal ────────────────────────────────────────────────────────────────
 
   private pushRecentFlag(success: boolean): void {
@@ -303,6 +331,7 @@ export class HealthMonitor {
 
   private scheduleNext(): void {
     if (this.disposed || !this.pingFn) return;
+    if (this.paused) return;  // IPC-R3: 长操作暂停期间不调度心跳
 
     const interval = this.state === 'reconnecting'
       ? this.opts.probeIntervalMs
@@ -353,6 +382,20 @@ export class HealthMonitor {
 function avg(nums: number[]): number {
   if (nums.length === 0) return 0;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+/**
+ * IPC-R6 (2026-08-08): trimmed mean——排序后剔除最高/最低各 trimRatio 比例,再求平均。
+ * 抗离群点(如 GC/磁盘 IO 致单次 5000ms 卡顿拉高 baseline,掩盖真实卡顿)。
+ * 样本量小时(如 10 个)剔除最高最低各 1 个(trimRatio=0.1)。
+ */
+function trimmedMean(nums: number[], trimRatio = 0.1): number {
+  if (nums.length === 0) return 0;
+  if (nums.length < 4) return avg(nums);  // 样本太少(<4)不剔除,直接平均
+  const sorted = [...nums].sort((a, b) => a - b);
+  const trimCount = Math.max(1, Math.floor(sorted.length * trimRatio));
+  const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+  return avg(trimmed);
 }
 
 const RETRIABLE_TYPES = new Set(['timeout', 'connection_reset', 'heartbeat', 'ECONNREFUSED', 'ECONNRESET']);

@@ -58,7 +58,7 @@ afterEach(() => {
 
 describe('InstanceInfo status field', () => {
   it('ready instance with recent heartbeat is alive', () => {
-    const manager = new InstanceManager({ registryDir: TMP });
+    const manager = new InstanceManager({ registryDir: TMP, isPidAlive: () => true });
     const inst = makeInstance({
       status: 'ready',
       lastSeen: new Date().toISOString(),
@@ -86,7 +86,7 @@ describe('InstanceInfo status field', () => {
   });
 
   it('instance without status field falls back to heartbeat logic', () => {
-    const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000 });
+    const manager = new InstanceManager({ registryDir: TMP, staleTimeoutMs: 70000, isPidAlive: () => true });
 
     // Recent heartbeat → alive
     const alive = makeInstance({

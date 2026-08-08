@@ -101,12 +101,10 @@ export class EditorToolExecutor {
       const NAV_BAKE_OP_TIMEOUT_SEC = 110;  // < GD clamp 600，> §6 BAKE_WAIT_TIMEOUT_MS
 
       if (isNavBake) {
-        // P2（设计权衡，固化审查 finding）：startOperation 只通知 GD 侧 heartbeat.gd 暂停
-        // inactivity 检测；TS 侧 hm 心跳（GodotServer.ts:509）照常每 15s 发 ping。
-        // 当前安全：nav bake 走 GD coroutine（websocket_server.gd:353 分流 handle_nav_async），
-        // 不阻塞 GD 主循环 → TS ping 仍被即时响应，不误判降级。
-        // 风险：若未来 editor 工具走同步阻塞主循环路径，TS ping 5s 超时×5≈75s 触发降级，
-        // 而 NAV_BAKE_OP_TIMEOUT_SEC=110s > 75s 会误降级。届时需在此暂停/放宽 TS 侧 hm。
+        // IPC-R3 (2026-08-08): _runWithOpTimeout 现在同时暂停 GD 侧 heartbeat.gd 和 TS 侧
+        // health-monitor 心跳(双保险)。原风险(未来同步阻塞主循环时 TS ping 75s 误降级
+        // 中断 110s 操作)已消除。nav bake 当前走 GD coroutine 不阻塞主循环,TS 侧暂停是
+        // 防御性补充(若未来路径变同步阻塞,无需再改此处)。
         // NIT-3: 必须 return await（非 return）——async 函数中 return 未经 await 的 Promise
         // 会绕过当前 try/catch，致 _runWithOpTimeout 内 request 的 reject 逃出错误处理（I-1 失效）。
         return await this._runWithOpTimeout(method, finalArgs, NAV_BAKE_OP_TIMEOUT_SEC);
@@ -114,7 +112,7 @@ export class EditorToolExecutor {
 
       // P2-12 phase 2: test_run 走 GD async coroutine（websocket_server.gd 分流 handle_test_async，
       // suite 内每 test 后 await process_frame 让出主循环）。startOperation 暂停 GD heartbeat
-      // inactivity 检测（防 30s 无活动误断），TS 侧 hm ping 照常每 15s 发（GD 主循环未阻塞 → 响应正常）。
+      // inactivity 检测（防 30s 无活动误断）+ IPC-R3 暂停 TS 侧 hm 心跳（双保险）。
       // 290s 预算 < GD clamp 600（heartbeat.gd:69）+ websocket_server.gd:325，> 预期 suite 总耗时；
       // 多 suite 累积超 290s 时调用方应用 suite= 过滤分批。
       const isTestRun = method === 'test_run';
@@ -176,6 +174,8 @@ export class EditorToolExecutor {
   /**
    * 包裹 startOperation/endOperation 的长操作执行（nav_bake / test_run 共用）。
    * startOperation 通知 GD 侧 heartbeat.gd 暂停 inactivity 检测；endOperation 恢复。
+   * IPC-R3 (2026-08-08): startOperation 后还暂停 TS 侧 health-monitor 心跳,防 GD 主循环
+   * 阻塞时 ping 5s 超时×5≈75s 误降级中断 110s/290s 操作。endOperation 后恢复(双保险)。
    * finally 块的 .catch(() => {}) 防清理错误覆盖 try 抛出的原始错误（I-1 审查 finding）。
    */
   private async _runWithOpTimeout(
@@ -184,14 +184,17 @@ export class EditorToolExecutor {
     timeoutSec: number,
   ): Promise<ToolResult> {
     // 注：startOperation reject 时（CONNECTION_LOST）直接抛出，不会进入下方 try/finally，
-    // 故 endOperation 不会被误调（finally 属于 startOperation 之后的 try，未开始则不触发）。
+    // 故 endOperation/resumeHeartbeat 不会被误调（finally 属于 startOperation 之后的 try，未开始则不触发）。
     // operation_start 若部分成功后 TS 侧 reject，GD 侧 heartbeat.gd 有 hard timeout 兜底。
     await this.conn.startOperation(timeoutSec);
+    // IPC-R3: 暂停 TS 侧心跳(healthMonitor 未注入时 no-op,向后兼容)
+    this.healthMonitor?.pauseHeartbeat();
     try {
       const result = await this.conn.request(method, args, { timeoutMs: timeoutSec * 1000 });
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
     } finally {
       await this.conn.endOperation().catch(() => {});
+      this.healthMonitor?.resumeHeartbeat();
     }
   }
 
