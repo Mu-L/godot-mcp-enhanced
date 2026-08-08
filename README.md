@@ -4,7 +4,7 @@
 > 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:38 个 MCP 工具(merged,共 210 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
+工具层:39 个 MCP 工具(merged,共 210 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **38** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **39** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
@@ -137,7 +137,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 ## 工具一览
 
-> 共 38 个 MCP 工具(merged tool definition,共 210 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+> 共 39 个 MCP 工具(merged tool definition,共 210 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
 >
 > **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:36**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:205**(matrix 的 risk 聚合 read 100+write 80+destructive 10+process 13)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
 
@@ -495,7 +495,7 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
-> ✅ 协议层实测通过（38 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+> ✅ 协议层实测通过（39 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
 
 #### ZCode（智谱 GLM-5.2 ADE）
 [ZCode](https://zcode.z.ai/) 原生支持 MCP。**设置 → MCP 服务器 → 新建**（stdio，`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`），或写入 `<项目根>/.zcode/config.json` / `.agents/mcp.json`。**关键**：ZCode 不读 `CLAUDE.md`，只读 workspace 根 `AGENTS.md`——运行 `setup_project_rules`（默认双写）生成 `AGENTS.md` 让 godot 规则生效。
@@ -633,6 +633,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.25.10** | 2026-08-08 | **debug 组 Phase 1 断点管理**：新增 `debug` 工具组（editor-only），set/clear/list breakpoint 走 CodeEdit gutter（gutter 可见 + game 命中 + 跨 run 同步）。从无到有的交互式调试能力。留 Phase 2 step/resume/pause + 栈帧读取。 |
 | **v0.25.9** | 2026-08-08 | **竞品 godot-mcp-go 深度对标产出**：CMP-1 editor 项目匹配检查（连接建立后校验 project_path，mismatch 拒绝降级，防跨项目误操作；覆盖首次连接 + rebuild + 自动重连三条路径 + junction realpath fallback）+ CMP-2 game bridge runtime error 捕获（`_ErrorCapture` Logger 子类 ring buffer 200，捕获全部 4 种错误类型 ERROR/SCRIPT/SHADER/WARNING，`get_errors`/`clear_errors` 两个新 method，since-seq 增量查询，re-entrancy guard 防 error storm）。两次第三方审查均 SHIPPED。4571 测试。 |
 | **v0.25.8** | 2026-08-07 | **5 批审查修复闭环**：批次1 GDScript 假成功（save_scene/load_sprite/screenshot 失败补 quit(1) + _cmd_playtest_restore Resource 反向转换 + _cleanup_peer_state 漏清 snapshot）+ 批次2 TS 可靠性（resetBridgeState 清 push 子系统 + STARTUP_CLEANUP.finally + health-monitor degraded 不被心跳过早清除 + playtest owner_pid 多 peer）+ 批次3 安全纵深（FileAccess READ 非 Godot 协议拦 + 网络回连 API 进沙箱 + stripLiterals 扩 user://）+ 批次4 测试缺口（P3-6 socket 竞态并发测试 + C# 回滚测试 + 4 CI 守门脚本）+ 批次5 文档收尾（update-checker 门控语义健壮化 + 文档漂移修正）。4534 测试。 |
 | **v0.25.7** | 2026-08-06 | **P3 选做三批**（审查 SHIPPED WITH NITS）：P3-1/P3-2 版本同步收口（server.json/Dockerfile 纳入 version-sync，根治分发产物漂移）+ P3-7 C# 阶段一收尾（project_replace 白名单/read using/edit 验证回滚）+ P3-6 subscriptions/listen（bridge 事件主动推送，watch/monitor push 模式三层改造）+ P2 第三方审查 B-1/I-2/I-3 修复。4517 测试。 |

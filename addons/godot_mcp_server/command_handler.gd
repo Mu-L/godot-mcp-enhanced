@@ -14,6 +14,7 @@ var _animation_commands: Node
 var _recording_commands: Node
 var _ui_commands: Node
 var _asset_commands: Node
+var _debug_commands: Node  # CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
 
 func setup(plugin: EditorPlugin) -> void:
 	_undo_manager = preload("undo_manager.gd").new()
@@ -72,10 +73,15 @@ func setup(plugin: EditorPlugin) -> void:
 	_asset_commands.setup(plugin, _undo_manager)
 	add_child(_asset_commands)
 
+	# CMP-3 (2026-08-08): debug 组 Phase 1 断点管理(editor-only)
+	_debug_commands = preload("commands/debug_commands.gd").new()
+	_debug_commands.setup(plugin)
+	add_child(_debug_commands)
+
 func cleanup() -> void:
 	var modules = [
 		_sync_commands, _recording_commands, _animation_commands,
-		_ui_commands, _asset_commands, _scene_commands, _node_commands,
+		_ui_commands, _asset_commands, _debug_commands, _scene_commands, _node_commands,
 		_test_commands, _export_commands, _particle_commands,
 		_nav_commands, _animtree_commands, _undo_manager,
 	]
@@ -89,6 +95,7 @@ func cleanup() -> void:
 	_animation_commands = null
 	_ui_commands = null
 	_asset_commands = null
+	_debug_commands = null
 	_scene_commands = null
 	_node_commands = null
 	_test_commands = null
@@ -217,6 +224,13 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _asset_commands.handle_undo(params, request_id)
 		"asset_save":
 			return _asset_commands.handle_save(params, request_id)
+		# --- debug (CMP-3 2026-08-08) ------------------------------------------------
+		"debug_set_breakpoint":
+			return _debug_commands.handle_set_breakpoint(params)
+		"debug_clear_breakpoint":
+			return _debug_commands.handle_clear_breakpoint(params)
+		"debug_list_breakpoints":
+			return _debug_commands.handle_list_breakpoints(params)
 		# Tools NOT routed here (headless-only via TS/GDScript executor):
 		#   animation (play/stop/seek/list_players) - runtime AnimationPlayer control
 		#   recording_save / recording_load - file I/O handled by TS side

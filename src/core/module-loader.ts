@@ -58,6 +58,7 @@ import * as asset from '../tools/asset/asset-ops.js';
 import * as blender from '../tools/blender.js';
 import * as selfUpdate from '../tools/self-update.js';
 import * as testing from '../tools/testing.js';
+import * as debug from '../tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
 import * as runtimeAssert from '../tools/runtime-assert.js';
 import * as help from '../tools/help.js';
 
@@ -80,6 +81,7 @@ const ALL_MODULES: ToolModule[] = [
   blender,
   selfUpdate,
   testing,
+  debug,
   runtimeAssert,
   help,
 ];

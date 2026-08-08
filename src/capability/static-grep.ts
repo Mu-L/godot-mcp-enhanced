@@ -137,6 +137,10 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   // CMP-1 (2026-08-08): editor 项目匹配检查——返回 ProjectSettings.globalize_path("res://")
   // handler 内联在 command_handler.gd handle()(不归属子 commands,复用 websocket_server.gd _get_project_dir 逻辑)
   editor_get_project_path: 'command_handler.gd',
+  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
+  debug_set_breakpoint: 'commands/debug_commands.gd',
+  debug_clear_breakpoint: 'commands/debug_commands.gd',
+  debug_list_breakpoints: 'commands/debug_commands.gd',
 };
 
 /**

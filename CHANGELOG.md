@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.10] - 2026-08-08
+
+### Added — CMP-3 debug 组 Phase 1 断点管理（2026-08-08，竞品 godot-mcp-go 深度对标产出）
+
+- **新增 `debug` 工具组（editor-only）**：3 个同步 action——`set_breakpoint` / `clear_breakpoint` / `list_breakpoints`。走 CodeEdit gutter 路径（竞品验证可行），断点进入 editor breakpoint map：gutter 可见 + 现行 game 命中 + 下次 run 同步保持。AI 能预置断点，用户 F5 运行后命中——从无到有的质变。
+  - GD 侧新增 `debug_commands.gd`（3 handler + CodeEdit gutter + 二次校验 + 1-based→0-based 行号转换 + res:// 路径校验）。
+  - Phase 1 限制：脚本必须在编辑器中打开且是当前活跃 tab（避免异步等帧复杂度，纯同步分发）。
+  - 10 个新测试（`test/debug-tools.test.ts` TS 契约 + GD 契约 + 注册链路 + static-grep drift）。
+  - 留 Phase 2：step/resume/pause + 栈帧/变量读取（需 EditorDebuggerPlugin + async 分流）。
+  - 留 Phase 3：热重载 + 永不命中行检测 + hot callback 警告。
+
 ## [0.25.9] - 2026-08-08
 
 ### Added — CMP-2 game bridge runtime error 捕获（2026-08-08，竞品 godot-mcp-go 深度对标产出）

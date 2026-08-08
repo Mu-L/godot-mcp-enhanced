@@ -1,5 +1,5 @@
 {
-  "version": "0.25.9",
+  "version": "0.25.10",
   "tools": [
     {
       "name": "android",
@@ -1358,6 +1358,84 @@
       }
     },
     {
+      "name": "debug",
+      "group": "unknown",
+      "description": "交互式调试器 — 断点管理（editor-only）：在 GDScript 脚本中设置/清除/列出断点。 set_breakpoint: 在指定行设置断点（走 CodeEdit gutter，进入 editor breakpoint map：gutter 可见 + 现行 game 命中 + 下次 run 同步保持）。 clear_breakpoint: 清除指定行的断点。 list_breakpoints: 列出当前活跃 tab 脚本的断点。 ⚠️ 脚本必须在编辑器中打开且是当前活跃 tab（Phase 1 限制，Phase 2 将支持自动打开）。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY。需 GODOT_MCP_MODE=editor 并安装 Godot 插件。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "set_breakpoint",
+              "clear_breakpoint",
+              "list_breakpoints"
+            ],
+            "description": "Action type: set_breakpoint | clear_breakpoint | list_breakpoints"
+          },
+          "path": {
+            "type": "string",
+            "description": "set/clear: res:// 路径的 .gd 脚本（必须在编辑器中打开且是当前活跃 tab）。list: 可选，过滤特定脚本"
+          },
+          "line": {
+            "type": "number",
+            "description": "set/clear: 1-based 行号（AI 友好；内部转 0-based CodeEdit 行号）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "path",
+        "line"
+      ],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 3,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": true,
+          "path": "addons/godot_mcp_server/commands/debug_commands.gd"
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 602,
+        "schemaBytes": 516,
+        "totalBytes": 1118
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
       "name": "docs",
       "group": "code",
       "description": "Query Godot class documentation: get_class_info, search_classes, find_method, get_inheritance.",
@@ -1718,7 +1796,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources, testing",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, csv_to_resources, testing, debug",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1767,9 +1845,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 206,
+        "descBytes": 213,
         "schemaBytes": 205,
-        "totalBytes": 411
+        "totalBytes": 418
       },
       "annotations": {
         "readOnlyHint": false,

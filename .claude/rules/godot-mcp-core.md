@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 38 个 MCP 工具（214 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 39 个 MCP 工具（217 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -64,6 +64,13 @@ godot-mcp-enhanced 提供 38 个 MCP 工具（214 个 action，权威数据见 d
 - **★ dev_loop 的 `code` 全行匹配 E2E DSL 会静默切 Bridge 序列**：若 `code` 每一非空行都匹配 DSL 语法（`waitFor(...)`/`click(x,y)`/`press(...)`/`typeText(...)`/`waitMs(...)`），dev_loop **不执行 GDScript，而是逐行作为 Bridge 命令**发送（返回 `mode: "dsl"`）。传含 `click(100,100)` 的内容会被当 bridge 脚本——意图跑 GDScript 时避免整段恰好全是 DSL 语法。
 - **dev_loop `acceptance.assertions` 三类型前置条件**：`gdscript`（默认，headless 跑断言脚本）、`screenshot_diff`（**需 Bridge 连接**，take_screenshot + 可选余弦相似度预筛 + 可见性检查）、`frame_degradation`（**需先 `frame_sequence` 捕获帧**或手动提供 `frames_dir`，否则无帧可比）。用高级断言前先确认前置满足。
 - **单独工具**：execute_gdscript + validate_scripts + run_and_verify 灵活组合。适合多步调试或需要中间检查的场景。
+
+### debug — 断点管理（editor-only）
+
+- **set_breakpoint**：在 GDScript 指定行设断点（走 CodeEdit gutter，gutter 可见 + 现行 game 命中 + 下次 run 同步保持）。
+- **clear_breakpoint**：清除指定行断点。
+- **list_breakpoints**：列出当前活跃 tab 脚本的断点。
+- **⚠️ Phase 1 限制**：脚本必须在编辑器中打开且是当前活跃 tab。headless 模式返回 EDITOR_ONLY。
 
 ### run_and_verify vs 手动组合
 

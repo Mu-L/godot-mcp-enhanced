@@ -103,6 +103,13 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     run: { method: 'test_run' },
     manage: { method: 'test_manage' },
   },
+  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理(editor-only)
+  // method 名与 command_handler.gd handle() 分支一致。
+  debug: {
+    set_breakpoint: { method: 'debug_set_breakpoint' },
+    clear_breakpoint: { method: 'debug_clear_breakpoint' },
+    list_breakpoints: { method: 'debug_list_breakpoints' },
+  },
   // IMPORTANT(2026-07-13 协议断链): 下列族 editor 漏登记 → fallback toolName → -32601
   // → headless → GD 带 undo 分支成死代码,丢 editor 实时+undo。登记后 editor 模式走 GD 带 undo。
   // recording 不登记(GD editor 主动禁用 -32009,走 bridge)。headless-only action
