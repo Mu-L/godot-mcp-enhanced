@@ -47,6 +47,14 @@ describe('stripJsonc (Tier2-3)', () => {
   it('纯 JSON 无注释时原样返回', () => {
     expect(stripJsonc('{"a": 1}')).toBe('{"a": 1}');
   });
+
+  it('未闭合块注释扫到文件尾不崩(Nit-1)', () => {
+    expect(stripJsonc('{"a": 1 /* 未闭合')).toBe('{"a": 1 ');
+  });
+
+  it('尾逗逗号后跟注释再跟 } 也识别为尾逗(Nit-1)', () => {
+    expect(stripJsonc('{"a": 1,/* c */}')).toBe('{"a": 1}');
+  });
 });
 
 describe('readJsonConfigWithBackup JSONC 支持 (Tier2-3)', () => {
