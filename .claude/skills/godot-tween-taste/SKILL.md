@@ -13,21 +13,20 @@ description: "Tween 动效品味审计 create_tween tween_property set_trans set
 - [ ] 1. `read_scene` + grep `create_tween|tween_property|set_trans|set_ease` 找所有 Tween 调用
 - [ ] 2. 记录每处:file:line + TRANS 类型 + Ease 方向 + 时长 + 目标属性
 
-**Phase 2 — Audit(按 8 类审计,只返回 file:line + evidence)**:
+**Phase 2 — Audit(按 7 类审计,只返回 file:line + evidence)**:
 - [ ] 3. TRANS_LINEAR 用于 UI 动画(生硬,应换 TRANS_SINE/QUAD)
 - [ ] 4. Ease 缺失(默认 ease_in_out 可能不对,UI 进场应用 ease_out)
 - [ ] 5. 时长 < 0.1s(太快看不清)或 > 1.0s(太慢拖沓)
-- [ ] 6. set_trans/set_ease 顺序错(set_ease 应在 set_trans 后)
-- [ ] 7. parallel() 缺失(多 Tween 应并行但串行跑了)
-- [ ] 8. Tween 未 kill(场景切换后泄漏,应 connect tree_exited)
+- [ ] 6. parallel() 缺失(多 Tween 应并行但串行跑了)
+- [ ] 7. Tween 未 kill(场景切换后泄漏,应 connect tree_exited)
 
 **Phase 3 — Vet & prioritize(剔除误判)**:
-- [ ] 9. 重读每条 finding,剔除 by-design(如 LoadingScreen 故意用 LINEAR)
-- [ ] 10. 按 leverage 排序(影响用户体验大的优先)
+- [ ] 8. 重读每条 finding,剔除 by-design(如 LoadingScreen 故意用 LINEAR)
+- [ ] 9. 按 leverage 排序(影响用户体验大的优先)
 
 **Phase 4 — Write plans(自包含修复计划)**:
-- [ ] 11. 每条 finding 写一个 plan,内联精确值(如"TRANS_LINEAR → TRANS_SINE,Ease In → Ease Out,0.05s → 0.3s")
-- [ ] 12. plan 交接给 worker(任何 agent),按 plan 用 edit_script 逐条修
+- [ ] 10. 每条 finding 写一个 plan,内联精确值(如"TRANS_LINEAR → TRANS_SINE,Ease In → Ease Out,0.05s → 0.3s")
+- [ ] 11. plan 交接给 worker(任何 agent),按 plan 用 edit_script 逐条修
 
 **常见偏离**:
 - advisor 直接改源码(越界:advisor 只读,改是 worker 的事)

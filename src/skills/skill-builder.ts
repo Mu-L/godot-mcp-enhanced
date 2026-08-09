@@ -19,7 +19,7 @@ export const WORKFLOW_TO_SKILL: Record<string, string> = {
 
 const GODOT_ROUTER_SKILL = `---
 name: godot-router
-description: "godot-mcp skill 路由器 不确定用哪个流程 入口匝道 决策树 E2E 安全编辑 验证闭环 动画审计 —— 当你不确定该用哪个 godot-mcp 流程、或需要把任务分发到具体子流程时使用"
+description: "godot-mcp skill 路由器 不确定用哪个流程 入口匝道 决策树 E2E 安全编辑 验证闭环 动画审计 —— 当你不确定该用哪个 godot-mcp 流程、或需要把任务分发到具体子流程时使用。简单单工具操作(改单行/单次截图)不要用本 skill,直接调工具"
 ---
 
 ## godot-mcp 流程路由
@@ -51,7 +51,7 @@ description: "godot-mcp skill 路由器 不确定用哪个流程 入口匝道 �
 
 const SCREENSHOT_VERIFY_SKILL = `---
 name: screenshot-verify
-description: "视觉验证闭环 截图对比 操作前后留证 take_screenshot frame-verify runtime_assert screenshot_compare 渲染退化 GPU viewport headless 空白检测 —— 当你做了会影响视觉的操作、需要确认渲染结果、或怀疑渲染退化时使用"
+description: "视觉验证闭环 截图对比 操作前后留证 take_screenshot frame-verify runtime_assert screenshot_diff 渲染退化 GPU viewport headless 空白检测 —— 当你做了会影响视觉的操作、需要确认渲染结果、或怀疑渲染退化时使用"
 ---
 
 ## 视觉验证闭环(操作前后留证)
@@ -64,8 +64,8 @@ description: "视觉验证闭环 截图对比 操作前后留证 take_screenshot
 - [ ] 1. \`screenshot(action=capture)\` — 操作前截图(基线留证,记 imagePath)
 - [ ] 2. 执行变更操作(edit_script / add_node / 材质修改等)
 - [ ] 3. \`screenshot(action=capture)\` — 操作后截图(同 viewport 同节点)
-- [ ] 4. \`screenshot(action=analyze, detail=thumbnail)\` — 对比前后(肉眼或 AI 判断差异)
-- [ ] 5. 若需断言:\`runtime_assert(type=screenshot_compare, before=<基线路径>, after=<后置路径>)\`
+- [ ] 4. \`screenshot(action=analyze, detail=thumbnail)\` — 分别 analyze 操作前/后两张图(thumbnail 省 token),人工或 AI 对比差异
+- [ ] 5. 若需断言:\`runtime_assert(action=screenshot_diff, reference=<基线路径>, threshold=0.85)\`(注:screenshot_diff 当前为 NOT_IMPLEMENTED 占位,真实相似度对比待实现,见 runtime-assert.ts)
 - [ ] 6. headless 模式警告:若 fileSize < 2048 或 BLANK_DETECTED,改用 bridge take_screenshot(GPU viewport)
 
 **常见偏离**:
@@ -88,21 +88,20 @@ description: "Tween 动效品味审计 create_tween tween_property set_trans set
 - [ ] 1. \`read_scene\` + grep \`create_tween|tween_property|set_trans|set_ease\` 找所有 Tween 调用
 - [ ] 2. 记录每处:file:line + TRANS 类型 + Ease 方向 + 时长 + 目标属性
 
-**Phase 2 — Audit(按 8 类审计,只返回 file:line + evidence)**:
+**Phase 2 — Audit(按 7 类审计,只返回 file:line + evidence)**:
 - [ ] 3. TRANS_LINEAR 用于 UI 动画(生硬,应换 TRANS_SINE/QUAD)
 - [ ] 4. Ease 缺失(默认 ease_in_out 可能不对,UI 进场应用 ease_out)
 - [ ] 5. 时长 < 0.1s(太快看不清)或 > 1.0s(太慢拖沓)
-- [ ] 6. set_trans/set_ease 顺序错(set_ease 应在 set_trans 后)
-- [ ] 7. parallel() 缺失(多 Tween 应并行但串行跑了)
-- [ ] 8. Tween 未 kill(场景切换后泄漏,应 connect tree_exited)
+- [ ] 6. parallel() 缺失(多 Tween 应并行但串行跑了)
+- [ ] 7. Tween 未 kill(场景切换后泄漏,应 connect tree_exited)
 
 **Phase 3 — Vet & prioritize(剔除误判)**:
-- [ ] 9. 重读每条 finding,剔除 by-design(如 LoadingScreen 故意用 LINEAR)
-- [ ] 10. 按 leverage 排序(影响用户体验大的优先)
+- [ ] 8. 重读每条 finding,剔除 by-design(如 LoadingScreen 故意用 LINEAR)
+- [ ] 9. 按 leverage 排序(影响用户体验大的优先)
 
 **Phase 4 — Write plans(自包含修复计划)**:
-- [ ] 11. 每条 finding 写一个 plan,内联精确值(如"TRANS_LINEAR → TRANS_SINE,Ease In → Ease Out,0.05s → 0.3s")
-- [ ] 12. plan 交接给 worker(任何 agent),按 plan 用 edit_script 逐条修
+- [ ] 10. 每条 finding 写一个 plan,内联精确值(如"TRANS_LINEAR → TRANS_SINE,Ease In → Ease Out,0.05s → 0.3s")
+- [ ] 11. plan 交接给 worker(任何 agent),按 plan 用 edit_script 逐条修
 
 **常见偏离**:
 - advisor 直接改源码(越界:advisor 只读,改是 worker 的事)

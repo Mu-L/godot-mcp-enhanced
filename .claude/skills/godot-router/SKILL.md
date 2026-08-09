@@ -1,6 +1,6 @@
 ---
 name: godot-router
-description: "godot-mcp skill 路由器 不确定用哪个流程 入口匝道 决策树 E2E 安全编辑 验证闭环 动画审计 —— 当你不确定该用哪个 godot-mcp 流程、或需要把任务分发到具体子流程时使用"
+description: "godot-mcp skill 路由器 不确定用哪个流程 入口匝道 决策树 E2E 安全编辑 验证闭环 动画审计 —— 当你不确定该用哪个 godot-mcp 流程、或需要把任务分发到具体子流程时使用。简单单工具操作(改单行/单次截图)不要用本 skill,直接调工具"
 ---
 
 ## godot-mcp 流程路由
