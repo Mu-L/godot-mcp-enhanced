@@ -153,6 +153,40 @@ function parseValue(raw: string, maxDepth: number, budget: ParseBudget): unknown
     return trimmed;
   }
 
+  // Vector2i(x, y) — 整数版本(网格/TileMap 坐标)。正则 ^Vector2i\( 不会误匹配 Vector2( 因 i ≠ (
+  const v2iMatch = trimmed.match(/^Vector2i\(/);
+  if (v2iMatch) {
+    const inner = extractBalancedParenContent(trimmed, 'Vector2i');
+    if (inner !== null) return { __type: 'Vector2i', value: inner };
+    return trimmed;
+  }
+
+  // Vector3i(x, y, z) — 整数版本(3D 网格坐标)
+  const v3iMatch = trimmed.match(/^Vector3i\(/);
+  if (v3iMatch) {
+    const inner = extractBalancedParenContent(trimmed, 'Vector3i');
+    if (inner !== null) return { __type: 'Vector3i', value: inner };
+    return trimmed;
+  }
+
+  // Transform3D(basis 9 分量, ox, oy, oz) — Node3D transform
+  // 真实样本 test/e2e-scene/scenes/test_3d.tscn:24: Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5)
+  const tf3dMatch = trimmed.match(/^Transform3D\(/);
+  if (tf3dMatch) {
+    const inner = extractBalancedParenContent(trimmed, 'Transform3D');
+    if (inner !== null) return { __type: 'Transform3D', value: inner };
+    return trimmed;
+  }
+
+  // PackedInt32Array(1, 2, 3) — TileMap tile_data 等紧凑整型数组
+  // 空数组 PackedInt32Array() → inner='' (非 null) → {__type, value:''},符合"value 是原始 inner"约定
+  const piaMatch = trimmed.match(/^PackedInt32Array\(/);
+  if (piaMatch) {
+    const inner = extractBalancedParenContent(trimmed, 'PackedInt32Array');
+    if (inner !== null) return { __type: 'PackedInt32Array', value: inner };
+    return trimmed;
+  }
+
   // Number (int or float) — Number.isFinite rejects NaN, Infinity, and
   // Number("") == 0 is excluded by the trimmed !== '' guard above.
   if (trimmed !== '') {
