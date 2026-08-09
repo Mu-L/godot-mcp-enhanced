@@ -302,7 +302,10 @@ func _find_button_by_icon(node: Node, target_icon: Texture2D) -> Button:
 
 func select_frame(state: Dictionary, index: int) -> Dictionary:
 	# 找面板 Tree 按 metadata 定位帧 + select(0),触发编辑器自动拉该帧变量
-	# 对标竞品 select_frame
+	# 对标竞品 select_frame。
+	# NIT-5(2026-08-09 第三方审查):TreeItem.get_next() 返同级下一个,不进入子项。
+	# 栈 Tree 若单层(每帧一行)则 OK;若编辑器版本分组成层级,可能漏。
+	# editor 实测时确认栈 Tree 结构;必要时改 DFS(get_children() 递归)。
 	# 返回 {ok: bool, why: String}
 	var panels := _find_debugger_panels()
 	if panels.is_empty():
@@ -343,7 +346,10 @@ func synced_selection(state: Dictionary) -> int:
 
 
 func _find_stack_tree(panel: Node) -> Tree:
-	# 在调试器面板内找显示调用栈的 Tree
+	# 在调试器面板内找显示调用栈的 Tree。
+	# NIT-2(2026-08-09 第三方审查):调试器面板含多个 Tree(栈/局部变量/成员变量/监视)。
+	# 当前返首个 Tree,可能误选。editor 实测时确认命中栈 Tree;
+	# 若误选,加列名/行数启发式(栈 Tree 行含 file:line 格式)。
 	# ScriptEditorDebugger 的栈 Tree 通常含 "Stack" 或 class==Tree
 	var stack: Array = [panel]
 	while stack.size() > 0:
@@ -382,6 +388,10 @@ func ensure_connected() -> Dictionary:
 
 
 # 面板级信号回调(与 _capture 互补,面板直接 emit 的信号走这里)
+# NIT-1(2026-08-09 第三方审查):_capture 返 true 消费消息后,面板是否仍 emit 信号文档含糊。
+# 若两条路径都对同一消息触发,vars 可能翻倍。editor 实测时重点验证:
+# 若 _capture 已充分(栈/变量正确),可注释掉面板信号连接;若 _capture 未触发,保留面板信号作 fallback。
+# _capture 是 EditorDebuggerPlugin 虚方法(更标准),面板信号是兜底。
 func _on_panel_stack_dump(stack: Array, panel: Node) -> void:
 	# 面板 emit stack_dump 信号时,更新对应 session state
 	var pid: int = panel.get_instance_id()

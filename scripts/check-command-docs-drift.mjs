@@ -21,7 +21,8 @@ const root = process.cwd();
 const COMMANDS_DIR = `${root}/addons/godot_mcp_server/commands`;
 
 // ─── method → tool/action 映射表(手写,经 editor-method-map.ts 核实) ──────────
-// CMP-16-C(2026-08-08):从一期 7 method(debug+engine)扩充到全 57 method。
+// CMP-16-C(2026-08-08):从一期 7 method(debug+engine)扩充到全 63 条映射(GD docs 64)。
+// CMP-14(2026-08-09):debug 从 3 扩到 10(+7 Phase 2/3)。
 // key = GD dispatch method 名;value = {tool, action}。
 // 映射经 editor-method-map.ts(MAP 权威)+ command_handler.gd match 交叉核实。
 const METHOD_TO_TOOL = {
