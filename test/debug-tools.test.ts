@@ -5,19 +5,23 @@ import { readFileSync } from 'node:fs';
 // 字面量契约测试:验证 TS 工具定义 + GD handler 注册 + editor-method-map + ROUTING 登记。
 
 describe('CMP-3: debug 工具定义（TS 契约）', () => {
-  it('CMP-3a: debug.ts 定义工具 name=debug + 3 action enum', async () => {
+  it('CMP-3a: debug.ts 定义工具 name=debug + action enum(Phase 1 三个 + CMP-14 Phase 2/3 七个)', async () => {
     const mod = await import('../src/tools/debug.js');
     const defs = mod.getToolDefinitions();
     expect(defs).toHaveLength(1);
     expect(defs[0].name).toBe('debug');
     const schema = defs[0].inputSchema as Record<string, unknown>;
     const props = schema.properties as Record<string, { enum?: string[] }>;
-    expect(props.action?.enum).toEqual(['set_breakpoint', 'clear_breakpoint', 'list_breakpoints']);
+    expect(props.action?.enum).toEqual([
+      'set_breakpoint', 'clear_breakpoint', 'list_breakpoints',
+      'stack_trace', 'inspect_frame', 'evaluate',
+      'step', 'continue', 'pause', 'reload_scripts',
+    ]);
   });
 
-  it('CMP-3b: handleTool 在 headless 返回 EDITOR_ONLY', async () => {
+  it('CMP-3b: handleTool 在 headless 返回 EDITOR_ONLY(含 Phase 2/3 action)', async () => {
     const mod = await import('../src/tools/debug.js');
-    for (const action of ['set_breakpoint', 'clear_breakpoint', 'list_breakpoints']) {
+    for (const action of ['set_breakpoint', 'clear_breakpoint', 'list_breakpoints', 'stack_trace', 'step']) {
       const result = await mod.handleTool('debug', { action }, {} as never);
       expect(result?.isError).toBe(true);
       const text = result?.content?.[0]?.text ?? '';
@@ -25,10 +29,12 @@ describe('CMP-3: debug 工具定义（TS 契约）', () => {
     }
   });
 
-  it('CMP-3c: TOOL_META 标 readonly + 3 action risk=read', async () => {
+  it('CMP-3c: TOOL_META 标 readonly=false(含 write action)+ long_running=true', async () => {
     const mod = await import('../src/tools/debug.js');
-    expect(mod.TOOL_META.debug.readonly).toBe(true);
-    expect(mod.TOOL_META.debug.long_running).toBe(false);
+    // CMP-14 后含 step/continue/pause/reload(write),组级非纯只读
+    expect(mod.TOOL_META.debug.readonly).toBe(false);
+    expect(mod.TOOL_META.debug.long_running).toBe(true);
+    // Phase 1 断点保持 read
     expect(mod.TOOL_META.debug.actionRisks?.set_breakpoint).toBe('read');
     expect(mod.TOOL_META.debug.actionRisks?.clear_breakpoint).toBe('read');
     expect(mod.TOOL_META.debug.actionRisks?.list_breakpoints).toBe('read');

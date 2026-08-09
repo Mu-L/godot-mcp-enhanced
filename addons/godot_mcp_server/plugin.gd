@@ -5,6 +5,8 @@ var websocket_server: Node
 var status_panel: Control
 # CMP-7 (2026-08-08): editor instance registry(对齐 headless 多实例 discovery)
 var instance_registry: Node
+# CMP-14 (2026-08-09): debugger bridge(EditorDebuggerPlugin 子类,Phase 2/3 调试器集成)
+var _debugger_bridge: EditorDebuggerPlugin
 
 func _enter_tree() -> void:
 	websocket_server = preload("websocket_server.gd").new()
@@ -22,6 +24,11 @@ func _enter_tree() -> void:
 	instance_registry.setup(self)
 	add_child(instance_registry)
 
+	# CMP-14: 注册 debugger bridge(EditorDebuggerPlugin 子类)
+	# 让 _setup_session/_has_capture/_capture 虚方法生效,拿 EditorDebuggerSession 引用
+	_debugger_bridge = preload("debug/debugger_bridge.gd").new()
+	add_debugger_plugin(_debugger_bridge)
+
 func _exit_tree() -> void:
 	if websocket_server and is_instance_valid(websocket_server):
 		websocket_server.set_process(false)
@@ -34,6 +41,10 @@ func _exit_tree() -> void:
 	if instance_registry and is_instance_valid(instance_registry):
 		instance_registry.queue_free()
 	instance_registry = null
+	# CMP-14: 注销 debugger bridge(对称移除)
+	if _debugger_bridge != null:
+		remove_debugger_plugin(_debugger_bridge)
+		_debugger_bridge = null
 	if status_panel and is_instance_valid(status_panel):
 		remove_control_from_bottom_panel(status_panel)
 		status_panel.queue_free()

@@ -1,5 +1,5 @@
 {
-  "version": "0.27.0",
+  "version": "0.28.0",
   "tools": [
     {
       "name": "android",
@@ -1360,7 +1360,7 @@
     {
       "name": "debug",
       "group": "debug",
-      "description": "交互式调试器 — 断点管理（editor-only）：在 GDScript 脚本中设置/清除/列出断点。 set_breakpoint: 在指定行设置断点（走 CodeEdit gutter，进入 editor breakpoint map：gutter 可见 + 现行 game 命中 + 下次 run 同步保持）。 clear_breakpoint: 清除指定行的断点。 list_breakpoints: 列出当前活跃 tab 脚本的断点。 ⚠️ 脚本必须在编辑器中打开且是当前活跃 tab（Phase 1 限制，Phase 2 将支持自动打开）。 ⚠️ editor-only：headless 模式返回 EDITOR_ONLY。需 GODOT_MCP_MODE=editor 并安装 Godot 插件。",
+      "description": "交互式调试器 — 断点管理 + Phase 2/3 调试器集成（editor-only）。 Phase 1: set/clear/list breakpoint（走 CodeEdit gutter，CMP-14 后支持自动打开脚本）。 Phase 2: stack_trace（读调用栈+变量）/ inspect_frame（切帧+读变量）/ evaluate（断点上下文 REPL）。 Phase 3: step（into/over 单步）/ continue（继续到下断点）/ pause（请求中断）/ reload_scripts（热重载）。 ⚠️ editor-only：需 GODOT_MCP_MODE=editor + 安装 Godot 插件 + 运行中游戏(F5)。 ⚠️ Phase 2/3 需游戏暂停在断点(step/inspect/evaluate)或运行中(pause/reload)。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1369,17 +1369,55 @@
             "enum": [
               "set_breakpoint",
               "clear_breakpoint",
-              "list_breakpoints"
+              "list_breakpoints",
+              "stack_trace",
+              "inspect_frame",
+              "evaluate",
+              "step",
+              "continue",
+              "pause",
+              "reload_scripts"
             ],
-            "description": "Action type: set_breakpoint | clear_breakpoint | list_breakpoints"
+            "description": "Action type: set_breakpoint | clear_breakpoint | list_breakpoints | stack_trace | inspect_frame | evaluate | step | continue | pause | reload_scripts"
           },
           "path": {
             "type": "string",
-            "description": "set/clear: res:// 路径的 .gd 脚本（必须在编辑器中打开且是当前活跃 tab）。list: 可选，过滤特定脚本"
+            "description": "set/clear/list: res:// 路径的 .gd 脚本（CMP-14 后自动打开，无需预先激活 tab）"
           },
           "line": {
             "type": "number",
-            "description": "set/clear: 1-based 行号（AI 友好；内部转 0-based CodeEdit 行号）"
+            "description": "set/clear: 1-based 行号"
+          },
+          "frame_index": {
+            "type": "number",
+            "description": "inspect_frame: 要查看的栈帧索引（0=最内层，默认 0）"
+          },
+          "expression": {
+            "type": "string",
+            "description": "evaluate: 要在断点上下文求值的 GDScript 表达式"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "into",
+              "over"
+            ],
+            "description": "step: 单步模式（into=进入函数, over=跨过函数；注：Godot wire 协议不支持 out）"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "reload_scripts: 要热重载的 res:// 脚本路径数组"
+          },
+          "all_vars": {
+            "type": "boolean",
+            "description": "stack_trace/inspect_frame: true=返回全部变量（默认截断 100 个）"
+          },
+          "filter": {
+            "type": "string",
+            "description": "stack_trace/inspect_frame: 变量名子串过滤"
           }
         },
         "required": [
@@ -1391,15 +1429,21 @@
       ],
       "optionalParams": [
         "path",
-        "line"
+        "line",
+        "frame_index",
+        "expression",
+        "mode",
+        "paths",
+        "all_vars",
+        "filter"
       ],
-      "readonly": true,
-      "longRunning": false,
-      "guarded": false,
-      "securityLevel": "safe",
+      "readonly": false,
+      "longRunning": true,
+      "guarded": true,
+      "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 3,
-        "write": 0,
+        "read": 6,
+        "write": 4,
         "destructive": 0,
         "process": 0
       },
@@ -1427,14 +1471,14 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 602,
-        "schemaBytes": 516,
-        "totalBytes": 1118
+        "descBytes": 622,
+        "schemaBytes": 1327,
+        "totalBytes": 1949
       },
       "annotations": {
-        "readOnlyHint": true,
+        "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": false
       }
     },
     {

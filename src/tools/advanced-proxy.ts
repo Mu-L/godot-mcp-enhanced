@@ -21,6 +21,7 @@ import {
   getActiveGroups,
 } from '../core/tool-registry.js';
 import { toolNameToRoute } from '../core/dynamic-routes.js';
+import { dynamicSchema } from '../core/dynamic-schema.js';
 
 // ─── Delegate (set by ToolDispatcher to enable re-dispatch) ─────────────────
 
@@ -123,7 +124,7 @@ export async function handleTool(
 ): Promise<ToolResult | null> {
   // Route: godot_list_dynamic_routes
   if (toolName === 'godot_list_dynamic_routes') {
-    return handleListDynamicRoutes(args);
+    return await handleListDynamicRoutes(args);
   }
 
   // Route: godot_advanced_tool
@@ -226,8 +227,15 @@ async function delegateCall(targetTool: string, args: Record<string, unknown>): 
 
 // ─── godot_list_dynamic_routes handler ──────────────────────────────────────
 
-/** Handle godot_list_dynamic_routes: list registered vs dynamic tools. */
-function handleListDynamicRoutes(args: Record<string, unknown>): ToolResult {
+/** Handle godot_list_dynamic_routes: list registered + dynamic(live schema) tools.
+ *
+ * CMP-16-B 改造(2026-08-08):从"假动态"(只读本地 metaRegistry)改为真·动态发现——
+ * 调 dynamicSchema.getDynamicTools() 拉取 editor addon 注册的命令(CMP-16-A param docs),
+ * 返回真实动态工具清单。语义对齐注释承诺的"discovered at runtime from the Godot instance"。
+ *
+ * editor 离线时 dynamicTools 为空(降级,只返回静态注册工具)。
+ */
+async function handleListDynamicRoutes(args: Record<string, unknown>): Promise<ToolResult> {
   const allNames = getAllToolNames();
   const category = args.category as string | undefined;
 
@@ -236,13 +244,26 @@ function handleListDynamicRoutes(args: Record<string, unknown>): ToolResult {
     return true;
   });
 
+  // CMP-16-B: 拉真实动态工具(live schema,带缓存;editor 离线返空)
+  const dynamicTools = await dynamicSchema.getDynamicTools();
+  const dynamic = dynamicTools
+    .map(t => t.name)
+    .filter(name => {
+      if (category && !name.includes(category)) return false;
+      return true;
+    });
+
   return textResult(JSON.stringify({
     success: true,
     total_registered: registered.length,
     registered,
+    // CMP-16-B: 真实动态工具(editor addon 注册的命令,经 live schema 构建为 MCP 工具)
+    total_dynamic: dynamic.length,
+    dynamic,
     dynamic_routing_enabled: getActiveGroups().has('dynamic'),
-    hint: 'Dynamic tools are discovered at runtime from the Godot instance. ' +
-      'Use godot_advanced_tool with tool_name starting with "godot_" to call dynamic tools.',
+    dynamic_source: 'editor addon list_param_docs (CMP-16-A/B live schema)',
+    hint: 'Static tools (registered) + dynamic tools (discovered at runtime from the Godot instance via CMP-16-B live schema). ' +
+      'Use godot_advanced_tool with tool_name to call any tool, or call dynamic tools directly.',
   }));
 }
 
