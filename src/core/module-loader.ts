@@ -3,7 +3,10 @@
  *
  * Centralizes all tool module imports and registration in one place.
  * GodotServer.ts only needs to call registerAllModules().
- * Adding a new tool module requires editing ONLY this file.
+ *
+ * CMP-13 (2026-08-09): ALL_MODULES 数组由 scripts/generate-all-modules.mjs
+ * 自动生成(从下方 import 块提取别名)。新增工具:① 加 import 行 ② 跑
+ * `npm run generate:modules` 重生成数组。勿手动编辑 ALL_MODULES 数组。
  */
 
 import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel, type ToolModule } from './tool-registry.js';
@@ -67,12 +70,31 @@ import * as help from '../tools/help.js';
 
 /** All tool modules in registration order. */
 const ALL_MODULES: ToolModule[] = [
-  runtime, screenshot, project, scene, script, validation, docs,
-  physicsOps, audioOps, tilemapOps, materialOps,
-  gameBridge, workflow, animationOps, animationTrack, profilerOps,
-  /* testFramework → validation */ animtreeOps, navigationOps, particlesOps,
-  signalOps, /* batchTools → workflow */ uiOps, /* recordingOps → runtime */ editorSync,
-  /* delivery → validation */ /* codeTemplates → project */ /* ikTools → animation-ops */ /* gameDesign → validation */ manageTools, instanceTools, advancedProxy,
+  runtime,
+  screenshot,
+  project,
+  scene,
+  script,
+  validation,
+  docs,
+  physicsOps,
+  audioOps,
+  tilemapOps,
+  materialOps,
+  gameBridge,
+  workflow,
+  animationOps,
+  profilerOps,
+  animtreeOps,
+  navigationOps,
+  particlesOps,
+  signalOps,
+  uiOps,
+  editorSync,
+  animationTrack,
+  manageTools,
+  instanceTools,
+  advancedProxy,
   loadSkill,
   androidOps,
   cpp,
@@ -85,7 +107,7 @@ const ALL_MODULES: ToolModule[] = [
   debug,
   engine,
   runtimeAssert,
-  help,
+  help
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────
