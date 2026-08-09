@@ -51,6 +51,11 @@ export class EditorToolExecutor {
     // security P1#2 fix: 串行化 editor 工具调用 - MCP SDK 异步并发派发多个 tools/call, 并发 ws.send 到达
     // GDScript 顺序不可靠, 致 undo 栈 LIFO 错乱(commit 顺序与逻辑依赖相反 -> undo 弹栈 target==null/undo 丢失).
     // Promise 链排队: 每个 execute 等前一个完成再发 request, 保证 commit_action 顺序确定.
+    //
+    // C-可靠性 (2026-08-09): 只读工具(get_scene_tree 等)也走此串行链,是有意决策非 bug。
+    // 评估过"只读走独立通道"但被否:editor 是单 WebSocket 连接,并发 ws.send 到 GDScript 主循环
+    // 的派发顺序仍不可靠(正是全串行的根因),只读独立通道需 GD 侧也支持并发派发 + 顺序保证,
+    // 工作量大且引入新并发风险,收益有限。知情接受串行(2026-07-29 可靠性审查 P2-⑥ 决策)。
     const run = this.executeChain.then(
       () => this._executeInner(toolName, args),
       () => this._executeInner(toolName, args),  // 前一个 reject 不阻塞下一个
