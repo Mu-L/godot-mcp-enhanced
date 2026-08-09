@@ -8,12 +8,15 @@
 // → T-2/N-1 断言拿 undefined 而败。合并后同 fork 内仅一个 net mock,消除碰撞触发条件。
 // 本地 Windows 4.1.7/4.1.9 双版本 2852 全过(CI Linux 4.1.7 才败:平台敏感,版本无关)。
 //
-// 覆盖(全部断言逐字保留自两原文件,共 23 个):
+// 覆盖(socket 相关测试,本文件必须 vi.mock('net'),Linux CI 因 issue #15 平台 bug 被 --exclude):
 // - T-2 (2026-06-24 审查): bridge 返回 error 必须 isError=true,否则 MCP 客户端误判成功吞错
-//   (覆盖 bridgeAction :479 + game_query 内联 :596 两条 error 路径;守护 :625 errorResult 不被回退)
+//   (覆盖 bridgeAction + game_query 内联两条 error 路径;守护 errorResult 不被回退)
 // - N-1: sendToBridge once 监听器不泄漏
-// - T-1 / I-1 / I-2: game 节点路径 /root/ 前置校验 + wait_for_property property/value 校验
 // - isBridgeReady: 零接触探测(auth 成功 / secret 缺失 / auth 超时 / 进程 killed / isCancelled)
+// - P3-6 / P1-8 / P1-3(CS-1~CS-4): socket 竞态 / 废弃 socket 延迟 close / 连接状态机 characterization
+// - A4: symlink secret 权限收紧时序
+//
+// T-1 / I-1 / I-2(原 path/参数校验)已迁移至 game-bridge-validation.test.ts(纯函数,Linux CI 可跑)。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
@@ -366,130 +369,9 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
-  describe('T-1: game path /root/ 前置校验', () => {
-    it('game_write set_node_property path 非 /root/ → isError=true + 提示 /root/', async () => {
-      setupBridgeSocket('result');  // 修复前会走到 sendToBridge(避免 throw),修复后 path 校验提前 return
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_write', method: 'set_node_property',
-        params: { path: 'Player', property: 'position', value: { x: 1 } },
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('game_write path 合法(/root/Player) → 不因 path 报错', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_write', method: 'set_node_property',
-        params: { path: '/root/Player', property: 'position', value: { x: 1 } },
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('game_wait wait_for_node path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_node',
-        params: { path: 'Player' }, timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('game_query ping 无 path → 不校验(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
-
-  describe('I-1: bridgeAction 节点路径校验 (monitor/watch/click_button)', () => {
-    it('monitor_start node_path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'monitor_start', node_path: 'Player', properties: ['position'],
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('click_button path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'click_button', path: 'UI/Button',
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('monitor_start node_path 合法(/root/Player) → 不因 path 报错', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'monitor_start', node_path: '/root/Player', properties: ['position'],
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('find_ui_elements pattern 无节点路径 → 不校验(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'find_ui_elements', type: 'Button', pattern: 'Start',
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('click_button 仅 text(空 path) → 不因 path 校验报错(审查#3 回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', { action: 'click_button', text: 'Start' }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
-
-  describe('I-2: wait_for_property property/value 校验', () => {
-    it('wait_for_property 缺 property → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_property',
-        params: { path: '/root/Player' },  // 缺 property
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('property');
-    });
-
-    it('wait_for_property 缺 value → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_property',
-        params: { path: '/root/Player', property: 'health' },  // 缺 value
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('value');
-    });
-
-    it('wait_for_node 不需 property(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_node',
-        params: { path: '/root/Player' },
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
+  // T-1 / I-1 / I-2(原 12 个 path/参数校验测试)已迁移至 game-bridge-validation.test.ts
+  // ——抽纯函数 validateBridgePath / validateWaitPropertyParams export,Linux CI 可直接跑(本文件被
+  // ci.yml:75 --exclude,Linux 零覆盖)。详见 game-bridge-validation.test.ts 头部缘起说明。
 
   describe('A4: symlink secret → 权限收紧(icacls/chmod)不得先于拒绝发生', () => {
     // readBridgeSecret 当前顺序 icacls/chmod(副作用) → lstatSync symlink 检查(拒绝)。

@@ -41,8 +41,9 @@ const ERROR_CODES = {
   BRIDGE_ERROR: 'BRIDGE_ERROR',
 } as const;
 
-/** Clamp a millisecond timeout value. Returns default on invalid/zero input. */
-function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
+/** Clamp a millisecond timeout value. Returns default on invalid/zero input.
+ *  Exported for pure-function unit tests (game-bridge-validation.test.ts),对齐 shared/validation.ts 的 validateTimeout。 */
+export function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
   if (value === undefined || value === null) return def;
   const n = Number(value);
   if (!Number.isFinite(n)) return def;
@@ -598,14 +599,29 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
 
 /** T-1 (2026-06-24 审查): game_write/wait/query 的 path 参数须 /root/ 绝对路径(文档 godot-mcp-bridge.md
  *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
- *  返回错误消息或 null(校验通过)。 */
-function validateBridgePath(params: Record<string, unknown>): string | null {
+ *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。 */
+export function validateBridgePath(params: Record<string, unknown>): string | null {
   // I-1 (审查反馈): 节点路径字段名混用——game_write/wait/query 用 path,monitor/watch 用 node_path,
   // click_button 用 path。统一检查两者。无节点路径的方法(ping/get_tree/find_ui_elements 的 pattern)不校验。
   for (const key of ['path', 'node_path'] as const) {
     const p = params[key];
     if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
       return `${key} must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed node paths; see godot-mcp-bridge.md.`;
+    }
+  }
+  return null;
+}
+
+/** I-2 (审查 follow-up): wait_for_property 需 property + value;wait_for_node 只需 path 不校验。
+ *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。
+ *  抽自 handleTool case 'game_wait' 内联逻辑(2026-08-09 待办 #3,恢复 Linux CI 覆盖)。 */
+export function validateWaitPropertyParams(method: string, params: Record<string, unknown>): string | null {
+  if (method === 'wait_for_property') {
+    if (typeof params.property !== 'string' || !params.property) {
+      return 'wait_for_property requires a non-empty "property" string in params';
+    }
+    if (params.value === undefined) {
+      return 'wait_for_property requires a "value" in params';
     }
   }
   return null;
@@ -805,16 +821,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
 
-        // I-2 (审查 follow-up): wait_for_property 还需 property + value(T-1 只校验 path)。
-        // wait_for_node 只需 path,不校验。
-        if (method === 'wait_for_property') {
-          if (typeof params.property !== 'string' || !params.property) {
-            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a non-empty "property" string in params');
-          }
-          if (params.value === undefined) {
-            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a "value" in params');
-          }
-        }
+        // I-2: wait_for_property 还需 property + value;wait_for_node 不校验(纯函数抽离,见模块顶)。
+        const waitParamErr = validateWaitPropertyParams(method, params);
+        if (waitParamErr) return opsErrorResult('INVALID_PARAMS', waitParamErr);
 
         const result = await pollWaitCondition(
           method as 'wait_for_node' | 'wait_for_property',
