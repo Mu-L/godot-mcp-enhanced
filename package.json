@@ -52,6 +52,7 @@
     "build-matrix": "npm run build && node build/capability/build-matrix.js",
     "diff-matrix": "npm run build && node build/capability/diff-matrix.js",
     "generate:modules": "node scripts/generate-all-modules.mjs",
+    "check:modules-sync": "node scripts/check-modules-sync.mjs",
     "check:budget": "node scripts/check-token-budget.mjs",
     "check:tool-count": "node scripts/check-tool-count.mjs",
     "check:contract": "node scripts/check-contract.mjs",

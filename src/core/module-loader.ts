@@ -107,7 +107,7 @@ const ALL_MODULES: ToolModule[] = [
   debug,
   engine,
   runtimeAssert,
-  help
+  help,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

@@ -46,7 +46,8 @@ const before = src.slice(0, arrayStart);
 const after = src.slice(arrayEnd + 2);  // 跳过 "];"
 
 // 格式化:每个别名独占一行 + 尾逗号(满足字面量契约测试 /^\s+NAME,/m,如 CMP-3f/CMP-4e)
-const lines = aliases.map((alias, i) => '  ' + alias + (i === aliases.length - 1 ? '' : ','));
+// N-1: 末行也加尾逗号,防 debug/engine 成为最后一项时契约测试失败
+const lines = aliases.map(alias => '  ' + alias + ',');
 
 const newArray = `${MARKER}\n${lines.join('\n')}\n];`;
 writeFileSync(loaderPath, before + newArray + after, 'utf-8');

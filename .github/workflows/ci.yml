@@ -42,6 +42,10 @@ jobs:
         # 防"module 注册了但 TOOL_GROUPS 漏加"→ isToolAllowed 恒 false → 工具发现层隐藏 + 执行层不可用。
         # 源于 CMP-4 第三方审查 B-1（engine/debug 第三次重蹈 D1 asset/android 覆辙）。读 build/ 产物，须在 build 后。
         run: npm run check:tool-groups
+      - name: Check modules sync（CMP-13：import 块 ↔ ALL_MODULES 数组同步）
+        # 校验 module-loader.ts 的 import 块与 ALL_MODULES 数组项数一致。
+        # 防新增工具加 import 后忘记跑 npm run generate:modules（数组漏项 → 工具不注册）。
+        run: npm run check:modules-sync
       - name: Check command docs drift（CMP-16-C：GD param docs ↔ TS inputSchema 一致性）
         # 校验 GD get_command_docs 声明的参数与 TS inputSchema 一致（防文档/代码漂移）。
         # 一期覆盖 debug + engine 工具组，其余标记一期豁免（映射表后续批次扩充）。
