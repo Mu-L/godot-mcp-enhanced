@@ -327,6 +327,22 @@ func handle_test_async(method: String, params: Dictionary, request_id: int) -> D
 			return {"error": {"code": -32601, "message": "Unknown test method: %s" % method}}
 
 
+# CMP-14 (2026-08-09): debug Phase 2/3 async 入口。
+# websocket_server 按 debug_ 前缀(排除 Phase 1 三个同步断点 method)分流到此。
+# Phase 2/3 栈帧/变量/step/reload 都是异步(信号驱动 + settle 轮询)。
+func handle_debug_async(method: String, params: Dictionary, request_id: int) -> Dictionary:
+	match method:
+		"debug_stack_trace":   return await _debug_commands.handle_stack_trace(params)
+		"debug_inspect_frame": return await _debug_commands.handle_inspect_frame(params)
+		"debug_evaluate":      return await _debug_commands.handle_evaluate(params)
+		"debug_step":          return await _debug_commands.handle_step(params)
+		"debug_continue":      return await _debug_commands.handle_continue(params)
+		"debug_pause":         return await _debug_commands.handle_pause(params)
+		"debug_reload_scripts": return await _debug_commands.handle_reload_scripts(params)
+		_:
+			return {"error": {"code": -32601, "message": "Unknown debug async method: %s" % method}}
+
+
 func send_notification(method: String, params: Dictionary) -> void:
 	# Forward to plugin's WebSocket/TCP notification channel
 	var plugin = get_parent()

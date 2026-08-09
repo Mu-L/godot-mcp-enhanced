@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-08-09
+
+### Added — CMP-14 debug Phase 2/3 + 后续批次(CMP-16-B/C advanced-proxy/drift 扩充 + CMP-9 confirm gate)
+
+**CMP-14 debug Phase 2/3**(debug 工具组从 3 action 扩到 10,完整交互式调试器):
+- **新建 EditorDebuggerPlugin 子类**(`debugger_bridge.gd`):hook 调试器信号,拿 EditorDebuggerSession,处理 stack_dump/stack_frame_vars/evaluation_return 消息
+- **Phase 2 栈帧/变量**:`stack_trace`(读调用栈+变量)/ `inspect_frame`(切帧+读变量)/ `evaluate`(断点上下文 REPL)
+- **Phase 3 执行控制**:`step`(into/over)/ `continue`(继续到下断点)/ `pause`(请求中断)— 走"按图标找按钮 emit pressed"(send_message("step") 需 thread id 设不了)
+- **热重载**:`reload_scripts`(指定脚本重载到运行中游戏)— 4 道安全守卫(playing/session/暂停态拒/MCP 自身保护)
+- **异步路由**:`handle_debug_async`(对标 handle_nav_async),websocket_server 按 debug_ 前缀分流(Phase 1 断点保持同步)
+- **自动打开脚本**:修 Phase 1 限制(`EditorInterface.edit_script`),set_breakpoint 不再要求脚本已激活
+- 对标竞品 regiellis/godot-mcp-go debug 组 + Godot-MCP-Native 调试能力
+
+**CMP-16-B advanced-proxy 改造**:`godot_list_dynamic_routes` 从"假动态"(只读本地)改真动态(调 dynamicSchema.getDynamicTools 拉 editor addon 命令),修复"文档过承诺"技术债
+
+**CMP-16-C drift 映射表扩充**:从 7 method(debug+engine)扩到全 64 method(57 + 7 新 debug),括号匹配版 extractTsSchemas + KNOWN_RENAMES/KNOWN_SCHEMA_SIMPLIFIED 豁免
+
+**CMP-9 confirm gate 二期**:engine call_method 的 confirm gate 通过 CMP-9-A actionRisks=write 自动生效,加守护测试防回退
+
 ## [0.27.0] - 2026-08-08
 
 ### Added — CMP-9 双通道通用方法调用 + CMP-16 live schema(竞品 regiellis/godot-mcp-go 深度对标)

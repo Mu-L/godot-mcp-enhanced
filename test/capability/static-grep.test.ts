@@ -53,7 +53,7 @@ describe('static-grep', () => {
     const handlerPath = join(REPO_ROOT, 'addons/godot_mcp_server/command_handler.gd');
     const src = readFileSync(handlerPath, 'utf8');
     const routed = new Set<string>();
-    for (const funcName of ['handle(', 'handle_nav_async(', 'handle_test_async(']) {
+    for (const funcName of ['handle(', 'handle_nav_async(', 'handle_test_async(', 'handle_debug_async(']) {
       const start = src.indexOf(`func ${funcName}`);
       if (start === -1) continue;
       const end = src.indexOf('\nfunc ', start + 1);

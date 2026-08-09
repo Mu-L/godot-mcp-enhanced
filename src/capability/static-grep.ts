@@ -141,6 +141,14 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   debug_set_breakpoint: 'commands/debug_commands.gd',
   debug_clear_breakpoint: 'commands/debug_commands.gd',
   debug_list_breakpoints: 'commands/debug_commands.gd',
+  // CMP-14 (2026-08-09): debug Phase 2/3 调试器集成
+  debug_stack_trace: 'commands/debug_commands.gd',
+  debug_inspect_frame: 'commands/debug_commands.gd',
+  debug_evaluate: 'commands/debug_commands.gd',
+  debug_step: 'commands/debug_commands.gd',
+  debug_continue: 'commands/debug_commands.gd',
+  debug_pause: 'commands/debug_commands.gd',
+  debug_reload_scripts: 'commands/debug_commands.gd',
   // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
   engine_class_info: 'commands/engine_commands.gd',
   engine_search: 'commands/engine_commands.gd',

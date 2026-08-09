@@ -25,10 +25,17 @@ const COMMANDS_DIR = `${root}/addons/godot_mcp_server/commands`;
 // key = GD dispatch method 名;value = {tool, action}。
 // 映射经 editor-method-map.ts(MAP 权威)+ command_handler.gd match 交叉核实。
 const METHOD_TO_TOOL = {
-  // ─── debug (CMP-3):tool=debug, 3 action ─────────────────────────────────
+  // ─── debug (CMP-3 + CMP-14):tool=debug, 10 action ───────────────────────
   debug_set_breakpoint:     { tool: 'debug',  action: 'set_breakpoint' },
   debug_clear_breakpoint:   { tool: 'debug',  action: 'clear_breakpoint' },
   debug_list_breakpoints:   { tool: 'debug',  action: 'list_breakpoints' },
+  debug_stack_trace:        { tool: 'debug',  action: 'stack_trace' },
+  debug_inspect_frame:      { tool: 'debug',  action: 'inspect_frame' },
+  debug_evaluate:           { tool: 'debug',  action: 'evaluate' },
+  debug_step:               { tool: 'debug',  action: 'step' },
+  debug_continue:           { tool: 'debug',  action: 'continue' },
+  debug_pause:              { tool: 'debug',  action: 'pause' },
+  debug_reload_scripts:     { tool: 'debug',  action: 'reload_scripts' },
   // ─── engine (CMP-4 + CMP-9-A):tool=engine, 4 action ─────────────────────
   engine_class_info:        { tool: 'engine', action: 'class_info' },
   engine_search:            { tool: 'engine', action: 'search' },

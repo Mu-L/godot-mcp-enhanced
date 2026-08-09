@@ -364,6 +364,11 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		# client 用 290s timeoutMs（EditorToolExecutor isTestRun 分支）大幅降低 orphan 概率
 		# （优于 nav_bake 默认 30s），但极端超 290s 仍会 orphan，§10 peer 守卫兜底丢 reply。
 		response = await _command_handler.handle_test_async(_method, parsed.get("params", {}), _request_counter)
+	elif _method.begins_with("debug_") and _method not in ["debug_set_breakpoint", "debug_clear_breakpoint", "debug_list_breakpoints"]:
+		# CMP-14 (2026-08-09): debug Phase 2/3 走 async 入口(信号+settle 轮询)。
+		# Phase 1 三个断点 method(set/clear/list)保持同步(gutter 操作无需 async)。
+		# 栈帧/变量/step/reload 需 await settle 或 await_new_break,走 coroutine 防饿死 WS keepalive。
+		response = await _command_handler.handle_debug_async(_method, parsed.get("params", {}), _request_counter)
 	else:
 		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)
 	# §10 peer 生命周期守卫：coroutine 恢复时 peer 可能已 CLOSED/被 free

@@ -6,8 +6,8 @@ import { readFileSync } from 'node:fs';
 // 验证脚本实跑通过(当前应 0 drift)+ 脚本结构完整。
 
 describe('CMP-16-C: check-command-docs-drift.mjs 脚本', () => {
-  it('CMP-16C-a: 脚本实跑通过(全 57 method 覆盖,0 drift)', () => {
-    // CMP-16-C 扩充后从一期 7 method(debug+engine)扩到全 57 method
+  it('CMP-16C-a: 脚本实跑通过(全 64 method 覆盖,0 drift)', () => {
+    // CMP-16-C 扩充后从一期 7 method(debug+engine)扩到全 64 method(含 CMP-14 七新 debug)
     const output = execFileSync('node', ['scripts/check-command-docs-drift.mjs'], {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -15,8 +15,8 @@ describe('CMP-16-C: check-command-docs-drift.mjs 脚本', () => {
     });
     expect(output).toContain('[command-docs-drift] ✓');
     expect(output).toContain('method 已校验');
-    // 扩充后覆盖全 57(53 校验 + 1 无工具 + 3 schema 简化豁免)
-    expect(output).toContain('57 GD docs 总计');
+    // 扩充后覆盖全 64(60 校验 + 1 无工具 + 3 schema 简化豁免)
+    expect(output).toContain('64 GD docs 总计');
     expect(output).toContain('0 未映射');
   });
 

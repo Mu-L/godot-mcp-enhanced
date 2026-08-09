@@ -104,11 +104,21 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     manage: { method: 'test_manage' },
   },
   // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理(editor-only)
-  // method 名与 command_handler.gd handle() 分支一致。
+  // CMP-14 (2026-08-09): Phase 2/3 调试器集成(stack/inspect/evaluate/step/continue/pause/reload)
+  // method 名与 command_handler.gd handle()/handle_debug_async() 分支一致。
   debug: {
+    // Phase 1(同步,经 handle())
     set_breakpoint: { method: 'debug_set_breakpoint' },
     clear_breakpoint: { method: 'debug_clear_breakpoint' },
     list_breakpoints: { method: 'debug_list_breakpoints' },
+    // Phase 2/3(异步,经 handle_debug_async())
+    stack_trace: { method: 'debug_stack_trace' },
+    inspect_frame: { method: 'debug_inspect_frame' },
+    evaluate: { method: 'debug_evaluate' },
+    step: { method: 'debug_step' },
+    continue: { method: 'debug_continue' },
+    pause: { method: 'debug_pause' },
+    reload_scripts: { method: 'debug_reload_scripts' },
   },
   // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省(editor-only)
   // 走 editor 层直调 ClassDB(不经沙箱——ClassDB 在 gdscript-executor 被列为危险模式)。

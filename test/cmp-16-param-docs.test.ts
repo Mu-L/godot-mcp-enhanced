@@ -117,7 +117,7 @@ describe('CMP-16-A: docs 覆盖完整性(13 module × 对外 command)', () => {
   // body 截取用函数边界(到下一个 ^func),避免跨入 handler 区域误匹配 "result": { 等。
   const expectedCounts: Record<string, number> = {
     'engine_commands.gd': 4,      // class_info/search/get_inheritance/call_method
-    'debug_commands.gd': 3,        // set/clear/list_breakpoint
+    'debug_commands.gd': 10,       // CMP-3 三个断点 + CMP-14 七个(stack/inspect/evaluate/step/continue/pause/reload)
     'sync_commands.gd': 4,         // start/stop/get_scene_tree/get_scene_stats
     'ui_commands.gd': 8,           // create_control/set_layout/get_layout/anchor_preset/set_theme/container_add/theme_create/theme_set_property
     'nav_commands.gd': 5,          // create_region/bake_mesh/create_agent/set_params/create_link
@@ -150,12 +150,12 @@ describe('CMP-16-A: docs 覆盖完整性(13 module × 对外 command)', () => {
     });
   }
 
-  it('CMP-16g: 全部 13 module docs 总数 = 57', () => {
+  it('CMP-16g: 全部 13 module docs 总数 = 64', () => {
     let total = 0;
     for (const file of MODULE_FILES) {
       const gd = readFileSync(`${COMMANDS_DIR}/${file}`, 'utf8');
       total += countDocMethods(gd);
     }
-    expect(total, `13 module docs 总数 ${total} ≠ 57`).toBe(57);
+    expect(total, `13 module docs 总数 ${total} ≠ 64`).toBe(64);
   });
 });
