@@ -212,7 +212,7 @@ func _get_current_code_edit(script_editor: ScriptEditor) -> Dictionary:
 #
 # 7 个异步 handler,经 _bridge(EditorDebuggerPlugin 子类)与运行中游戏调试会话交互。
 # 对标竞品 regiellis/godot-mcp-go 的 debug 组(state/frame/step/resume/pause/reload_scripts)。
-# 桩实现(批次 2)— 批次 3-6 逐步填实现。
+# 实现完成(2026-08-09,批次 2-6 已落地:settle await + 守卫 + 超时俱全,非桩)。
 
 func _ensure_bridge() -> Dictionary:
 	# 校验 bridge 可用(防 Phase 2/3 在无 bridge 环境调用)。
