@@ -50,7 +50,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | method | 说明 |
 |--------|------|
 | `set_node_property` | 设置节点属性值（path + property + value） |
-| `call_method` | 调用节点方法（path + method + args） |
+| `call_method` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单,env `GODOT_MCP_BRIDGE_EXTRA_METHODS` 可扩展(含写方法);`EXTRA_METHODS_BLOCKLIST` 硬底线不可覆盖;args 按声明类型自动强转;方法不存在返 did-you-mean;response 含 undoable=false |
 
 ### 等待 — game_wait
 
@@ -223,5 +223,6 @@ game_query(method="ping")
 - **find_ui_elements 最大返回**：默认 200，上限 500 条结果。
 - **click_button**：通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件。
 - **call_method 白名单只读（S5, v0.18.x+）**：`ALLOWED_METHODS` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。`emit_signal`/`_on_*` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 `GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 `set_node_property` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。注：`_cmd_call_method` 仍有 `args.size() > 8` 拒绝限制（>8 参数的调用/emit_signal 会失败）。
+- **call_method CMP-9-B 增强（v0.27.0+）**：(1) args 按方法声明类型自动强转（传 `[1,2,3]` 给 Vector3 参数正确转换，Godot callv 不自动转，防静默零值）；(2) 方法不存在时返回 did-you-mean 建议（`String.similarity` > 0.6 取最高分）；(3) response 含 `undoable: false`（call 不可 undo，对标竞品）；(4) `EXTRA_METHODS_BLOCKLIST`（free/queue_free/set_script/call/callv/emit_signal/connect/disconnect 等）是不可覆盖硬底线（即使 env 列出也拒，防 RCE/运行时结构破坏）。向后兼容：不设 env 时行为完全不变。
 - **send_key 已支持 physical_keycode（S6, v0.18.x+）**：`_cmd_send_key` 同时设 `keycode` + `physical_keycode`，触发用物理键码映射的 input action（Godot 4 推荐 physical_keycode 映射）。早期版本只设 keycode，physical 映射项目（如 `ui_right` 用 physical）不触发。
 - **多用户环境不安全**：Bridge 使用 TCP 绑定 127.0.0.1 + 共享密钥认证。在单用户本地开发环境下足够安全，但在多用户共享系统（如远程开发服务器）上，localhost 通信可被同一机器上的其他用户嗅探。如需多用户隔离，考虑使用 Unix Domain Socket（仅文件权限控制访问）。

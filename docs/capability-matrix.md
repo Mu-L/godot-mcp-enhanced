@@ -4,11 +4,11 @@
 
 ## 概览
 - 工具总数：40
-- securityLevel：danger-api 10 / guarded 17 / safe 13
-- risk：read 114 / write 82 / destructive 10 / process 14
+- securityLevel：danger-api 10 / guarded 18 / safe 12
+- risk：read 114 / write 83 / destructive 10 / process 14
 - L2 覆盖：covered 0 / partial 0 / none 40
-- token 预算：tools/list ≈ 75701B / ~18925 tokens（description 12354B / schema 63347B，schema 占 84%）
-- annotations：readOnly 11 / destructive 5 / idempotent 14
+- token 预算：tools/list ≈ 77147B / ~19287 tokens（description 12813B / schema 64334B，schema 占 83%）
+- annotations：readOnly 10 / destructive 5 / idempotent 13
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
@@ -71,7 +71,7 @@
 - editor 侧：按工具命令精确路由（EDITOR_COMMAND_ROUTING，源 command_handler.gd handle() 路由表）
 
 ## token 预算 TOP 5
-- `game` (bridge): desc 909B / schema 4475B / total 5384B
+- `game` (bridge): desc 909B / schema 4905B / total 5814B
 - `scene` (core): desc 277B / schema 4780B / total 5057B
 - `workflow` (profiler): desc 228B / schema 4224B / total 4452B
 - `ui` (ui): desc 647B / schema 3560B / total 4207B
