@@ -8,6 +8,83 @@ export function stripBom(raw: string): string {
 }
 
 /**
+ * Tier2-3: 剥离 JSONC 注释（// 行注释、/* 块注释）和尾逗逗号，返回严格 JSON。
+ *
+ * Zed 等 editor 的 settings.json 是 JSONC（含注释），标准 JSON.parse 会失败 →
+ * readJsonConfigWithBackup 把含注释的合法配置当损坏文件 backup + 覆盖，
+ * 导致用户全部配置丢失。本函数在 parse 前剥离注释，让 JSONC 配置能被正确读取。
+ *
+ * 字符级状态机（参考 code-review-graph skills.py:428-502），零依赖。
+ * 关键：字符串内的 // 和 , 不被误删（只剥结构位置的）。
+ */
+export function stripJsonc(raw: string): string {
+  const out: string[] = [];
+  let i = 0;
+  const n = raw.length;
+  let inString = false;
+  while (i < n) {
+    const ch = raw[i]!;
+    if (inString) {
+      out.push(ch);
+      if (ch === '\\' && i + 1 < n) {
+        out.push(raw[i + 1]!);  // 转义字符是数据，不当分隔符
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      i += 1;
+      continue;
+    }
+    // 字符串外
+    if (ch === '"') {
+      inString = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    const past = skipComment(raw, i);
+    if (past !== null) {
+      i = past;
+      continue;
+    }
+    if (ch === ',') {
+      // 尾逗逗号：下一个有意义字符（跳空白和注释）是 } 或 ] 则丢弃
+      let j = i + 1;
+      while (j < n) {
+        if (/\s/.test(raw[j]!)) { j += 1; continue; }
+        const p = skipComment(raw, j);
+        if (p !== null) { j = p; continue; }
+        break;
+      }
+      if (j < n && (raw[j] === '}' || raw[j] === ']')) {
+        i += 1;  // 丢弃尾逗逗号
+        continue;
+      }
+    }
+    out.push(ch);
+    i += 1;
+  }
+  return out.join('');
+}
+
+/** 如果 idx 位置开始是注释，返回注释结束后的 index；否则 null。 */
+function skipComment(s: string, idx: number): number | null {
+  if (s[idx] !== '/' || idx + 1 >= s.length) return null;
+  const next = s[idx + 1];
+  if (next === '/') {
+    let i = idx + 2;
+    while (i < s.length && s[i] !== '\n') i += 1;
+    return i;
+  }
+  if (next === '*') {
+    let i = idx + 2;
+    while (i + 1 < s.length && !(s[i] === '*' && s[i + 1] === '/')) i += 1;
+    return i + 2;  // 消费闭合 */（未闭合则扫到尾）
+  }
+  return null;
+}
+
+/**
  * C1 env 白名单前缀（对齐 buildSafeEnv 前缀策略，见 src/helpers.ts）。
  *
  * - `ALLOWED_PROJECT_PATHS`：用户显式配的项目路径白名单，重跑 setup 静默丢失会破坏 MCP 服务器定位项目。
@@ -59,7 +136,7 @@ export function readJsonConfigWithBackup(filePath: string): Record<string, unkno
   if (!existsSync(filePath)) return {};
   const raw = readFileSync(filePath, 'utf-8');
   try {
-    return JSON.parse(stripBom(raw)) as Record<string, unknown>;
+    return JSON.parse(stripJsonc(stripBom(raw))) as Record<string, unknown>;
   } catch {
     const backupPath = `${filePath}.corrupt.${randomUUID()}.bak`;
     writeFileSync(backupPath, raw, 'utf-8'); // 失败则抛错 — 不覆盖未备份的损坏文件
@@ -84,7 +161,7 @@ export function readJsonConfigWithBackup(filePath: string): Record<string, unkno
 export function readJsonForCheck(filePath: string): Record<string, unknown> | null {
   if (!existsSync(filePath)) return null;
   try {
-    return JSON.parse(stripBom(readFileSync(filePath, 'utf-8'))) as Record<string, unknown>;
+    return JSON.parse(stripJsonc(stripBom(readFileSync(filePath, 'utf-8')))) as Record<string, unknown>;
   } catch {
     return null;
   }

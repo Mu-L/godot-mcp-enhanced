@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync, readFileSync, mkdtempSync, readdirSync, statSync, chmodSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { readJsonConfigWithBackup, readJsonForCheck, stripBom, writeFileAtomicWithMode, buildEnv } from '../../../src/cli/clients/json-config.js';
+import { readJsonConfigWithBackup, readJsonForCheck, stripBom, stripJsonc, writeFileAtomicWithMode, buildEnv } from '../../../src/cli/clients/json-config.js';
 
 const BOM = String.fromCharCode(0xFEFF);
 
@@ -12,6 +12,85 @@ describe('stripBom', () => {
   });
   it('passes through non-BOM string', () => {
     expect(stripBom('{"a":1}')).toBe('{"a":1}');
+  });
+});
+
+describe('stripJsonc (Tier2-3)', () => {
+  it('剥离行注释 //', () => {
+    expect(stripJsonc('{"a": 1 // comment\n}')).toBe('{"a": 1 \n}');
+  });
+
+  it('剥离块注释 /* */', () => {
+    expect(stripJsonc('{"a": /* comment */ 1}')).toBe('{"a":  1}');
+  });
+
+  it('剥离尾逗逗号(对象)', () => {
+    expect(stripJsonc('{"a": 1,}')).toBe('{"a": 1}');
+  });
+
+  it('剥离尾逗逗号(数组)', () => {
+    expect(stripJsonc('[1, 2, 3,]')).toBe('[1, 2, 3]');
+  });
+
+  it('保留字符串内的 // 和逗号(不误删)', () => {
+    expect(stripJsonc('{"url": "https://example.com", "msg": "a,b"}')).toBe('{"url": "https://example.com", "msg": "a,b"}');
+  });
+
+  it('保留字符串内的 /* */', () => {
+    expect(stripJsonc('{"path": "C://x/*y*/"}')).toBe('{"path": "C://x/*y*/"}');
+  });
+
+  it('处理转义引号 \\"(不误判字符串结束)', () => {
+    expect(stripJsonc('{"q": "say \\"hi//x\\""}')).toBe('{"q": "say \\"hi//x\\""}');
+  });
+
+  it('纯 JSON 无注释时原样返回', () => {
+    expect(stripJsonc('{"a": 1}')).toBe('{"a": 1}');
+  });
+
+  it('未闭合块注释扫到文件尾不崩(Nit-1)', () => {
+    expect(stripJsonc('{"a": 1 /* 未闭合')).toBe('{"a": 1 ');
+  });
+
+  it('尾逗逗号后跟注释再跟 } 也识别为尾逗(Nit-1)', () => {
+    expect(stripJsonc('{"a": 1,/* c */}')).toBe('{"a": 1}');
+  });
+});
+
+describe('readJsonConfigWithBackup JSONC 支持 (Tier2-3)', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mcp-jsonc-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('含行注释的 JSONC 解析成功,不触发 backup', () => {
+    const configPath = join(dir, 'settings.json');
+    writeFileSync(configPath, '{\n  // Zed theme\n  "theme": "One Dark",\n  "mcpServers": {}\n}\n');
+    const result = readJsonConfigWithBackup(configPath);
+    expect(result.theme).toBe('One Dark');
+    expect(readdirSync(dir).some(f => f.endsWith('.bak'))).toBe(false);  // 无 backup
+  });
+
+  it('含块注释的 JSONC 解析成功', () => {
+    const configPath = join(dir, 'settings.json');
+    writeFileSync(configPath, '/* config */\n{"a": 1}');
+    const result = readJsonConfigWithBackup(configPath);
+    expect(result.a).toBe(1);
+  });
+
+  it('真损坏 JSON(非注释)仍触发 backup', () => {
+    const configPath = join(dir, 'broken.json');
+    writeFileSync(configPath, '{ broken');
+    const result = readJsonConfigWithBackup(configPath);
+    expect(result).toEqual({});
+    expect(readdirSync(dir).some(f => f.endsWith('.bak'))).toBe(true);
+  });
+
+  it('readJsonForCheck 含注释的 JSONC 解析成功(返对象非 null)', () => {
+    const configPath = join(dir, 'settings.json');
+    writeFileSync(configPath, '{\n  // comment\n  "a": 1\n}');
+    const result = readJsonForCheck(configPath);
+    expect(result).not.toBeNull();
+    expect(result!.a).toBe(1);
   });
 });
 
