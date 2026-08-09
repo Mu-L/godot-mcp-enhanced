@@ -164,3 +164,65 @@ describe.skipIf(!SYMLINK_SUPPORTED)('editor-auth symlink rejection (S-1 + Imp-9 
     expect(result).toBeNull();
   });
 });
+
+// ─── P2-6 (2026-08-09): waitForEditorSecret 时序状态机 characterization ──────
+// 待办「同 session import 后 auth 超时」场景模糊(2026-07-13 校准"第四次回归"无明确复现路径),
+// 本块锁定 waitForEditorSecret 当前时序行为基线(红绿不论先锁),复现后转 regression。
+// 覆盖的不变量:
+//   1. 超时返回 null(不抛错,降级 headless)
+//   2. 每次调用独立读文件——secret 刷新后下次调用读到新值(无跨调用缓存,这是
+//      "import 后 auth 超时"根因防线:secret 被刷新,下次调用读到新值)
+//   3. 轮询期间 secret 文件出现即 pickup(200ms interval 生效)
+//   4. secret 文件内容为空时继续轮询不返回空串(空内容视为未就绪)
+describe('P2-6: waitForEditorSecret 时序基线 characterization', () => {
+  it('超时返回 null 不抛错(降级 headless 的契约)', async () => {
+    // 不创建 secret 文件,等超时
+    const result = await waitForEditorSecret(tempDir, 600);
+    expect(result).toBeNull();
+  });
+
+  it('每次调用独立读文件——secret 刷新后下次调用读到新值(无跨调用缓存)', async () => {
+    // 核查点:editor-auth.ts 若引入模块级 secret 缓存(如 let _cachedSecret),
+    // 本测试第二次会读到 A 而非 B → 红。这是"import 后 auth 超时"根因防线——
+    // secret 被 plugin 刷新后,下次 waitForEditorSecret 必须读到新值,否则旧 conn
+    // 持旧 secret auth 必失败。当前 editor-auth.ts 仅有 _permWarned 模块级 warn
+    // 去重(非 secret 缓存),readEditorSecret 每次重 readFileSync,故此不变量成立。
+    // 第一次:创建 secret-A,读取
+    createSecretFile(tempDir, 'secret-A-initial-value-32chars!!');
+    const first = await waitForEditorSecret(tempDir, 1000);
+    expect(first).toBe('secret-A-initial-value-32chars!!');
+
+    // 模拟"import 后 secret 刷新":覆盖写 secret-B
+    writeFileSync(join(tempDir, '.godot', 'mcp_editor.key'), 'secret-B-refreshed-value-32chars!', 'utf-8');
+
+    // 第二次调用:应读到新值(证明无跨调用缓存)
+    const second = await waitForEditorSecret(tempDir, 1000);
+    expect(second).toBe('secret-B-refreshed-value-32chars!');
+    expect(second).not.toBe(first);
+  });
+
+  it('轮询期间 secret 文件出现即 pickup(200ms interval 生效)', async () => {
+    // 延迟 300ms 后创建文件(>200ms interval,确保至少经历一次空轮询)
+    setTimeout(() => {
+      createSecretFile(tempDir, 'delayed-secret-value-32chars-ok!!');
+    }, 300);
+    const result = await waitForEditorSecret(tempDir, 3000);
+    expect(result).toBe('delayed-secret-value-32chars-ok!!');
+  });
+
+  it('secret 文件内容为空时继续轮询不返回空串(空内容视为未就绪)', async () => {
+    // 创建空 secret 文件(plugin 正在写但未 flush 完)
+    const godotDir = join(tempDir, '.godot');
+    mkdirSync(godotDir, { recursive: true });
+    writeFileSync(join(godotDir, 'mcp_editor.key'), '', 'utf-8');
+
+    // 500ms 后写入真内容(模拟 plugin flush 完成)
+    setTimeout(() => {
+      writeFileSync(join(godotDir, 'mcp_editor.key'), 'flushed-secret-value-32chars-ok', 'utf-8');
+    }, 500);
+
+    const result = await waitForEditorSecret(tempDir, 3000);
+    // readSecretContent 对空内容返回 null(空串 trim 后 falsy),应继续轮询直到非空
+    expect(result).toBe('flushed-secret-value-32chars-ok');
+  });
+});
