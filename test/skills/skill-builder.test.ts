@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL } from '../../src/skills/skill-builder.js';
+import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL, HANDWRITTEN_SKILLS } from '../../src/skills/skill-builder.js';
 import { DETAILED_RULE_TEMPLATES } from '../../src/tools/rule-templates.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,23 +55,45 @@ describe('skill-builder 派生逻辑', () => {
     expect(() => deriveSkillFromWorkflow('---\ndescription: "d"\n---\n\nno h2 here', 'x')).toThrow(); // 缺 ##
   });
 
-  it('buildAllSkills 返回 3 个 entry，frontmatter 合法', () => {
+  it('buildAllSkills 返回 6 个 entry（3 派生 + 3 手写），frontmatter 合法', () => {
     const skills = buildAllSkills();
-    expect(skills.size).toBe(3);
+    expect(skills.size).toBe(6);
     expect(skills.has('godot-mcp-bridge-e2e')).toBe(true);
     expect(skills.has('godot-mcp-verify-loop')).toBe(true);
     expect(skills.has('godot-mcp-safe-edit')).toBe(true);
+    // Tier2-1 手写 skill
+    expect(skills.has('godot-router')).toBe(true);
+    expect(skills.has('screenshot-verify')).toBe(true);
+    expect(skills.has('godot-tween-taste')).toBe(true);
     for (const [name, content] of skills) {
       expect(content.startsWith(`---\nname: ${name}\ndescription: "`)).toBe(true);
       expect(content).toContain('—— 当你');
-      expect(content).not.toContain('alwaysApply');
+    }
+  });
+});
+
+// Tier2-1: 手写 skill（路由器/原语/advisor，非派生）
+describe('手写 skill（Tier2-1）', () => {
+  it('HANDWRITTEN_SKILLS 含 3 个新 skill', () => {
+    expect(HANDWRITTEN_SKILLS.size).toBe(3);
+    expect(HANDWRITTEN_SKILLS.has('godot-router')).toBe(true);
+    expect(HANDWRITTEN_SKILLS.has('screenshot-verify')).toBe(true);
+    expect(HANDWRITTEN_SKILLS.has('godot-tween-taste')).toBe(true);
+  });
+
+  it('每个手写 skill frontmatter 合法（name + description + —— 当你 + H2 正文）', () => {
+    for (const [name, content] of HANDWRITTEN_SKILLS) {
+      expect(content.startsWith(`---\nname: ${name}\ndescription: "`)).toBe(true);
+      expect(content).toContain('—— 当你');
+      expect(content).toContain('\n## ');
+      expect(content).not.toMatch(/\n#\s+\S/);  // 无独立 H1
     }
   });
 });
 
 // DRY 一致性（防忘记重跑 build:skills）：磁盘 SKILL.md == buildAllSkills() 派生结果
 describe('SKILL.md DRY 一致性（磁盘 == 派生）', () => {
-  it('3 个 SKILL.md 磁盘内容 == buildAllSkills() 派生结果（字符串严格相等）', () => {
+  it('6 个 SKILL.md 磁盘内容 == buildAllSkills() 结果（字符串严格相等）', () => {
     const skills = buildAllSkills();
     for (const [name, expected] of skills) {
       const diskPath = join(__dirname, '..', '..', '.claude', 'skills', name, 'SKILL.md');
