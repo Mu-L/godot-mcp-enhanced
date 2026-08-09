@@ -260,6 +260,35 @@ export function getActiveGroups(): ReadonlySet<string> {
   return activeGroups;
 }
 
+// ─── Dynamic tool registration (CMP-16-B live schema) ────────────────────────
+
+/** 动态注册的工具名集合(live schema 从 editor addon 拉取的工具)。
+ *  registerDynamicTools 注入,getDynamicToolNames 查询。
+ *  这些工具归入 'dynamic' 组(toolToGroup 映射),isToolAllowed 在 dynamic 组激活时放行。
+ *  不进静态 TOOL_GROUPS 字面量(check-tool-groups.mjs 正则扫不到,天然安全)。 */
+const dynamicToolNames = new Set<string>();
+
+/** 注册一批动态工具(live schema 从 editor 拉取后调用)。
+ *  完全替换之前的动态工具集(增量更新由调用方先 diff 再调)。
+ *  同时更新 toolToGroup 映射,让 isToolAllowed 放行。 */
+export function registerDynamicTools(names: string[]): void {
+  // 清除旧映射
+  for (const old of dynamicToolNames) {
+    toolToGroup.delete(old);
+  }
+  dynamicToolNames.clear();
+  // 注入新映射(归入 dynamic 组)
+  for (const name of names) {
+    dynamicToolNames.add(name);
+    toolToGroup.set(name, 'dynamic');
+  }
+}
+
+/** 获取当前动态注册的工具名集合(只读快照) */
+export function getDynamicToolNames(): readonly string[] {
+  return [...dynamicToolNames];
+}
+
 /** Check if a tool is allowed under current active groups. */
 export function isToolAllowed(toolName: string): boolean {
   if (ALWAYS_ALLOWED.has(toolName)) return true;

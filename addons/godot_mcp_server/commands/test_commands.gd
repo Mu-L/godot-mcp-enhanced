@@ -15,6 +15,43 @@ func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_undo_manager = undo_manager
 	_test_runner = McpTestRunner.new()
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"test_assert": {
+			"description": "对当前场景做节点/属性/信号/数量类断言。",
+			"params": [
+				CommandHelpers.doc_param("assertion_type", "String", true, "断言类型 node_exists/property_equals/signal_connected/node_count"),
+				CommandHelpers.doc_param("path", "String", false, "目标节点路径"),
+				CommandHelpers.doc_param("property", "String", false, "property_equals 时属性名"),
+				CommandHelpers.doc_param("expected", "JSON", false, "property_equals 时期望值"),
+				CommandHelpers.doc_param("target", "String", false, "signal_connected 时目标节点路径"),
+				CommandHelpers.doc_param("signal", "String", false, "signal_connected 时信号名"),
+				CommandHelpers.doc_param("method", "String", false, "signal_connected 时目标方法名"),
+				CommandHelpers.doc_param("parent", "String", false, "node_count 时父节点路径"),
+				CommandHelpers.doc_param("count", "int", false, "node_count 时期望子节点数默认 -1"),
+			],
+		},
+		"test_run": {
+			"description": "按名称过滤运行测试套件并聚合结果。",
+			"params": [
+				CommandHelpers.doc_param("suite", "String", false, "suite 名子串过滤"),
+				CommandHelpers.doc_param("test_name", "String", false, "测试名子串过滤"),
+				CommandHelpers.doc_param("exclude_test_name", "String", false, "要排除的测试名子串"),
+				CommandHelpers.doc_param("verbose", "bool", false, "详细输出默认 false"),
+			],
+		},
+		"test_manage": {
+			"description": "查看上次测试结果或重置 runner(op 默认 results_get)。",
+			"params": [
+				CommandHelpers.doc_param("verbose", "bool", false, "详细输出默认 false"),
+				CommandHelpers.doc_param("op", "String", false, "操作名默认 results_get"),
+			],
+		},
+	}
+
+
 func handle_test_assert(params: Dictionary) -> Dictionary:
 	var assertion_type: String = params.get("assertion_type", "")
 	var path: String = params.get("path", "")

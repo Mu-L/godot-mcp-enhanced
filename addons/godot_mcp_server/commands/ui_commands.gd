@@ -23,6 +23,81 @@ func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 func cleanup() -> void:
 	# 阶段5(:649): 统一 cleanup 接口(与 incomplete-cleanup-command-nodes fix 一致)。本模块无信号/定时器,释放引用助 GC。
 	_plugin = null
+
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"ui_create_control": {
+			"description": "创建 Control 子类节点(须在白名单 29 种内)。创建后可设属性。",
+			"params": [
+				CommandHelpers.doc_param("node_type", "String", false, "Control 子类类型,须在白名单 29 种内(默认 Label)"),
+				CommandHelpers.doc_param("node_name", "String", false, "新节点名(默认 Control)"),
+				CommandHelpers.doc_param("parent_node_path", "String", false, "父节点路径,空则挂场景根"),
+				CommandHelpers.doc_param("properties", "Dictionary", false, "创建后要设置的属性键值(经 coerce_property_value)"),
+			],
+		},
+		"ui_set_layout": {
+			"description": "设置 Control 节点的布局(anchors/offsets/size/grow_direction)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 Control 节点路径"),
+				CommandHelpers.doc_param("anchors", "Dictionary", false, "键 left/right/top/bottom(float)设 anchor"),
+				CommandHelpers.doc_param("offsets", "Dictionary", false, "键 left/right/top/bottom(float)设 offset"),
+				CommandHelpers.doc_param("custom_minimum_size", "Dictionary", false, "键 x/y(float)设 custom_minimum_size"),
+				CommandHelpers.doc_param("min_size", "Dictionary", false, "custom_minimum_size 的别名(仅在 custom_minimum_size 未传时生效)"),
+				CommandHelpers.doc_param("grow_direction", "String", false, "取值 both/up/down/left/right;空表示跳过"),
+			],
+		},
+		"ui_get_layout": {
+			"description": "读取 Control 节点的布局信息(anchors/offsets/size)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 Control 节点路径"),
+			],
+		},
+		"ui_anchor_preset": {
+			"description": "应用预设锚点(16 种 preset,如 top_left/full_rect/center)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 Control 节点路径"),
+				CommandHelpers.doc_param("preset", "String", true, "锚点预设名(top_left/full_rect/center 等 16 种)"),
+			],
+		},
+		"ui_set_theme": {
+			"description": "Theme 操作:create 创建空 Theme/set_params 设属性/save 存盘/load 加载。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 Control 节点路径"),
+				CommandHelpers.doc_param("action", "String", true, "取值 create/set_params/save/load"),
+				CommandHelpers.doc_param("params", "Dictionary", false, "action=set_params 时 Theme 属性键值表"),
+				CommandHelpers.doc_param("theme_path", "String", false, "action=save/load 时必需(须 res:// 或 user://)"),
+			],
+		},
+		"ui_container_add": {
+			"description": "向容器节点添加子 Control。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "容器节点路径"),
+				CommandHelpers.doc_param("child_type", "String", false, "子 Control 类型,须在白名单(默认 Label)"),
+				CommandHelpers.doc_param("child_name", "String", false, "子节点名(默认 Child)"),
+				CommandHelpers.doc_param("child_properties", "Dictionary", false, "子节点属性键值"),
+			],
+		},
+		"theme_create": {
+			"description": "创建 Theme:create 新建空 Theme/extract 从节点提取已有 Theme。",
+			"params": [
+				CommandHelpers.doc_param("action", "String", false, "取值 create/extract(默认 create)"),
+				CommandHelpers.doc_param("source_node_path", "String", false, "action=extract 时必需(须 Control 且有 theme)"),
+				CommandHelpers.doc_param("save_path", "String", false, "若非空则保存到该 .tres 路径(须 res:// 或 user://)"),
+			],
+		},
+		"theme_set_property": {
+			"description": "设置节点的 Theme 属性(default_font/color/constant/stylebox)。",
+			"params": [
+				CommandHelpers.doc_param("theme_node_path", "String", true, "持有 theme 的节点路径"),
+				CommandHelpers.doc_param("item_type", "String", true, "取值 default_font/color/constant/stylebox"),
+				CommandHelpers.doc_param("name", "String", false, "theme 属性名(color/constant/stylebox 用)"),
+				CommandHelpers.doc_param("theme_type", "String", false, "theme type 分类串(color/constant/stylebox 用)"),
+				CommandHelpers.doc_param("value", "JSON", true, "属性值;color 需 [r,g,b(,a)],constant 需 int,default_font/stylebox 需资源路径串"),
+			],
+		},
+	}
 	_undo_manager = null
 
 # ─── ui_create_control ──────────────────────────────────────────────────────

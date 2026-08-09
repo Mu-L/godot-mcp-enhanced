@@ -5,28 +5,30 @@ import { readFileSync } from 'node:fs';
 // 字面量契约测试:验证 TS 工具定义 + GD handler 注册 + editor-method-map + ROUTING 登记。
 
 describe('CMP-4: engine 工具定义（TS 契约）', () => {
-  it('CMP-4a: engine.ts 定义工具 name=engine + 3 action enum', async () => {
+  it('CMP-4a: engine.ts 定义工具 name=engine + action enum(含 CMP-9-A 新增 call_method)', async () => {
     const mod = await import('../src/tools/engine.js');
     const defs = mod.getToolDefinitions();
     expect(defs).toHaveLength(1);
     expect(defs[0].name).toBe('engine');
     const schema = defs[0].inputSchema as Record<string, unknown>;
     const props = schema.properties as Record<string, { enum?: string[] }>;
-    expect(props.action?.enum).toEqual(['class_info', 'search', 'get_inheritance']);
+    // CMP-4 原 3 action + CMP-9-A 新增 call_method = 4
+    expect(props.action?.enum).toEqual(['class_info', 'search', 'get_inheritance', 'call_method']);
   });
 
-  it('CMP-4b: handleTool 在 headless 返回 EDITOR_ONLY', async () => {
+  it('CMP-4b: handleTool 在 headless 返回 EDITOR_ONLY(含 CMP-9-A call_method)', async () => {
     const mod = await import('../src/tools/engine.js');
-    for (const action of ['class_info', 'search', 'get_inheritance']) {
+    for (const action of ['class_info', 'search', 'get_inheritance', 'call_method']) {
       const result = await mod.handleTool('engine', { action }, {} as never);
       expect(result?.isError).toBe(true);
       expect(result?.content?.[0]?.text).toContain('EDITOR_ONLY');
     }
   });
 
-  it('CMP-4c: TOOL_META 标 readonly + 3 action risk=read', async () => {
+  it('CMP-4c: TOOL_META 标 readonly(组级) + 各 action risk', async () => {
     const mod = await import('../src/tools/engine.js');
-    expect(mod.TOOL_META.engine.readonly).toBe(true);
+    // CMP-9-A 后含 call_method(write),组级 readonly=false(不再纯只读)
+    expect(mod.TOOL_META.engine.readonly).toBe(false);
     expect(mod.TOOL_META.engine.actionRisks?.class_info).toBe('read');
     expect(mod.TOOL_META.engine.actionRisks?.search).toBe('read');
     expect(mod.TOOL_META.engine.actionRisks?.get_inheritance).toBe('read');
@@ -147,5 +149,125 @@ describe('CMP-4: GD 侧 engine_commands.gd（源码字面量契约）', () => {
     const slice = gd.slice(fnStart, fnStart + 4000);  // GD-R4 加 enum constants 后函数体增长
     // 必须过滤 PROPERTY_USAGE_INTERNAL(0x2) flag
     expect(slice.includes('PROPERTY_USAGE_INTERNAL'), 'handle_class_info 缺 PROPERTY_USAGE_INTERNAL 过滤（R2 根因）').toBe(true);
+  });
+});
+
+// ─── CMP-9-A (2026-08-08): editor call_method — 编辑器场景树节点实例方法调用 ────
+
+describe('CMP-9-A: engine call_method 工具定义（TS 契约）', () => {
+  it('CMP-9a: engine.ts ACTIONS 含 call_method(4 个 action)', async () => {
+    const mod = await import('../src/tools/engine.js');
+    const defs = mod.getToolDefinitions();
+    const schema = defs[0].inputSchema as Record<string, unknown>;
+    const props = schema.properties as Record<string, { enum?: string[] }>;
+    expect(props.action?.enum).toEqual(['class_info', 'search', 'get_inheritance', 'call_method']);
+  });
+
+  it('CMP-9b: inputSchema 含 node_path / method / args 字段', async () => {
+    const mod = await import('../src/tools/engine.js');
+    const defs = mod.getToolDefinitions();
+    const schema = defs[0].inputSchema as Record<string, unknown>;
+    const props = schema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty('node_path');
+    expect(props).toHaveProperty('method');
+    expect(props).toHaveProperty('args');
+  });
+
+  it('CMP-9c: TOOL_META call_method risk=write(非 readonly,方法有副作用)', async () => {
+    const mod = await import('../src/tools/engine.js');
+    expect(mod.TOOL_META.engine.actionRisks?.call_method).toBe('write');
+  });
+
+  it('CMP-9d: handleTool 对 call_method 返回 EDITOR_ONLY(headless 不可用)', async () => {
+    const mod = await import('../src/tools/engine.js');
+    const result = await mod.handleTool('engine', { action: 'call_method' }, {} as never);
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toContain('EDITOR_ONLY');
+  });
+
+  it('CMP-9e: description 含 deny-list 安全提示', async () => {
+    const mod = await import('../src/tools/engine.js');
+    const defs = mod.getToolDefinitions();
+    const desc = String(defs[0].description);
+    expect(desc).toContain('call_method');
+    expect(desc).toContain('deny-list');
+  });
+});
+
+describe('CMP-9-A: engine call_method 注册链路（源码字面量契约）', () => {
+  it('CMP-9f: editor-method-map.ts engine 族含 call_method → engine_call_method', () => {
+    const src = readFileSync('src/core/editor-method-map.ts', 'utf8');
+    const engineStart = src.indexOf('engine: {');
+    const slice = src.slice(engineStart, engineStart + 400);
+    expect(slice.includes("'engine_call_method'"), 'MAP engine 族缺 engine_call_method method').toBe(true);
+    expect(slice.includes('call_method'), 'MAP engine 族缺 call_method action key').toBe(true);
+  });
+
+  it('CMP-9g: static-grep.ts ROUTING 含 engine_call_method', () => {
+    const src = readFileSync('src/capability/static-grep.ts', 'utf8');
+    expect(src.includes('engine_call_method:'), 'ROUTING 缺 engine_call_method').toBe(true);
+  });
+});
+
+describe('CMP-9-A: GD 侧 call_method 安全设计（源码字面量契约）', () => {
+  it('CMP-9h: engine_commands.gd 含 handle_call_method + deny-list + did-you-mean', () => {
+    const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
+    expect(gd.includes('func handle_call_method'), '缺 handle_call_method').toBe(true);
+    // deny-list 默认挡危险方法
+    expect(gd.includes('DEFAULT_CALL_DENYLIST'), '缺 DEFAULT_CALL_DENYLIST 常量').toBe(true);
+    const dlStart = gd.indexOf('DEFAULT_CALL_DENYLIST := [');
+    const dlSlice = gd.slice(dlStart, dlStart + 400);
+    expect(dlSlice.includes('"free"'), 'deny-list 缺 free').toBe(true);
+    expect(dlSlice.includes('"queue_free"'), 'deny-list 缺 queue_free').toBe(true);
+    expect(dlSlice.includes('"set_script"'), 'deny-list 缺 set_script(RCE)').toBe(true);
+    expect(dlSlice.includes('"call"'), 'deny-list 缺 call(间接调用绕 deny-list)').toBe(true);
+    expect(dlSlice.includes('"emit_signal"'), 'deny-list 缺 emit_signal').toBe(true);
+    // did-you-mean
+    expect(gd.includes('func _suggest_method'), '缺 _suggest_method(did-you-mean)').toBe(true);
+    expect(gd.includes('similarity'), 'did-you-mean 缺 similarity 调用').toBe(true);
+    // env 覆盖
+    expect(gd.includes('GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE'), '缺 env 覆盖名').toBe(true);
+    // undoable=false
+    expect(gd.includes('"undoable": false'), '缺 undoable=false 声明').toBe(true);
+  });
+
+  it('CMP-9i: command_handler.gd match 含 engine_call_method 分支', () => {
+    const gd = readFileSync('addons/godot_mcp_server/command_handler.gd', 'utf8');
+    expect(gd.includes('"engine_call_method"'), 'handle() 缺 engine_call_method case').toBe(true);
+    expect(gd.includes('handle_call_method'), 'handle() 缺 handle_call_method 调用').toBe(true);
+  });
+
+  it('CMP-9j: 类型强转覆盖 Vector2/3/Color/bool/int/float(String 和 Array 两种来源)', () => {
+    const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
+    const fnStart = gd.indexOf('func _coerce_single_arg');
+    expect(fnStart, '缺 _coerce_single_arg 函数').toBeGreaterThan(-1);
+    const slice = gd.slice(fnStart, fnStart + 2000);
+    expect(slice.includes('TYPE_VECTOR3'), '强转缺 TYPE_VECTOR3').toBe(true);
+    expect(slice.includes('TYPE_VECTOR2'), '强转缺 TYPE_VECTOR2').toBe(true);
+    expect(slice.includes('TYPE_COLOR'), '强转缺 TYPE_COLOR').toBe(true);
+    expect(slice.includes('TYPE_BOOL'), '强转缺 TYPE_BOOL').toBe(true);
+    expect(slice.includes('TYPE_INT'), '强转缺 TYPE_INT').toBe(true);
+    expect(slice.includes('TYPE_FLOAT'), '强转缺 TYPE_FLOAT').toBe(true);
+    // Array 来源(Vector3 from [1,2,3])
+    expect(slice.includes('raw is Array'), '强转缺 Array 来源分支').toBe(true);
+    // String 来源(Vector3 from "(1,2,3)" Godot literal)
+    expect(slice.includes('raw is String'), '强转缺 String 来源分支').toBe(true);
+  });
+
+  it('CMP-9k: 返回值序列化覆盖数学类型 + Resource + Node', () => {
+    const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
+    const fnStart = gd.indexOf('func _serialize_return_value');
+    expect(fnStart, '缺 _serialize_return_value 函数').toBeGreaterThan(-1);
+    const slice = gd.slice(fnStart, fnStart + 1200);
+    expect(slice.includes('Vector3'), '序列化缺 Vector3').toBe(true);
+    expect(slice.includes('Color'), '序列化缺 Color').toBe(true);
+    expect(slice.includes('Resource'), '序列化缺 Resource').toBe(true);
+    expect(slice.includes('Node'), '序列化缺 Node').toBe(true);
+  });
+
+  it('CMP-9l: args 数量上限 CALL_ARGS_LIMIT 存在(对标 bridge 的 8 限制)', () => {
+    const gd = readFileSync('addons/godot_mcp_server/commands/engine_commands.gd', 'utf8');
+    expect(gd.includes('CALL_ARGS_LIMIT'), '缺 CALL_ARGS_LIMIT 常量').toBe(true);
+    expect(gd.includes('Too many arguments'), '缺 args 数量上限错误提示').toBe(true);
   });
 });

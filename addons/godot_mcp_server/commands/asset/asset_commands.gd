@@ -39,6 +39,55 @@ func _get_root() -> Node:
 		return null
 	return ei.get_edited_scene_root()
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"asset_create": {
+			"description": "放置单个资源(基元/自定义形状)节点到场景。",
+			"params": [
+				CommandHelpers.doc_param("shape", "String", true, "资源形状名"),
+				CommandHelpers.doc_param("params", "Dictionary", false, "形状专属参数默认 {}"),
+				CommandHelpers.doc_param("material", "JSON", false, "材质默认 null"),
+				CommandHelpers.doc_param("name", "String", false, "节点名默认空"),
+				CommandHelpers.doc_param("parent", "String", false, "父节点路径空则挂根"),
+			],
+		},
+		"asset_path": {
+			"description": "沿路径采样点批量放置资源。",
+			"params": [
+				CommandHelpers.doc_param("path", "Array", false, "采样点数组与 path_node 至少其一有效 <2 点报错"),
+				CommandHelpers.doc_param("path_node", "String", false, "用于解析采样点的参考路径节点"),
+				CommandHelpers.doc_param("shape", "String", true, "资源形状名"),
+				CommandHelpers.doc_param("params", "Dictionary", false, "形状专属参数"),
+				CommandHelpers.doc_param("material", "JSON", false, "材质"),
+				CommandHelpers.doc_param("mode", "String", false, "排布模式默认 discrete"),
+				CommandHelpers.doc_param("spacing", "float", false, "间距默认 1.0"),
+				CommandHelpers.doc_param("count", "int", false, "数量上限默认 0"),
+				CommandHelpers.doc_param("align", "String", false, "朝向对齐模式默认 path"),
+				CommandHelpers.doc_param("align_vertices", "bool", false, "是否按顶点对齐默认 false"),
+			],
+		},
+		"asset_batch": {
+			"description": "批量放置多件资源(结构同 asset_create)。",
+			"params": [
+				CommandHelpers.doc_param("items", "Array", true, "多件定义数组每元素结构同 asset_create 的 shape/params/material/name/parent"),
+			],
+		},
+		"asset_undo": {
+			"description": "弹全局 UndoRedo 栈顶 asset 类 action。",
+			"params": [],
+		},
+		"asset_save": {
+			"description": "把节点打包保存为 .tscn 资源。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "要打包保存的节点路径"),
+				CommandHelpers.doc_param("resource_path", "String", true, "输出 .tscn 路径须 res:// 前缀且无 .. 遍历"),
+			],
+		},
+	}
+
+
 # create：单件放置。无场景 → NO_ACTIVE_SCENE（区别于工厂层的 INVALID_PARAMS root=null）
 func handle_create(params: Dictionary, request_id: int) -> Dictionary:
 	var ei := _get_ei()

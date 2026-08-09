@@ -20,6 +20,7 @@ const GUARDED_KEYS = new Set([
   'validation', 'manage_tools', 'project', 'cpp', 'csv_to_resources', 'asset',
   'blender',
   'self_update',  // update action 非 read（check=read / update=write）
+  'engine',  // CMP-9-A: call_method action 是 write(实例方法调用有副作用),其余 3 action 仍 read
 ]);
 
 /** 从 inputSchema.action.enum 提取某工具全部 action 名 */

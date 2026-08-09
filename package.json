@@ -1,6 +1,6 @@
 {
   "name": "godot-mcp-enhanced",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "mcpName": "io.github.wgt19861219/godot-mcp-enhanced",
   "description": "Enhanced MCP server for Godot game engine - closed-loop AI development with dynamic GDScript execution, scene tree query, node inspection, and more",
   "keywords": [
@@ -59,6 +59,7 @@
     "check:rules-sync": "node scripts/check-rules-content-sync.mjs",
     "check:protocol-versions": "node scripts/check-protocol-versions.mjs",
     "check:tool-groups": "node scripts/check-tool-groups.mjs",
+    "check:command-docs-drift": "node scripts/check-command-docs-drift.mjs",
     "smoke": "vitest run test/e2e-full-tool-verification.test.ts"
   },
   "dependencies": {

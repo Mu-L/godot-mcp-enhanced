@@ -21,7 +21,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 40 个 MCP 工具（220 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 40 个 MCP 工具（221 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -162,7 +162,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | method | 说明 |
 |--------|------|
 | \`set_node_property\` | 设置节点属性值（path + property + value） |
-| \`call_method\` | 调用节点方法（path + method + args） |
+| \`call_method\` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单(get/has_*/get_meta 等),env \`GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2\` 可扩展(含写方法如 take_damage);\`EXTRA_METHODS_BLOCKLIST\`(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线;args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数正确转换);方法不存在时返回 did-you-mean 建议;response 含 undoable=false(call 不可 undo) |
 
 ### 等待 — game_wait
 
