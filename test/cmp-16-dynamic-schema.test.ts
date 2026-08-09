@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   buildToolFromDocs,
   buildAllDynamicTools,
@@ -246,5 +247,37 @@ describe('CMP-16-B NIT-1: 动态工具调用路由(EditorToolExecutor 转发)', 
     const { readFileSync } = require('node:fs');
     const gd = readFileSync('addons/godot_mcp_server/command_handler.gd', 'utf8');
     expect(gd.includes('"engine_call_method"'), 'command_handler.gd 缺 engine_call_method 分支(转发目标不存在)').toBe(true);
+  });
+});
+
+// CMP-16-B advanced-proxy 改造:godot_list_dynamic_routes 从"假动态"改真动态。
+// 验证 handler 调 dynamicSchema.getDynamicTools() 而非只读本地 metaRegistry。
+describe('CMP-16-B: advanced-proxy godot_list_dynamic_routes 真动态化', () => {
+  it('CMP-16B-proxy-a: handleListDynamicRoutes 是 async(调 dynamicSchema)', async () => {
+    const src = readFileSync('src/tools/advanced-proxy.ts', 'utf8');
+    // handler 改 async
+    expect(src.match(/async function handleListDynamicRoutes/), 'handleListDynamicRoutes 未改 async').not.toBeNull();
+    // 调 dynamicSchema.getDynamicTools()(真动态)
+    expect(src.includes('dynamicSchema.getDynamicTools()'), '未调 dynamicSchema.getDynamicTools()(仍是假动态)').toBe(true);
+  });
+
+  it('CMP-16B-proxy-b: 返回含 total_dynamic + dynamic 字段(真实动态工具清单)', async () => {
+    const src = readFileSync('src/tools/advanced-proxy.ts', 'utf8');
+    expect(src.includes('total_dynamic'), '返回缺 total_dynamic 字段').toBe(true);
+    expect(src.includes('dynamic_source'), '返回缺 dynamic_source 字段(标注来源)').toBe(true);
+    expect(src.includes('CMP-16-A/B live schema'), '缺 live schema 来源标注').toBe(true);
+  });
+
+  it('CMP-16B-proxy-c: handleTool 对 godot_list_dynamic_routes 用 await', async () => {
+    const src = readFileSync('src/tools/advanced-proxy.ts', 'utf8');
+    // 调用点必须 await(否则 async handler 的 Promise 被当 ToolResult 返回)
+    const callIdx = src.indexOf("toolName === 'godot_list_dynamic_routes'");
+    const callSlice = src.slice(callIdx, callIdx + 200);
+    expect(callSlice.includes('await handleListDynamicRoutes'), 'handleTool 未 await handleListDynamicRoutes').toBe(true);
+  });
+
+  it('CMP-16B-proxy-d: advanced-proxy import dynamicSchema', async () => {
+    const src = readFileSync('src/tools/advanced-proxy.ts', 'utf8');
+    expect(src.includes("from '../core/dynamic-schema.js'"), '未 import dynamic-schema').toBe(true);
   });
 });
