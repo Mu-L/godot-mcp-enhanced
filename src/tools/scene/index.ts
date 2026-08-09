@@ -211,7 +211,18 @@ export async function handleTool(
           : '';
         return textResult(`⚠️ Blocked properties NOT written (security policy): ${result.blockedProps.join(', ')}.${hint}\n${result.message}`);
       }
-      return textResult(result.message);
+      // Tier1-1: 成功路径补 structuredContent,让 AI 无需正则解析文本即可拿结构化数据
+      return {
+        ...textResult(result.message),
+        structuredContent: {
+          action: 'add_node',
+          node_name: String(args.node_name),
+          node_type: String(args.node_type),
+          parent: String(args.parent_node_path || 'root'),
+          scene_path: sceneRelPath,
+          persisted: true,
+        },
+      };
     }
 
     case 'create_scene':

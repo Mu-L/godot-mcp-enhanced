@@ -115,14 +115,26 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             '替代：① Bridge take_screenshot（游戏运行时 GPU viewport，2D/3D 均可）② editor/GUI 模式截图 ③ 手动 F5 运行后截图 ④ screenshot(action=analyze) 分析本地文件';
         }
 
-        return textResult(
-          `Screenshot saved to: ${result.imagePath}\n` +
-          `File size: ${result.fileSize} bytes\n` +
-          `Viewport: ${viewportW}x${viewportH}\n` +
-          `Frames waited: ${frameDelay}` +
-          blankWarning +
-          '\n\nUse screenshot with action=analyze to have the AI examine this image.'
-        );
+        return {
+          ...textResult(
+            `Screenshot saved to: ${result.imagePath}\n` +
+            `File size: ${result.fileSize} bytes\n` +
+            `Viewport: ${viewportW}x${viewportH}\n` +
+            `Frames waited: ${frameDelay}` +
+            blankWarning +
+            '\n\nUse screenshot with action=analyze to have the AI examine this image.'
+          ),
+          // Tier1-1: 成功路径补 structuredContent,让 AI 无需正则解析文本即可拿元信息
+          structuredContent: {
+            action: 'screenshot_capture',
+            image_path: result.imagePath,
+            file_size: result.fileSize,
+            width: viewportW,
+            height: viewportH,
+            frames_waited: frameDelay,
+            ...(blankWarning !== '' && { blank_warning: true }),
+          },
+        };
       } else {
         return textResult(
           `Screenshot failed: ${result.error}\n\n` +
@@ -210,6 +222,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             { type: 'text' as const, text: `ASCII art (${actualCols}×${actualLines.length}, brightness mapped, requested ${cols}×${rows}):\n\`\`\`\n${asciiArt}\n\`\`\`` },
             { type: 'text' as const, text: question },
           ],
+          // Tier1-1: 成功路径补 structuredContent
+          structuredContent: {
+            action: 'screenshot_analyze',
+            image_path: imagePath,
+            format: 'png',
+            detail: 'ascii',
+            ascii_cols: actualCols,
+            ascii_rows: actualLines.length,
+          },
         };
       }
 
@@ -226,6 +247,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             { type: 'image' as const, data: thumb.base64, mimeType: thumb.mimeType },
             { type: 'text' as const, text: `Thumbnail ${thumb.width}×${thumb.height}px (resized to width ${targetWidth}). ${question}` },
           ],
+          // Tier1-1: 成功路径补 structuredContent
+          structuredContent: {
+            action: 'screenshot_analyze',
+            image_path: imagePath,
+            format: 'png',
+            detail: 'thumbnail',
+            width: thumb.width,
+            height: thumb.height,
+          },
         };
       }
 
@@ -245,6 +275,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             text: question,
           },
         ],
+        // Tier1-1: 成功路径补 structuredContent
+        structuredContent: {
+          action: 'screenshot_analyze',
+          image_path: imagePath,
+          format: isPng ? 'png' : 'jpeg',
+          detail: 'full',
+        },
       };
     }
 

@@ -75,6 +75,13 @@ describe('Level B: Scene Operations', () => {
       node_name: 'TestSprite',
     }, ctx);
     expect(isSuccessful(result)).toBeTruthy();
+    // Tier1-1: structuredContent 验证(成功路径,文本编辑落盘)
+    expect(result.structuredContent).toBeDefined();
+    expect(result.structuredContent.action).toBe('add_node');
+    expect(result.structuredContent.node_name).toBe('TestSprite');
+    expect(result.structuredContent.node_type).toBe('Sprite2D');
+    expect(result.structuredContent.parent).toBe('root');
+    expect(result.structuredContent.persisted).toBe(true);
   });
 
   // --- 用例 2: edit_node — 添加节点后修改位置 ---
