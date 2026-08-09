@@ -53,9 +53,9 @@ describe('screenshot structuredContent (Tier1-1)', () => {
       expect(result.structuredContent.action).toBe('screenshot_capture');
       expect(result.structuredContent.image_path).toBe('/fake/screenshot.png');
       expect(result.structuredContent.file_size).toBe(12345);
-      // width/height 是 viewportW/H(默认 1280x720,非 result.width 截图实际维度)
-      expect(result.structuredContent.width).toBe(1280);
-      expect(result.structuredContent.height).toBe(720);
+      // viewport_width/height 是配置(默认 1280x720,非 result.width 截图实际维度)
+      expect(result.structuredContent.viewport_width).toBe(1280);
+      expect(result.structuredContent.viewport_height).toBe(720);
       expect(typeof result.structuredContent.frames_waited).toBe('number'); // 默认 frameDelay
       // 正常截图(非空白)blank_warning 不应出现
       expect(result.structuredContent.blank_warning).toBeUndefined();
@@ -79,6 +79,22 @@ describe('screenshot structuredContent (Tier1-1)', () => {
       }, { findGodot: async () => '/fake/godot' } as any);
 
       expect(result.structuredContent.blank_warning).toBe(true);
+    });
+
+    it('capture 失败路径不带 structuredContent(负面断言)', async () => {
+      // Nit-1: 验证错误路径不带 structuredContent,防回归
+      const { captureScreenshot } = await import('../src/screenshot.js');
+      (captureScreenshot as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        success: false,
+        error: 'fake capture failure',
+      });
+
+      const result: any = await handleTool('screenshot', {
+        project_path: dir,
+        action: 'capture',
+      }, { findGodot: async () => '/fake/godot' } as any);
+
+      expect(result.structuredContent).toBeUndefined();
     });
   });
 
