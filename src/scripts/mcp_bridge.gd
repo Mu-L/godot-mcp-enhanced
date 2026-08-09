@@ -380,6 +380,9 @@ func _write_secret_to_file(path: String) -> bool:
 	# (非致命但误导)。改用 PowerShell WriteAllText 直接写绕开;secret 经环境变量传递(见 I-3)。
 	# 配合 _restrict_secret_permissions 用 USERNAME:M(Modify)+ inheritance:r,PowerShell 能覆盖 M key。
 	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
+	# SEC-P2-2 (2026-08-09 审查): 写前 symlink 预检。攻击者预置 secret 文件为 symlink 指向任意
+	# 文件,WriteAllText/FileAccess.open 均 follow symlink 覆盖目标。读方 game-bridge.ts 已有
+	# lstatSync 兜底,此处写方对称加固。与 addons/godot_mcp_server/websocket_server.gd DUPLICATE 同步。
 	var write_ok := false
 	if OS.get_name() == "Windows":
 		OS.set_environment("_MCP_SECRET_TMP", _secret)
@@ -388,14 +391,26 @@ func _write_secret_to_file(path: String) -> bool:
 		# 单引号字符串(项目目录名含 ' 即可逃逸注入)。env 值不解析为命令语法,注入消失。
 		# F-2(2026-07-04 审查): OS.execute 去 blocking=false,ec 为真实 exit code(原 non-blocking 返回
 		# fork 启动状态,write_ok=(ec==OK) 乐观判断可能误报成功)。与 websocket_server.gd 同步。
-		var ps_args := PackedStringArray(["-NoProfile", "-Command", "[IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
+		# SEC-P2-2: exit 3 = symlink 拒写(WriteAllText 不执行);Test-Path 守 Get-Item 防首次生成不存在时抛错。
+		var ps_args := PackedStringArray(["-NoProfile", "-Command", "if (Test-Path $env:_MCP_SECRET_PATH) { if ((Get-Item -LiteralPath $env:_MCP_SECRET_PATH -Force).LinkType) { exit 3 } }; [IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
 		var ec := OS.execute("powershell", ps_args, [])
 		OS.unset_environment("_MCP_SECRET_TMP")
 		OS.unset_environment("_MCP_SECRET_PATH")
+		if ec == 3:
+			# symlink 命中:不 fallback FileAccess(同样 follow symlink),返 false 让调用方处理
+			push_warning("[MCP Bridge] %s is a symlink — refusing to write bridge secret" % path)
+			return false
 		write_ok = (ec == OK)
 		if not write_ok:
 			push_warning("[MCP Bridge] PowerShell write failed (exit %d), fallback to FileAccess" % ec)
 	else:
+		# SEC-P2-2: readlink 成功(exit 0)= 是 symlink;失败(非零)= 普通文件或不存在。
+		# GD 无原生 symlink 检测 API(FileAccess/DirAccess 均无 LinkType 等价),借 readlink。
+		if FileAccess.file_exists(path):
+			var rl_ec := OS.execute("readlink", PackedStringArray([path]), [])
+			if rl_ec == OK:
+				push_warning("[MCP Bridge] %s is a symlink — refusing to write bridge secret" % path)
+				return false
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		if f:
 			f.store_string(_secret)

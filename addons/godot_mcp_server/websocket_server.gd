@@ -83,6 +83,10 @@ func _generate_and_write_secret() -> void:
 	# 比 USERNAME:R 更合理——R 是 anti-pattern: addon 以 USERNAME 身份却要覆盖自己只读的 key,
 	# 只能靠 atomic rename 绕 ACL,正是红字根源)。secret 经环境变量传递(不经命令行暴露,见 I-3)。
 	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
+	# SEC-P2-2 (2026-08-09 审查): 写前 symlink 预检。攻击者预置 .godot/mcp_editor.key 为 symlink
+	# 指向任意文件,WriteAllText/FileAccess.open 均 follow symlink 覆盖目标文件。读方 editor-auth.ts
+	# 已有 lstatSync 兜底(命中 symlink 降级 headless),此处写方对称加固防 follow 写目标。
+	# 与 src/scripts/mcp_bridge.gd:_write_secret_to_file DUPLICATE 同步。
 	var write_ok := false
 	if OS.get_name() == "Windows":
 		OS.set_environment("_MCP_SECRET_TMP", _secret)
@@ -91,14 +95,28 @@ func _generate_and_write_secret() -> void:
 		# 单引号字符串 —— 项目目录名含 ' 即可逃逸注入任意命令。env 值不解析为命令语法,注入消失。
 		# F-2(2026-07-04 审查): OS.execute 第五参 false=non-blocking,返回 fork 启动状态非 exit code,
 		# write_ok=(ec==OK) 乐观判断可能误报成功。去 false(blocking 默认 true),ec 是真实 exit code。
-		var ps_args := PackedStringArray(["-NoProfile", "-Command", "[IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
+		# SEC-P2-2: exit 3 = symlink 拒写(WriteAllText 不执行);Test-Path 守 Get-Item 防首次生成不存在时抛错。
+		var ps_args := PackedStringArray(["-NoProfile", "-Command", "if (Test-Path $env:_MCP_SECRET_PATH) { if ((Get-Item -LiteralPath $env:_MCP_SECRET_PATH -Force).LinkType) { exit 3 } }; [IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
 		var ec := OS.execute("powershell", ps_args, [])
 		OS.unset_environment("_MCP_SECRET_TMP")
 		OS.unset_environment("_MCP_SECRET_PATH")
+		if ec == 3:
+			# symlink 命中:不 fallback FileAccess(同样 follow symlink),标 secret 失败禁 WS 启动
+			push_warning("[MCP] %s is a symlink — refusing to write editor secret" % _secret_file)
+			_secret = ""
+			return
 		write_ok = (ec == OK)
 		if not write_ok:
 			push_warning("[MCP] PowerShell write failed (exit %d), fallback to FileAccess" % ec)
 	else:
+		# SEC-P2-2: readlink 成功(exit 0)= 是 symlink;失败(非零)= 普通文件或不存在。
+		# GD 无原生 symlink 检测 API(FileAccess/DirAccess 均无 LinkType 等价),借 readlink。
+		if FileAccess.file_exists(_secret_file):
+			var rl_ec := OS.execute("readlink", PackedStringArray([_secret_file]), [])
+			if rl_ec == OK:
+				push_warning("[MCP] %s is a symlink — refusing to write editor secret" % _secret_file)
+				_secret = ""
+				return
 		var f := FileAccess.open(_secret_file, FileAccess.WRITE)
 		if f:
 			f.store_string(_secret)
