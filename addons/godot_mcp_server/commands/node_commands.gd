@@ -26,6 +26,41 @@ func _get_ei() -> EditorInterface:
 		return null
 	return _plugin.get_editor_interface()
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"add_node": {
+			"description": "向场景树添加一个新节点(类型须在白名单)。",
+			"params": [
+				CommandHelpers.doc_param("node_type", "String", false, "节点类型须在 ALLOWED_NODE_TYPES 白名单默认 Node"),
+				CommandHelpers.doc_param("node_name", "String", false, "节点名须匹配 ^[A-Za-z0-9_]+$ 默认 NewNode"),
+				CommandHelpers.doc_param("parent_node_path", "String", false, "父节点路径空则挂场景根"),
+				CommandHelpers.doc_param("properties", "Dictionary", false, "节点属性键值表经 coerce_property_value"),
+			],
+		},
+		"remove_node": {
+			"description": "从场景树删除指定节点(不能删场景根)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "要删除的节点路径不能删场景根"),
+			],
+		},
+		"edit_node": {
+			"description": "批量修改节点属性(per-property undo)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标节点路径"),
+				CommandHelpers.doc_param("properties", "Dictionary", true, "属性键值表须非空 per-property undo"),
+			],
+		},
+		"batch_add_nodes": {
+			"description": "批量添加节点(上限 100 个)。",
+			"params": [
+				CommandHelpers.doc_param("nodes", "Array", true, "节点定义数组上限 100 每元素含 node_type/node_name/parent_node_path/properties"),
+			],
+		},
+	}
+
+
 func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 	var ei := _get_ei()
 	if ei == null: return {"error": {"code": -32000, "message": "EditorInterface not available"}}

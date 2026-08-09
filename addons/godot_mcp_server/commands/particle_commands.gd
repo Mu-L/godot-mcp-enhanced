@@ -14,6 +14,57 @@ func cleanup() -> void:
 	_undo_manager = null
 
 
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"particles_create": {
+			"description": "创建 GPUParticles2D/3D 节点并放置到场景中。",
+			"params": [
+				CommandHelpers.doc_param("node_type", "String", false, "须 GPUParticles2D 或 GPUParticles3D 默认 GPUParticles3D"),
+				CommandHelpers.doc_param("name", "String", false, "节点名默认 Particles"),
+				CommandHelpers.doc_param("parent", "String", false, "父节点路径"),
+				CommandHelpers.doc_param("position", "Dictionary", false, "3D 取 x/y/z → Vector3,2D 取 x/y → Vector2"),
+			],
+		},
+		"particles_set_emission": {
+			"description": "设置粒子发射数量与发射形状(point/sphere/box/ring)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 GPUParticles 节点路径"),
+				CommandHelpers.doc_param("amount", "int", false, "粒子数量 null 不改"),
+				CommandHelpers.doc_param("emission_shape", "String", false, "取值 point/sphere/box/ring"),
+				CommandHelpers.doc_param("emission_sphere_radius", "float", false, "球形半径仅 sphere 时"),
+				CommandHelpers.doc_param("emission_box_extents", "Dictionary", false, "键 x/y/z → Vector3 盒范围仅 box 时"),
+				CommandHelpers.doc_param("direction", "Dictionary", false, "键 x/y/z → Vector3 发射方向"),
+				CommandHelpers.doc_param("spread", "float", false, "发射扩散角"),
+			],
+		},
+		"particles_set_process": {
+			"description": "设置粒子处理参数(重力/速度/爆发度/随机/生命周期/阻尼)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 GPUParticles 节点路径"),
+				CommandHelpers.doc_param("gravity", "Dictionary", false, "键 x/y/z → Vector3 重力"),
+				CommandHelpers.doc_param("speed_scale", "float", false, "速度倍率"),
+				CommandHelpers.doc_param("explosiveness", "float", false, "爆发度"),
+				CommandHelpers.doc_param("randomness", "float", false, "随机度"),
+				CommandHelpers.doc_param("lifetime", "float", false, "粒子生命周期秒"),
+				CommandHelpers.doc_param("damping", "float", false, "阻尼"),
+			],
+		},
+		"particles_load_preset": {
+			"description": "加载内置预设(fire/smoke/rain/snow/sparkle/explosion)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 GPUParticles 节点路径"),
+				CommandHelpers.doc_param("preset", "String", true, "预设名 fire/smoke/rain/snow/sparkle/explosion"),
+			],
+		},
+		"particles_set_material": {
+			"description": "为目标节点始终新建并绑定 ParticleProcessMaterial。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 GPUParticles 节点路径"),
+			],
+		},
+	}
+
 
 # F2(2026-07-31 nit#1): _record_prop 迁移到 CommandHelpers._record_prop 共享版（command_helpers.gd:220），
 # 本地副本删除（两份实现行对行相同，command_helpers 已被本文件其他方法引用）。

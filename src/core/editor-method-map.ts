@@ -116,6 +116,8 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     class_info: { method: 'engine_class_info' },
     search: { method: 'engine_search' },
     get_inheritance: { method: 'engine_get_inheritance' },
+    // CMP-9-A (2026-08-08): call_method — 编辑器场景树节点实例方法调用(对标竞品 node.call)
+    call_method: { method: 'engine_call_method' },
   },
   // IMPORTANT(2026-07-13 协议断链): 下列族 editor 漏登记 → fallback toolName → -32601
   // → headless → GD 带 undo 分支成死代码,丢 editor 实时+undo。登记后 editor 模式走 GD 带 undo。

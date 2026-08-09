@@ -7,6 +7,58 @@ func setup(plugin: EditorPlugin, undo_manager: Node = null) -> void:
 	_plugin = plugin
 	_undo_manager = undo_manager
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"animation_track": {
+			"description": "在动画中添加或删除轨道。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "AnimationPlayer 节点路径"),
+				CommandHelpers.doc_param("animation_name", "String", true, "动画名"),
+				CommandHelpers.doc_param("action", "String", true, "取值 add/remove"),
+				CommandHelpers.doc_param("track_type", "String", false, "action=add 时轨道类型 value/position_3d/rotation_3d/scale_3d/blend_shape/method/bezier/audio/animation 默认 value"),
+				CommandHelpers.doc_param("track_path", "String", false, "action=add 时轨道目标 NodePath"),
+				CommandHelpers.doc_param("insert_at", "int", false, "action=add 时插入位置索引 null 追加末尾"),
+				CommandHelpers.doc_param("track_index", "int", false, "action=remove 时必需"),
+			],
+		},
+		"animation_keyframe": {
+			"description": "在指定轨道添加/删除/更新关键帧。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "AnimationPlayer 节点路径"),
+				CommandHelpers.doc_param("animation_name", "String", true, "动画名"),
+				CommandHelpers.doc_param("track_index", "int", true, "轨道索引"),
+				CommandHelpers.doc_param("action", "String", true, "取值 add/remove/update"),
+				CommandHelpers.doc_param("time", "float", false, "action=add 时必需"),
+				CommandHelpers.doc_param("value", "JSON", false, "action=add/update 时关键帧值按 track type coerce"),
+				CommandHelpers.doc_param("transition", "float", false, "过渡值默认 1.0"),
+				CommandHelpers.doc_param("keyframe_index", "int", false, "action=remove/update 时必需"),
+			],
+		},
+		"animation_curve": {
+			"description": "修改 bezier 轨道关键帧的入/出切线柄。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "AnimationPlayer 节点路径"),
+				CommandHelpers.doc_param("animation_name", "String", true, "动画名"),
+				CommandHelpers.doc_param("track_index", "int", true, "轨道索引须为 bezier 轨道"),
+				CommandHelpers.doc_param("keyframe_index", "int", true, "关键帧索引"),
+				CommandHelpers.doc_param("in_handle", "Dictionary", false, "键 x/y → Vector2 入切线柄"),
+				CommandHelpers.doc_param("out_handle", "Dictionary", false, "键 x/y → Vector2 出切线柄"),
+			],
+		},
+		"animation_blend": {
+			"description": "以混合时间播放指定动画。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "AnimationPlayer 节点路径"),
+				CommandHelpers.doc_param("animation_name", "String", true, "要播放的动画名"),
+				CommandHelpers.doc_param("blend_time", "float", true, "混合时间秒"),
+				CommandHelpers.doc_param("speed", "float", false, "播放速度默认 1.0"),
+			],
+		},
+	}
+
+
 # ─── animation_track ────────────────────────────────────────────────────────
 
 func handle_animation_track(params: Dictionary, request_id: int = 0) -> Dictionary:

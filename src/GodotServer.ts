@@ -1,5 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { Server } from "@modelcontextprotocol/server";
+import type { Tool } from "@modelcontextprotocol/server";
 
 // P1-3: legacy era 版本列表(SDK core SUPPORTED_PROTOCOL_VERSIONS 的快照,避免测试 mock 耦合)。
 // SDK 更新此列表时需同步(低频,约每年新版本);核实命令:
@@ -35,6 +36,8 @@ import { ToolDispatcher } from './core/ToolDispatcher.js';
 import * as guard from './guard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
+import { dynamicSchema } from './core/dynamic-schema.js';
+import { getAllToolNames, registerDynamicTools } from './core/tool-registry.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
 import { setOnGroupsChanged, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from './tools/manage-tools.js';
 import { setGetContextConnectionProvider, setEditorSceneProvider } from './tools/get-context.js';
@@ -189,9 +192,13 @@ export class GodotServer {
     });
     this.dispatcher = dispatcher;
 
-    this.server.setRequestHandler('tools/list', async () => ({
-      tools: dispatcher.getFilteredTools(),
-    }));
+    this.server.setRequestHandler('tools/list', async () => {
+      // CMP-16-B (2026-08-08): merge 动态工具(live schema 从 editor addon 拉取)。
+      // 静态工具先过滤(getFilteredTools),再追加动态工具(经 isToolAllowed 在调用层放行)。
+      const staticTools = dispatcher.getFilteredTools();
+      const dynamicTools = await mergeDynamicTools(staticTools);
+      return { tools: [...staticTools, ...dynamicTools] };
+    });
 
     this.server.setRequestHandler('tools/call', (request, ctx) =>
       dispatcher.handleCall(request, ctx)
@@ -227,6 +234,17 @@ export class GodotServer {
         return (result as { stats?: { path: string; root: string; nodeCount: number; typeTopN?: Array<{ type: string; n: number }>; truncated?: boolean } | null })?.stats ?? null;
       } catch {
         return null;  // editor error（如 NO_SCENE -32005）→ null 降级
+      }
+    });
+    // CMP-16-B (2026-08-08): 注入 dynamic-schema fetcher(live schema 从 editor addon 拉 param docs)。
+    // editor 离线时 fetcher 返回 null → dynamicSchema 降级空数组(只留 godot_advanced_tool 兜底)。
+    dynamicSchema.setFetcher(async () => {
+      if (!this.editorConn?.isConnected()) return null;
+      try {
+        const result = await this.editorConn.request('list_param_docs', {});
+        return (result as { result?: Record<string, unknown> } | null)?.result as Record<string, { description: string; params: Array<{ name: string; type: string; required: boolean; desc: string }> }> ?? null;
+      } catch {
+        return null;  // editor 离线/超时 → null 降级
       }
     });
     setReconnectEditor(buildReconnectEditor(
@@ -541,6 +559,8 @@ export class GodotServer {
     // rebuild 成功后 establishEditorConnection 会重新 startHeartbeat。
     this.dispatcher?.getHealthMonitor().stopHeartbeat();
     this.editorConn = null;
+    // CMP-16-B: editor 降级 → 清 dynamic schema 缓存(下次 tools/list 返空,降级到 godot_advanced_tool 兜底)
+    dynamicSchema.invalidate();
   }
 
   /**
@@ -589,6 +609,9 @@ export class GodotServer {
       const hm = this.dispatcher?.getHealthMonitor();
       this.editorExecutor = new EditorToolExecutor(this.editorConn, hm);
       this.dispatcher?.setEditorExecutor(this.editorExecutor);
+      // CMP-16-B (2026-08-08): editor (重)连接成功 → 清 dynamic schema 缓存,下次 tools/list 重新拉取。
+      // 这修复竞品"只 fetch 一次不刷新"缺陷(editor 重装 addon 后工具集更新)。
+      dynamicSchema.invalidate();
       this.editorConn.addOnReconnectExhaustedHandler(() => {
         getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
         this.handleEditorStall();
@@ -836,3 +859,32 @@ function normalizeForCompare(p: string): string {
   if (process.platform === 'win32') s = s.toLowerCase();
   return s;
 }
+
+/**
+ * CMP-16-B (2026-08-08): 拉取动态工具(live schema)并注册到 tool-registry,返回要 merge 进 tools/list 的工具列表。
+ *
+ * 流程:
+ * 1. 设置静态工具名集合(冲突检测:动态工具名撞静态工具名则跳过)
+ * 2. 拉取动态工具(dynamicSchema.getDynamicTools,带缓存+降级)
+ * 3. 注册到 tool-registry(registerDynamicTools,让 isToolAllowed 放行)
+ * 4. 返回工具列表(调用方 merge 进 tools/list)
+ *
+ * editor 离线时返回空数组(降级,只留 godot_advanced_tool 兜底代理)。
+ */
+async function mergeDynamicTools(staticTools: Tool[]): Promise<Tool[]> {
+  // 静态工具名集合(含 inline 工具如 confirm_and_execute + 所有注册工具)
+  const staticNames = new Set<string>(staticTools.map(t => t.name));
+  for (const name of getAllToolNames()) {
+    staticNames.add(name);
+  }
+  dynamicSchema.setStaticToolNames(staticNames);
+
+  // 拉取动态工具(带缓存;editor 离线返空)
+  const dynamicTools = await dynamicSchema.getDynamicTools();
+
+  // 注册到 tool-registry(让 isToolAllowed 在 dynamic 组激活时放行)
+  registerDynamicTools(dynamicTools.map(t => t.name));
+
+  return dynamicTools;
+}
+

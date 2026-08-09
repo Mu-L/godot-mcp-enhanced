@@ -922,6 +922,8 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	# S5 (2026-06-23): env GODOT_MCP_BRIDGE_EXTRA_METHODS 扩展白名单(opt-in,默认只读安全)。
 	# ALLOWED_METHODS 设计为只读(get/has_*/get_meta 等),防 call_method 任意执行;信任环境
 	# 可显式加方法(如 emit_signal)用此 env。注意 emit_signal 会触发已连接的任意回调,慎用。
+	# CMP-9-B (2026-08-08): 同一 env 也覆盖写/副作用方法(take_damage/add_velocity 等),
+	# 对标竞品 runtime.call。EXTRA_METHODS_BLOCKLIST 仍是不可覆盖硬底线。
 	var _extra_env := OS.get_environment("GODOT_MCP_BRIDGE_EXTRA_METHODS")
 	var _extra_ok := false
 	if _extra_env != "":
@@ -935,14 +937,23 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	if not method in ALLOWED_METHODS and not _extra_ok:
 		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):
-		return {"error": {"code": -3, "message": "Method not found: %s" % method}}
+		# CMP-9-B: did-you-mean(对标竞品 + editor call_method 一致体验),降 AI 重试成本
+		var _suggestion := _suggest_bridge_method(node, method)
+		var _hint := "Allowed methods: see ALLOWED_METHODS or set GODOT_MCP_BRIDGE_EXTRA_METHODS."
+		if _suggestion != "":
+			_hint = "Did you mean '%s'? %s" % [_suggestion, _hint]
+		return {"error": {"code": -3, "message": "Method not found: %s. %s" % [method, _hint]}}
 	if args.size() > 8:
 		return {"error": {"code": -4, "message": "Too many arguments (max 8)"}}
 	if method == "get" and args.size() > 0 and args[0] is String:
 		if _is_blocked_property(args[0]):
 			return {"error": {"code": -5, "message": "Blocked property via get(): %s" % args[0]}}
-	var result: Variant = node.callv(method, args)
-	return {"result": _jsonify(result)}
+	# CMP-9-B: args 类型强转(对标竞品 coerce_call_args + editor call_method 一致)。
+	# 按 ClassDB method 声明类型强转,防 Vector3 传单值/Array 静默变零值(Godot callv 不自动转)。
+	var _coerced := _coerce_bridge_args(node, method, args)
+	var result: Variant = node.callv(method, _coerced)
+	# CMP-9-B: undoable=false 显式声明(call 不可 undo,对标竞品 + editor call_method 一致)
+	return {"result": _jsonify(result), "undoable": false}
 
 
 func _jsonify(val: Variant) -> Variant:
@@ -969,6 +980,93 @@ func _jsonify(val: Variant) -> Variant:
 	if val is Node:
 		return str(val.get_path())
 	return val
+
+
+# CMP-9-B (2026-08-08): did-you-mean — 方法不存在时给最接近建议(对标竞品 + editor call_method 一致)。
+# String.similarity > 0.6 取最高分。限制扫 node.get_method_list()(已在 line 937 has_method 检查后调用)。
+func _suggest_bridge_method(node: Node, target: String) -> String:
+	var best := ""
+	var best_score := 0.6
+	for m in node.get_method_list():
+		if m is Dictionary and m.has("name"):
+			var name_: String = m["name"]
+			var score: float = target.similarity(name_)
+			if score > best_score:
+				best_score = score
+				best = name_
+	return best
+
+
+# CMP-9-B (2026-08-08): args 类型强转(对标竞品 coerce_call_args + editor call_method 一致)。
+# 按 ClassDB method 声明类型强转,防 Vector3 传 Array [1,2,3] 或 String "(1,2,3)" 静默变零值。
+# 取不到 method info(动态方法)→ 不强转透传(Godot callv 自己处理)。
+func _coerce_bridge_args(node: Node, method: String, raw_args: Array) -> Array:
+	var methods: Array = node.get_method_list()
+	var method_info: Dictionary = {}
+	for m in methods:
+		if m is Dictionary and m.get("name", "") == method:
+			method_info = m
+			break
+	if method_info.is_empty() or not method_info.has("args"):
+		return raw_args
+	var declared_args: Array = method_info["args"]
+	var coerced: Array = []
+	for i in range(raw_args.size()):
+		var raw: Variant = raw_args[i]
+		if i < declared_args.size() and declared_args[i] is Dictionary:
+			var declared_type: int = int(declared_args[i].get("type", TYPE_NIL))
+			coerced.append(_coerce_bridge_single(raw, declared_type))
+		else:
+			coerced.append(raw)
+	return coerced
+
+
+# CMP-9-B: 单个参数强转(与 editor engine_commands.gd _coerce_single_arg 同款逻辑)。
+func _coerce_bridge_single(raw: Variant, declared_type: int) -> Variant:
+	match declared_type:
+		TYPE_VECTOR2:
+			if raw is Array and raw.size() >= 2:
+				return Vector2(float(raw[0]), float(raw[1]))
+			if raw is String:
+				return Vector2(raw)
+		TYPE_VECTOR2I:
+			if raw is Array and raw.size() >= 2:
+				return Vector2i(int(raw[0]), int(raw[1]))
+		TYPE_VECTOR3:
+			if raw is Array and raw.size() >= 3:
+				return Vector3(float(raw[0]), float(raw[1]), float(raw[2]))
+			if raw is String:
+				return Vector3(raw)
+		TYPE_VECTOR3I:
+			if raw is Array and raw.size() >= 3:
+				return Vector3i(int(raw[0]), int(raw[1]), int(raw[2]))
+		TYPE_VECTOR4:
+			if raw is Array and raw.size() >= 4:
+				return Vector4(float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+		TYPE_COLOR:
+			if raw is Array and raw.size() >= 3:
+				var a: float = float(raw[3]) if raw.size() > 3 else 1.0
+				return Color(float(raw[0]), float(raw[1]), float(raw[2]), a)
+		TYPE_BOOL:
+			if raw is String:
+				return raw.to_lower() == "true"
+			if raw is float or raw is int:
+				return bool(raw)
+		TYPE_INT:
+			if raw is String:
+				return int(raw)
+			if raw is float:
+				return int(raw)
+		TYPE_FLOAT:
+			if raw is String:
+				return float(raw)
+			if raw is int:
+				return float(raw)
+		TYPE_STRING:
+			return str(raw)
+		TYPE_NODE_PATH:
+			return NodePath(str(raw))
+	return raw
 
 
 # ─── Shared tree traversal ──────────────────────────────────────────────────

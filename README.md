@@ -633,6 +633,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.27.0** | 2026-08-08 | **CMP-9 双通道通用方法调用 + CMP-16 live schema**（竞品 regiellis/godot-mcp-go 深度对标）：CMP-9-A editor `engine call_method`（场景树节点实例方法调用,did-you-mean + 类型强转 + deny-list 护城河）+ CMP-9-B bridge `_cmd_call_method` 放宽（env 扩展写方法 + did-you-mean + 类型强转）+ CMP-16-A GD param docs metadata（13 文件 57 method docs + `list_param_docs` 聚合）+ CMP-16-B TS live schema（`dynamic-schema.ts` 从 addon 拉 docs 构建 MCP 工具 + 缓存/降级/刷新 + `registerDynamicTools`）+ CMP-16-C drift 检测 CI（debug+engine 7 method 校验）。4749 测试。 |
 | **v0.26.0** | 2026-08-08 | **P1+P2 批次修复（18 项审查 finding 闭环）**：GD-R1~R10 GDScript 健壮性（nav status 同源/_ErrorCapture 复位重构/debug 注释/engine enum 补值+search 排序/错误诊断细化/export JSON 化/recording 路由清理）+ IPC-R1~R6 可靠性（env→显式参数/删无效 gap 检测/长操作暂停 TS 心跳/重连 stale 通知/baseline 排除离群点）+ SEC-P1-1 write/edit 沙箱扫描（对齐 execute_gdscript）+ CMP-7 editor instance discovery（addon registry + pid liveness）。三次第三方审查全通过。4667 测试。 |
 | **v0.25.11** | 2026-08-08 | **实时 ClassDB 内省**：新增 `engine` 工具组（editor-only），class_info/search/get_inheritance 走 editor 层直调 ClassDB。让 AI 发现运行中引擎的实际可用类/方法/属性（补静态 docs 的 4.7 快照缺口，含第三方 addon/自定义类/版本差异）。 |
 | **v0.25.10** | 2026-08-08 | **debug 组 Phase 1 断点管理**：新增 `debug` 工具组（editor-only），set/clear/list breakpoint 走 CodeEdit gutter（gutter 可见 + game 命中 + 跨 run 同步）。从无到有的交互式调试能力。留 Phase 2 step/resume/pause + 栈帧读取。 |

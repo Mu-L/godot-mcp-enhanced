@@ -5,6 +5,29 @@ var _plugin: EditorPlugin
 func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"export_list_presets": {
+			"description": "列出项目所有导出预设。",
+			"params": [],
+		},
+		"export_get_preset": {
+			"description": "返回指定导出预设的详情。",
+			"params": [
+				CommandHelpers.doc_param("name", "String", true, "导出预设名"),
+			],
+		},
+		"export_build": {
+			"description": "按指定预设构建导出产物。",
+			"params": [
+				CommandHelpers.doc_param("preset", "String", true, "导出预设名须存在"),
+			],
+		},
+	}
+
+
 func handle_export_list_presets(params: Dictionary) -> Dictionary:
 	if _plugin == null:
 		return {"error": {"code": -32000, "message": "Editor plugin not available"}}

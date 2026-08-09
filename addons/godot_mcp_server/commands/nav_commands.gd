@@ -13,6 +13,56 @@ func cleanup() -> void:
 	_plugin = null
 	_undo_manager = null
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"nav_create_region": {
+			"description": "创建 NavigationRegion3D 节点,可选立即 bake 导航网格。",
+			"params": [
+				CommandHelpers.doc_param("name", "String", false, "节点名默认 NavRegion"),
+				CommandHelpers.doc_param("parent", "String", false, "父节点路径空则挂根"),
+				CommandHelpers.doc_param("position", "Dictionary", false, "键 x/y/z float → Vector3 局部坐标"),
+				CommandHelpers.doc_param("bake", "bool", false, "创建后是否立即 bake 默认 false"),
+			],
+		},
+		"nav_bake_mesh": {
+			"description": "对指定 NavigationRegion3D bake 导航网格。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 NavigationRegion3D 路径"),
+			],
+		},
+		"nav_create_agent": {
+			"description": "创建 NavigationAgent3D 节点并设置避障参数。",
+			"params": [
+				CommandHelpers.doc_param("name", "String", false, "默认 NavAgent"),
+				CommandHelpers.doc_param("parent", "String", false, "父节点路径"),
+				CommandHelpers.doc_param("target_position", "Dictionary", false, "键 x/y/z → Vector3 目标位置"),
+				CommandHelpers.doc_param("path_desired_distance", "float", false, "路径到达阈值默认 0.5"),
+				CommandHelpers.doc_param("target_desired_distance", "float", false, "目标到达阈值默认 1.0"),
+				CommandHelpers.doc_param("avoidance_enabled", "bool", false, "是否启用避障默认 false"),
+			],
+		},
+		"nav_set_params": {
+			"description": "批量设置 NavigationAgent3D 的参数。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 NavigationAgent3D 路径"),
+				CommandHelpers.doc_param("params", "Dictionary", true, "键值表支持 path_desired_distance/target_desired_distance/radius/height/max_speed/avoidance_enabled 等"),
+			],
+		},
+		"nav_create_link": {
+			"description": "创建 NavigationLink3D 节点连接两处导航区域。",
+			"params": [
+				CommandHelpers.doc_param("name", "String", false, "默认 NavLink"),
+				CommandHelpers.doc_param("parent", "String", false, "父节点路径"),
+				CommandHelpers.doc_param("start_position", "Dictionary", false, "键 x/y/z → Vector3 起点"),
+				CommandHelpers.doc_param("end_position", "Dictionary", false, "键 x/y/z → Vector3 终点"),
+				CommandHelpers.doc_param("bidirectional", "bool", false, "是否双向默认 true"),
+			],
+		},
+	}
+
+
 func handle_nav_create_region(params: Dictionary, request_id: int) -> Dictionary:
 	# C4 resolved (2026-07-28, A-lite async-dispatch, fallback 信号方案): bake 经
 	# handle_nav_create_region_async coroutine 等 bake_finished 信号完成（Task 0 实测

@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-08
+
+### Added — CMP-9 双通道通用方法调用 + CMP-16 live schema(竞品 regiellis/godot-mcp-go 深度对标)
+
+**CMP-9-A editor 通用方法调用**（`engine` 组新增 `call_method` action）：
+- 编辑器场景树节点实例方法调用(对标竞品 `node.call`)。AI 可调任意 ClassDB 暴露的实例方法,不必为每个方法写专用 wrapper。
+- 安全护城河:deny-list 默认挡危险方法(`free`/`queue_free`/`set_script`/`call`/`emit_signal` 等),env `GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE` 可定制。不照搬竞品"无过滤"缺陷。
+- args 按方法声明类型自动强转(传 `[1,2,3]` 给 Vector3 参数正确转换)。方法不存在时 did-you-mean 建议。response 显式 `undoable=false`。
+
+**CMP-9-B bridge 通道放宽**（`_cmd_call_method` 增强）：
+- 复用现有 `GODOT_MCP_BRIDGE_EXTRA_METHODS` env 扩展写/副作用方法(对标竞品 `runtime.call`)。向后兼容,不设 env 时行为不变。
+- 新增 did-you-mean + args 类型强转 + `undoable=false`。`EXTRA_METHODS_BLOCKLIST` 硬底线保留。
+
+**CMP-16-A GD param docs metadata**（13 个 command 文件）：
+- 每个 command module 实现 `get_command_docs()` 返回结构化 param docs(对标竞品 `base_command.gd doc_param`)。
+- `command_handler.gd` 新增 `list_param_docs` 聚合入口(对标竞品 `engine.commands {docs:true}`)。
+- `command_helpers.gd` 新增 `doc_param` helper + `godot_type_to_schema_type` 类型映射。
+- 共 57 个 method docs 覆盖全部对外 command。
+
+**CMP-16-B TS live schema 构建**（对标竞品 `serve.go fetchTypedTools + buildTypedTools`）：
+- 新增 `src/core/dynamic-schema.ts`:从 editor addon 拉 param docs 动态构建 MCP 工具。
+- 缓存 + editor 离线降级(返空,只留 `godot_advanced_tool` 兜底)。editor 重连时刷新(修竞品"只 fetch 一次"缺陷)。
+- 排序保证幂等 + 名字冲突保留先到 + 体积自限。
+- `tool-registry.ts` 新增 `registerDynamicTools` API(动态工具归入 `dynamic` 组,`isToolAllowed` 放行)。
+- `GodotServer.ts` tools/list handler merge 动态工具。
+
+**CMP-16-C drift 检测 CI**：
+- 新增 `scripts/check-command-docs-drift.mjs`:比对 GD param docs 与 TS inputSchema 参数一致性。
+- 一期覆盖 debug + engine 工具组(7 method),其余 50 method 标一期豁免(映射表后续扩充)。
+- 已接入 `npm run check:command-docs-drift` + CI。
+
+**CMP-13**:确认已以替代方案(`check:tool-groups` CI invariant 脚本)落地,标记完成。
+
 ## [0.26.0] - 2026-08-08
 
 ### Changed — P1+P2 批次修复（18 项审查 finding 闭环，竞品对标 + 可靠性 + GDScript 健壮性 + 安全）

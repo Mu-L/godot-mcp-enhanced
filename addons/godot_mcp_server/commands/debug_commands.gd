@@ -27,6 +27,32 @@ func cleanup() -> void:
 	_plugin = null
 
 
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"debug_set_breakpoint": {
+			"description": "在指定脚本行设置断点(走 CodeEdit gutter,进入 editor breakpoint map)。脚本须在编辑器中打开且是当前活跃 tab。",
+			"params": [
+				CommandHelpers.doc_param("path", "String", true, "res:// 路径的 .gd 脚本"),
+				CommandHelpers.doc_param("line", "int", true, "1-based 行号"),
+			],
+		},
+		"debug_clear_breakpoint": {
+			"description": "清除指定脚本行的断点。脚本须在编辑器中打开且是当前活跃 tab。",
+			"params": [
+				CommandHelpers.doc_param("path", "String", true, "res:// 路径的 .gd 脚本"),
+				CommandHelpers.doc_param("line", "int", true, "1-based 行号"),
+			],
+		},
+		"debug_list_breakpoints": {
+			"description": "列出当前活跃 tab 脚本的断点(Phase 1 只查当前 tab)。",
+			"params": [
+				CommandHelpers.doc_param("path", "String", false, "可选:只列指定脚本(留空=当前活跃 tab)"),
+			],
+		},
+	}
+
+
 # ─── Breakpoint management ────────────────────────────────────────────────────
 
 func handle_set_breakpoint(params: Dictionary) -> Dictionary:
