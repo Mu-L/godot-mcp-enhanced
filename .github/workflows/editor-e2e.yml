@@ -77,6 +77,15 @@ jobs:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           E2E_EDITOR: '1'
 
+      # 跑 asset 工具真 editor 端到端（create/path/batch/undo/save + 11 shape）
+      # 2026-08-10 项目待办 :177：e2e-asset-tools.test.ts 已从「手工启动 editor 模式」
+      # 重写为自 spawn harness（仿 e2e-testing-undo-manager），weekly 可直接 xvfb-run 跑。
+      - name: E2E asset tools (create/path/batch/undo/save + 11 shapes via editor)
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-asset-tools.test.ts --reporter=json --outputFile=coverage/editor-e2e-asset.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+          E2E_EDITOR: '1'
+
       - name: Upload editor-e2e reports
         if: always()
         uses: actions/upload-artifact@v4
