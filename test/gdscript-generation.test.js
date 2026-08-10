@@ -32,6 +32,7 @@ vi.mock('../src/gdscript-executor.js', () => ({
 
 import {
   gdEscape,
+  escapeForGdLiteral,
   SCENE_TREE_HEADER,
   MARKER_RESULT,
   wrapAssertionCode,
@@ -141,6 +142,80 @@ describe('gdEscape — GDScript string escaping', () => {
     const once = gdEscape('a\nb');
     const twice = gdEscape(once);
     expect(twice).toBe('a\\\\nb'); // \\n becomes \\\\n
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1b. escapeForGdLiteral (SEC-P2-6: 与 gdEscape 共享 escapeGdStringCore,%/' 不转义)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('escapeForGdLiteral — GDScript property-value literal escaping', () => {
+  // 共享转义(与 gdEscape 一致):backslash / quote / newline / tab / LS/PS / CR→LF / \0 删除
+  it('escapes backslash (shared with gdEscape)', () => {
+    expect(escapeForGdLiteral('path\\to\\file')).toBe('path\\\\to\\\\file');
+  });
+
+  it('escapes newline to \\n literal', () => {
+    expect(escapeForGdLiteral('line1\nline2')).toBe('line1\\nline2');
+  });
+
+  it('escapes CRLF to \\n (unified with gdEscape, SEC-P2-6)', () => {
+    expect(escapeForGdLiteral('line1\r\nline2')).toBe('line1\\nline2');
+  });
+
+  it('escapes bare CR to \\n (unified with gdEscape, SEC-P2-6)', () => {
+    expect(escapeForGdLiteral('line1\rline2')).toBe('line1\\nline2');
+  });
+
+  it('escapes tab to \\t literal', () => {
+    expect(escapeForGdLiteral('col1\tcol2')).toBe('col1\\tcol2');
+  });
+
+  it('escapes double quote to \\"', () => {
+    expect(escapeForGdLiteral('say "hello"')).toBe('say \\"hello\\"');
+  });
+
+  it('escapes LS/PS line separators to \\n', () => {
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    expect(escapeForGdLiteral('a' + LS + 'b')).toBe('a\\nb');
+    expect(escapeForGdLiteral('a' + PS + 'b')).toBe('a\\nb');
+  });
+
+  it('removes null bytes (shared with gdEscape)', () => {
+    expect(escapeForGdLiteral('before\0after')).toBe('beforeafter');
+  });
+
+  it('handles empty string', () => {
+    expect(escapeForGdLiteral('')).toBe('');
+  });
+
+  // 用途差异(与 gdEscape 不同):% 和 ' 不转义
+  it('does NOT escape percent (property literal does not participate in % formatting)', () => {
+    expect(escapeForGdLiteral('100%')).toBe('100%');
+  });
+
+  it("does NOT escape single quote", () => {
+    expect(escapeForGdLiteral("it's")).toBe("it's");
+  });
+
+  it('combined: all shared escapes applied, % and \' preserved', () => {
+    const input = 'a\\b\nc\td"e%f$g\'h\0i';
+    const result = escapeForGdLiteral(input);
+    // No raw control characters should remain
+    expect(result).not.toContain('\n');
+    expect(result).not.toContain('\t');
+    expect(result).not.toContain('\r');
+    expect(result).not.toContain('\0');
+    // Shared escaped versions present
+    expect(result).toContain('\\\\');
+    expect(result).toContain('\\n');
+    expect(result).toContain('\\t');
+    expect(result).toContain('\\"');
+    // % and ' preserved verbatim (key difference from gdEscape)
+    expect(result).toContain('%');
+    expect(result).not.toContain('%%');
+    expect(result).toContain("'h");
   });
 });
 

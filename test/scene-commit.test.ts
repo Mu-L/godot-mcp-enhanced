@@ -79,7 +79,8 @@ describe('scene-commit: generateCommitScript', () => {
       true,
     );
     // 控制字符 \r \t 须转义为 GDScript 字面,不能保留原始字符(防 .gd 文本注入/破坏字符串)
-    expect(script).toContain('"a\\tb\\rc"');
+    // SEC-P2-6 (2026-08-10): \r 现统一为 \n(与 gdEscape 共享 escapeGdStringCore),原 \\r 行为废弃
+    expect(script).toContain('"a\\tb\\nc"');
   });
 
   it('generates node_property operation', () => {
@@ -331,6 +332,35 @@ describe('serializeGdValue type inference', () => {
       true,
     );
     expect(script).toContain('.position = Vector3(5, 0, 10)');
+  });
+
+  // SEC-P2-6 (2026-08-10): string 属性值转义经 escapeForGdLiteral(与 gdEscape 共享 core)
+  it('preserves % in string property values (not escaped, no % formatting)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: '50% off' }],
+      true,
+    );
+    expect(script).toContain('"50% off"');
+    expect(script).not.toContain('%%');
+  });
+
+  it("preserves single quote in string property values", () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: "it's" }],
+      true,
+    );
+    expect(script).toContain("\"it's\"");
+  });
+
+  it('removes null bytes in string property values (shared with gdEscape)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: 'before\0after' }],
+      true,
+    );
+    expect(script).toContain('"beforeafter"');
   });
 });
 

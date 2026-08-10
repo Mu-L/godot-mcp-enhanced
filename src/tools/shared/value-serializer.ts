@@ -2,26 +2,56 @@
 
 import { smartCoerce, coerceRect2 } from '../smart-coerce.js';
 
-// Escapes a string for embedding in a GDScript string literal.
-// % → %% prevents GDScript string formatting from interpreting % as a placeholder.
+// GDScript string-literal escaping.
+//
+// 两个导出入口共享同一份 escapeGdStringCore 转义序列,用途差异仅在 %/' 转义开关:
+//   - gdEscape(s):用于运行时模板插值(参与 % 格式化),转义 % → %% 和 ' → \'。
+//   - escapeForGdLiteral(s):用于属性值字面量序列化(不参与 % 格式化),不转义 % 和 '。
+// 改转义逻辑只需改 escapeGdStringCore 一处,两入口自动同步(SEC-P2-6 消除漂移)。
+//
 // Note: do NOT apply gdEscape to already-escaped output (e.g. gdEscape(gdEscape(x)))
 // as %% would become %%%% (harmless but unnecessary double-escaping).
 // Note: \uXXXX sequences are NOT escaped because GDScript does not support \u escapes
 // (only \xHH for hex and \UXXXXYYYY for unicode codepoints in StringName).
 // Note: $ is NOT escaped because GDScript double-quoted strings don't treat $ as special.
 // NodePath syntax like $Player works at the expression level, not inside string literals.
-export function gdEscape(s: string): string {
-  return s
+
+/**
+ * Internal core: unified GDScript string-literal escape sequence.
+ *
+ * 共享转义(无条件):\r\n / \r / LS/PS → \n(统一行结束),\\, \n → \\n, \t → \\t, " → \\", \0 删除。
+ * 条件转义:escapePercent 控制 % → %%(GDScript 字符串格式化占位符),escapeQuote 控制 ' → \\'。
+ *
+ * @param s              原始字符串
+ * @param escapePercent  转 % → %%(运行时模板插值场景需要,属性字面量不需要)
+ * @param escapeQuote    转 ' → \\'(运行时模板插值场景需要,属性字面量不需要)
+ */
+function escapeGdStringCore(s: string, escapePercent: boolean, escapeQuote: boolean): string {
+  let out = s
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .replace(/[\u2028\u2029]/g, '\n')  // IMP-2 (2026-06-26 review): LS/PS(U+2028/2029)行分隔符 → \n,防 GDScript 词法视为行结束破坏字符串字面量(与 scene-commit serializeGdValue 同步)
+    .replace(/[\u2028\u2029]/g, '\n')  // IMP-2 (2026-06-26 review): LS/PS(U+2028/2029)行分隔符 → \n,防 GDScript 词法视为行结束破坏字符串字面量(scene-commit serializeGdValue 经 escapeForGdLiteral 调同一 core,无需手动同步)
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')
     .replace(/"/g, '\\"')
-    .replace(/\0/g, '')
-    .replace(/%/g, '%%')
-    .replace(/'/g, "\\'");
+    .replace(/\0/g, '');
+  if (escapePercent) out = out.replace(/%/g, '%%');
+  if (escapeQuote) out = out.replace(/'/g, "\\'");
+  return out;
+}
+
+/** Escape a string for embedding in a GDScript string literal via runtime template
+ *  interpolation (participates in GDScript % formatting). % → %% and ' → \'. */
+export function gdEscape(s: string): string {
+  return escapeGdStringCore(s, true, true);
+}
+
+/** Escape a string for a GDScript property-value literal (does NOT participate in %
+ *  formatting, so % and ' are preserved verbatim). Used by scene-commit serializeGdValue.
+ *  Shares escapeGdStringCore with gdEscape — change escape logic in one place. */
+export function escapeForGdLiteral(s: string): string {
+  return escapeGdStringCore(s, false, false);
 }
 
 /** Format a number as a Godot-compatible float literal (e.g. 2 → 2.0). */
