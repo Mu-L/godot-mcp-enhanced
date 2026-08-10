@@ -1529,6 +1529,34 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const callCount = (f.match(/scanScriptSandboxOrThrow\(/g) ?? []).length;
       return hasHelper && callCount >= 4 ? 0 : 1;  // 1 定义 + ≥3 调用(实际 4 写入点 + 1 定义 = 5)
     } },
+  // SEC-P2-1 (2026-08-09): test-framework.ts 裸 validatePath 仅 resolve 零安全校验,
+  // 依赖全局门 ToolDispatcher.validatePathArgs 兜底。纵深加固:改 requireProjectPath
+  // (内部 requireString + isPathInAllowedRoots deny-by-default root 白名单)。
+  // detect: test-framework.ts 含 requireProjectPath( 调用 = 防线在(detect=0);裸 validatePath( 调用 = 复发(detect=1)。
+  // 注:import 行的 validatePath 不算(限定函数体内的调用)。
+  { key: 'test-framework-validatepath-no-root-check', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/tools/test-framework.ts');
+      const hasRequire = /requireProjectPath\s*\(/.test(f);
+      const hasBareValidatePath = /[^.]\bvalidatePath\s*\(/.test(f);  // 排除 import 行的 { validatePath }
+      return hasRequire && !hasBareValidatePath ? 0 : 1;
+    } },
+  // SEC-P2-2 (2026-08-09): GD 侧 secret 写不防 symlink(WriteAllText/FileAccess.open follow symlink
+  // 覆盖目标)。读方 editor-auth.ts lstatSync 已兜底,写方对称加固。
+  // detect: 两副本(mcp_bridge.gd + websocket_server.gd)都含 readlink + LinkType + "is a symlink"
+  // 三特征 = 防线在(detect=0);任一副本缺特征 = 复发(detect=1)。仿 instance-property-blocked-gd 多副本模式。
+  { key: 'gd-secret-write-no-symlink-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      const files = ['src/scripts/mcp_bridge.gd', 'addons/godot_mcp_server/websocket_server.gd'];
+      for (const f of files) {
+        const src = readSrc(f);
+        const hasReadlink = /readlink/.test(src);
+        const hasLinkType = /LinkType/.test(src);
+        const hasSymlinkWarn = /is a symlink/.test(src);
+        if (!(hasReadlink && hasLinkType && hasSymlinkWarn)) return 1;  // 任一副本缺特征 = 复发
+      }
+      return 0;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

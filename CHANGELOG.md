@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- **SEC-P2-1**: `test-framework.ts` 补 `requireProjectPath` root 白名单校验（原裸 `validatePath` 仅 resolve 零安全校验，依赖全局门兜底）。
+- **SEC-P2-2**: editor + bridge 两处 GD 侧 secret 写加 symlink 预检（Windows PowerShell `Test-Path`+`Get-Item LinkType`+`exit 3` 拒写；Linux/macOS `readlink` 检测。防预置 symlink follow 覆盖目标文件）。
+
+### Added
+- **Tier1-1 structuredContent**: `add_node`/`screenshot` 成功路径补 structuredContent（action/node_name/node_type + image_path/width/height/blank_warning）。
+- **Tier1-2 scene_editing_strategy prompt**: 三层 SOP prompt（能力发现 + 决策树 + 闭环验证），引导 LLM 正确调用工具。
+- **Tier1-3 execute_gdscript 引导**: script 工具 description 加分步执行最佳实践（每步验证，避免一次性大脚本出错难定位）。
+- **Tier2-1 skills**: 新增 3 个 godot skill（godot-router 路由器 / screenshot-verify 视觉验证 / godot-tween-taste Tween 审计）。
+- **Tier2-2 tscn parser**: 补 Vector2i/Vector3i/PackedInt32Array/Transform3D 四类型解析（原 fallback 字符串丢失）。
+- **CMP-13 generate-all-modules**: 构建期从 module-loader import 块自动生成 ALL_MODULES 数组（新增工具只需加 import 行）。
+
+### Testing
+- **P2-6**: `waitForEditorSecret` 时序状态机 characterization（4 测试：超时返 null 不抛错 / 无跨调用缓存 secret 刷新读到新值 / 轮询 pickup 200ms / 空内容继续轮询）。
+- 新增 `check:changelog-sync` CI 检测（advisory）：`fix(security)`/`feat`/`BREAKING` commit 漏登 `[Unreleased]` 时 warn。
+
 ## [0.28.0] - 2026-08-09
 
 ### Added — CMP-14 debug Phase 2/3 + 后续批次(CMP-16-B/C advanced-proxy/drift 扩充 + CMP-9 confirm gate)
