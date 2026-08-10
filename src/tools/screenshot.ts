@@ -8,6 +8,7 @@ import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
 import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii } from './screenshot-detail.js';
 import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots } from '../helpers.js';
+import { routeImage } from '../core/vision-router.js';
 
 const TOOL_NAMES = ['screenshot'] as const;
 
@@ -40,6 +41,16 @@ export function getToolDefinitions(): Tool[] {
           // analyze params
           image_path: { type: 'string', description: 'analyze: Absolute path to the image file (PNG or JPG)' },
           question: { type: 'string', description: 'analyze: Question for the AI to answer about the image. Default: "Describe what you see in this game screenshot."', default: 'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.' },
+          // Phase 2: Vision Routing(纯文本模型用,调视觉模型把图片翻译成文字描述)
+          vision_route: {
+            type: 'boolean',
+            description: 'Phase 2 Vision Routing:开启时调视觉模型(groq)把图片翻译成文字描述,返回纯文本(不含 image block),让纯文本模型(DeepSeek 等)也能"看懂"截图。失败时 fallback 到 detail 分层 + 追加 note。需 GODOT_MCP_VISION_KEY 环境变量。',
+            default: false,
+          },
+          vision_question: {
+            type: 'string',
+            description: 'vision_route=true 时传给视觉模型的上下文(可选,如"我在调试 Player 走路动画")。',
+          },
           // P1-5 视觉成本层级:full(完整 base64)/ thumbnail(缩略图)/ ascii(ASCII art 文本)
           detail: {
             type: 'string',
@@ -153,7 +164,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       if (projectPath && !isPathInAllowedRoots(projectPath)) {
         throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${projectPath}. Check your ALLOWED_PROJECT_PATHS setting.`);
       }
-      const question = (args.question as string) ||
+      const questionRaw = (args.question as string) ||
         'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.';
 
       if (imagePath) {
@@ -197,7 +208,67 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const ext = extname(imagePath).toLowerCase();
       const isPng = ext !== '.jpg' && ext !== '.jpeg';
 
+      // ── Phase 2: Vision Routing(显式开启时调视觉模型翻译图片→文字)─────────
+      // 纯文本模型(DeepSeek 等)无法处理 image content,vision_route=true 时
+      // 在 TS 侧调 groq 视觉模型把图片翻译成文字描述,返回纯 TextContent(丢弃 image block 省 token)。
+      // 失败时 fallback 到下方现有 detail 分层 + 追加 note,工具链不破。
+      // 对标 godot-ai vision_routing.gd,但因架构不同(TS 侧读文件 vs GD addon 实时截图)
+      // 本实现不需要 worker 线程/deferred/加密存储,更简单。
+      if (args.vision_route === true) {
+        const visionKey = process.env.GODOT_MCP_VISION_KEY;
+        if (!visionKey) {
+          // 无 key → fallback 到 detail 分层 + note(不阻断)
+          const fallbackNote = '⚠ Vision routing unavailable: set GODOT_MCP_VISION_KEY environment variable. Falling back to detail=' + (args.detail ?? 'full') + '.';
+          // 继续走 detail 分层,在结果末尾追加 note(下方 detail 分层后的 return 会处理)
+          // 用标记字段让下方 detail 分层知道要追加 note
+          (args as Record<string, unknown>)._visionFallbackNote = fallbackNote;
+        } else {
+          // 图片预处理:缩放到最长边 1024px(减少 API 成本,对标 godot-ai _downscale_image_if_needed)
+          let routeBase64: string;
+          let routeMime: 'image/png' | 'image/jpeg';
+          if (isPng) {
+            const thumb = downsampleToThumbnail(imageBuffer, 1024);
+            routeBase64 = thumb.base64;
+            routeMime = thumb.mimeType as 'image/png' | 'image/jpeg';
+          } else {
+            routeBase64 = imageBuffer.toString('base64');
+            routeMime = 'image/jpeg';
+          }
+
+          const vr = await routeImage(routeBase64, routeMime, {
+            apiKey: visionKey,
+            model: process.env.GODOT_MCP_VISION_MODEL,
+            question: typeof args.vision_question === 'string' ? args.vision_question : undefined,
+            timeoutMs: process.env.GODOT_MCP_VISION_TIMEOUT_MS ? parseInt(process.env.GODOT_MCP_VISION_TIMEOUT_MS, 10) : undefined,
+            baseUrl: process.env.GODOT_MCP_VISION_BASE_URL,
+          });
+
+          if (vr.success && vr.description) {
+            // 成功:只返回 TextContent(描述 + routed_via),丢弃 image block(省 token)
+            return {
+              ...textResult(JSON.stringify({
+                action: 'screenshot_analyze_vision',
+                vision_description: vr.description,
+                routed_via: vr.routedVia,
+                image_path: imagePath,
+              })),
+              structuredContent: {
+                action: 'screenshot_analyze_vision',
+                vision_description: vr.description,
+                routed_via: vr.routedVia,
+                image_path: imagePath,
+              },
+            };
+          }
+          // 失败:fallback 到 detail 分层 + 追加 note
+          (args as Record<string, unknown>)._visionFallbackNote = `⚠ Vision routing failed: ${vr.error}. Falling back to detail=${args.detail ?? 'full'}.`;
+        }
+      }
+
       // P1-5 视觉成本层级:按 detail 参数选择返回精度
+      const visionNote = (args as Record<string, unknown>)._visionFallbackNote as string | undefined;
+      // Phase 2: vision_route 失败时 fallback 追加 note 到 question(3 个 detail 分支共用)
+      const question = visionNote ? `${questionRaw}\n\n${visionNote}` : questionRaw;
       let detail: 'full' | 'thumbnail' | 'ascii';
       try {
         detail = parseDetailLevel(args.detail);

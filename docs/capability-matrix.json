@@ -4317,6 +4317,15 @@
             "description": "analyze: Question for the AI to answer about the image. Default: \"Describe what you see in this game screenshot.\"",
             "default": "Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs."
           },
+          "vision_route": {
+            "type": "boolean",
+            "description": "Phase 2 Vision Routing:开启时调视觉模型(groq)把图片翻译成文字描述,返回纯文本(不含 image block),让纯文本模型(DeepSeek 等)也能\"看懂\"截图。失败时 fallback 到 detail 分层 + 追加 note。需 GODOT_MCP_VISION_KEY 环境变量。",
+            "default": false
+          },
+          "vision_question": {
+            "type": "string",
+            "description": "vision_route=true 时传给视觉模型的上下文(可选,如\"我在调试 Player 走路动画\")。"
+          },
           "detail": {
             "type": "string",
             "enum": [
@@ -4365,6 +4374,8 @@
         "wait_text",
         "image_path",
         "question",
+        "vision_route",
+        "vision_question",
         "detail",
         "thumbnail_width",
         "ascii_cols",
@@ -4404,8 +4415,8 @@
       },
       "size": {
         "descBytes": 269,
-        "schemaBytes": 2516,
-        "totalBytes": 2785
+        "schemaBytes": 3008,
+        "totalBytes": 3277
       },
       "annotations": {
         "readOnlyHint": true,
