@@ -23,7 +23,8 @@
     "build/scripts/*.gd",
     "build/instructions.md",
     "addons",
-    "scripts"
+    "scripts",
+    "docs/tools/**/*.md"
   ],
   "scripts": {
     "install-plugin": "node scripts/install-plugin.js",
@@ -52,6 +53,7 @@
     "build-matrix": "npm run build && node build/capability/build-matrix.js",
     "diff-matrix": "npm run build && node build/capability/diff-matrix.js",
     "generate:modules": "node scripts/generate-all-modules.mjs",
+    "gen:tool-docs": "node scripts/gen-tool-docs.mjs",
     "check:modules-sync": "node scripts/check-modules-sync.mjs",
     "check:budget": "node scripts/check-token-budget.mjs",
     "check:tool-count": "node scripts/check-tool-count.mjs",
