@@ -41,10 +41,11 @@ import { getAllToolNames, registerDynamicTools } from './core/tool-registry.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
 import { setOnGroupsChanged, setConnectionStatusProvider, setReconnectEditor, buildConnectionStatus, buildReconnectEditor } from './tools/manage-tools.js';
 import { setGetContextConnectionProvider, setEditorSceneProvider } from './tools/get-context.js';
-import { InstanceManager } from './core/instance-manager.js';
+import { InstanceManager, buildInstanceInfo } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
 import { buildAuthHeaders } from './core/instance-api-auth.js';
+import { InstanceHttpServer } from './core/instance-http-server.js';
 import { isFeatureEnabled } from './core/feature-flags.js';
 import * as ps from './core/process-state.js';
 import { killProcess } from './core/process-state.js';
@@ -112,6 +113,10 @@ export class GodotServer {
   // 报告②P0：周期性 orphan 扫描定时器。60s 间隔（规避 killOrphanGodotProcesses 内部 30s 节流）。
   // unref 不阻塞进程退出；close() 时 clearInterval。参考 agent-context.ts:46 / health-monitor.ts:320。
   private orphanScanTimer: ReturnType<typeof setInterval> | null = null;
+  // 行225 MULTI_INSTANCE 接收端：HTTP server + 心跳 + 本实例 id（initMultiInstance 启动，close 清理）。
+  private httpReceiver: InstanceHttpServer | null = null;
+  private instanceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private selfInstanceId: string | null = null;
 
   constructor(opsScript: string, options: ServerOptions = {}) {
     this.opsScript = opsScript;
@@ -353,20 +358,47 @@ export class GodotServer {
     });
   }
 
-  /** Phase 2b: Multi-instance initialization (async fs — C-02). */
+  /** Phase 2b: Multi-instance initialization (async fs — C-02).
+   *  2026-08-10 行225：补全接收端 HTTP server——此前 send-side only，现 verifyApiToken 闭环。 */
   private async initMultiInstance(): Promise<void> {
     if (!isFeatureEnabled('MULTI_INSTANCE')) return;
-    // IMPORTANT-4 (review): MULTI_INSTANCE 的 HMAC 认证(instance-api-auth.ts)当前是发送端 only —
-    // generateApiToken 发签名,但 TS server 不启动 HTTP 接收端,verifyApiToken 零生产调用。
-    // 即发送的 HMAC 签名不被验证,任何能访问 127.0.0.1:<port> 的本地进程可调 /api/<tool>。
-    // 接线 verifyApiToken 前请勿视为端到端认证。详见 instance-api-auth.ts 注释。
-    console.warn('[MCP] MULTI_INSTANCE enabled: HMAC auth is send-side only (verifyApiToken not wired to any HTTP server). Do NOT treat as end-to-end authentication.');
     const projectDir = ps.getProjectDir();
     const manager = new InstanceManager({
       projectRegistryDir: projectDir
         ? join(projectDir, '.godot', 'mcp-instances')
         : undefined,
     });
+    // 行225：启动 HTTP 接收端（verifyApiToken 闭环）。
+    // 分配端口 → 注册自己到 registry → 启动 InstanceHttpServer → 30s 心跳。
+    // 失败不阻断发送端（sendToInstance 仍可工作，只是本实例不被发现/不可被 route 到）。
+    try {
+      const instances = await manager.loadFromRegistry();
+      const usedPorts = instances.map(i => i.port);
+      const port = manager.allocatePort(usedPorts);
+      const projectPath = resolveProjectPath() ?? projectDir ?? process.cwd();
+      const projectName = projectPath.split(/[\\/]/).pop() ?? 'unknown';
+      const selfInfo = buildInstanceInfo({ port, projectPath, projectName });
+      this.selfInstanceId = selfInfo.id;
+      await manager.registerSelf(selfInfo);
+      if (this.dispatcher) {
+        this.httpReceiver = new InstanceHttpServer({
+          port,
+          instanceId: selfInfo.id,
+          dispatcher: this.dispatcher,
+        });
+        await this.httpReceiver.start();
+      }
+      // 30s 心跳刷 lastSeen（stale timeout 70s，留余量）。unref 不阻塞退出。
+      this.instanceHeartbeatTimer = setInterval(() => {
+        if (this.selfInstanceId) {
+          void manager.updateLastSeen(this.selfInstanceId).catch(() => { /* best-effort */ });
+        }
+      }, 30_000);
+      this.instanceHeartbeatTimer.unref?.();
+      getLogger().info('instance', `Multi-instance receiver started on 127.0.0.1:${port} (id=${selfInfo.id}, HMAC auth verified via verifyApiToken)`);
+    } catch (err) {
+      getLogger().warn('instance', `Multi-instance receiver failed to start (send-side still works): ${err instanceof Error ? err.message : err}`);
+    }
     const sendToInstance: RouterDependencies['sendToInstance'] = async (instance, toolName, args) => {
       // 安全：拒绝非法 tool name（防路径注入）
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(toolName)) {
@@ -792,6 +824,25 @@ export class GodotServer {
       if (this.orphanScanTimer) {
         clearInterval(this.orphanScanTimer);
         this.orphanScanTimer = null;
+      }
+      // 行225：停 MULTI_INSTANCE 接收端（HTTP server + 心跳 + 清 registry）。
+      if (this.instanceHeartbeatTimer) {
+        clearInterval(this.instanceHeartbeatTimer);
+        this.instanceHeartbeatTimer = null;
+      }
+      if (this.httpReceiver) {
+        try { await this.httpReceiver.stop(); } catch { /* best-effort */ }
+        this.httpReceiver = null;
+      }
+      if (this.selfInstanceId) {
+        const projectDir = ps.getProjectDir();
+        const mgr = new InstanceManager({
+          projectRegistryDir: projectDir
+            ? join(projectDir, '.godot', 'mcp-instances')
+            : undefined,
+        });
+        try { await mgr.unregisterSelf(this.selfInstanceId); } catch { /* best-effort */ }
+        this.selfInstanceId = null;
       }
       if (this.editorConn) {
         this.editorConn.disconnect();

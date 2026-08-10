@@ -10,12 +10,12 @@
  * - HMAC 签名包含 instance.id + timestamp，防重放
  * - 仅限 localhost 通信 (127.0.0.1)
  *
- * I-6 状态（半成品功能，MULTI_INSTANCE 默认关闭）：
- * sendToInstance / dynamicSender 发送端完整且有测试（instance-router.test.ts /
- * phase2-acceptance.test.ts），但 HTTP /api/<tool> 接收端在本仓库未实现——TS server
- * 不启动 HTTP 服务端，mcp_bridge.gd 走 TCP JSON-RPC 不消费 HMAC 头。因此 verifyApiToken
- * （接收端验证逻辑）目前零生产调用，仅被 instance-api-auth.test.ts 覆盖。未来补接收端时，
- * 在 HTTP server 入口接线 verifyApiToken 即可。删除会破坏上述测试 + 丢失已验证逻辑，故保留并标注。
+ * I-6 状态（2026-08-10 行225 闭环，MULTI_INSTANCE 默认关闭）：
+ * sendToInstance / dynamicSenders 发送端完整且有测试（instance-router.test.ts /
+ * phase2-acceptance.test.ts）。接收端 HTTP /api/<tool> server 在 instance-http-server.ts
+ * 实现，GodotServer.initMultiInstance 启动时接线 verifyApiToken（HMAC 闭环）。
+ * verifyApiToken 现经 InstanceHttpServer.handleRequest 调用（入口验签），
+ * 仍由 instance-api-auth.test.ts 覆盖单元测试 + instance-http-server.test.ts 覆盖集成测试。
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, lstatSync, unlinkSync } from 'node:fs';

@@ -551,7 +551,8 @@ export async function readResource(uri: string, projectPath: string | undefined)
       case 'scene-tree':
         return { uri, mimeType: 'application/json', text: JSON.stringify({ status: 'not_yet_implemented', message: 'Requires active Bridge connection — returns live tree when connected' }) };
       case 'instances':
-        return { uri, mimeType: 'application/json', text: JSON.stringify({ status: 'not_yet_implemented', instances: [], message: 'Multi-instance mode not active — enable GODOT_MCP_MULTI_INSTANCE=true' }) };
+        // 行225 闭环后 MULTI_INSTANCE 接收端可用，但动态实例列表用 godot_list_instances 工具获取（资源 URI 是静态发现，不注入 InstanceManager）。
+        return { uri, mimeType: 'application/json', text: JSON.stringify({ status: 'use_tool', message: 'Use the godot_list_instances tool to discover running instances (multi-instance mode: GODOT_MCP_MULTI_INSTANCE=true)' }) };
       default:
         return { uri, mimeType: 'text/plain', text: `Unknown resource: ${path}. Use godot://project/info, godot://scene/{path}, godot://script/{path}, or godot://file/{path}` };
     }

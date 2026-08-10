@@ -8,6 +8,7 @@ import {
   type InstanceStatus,
   discoverInstances,
   getMachineRegistryDir,
+  buildInstanceInfo,
 } from '../../src/core/instance-manager.js';
 
 const TMP = join(tmpdir(), 'godot-mcp-test-instances');
@@ -421,6 +422,80 @@ describe('InstanceManager', () => {
       expect(result[0]!.id).toBe('async-1');
 
       rmSync(dir, { recursive: true, force: true });
+    });
+  });
+
+  // ─── 行225 新增：写入能力（registerSelf/unregisterSelf/updateLastSeen/allocatePort）───
+  describe('self-registration (行225)', () => {
+    it('registerSelf writes JSON to registry dir + loadFromRegistry can read it back', async () => {
+      const dir = join(tmpdir(), 'godot-mcp-test-reg-' + Date.now());
+      const mgr = new InstanceManager({ registryDir: dir });
+      const info = buildInstanceInfo({ port: 9085, projectPath: 'D:/test', projectName: 'test' });
+      await mgr.registerSelf(info);
+      const loaded = await mgr.loadFromRegistry();
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0]!.id).toBe(info.id);
+      expect(loaded[0]!.port).toBe(9085);
+      expect(loaded[0]!.capabilities).toContain('ts-http-receiver');
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('unregisterSelf deletes the JSON file (best-effort, missing ok)', async () => {
+      const dir = join(tmpdir(), 'godot-mcp-test-unreg-' + Date.now());
+      const mgr = new InstanceManager({ registryDir: dir });
+      const info = buildInstanceInfo({ port: 9086, projectPath: 'D:/test', projectName: 'test' });
+      await mgr.registerSelf(info);
+      // 确认写入
+      expect((await mgr.loadFromRegistry()).length).toBe(1);
+      // 删除
+      await mgr.unregisterSelf(info.id);
+      expect((await mgr.loadFromRegistry()).length).toBe(0);
+      // 再次删除不报错(best-effort)
+      await mgr.unregisterSelf(info.id);
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('updateLastSeen updates only lastSeen field, preserves others', async () => {
+      const dir = join(tmpdir(), 'godot-mcp-test-hb-' + Date.now());
+      const mgr = new InstanceManager({ registryDir: dir });
+      const info = buildInstanceInfo({ port: 9087, projectPath: 'D:/test', projectName: 'test' });
+      const originalLastSeen = info.lastSeen;
+      await mgr.registerSelf(info);
+      // 等 1.1s 确保 lastSeen 变化
+      await new Promise(r => setTimeout(r, 1100));
+      await mgr.updateLastSeen(info.id);
+      const loaded = await mgr.loadFromRegistry();
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0]!.lastSeen).not.toBe(originalLastSeen);
+      expect(loaded[0]!.port).toBe(9087);  // 其他字段保持
+      expect(loaded[0]!.id).toBe(info.id);
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('allocatePort returns first free port in range', () => {
+      const mgr = new InstanceManager({ registryDir: TMP });
+      // 默认范围 9081-9090，无占用 → 9081
+      expect(mgr.allocatePort([])).toBe(9081);
+      // 9081-9083 占用 → 9084
+      expect(mgr.allocatePort([9081, 9082, 9083])).toBe(9084);
+    });
+
+    it('allocatePort throws when all ports in range are occupied', () => {
+      const mgr = new InstanceManager({ registryDir: TMP });
+      const allPorts = Array.from({ length: 10 }, (_, i) => 9081 + i); // 9081-9090
+      expect(() => mgr.allocatePort(allPorts)).toThrow(/No free port in range 9081-9090/);
+    });
+
+    it('buildInstanceInfo generates ts-<pid>-<random> id with required fields', () => {
+      const info = buildInstanceInfo({ port: 9088, projectPath: 'D:/myproject', projectName: 'myproject' });
+      expect(info.id).toMatch(/^ts-\d+-[0-9a-f]{6}$/);
+      expect(info.id).toContain(String(process.pid));
+      expect(info.port).toBe(9088);
+      expect(info.pid).toBe(process.pid);
+      expect(info.capabilities).toContain('ts-http-receiver');
+      expect(info.status).toBe('ready');
+      expect(typeof info.lastSeen).toBe('string');
+      expect(info.lastSeen.length).toBeGreaterThan(0);
     });
   });
 
