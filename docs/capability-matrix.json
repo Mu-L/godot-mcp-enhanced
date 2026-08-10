@@ -693,11 +693,11 @@
       ],
       "readonly": false,
       "longRunning": false,
-      "guarded": false,
-      "securityLevel": "safe",
+      "guarded": true,
+      "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 6,
-        "write": 0,
+        "read": 1,
+        "write": 5,
         "destructive": 0,
         "process": 0
       },
@@ -728,9 +728,9 @@
         "totalBytes": 2599
       },
       "annotations": {
-        "readOnlyHint": true,
+        "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": false
       }
     },
     {

@@ -127,18 +127,15 @@ describe('requiresConfirmation', () => {
   // 锁定 spec §4.1：当前在 GUARDED 外的 action 一律标 read。
   // P0-2 (批次 E): animation_track 的 remove_track/remove_keyframe/update_keyframe 改 destructive 需确认，
   // 移出此「保持不确认」列表（见下方反向 it）。add_track/add_keyframe/set_curve 仍 read 不确认。
+  // P0-2 续 (2026-08-10): animtree 的 create/add_state/add_transition/set_blend/state_edit 改 write 需确认，
+  // 移出此列表（见下方反向 it）。animtree_play 仍 read 不确认（运行时触发，对齐 animation-ops play=read）。
   it.each([
     ['animation_track', 'add_track'],
     ['animation_track', 'add_keyframe'],
     ['animation_track', 'set_curve'],
     ['editor', 'sync_start'],
     ['editor', 'sync_stop'],
-    ['animtree', 'animtree_create'],
-    ['animtree', 'animtree_add_state'],
-    ['animtree', 'animtree_add_transition'],
-    ['animtree', 'animtree_set_blend'],
     ['animtree', 'animtree_play'],
-    ['animtree', 'animtree_state_edit'],
     ['profiler', 'start'],
     ['profiler', 'stop'],
     ['screenshot', 'capture'],
@@ -154,6 +151,16 @@ describe('requiresConfirmation', () => {
     expect(requiresConfirmation('animation_track', { action: 'remove_track' })).toBe(true);
     expect(requiresConfirmation('animation_track', { action: 'remove_keyframe' })).toBe(true);
     expect(requiresConfirmation('animation_track', { action: 'update_keyframe' })).toBe(true);
+  });
+
+  // P0-2 续 (2026-08-10): animtree 写操作（挂场景树/改状态机结构/参数）现需确认（对齐 scene add_node write）。
+  it('P0-2: animtree 写 action 需确认，play 不确认', () => {
+    expect(requiresConfirmation('animtree', { action: 'animtree_create' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_add_state' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_add_transition' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_set_blend' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_state_edit' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_play' })).toBe(false);
   });
 
   // H-1: project 现为 GUARDED 工具——有真实副作用的 action 标 'write' 触发确认；

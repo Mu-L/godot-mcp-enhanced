@@ -1115,6 +1115,13 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // remove_track: 'destructive' = fixed（复发 read 标注→1）。
     detect: () => readSrc('src/tools/animation/animation-track.ts').includes("remove_track: 'destructive'") ? 0 : 1,
   },
+  // ─── 2026-08-10 P0-2 续 animtree 写操作确认门 ──
+  { key: 'animtree-write-confirmation', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P0-2 续: animtree 的 create/add_state/add_transition/set_blend/state_edit 原全标 'read' 绕确认门
+    // （零行为改变迁移决策遗留），对齐 scene add_node(write)。play 仍 read（运行时触发）。
+    // detect: animtree.ts 含 animtree_create: 'write' = fixed（复发 read 标注→1）。
+    detect: () => readSrc('src/tools/animtree.ts').includes("animtree_create: 'write'") ? 0 : 1,
+  },
   { key: 'bridge-take-screenshot-null-crash-swallow', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
     // Bridge take_screenshot 的 get_viewport().get_texture().get_image() 链无 null guard:
     // get_image() 返回 null(窗口后台/viewport 未就绪/DummyRenderer)时 img.save_png() 触发 runtime error

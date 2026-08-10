@@ -42,6 +42,31 @@ describe('animation actionRisks', () => {
   }
 });
 
+describe('animation_track actionRisks', () => {
+  // P0-2（批次 E，commit 4bcb35a）：remove_track/remove_keyframe/update_keyframe 是破坏性操作，
+  // 对齐 animation-ops 同名 destructive。add_track/add_keyframe/set_curve 非破坏仍 read。
+  const cases = {
+    add_track: 'read', add_keyframe: 'read', set_curve: 'read',
+    remove_track: 'destructive', remove_keyframe: 'destructive', update_keyframe: 'destructive',
+  } as const;
+  for (const [action, risk] of Object.entries(cases)) {
+    it(`animation_track.${action} → ${risk}`, () => expect(getActionRisk('animation_track', action)).toBe(risk));
+  }
+});
+
+describe('animtree actionRisks', () => {
+  // P0-2 续（2026-08-10）：create/add_state/add_transition/set_blend/state_edit 是写操作
+  // （create 挂场景树 add_child，其余改状态机结构/参数）。play 是运行时触发仍 read。
+  const cases = {
+    animtree_play: 'read',
+    animtree_create: 'write', animtree_add_state: 'write', animtree_add_transition: 'write',
+    animtree_set_blend: 'write', animtree_state_edit: 'write',
+  } as const;
+  for (const [action, risk] of Object.entries(cases)) {
+    it(`animtree.${action} → ${risk}`, () => expect(getActionRisk('animtree', action)).toBe(risk));
+  }
+});
+
 describe('tilemap actionRisks', () => {
   const cases = {
     tilemap_read: 'read', tilemap_copy: 'read',

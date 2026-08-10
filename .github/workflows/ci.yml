@@ -82,8 +82,11 @@ jobs:
       # 平台敏感(Linux 败/Windows 全过),版本无关(4.1.7/4.1.9 双版本 Windows 全过)。
       # 非生产/测试逻辑 bug。T-2 守护 + game-bridge.ts 覆盖率退本地(Windows game-bridge.test.ts 全过)。
       # 详见 https://github.com/wgt19861219/godot-mcp-enhanced/issues/15
-      - run: npx vitest run --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
       - name: Install Godot 4.6.3 (M3c, job-isolated)
+        # P0-4（2026-08-10）：Godot 安装前置到 vitest 之前，让主 vitest 拿到 GODOT_PATH。
+        # 此前 vitest（:85）跑在安装前，GODOT_PATH 未设 → data-import-integration 等
+        # skipIf(!hasGodot) 测试被静默跳过 → 覆盖率是 mock 覆盖率（codecov 失真）。
+        # 前置后这些测试在 check job 也真跑，覆盖率从 mock 转真。代价 +30-60s 下载。
         run: |
           set -e
           curl -L --fail -o /tmp/godot.zip \
@@ -92,6 +95,11 @@ jobs:
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Run vitest (Godot available for skipIf tests)
+        # P0-4：补 env GODOT_PATH，让 describe.skipIf(!hasGodot) 测试真跑（非静默 skip）
+        run: npx vitest run --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: Check gdscript（产出 report；blocking 经下游 score:gate，本步 exit 0 即使 errors>0）
         run: npm run check:gdscript
         env:

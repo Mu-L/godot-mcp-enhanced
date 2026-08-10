@@ -154,9 +154,10 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   write-edit-script-no-sandbox-scan(SEC-P1-1 scanScriptSandboxOrThrow 4 写入点);合计 131。
 //   +2(2026-08-09 治理批次): test-framework-validatepath-no-root-check(SEC-P2-1 requireProjectPath) +
 //   gd-secret-write-no-symlink-guard(SEC-P2-2 readlink+LinkType 双副本);合计 133。
-    expect(FIXED_DEFECTS.length).toBe(133);
+//   +1(2026-08-10 P0-2 续): animtree-write-confirmation(animtree 5 写操作改 write 触发确认门);合计 134。
+    expect(FIXED_DEFECTS.length).toBe(134);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(133);
+    expect(new Set(keys).size, '存在重名 key').toBe(134);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

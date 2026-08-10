@@ -448,15 +448,18 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animtree: {
     readonly: false,
     long_running: false,
-    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
-    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
+    // P0-2 续（2026-08-10）：create/add_state/add_transition/set_blend/state_edit 是写操作
+    // （create 挂场景树 add_child，其余改动画状态机结构/参数），对齐 scene add_node(write)
+    // + animation-ops 的非破坏性写操作标 write。原全标 'read' 绕确认门（零行为改变迁移决策）
+    // 是遗留 bug——写操作应确认。play 仍 read（运行时播放触发，对齐 animation-ops play=read）。
+    // risk-coverage GUARDED_KEYS 加 'animtree' 允许非 read。
     actionRisks: {
-      animtree_create: 'read',
-      animtree_add_state: 'read',
-      animtree_add_transition: 'read',
-      animtree_set_blend: 'read',
+      animtree_create: 'write',
+      animtree_add_state: 'write',
+      animtree_add_transition: 'write',
+      animtree_set_blend: 'write',
       animtree_play: 'read',
-      animtree_state_edit: 'read',
+      animtree_state_edit: 'write',
     },
   },
 };

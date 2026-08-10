@@ -28,3 +28,26 @@ describe('guard exports for capability matrix', () => {
     expect(requiresConfirmation('docs', { action: 'get_class_info' })).toBe(false);
   });
 });
+
+describe('animation_track / animtree confirm gate (P0-2)', () => {
+  // P0-2（批次 E commit 4bcb35a + 2026-08-10 续）：animation_track 的破坏性操作 + animtree 的
+  // 写操作必须触发确认门（原全标 read 绕过确认是 bug）。
+  it('animation_track destructive actions require confirmation, safe actions do not', () => {
+    expect(requiresConfirmation('animation_track', { action: 'remove_track' })).toBe(true);
+    expect(requiresConfirmation('animation_track', { action: 'remove_keyframe' })).toBe(true);
+    expect(requiresConfirmation('animation_track', { action: 'update_keyframe' })).toBe(true);
+    // 非破坏仍不确认
+    expect(requiresConfirmation('animation_track', { action: 'add_track' })).toBe(false);
+    expect(requiresConfirmation('animation_track', { action: 'add_keyframe' })).toBe(false);
+  });
+
+  it('animtree write actions require confirmation, play does not', () => {
+    expect(requiresConfirmation('animtree', { action: 'animtree_create' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_add_state' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_add_transition' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_set_blend' })).toBe(true);
+    expect(requiresConfirmation('animtree', { action: 'animtree_state_edit' })).toBe(true);
+    // play 运行时触发，不确认（对齐 animation-ops play=read）
+    expect(requiresConfirmation('animtree', { action: 'animtree_play' })).toBe(false);
+  });
+});
