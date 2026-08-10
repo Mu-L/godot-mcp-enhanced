@@ -377,17 +377,27 @@ describe('advanced-proxy', () => {
     });
 
     it('filters by category when provided', async () => {
+      // 注册测试工具到 metaRegistry,提供明确的 category
+      registerTools([
+        { name: 'godot_testcat_action', readonly: false, long_running: false },
+      ]);
+
+      // 三级 discovery(Level 2b):category 返回 lean 视图 {category, count, tools}
+      // godot_testcat_action → category = 'testcat'
       const result = await handleTool('godot_list_dynamic_routes', {
-        category: 'project',
+        category: 'testcat',
       }, mockCtx);
 
       const text = (result?.content?.[0] as any)?.text;
       const parsed = JSON.parse(text);
-      expect(parsed.success).toBe(true);
-      expect(Array.isArray(parsed.registered)).toBe(true);
-      // If any results, they should all contain 'project'
-      for (const name of parsed.registered) {
-        expect(name).toContain('project');
+      // lean 视图结构:{category, count, tools:[{name, brief, params?}]}
+      expect(parsed.category).toBe('testcat');
+      expect(typeof parsed.count).toBe('number');
+      expect(parsed.count).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(parsed.tools)).toBe(true);
+      // 该类所有工具名都含 'testcat'
+      for (const tool of parsed.tools) {
+        expect(tool.name).toContain('testcat');
       }
     });
 

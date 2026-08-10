@@ -2075,19 +2075,34 @@
     {
       "name": "godot_list_dynamic_routes",
       "group": "dynamic",
-      "description": "查询 Godot 端已注册但 MCP 侧未定义的工具。需要 Godot 实例连接。",
+      "description": "三级 lazy discovery:查询可用工具(静态注册 + 动态发现)。无参返回 category 计数;search 模糊匹配;category 查某类工具清单;tool 查单工具完整 schema。",
       "inputSchema": {
         "type": "object",
         "properties": {
           "category": {
             "type": "string",
-            "description": "按类别过滤（可选）"
+            "description": "类别名 → 返回该类工具清单(brief + 参数名,lean 视图)。配合 includeSchemas=true 可一次性返回完整 schema。"
+          },
+          "search": {
+            "type": "string",
+            "description": "关键词(空格分隔),全部命中才匹配;名字命中排名优先。上限 20 条,不带 schema。"
+          },
+          "tool": {
+            "type": "string",
+            "description": "工具名 → 返回单工具完整 schema(优先级最高,覆盖 search/category)。"
+          },
+          "includeSchemas": {
+            "type": "boolean",
+            "description": "配合 category 使用:一次性返回该类所有工具的完整 schema(体积大,慎用)。"
           }
         }
       },
       "requiredParams": [],
       "optionalParams": [
-        "category"
+        "category",
+        "search",
+        "tool",
+        "includeSchemas"
       ],
       "readonly": true,
       "longRunning": false,
@@ -2115,9 +2130,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 85,
-        "schemaBytes": 105,
-        "totalBytes": 190
+        "descBytes": 185,
+        "schemaBytes": 631,
+        "totalBytes": 816
       },
       "annotations": {
         "readOnlyHint": false,

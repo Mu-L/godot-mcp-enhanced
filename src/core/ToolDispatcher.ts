@@ -34,6 +34,7 @@ import { validateArgs } from './args-validator.js';
 import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { truncateResponse } from './response-limiter.js';
+import { isErrorText } from './response-format.js';
 import * as ps from './process-state.js';
 import { getLogger, withRequestLogLevelAsync, withRequestLogFn, type LogLevel } from './logger.js';
 import { resolveProjectPath } from './path-utils.js';
@@ -460,11 +461,21 @@ export class ToolDispatcher {
       before: async () => ({ passed: true }),
       after: async (ctx, result) => {
         const duration = Date.now() - ctx.startTime;
-        const isError = result.isError === true || this.checkJsonSuccessFalse(result);
+        // Phase 1(对标 unity response-format.js):用 isErrorText 识别逻辑失败,
+        // 覆盖 {success:false} / {ok:false} / {error:string} / {error:{message}} / {error_code,message} 多种 shape。
+        // 旧 checkJsonSuccessFalse 只认 {success:false} 一种,漏判其他形态的逻辑失败。
+        const detectedError = result.isError === true || this.checkJsonSuccessFalse(result);
+        const isError = detectedError;
         const recorder = getCallRecorder();
         if (isError) {
           this.healthMonitor.recordFailure('TOOL_ERROR', `Tool ${ctx.toolName} failed`);
           recorder.record(ctx.toolName, false, duration, 'TOOL_ERROR', extractErrorMessage(result));
+          // Phase 1(对标 unity index.js:466-469):把逻辑失败的 isError flag 写回 result,
+          // 让客户端(CallToolResult.isError)能正确识别。之前只用于监控,客户端拿不到。
+          // 只在 result 未显式设置 isError 时补打(不覆盖 handler/editor 已设的值)。
+          if (result.isError === undefined) {
+            result.isError = true;
+          }
         } else {
           this.healthMonitor.recordSuccess(duration);
           recorder.record(ctx.toolName, true, duration);
@@ -833,15 +844,17 @@ export class ToolDispatcher {
     return result;
   }
 
-  /** Parse content blocks as JSON and check for success === false. */
+  /** Parse content blocks and check for logical failure.
+   *
+   * Phase 1 升级:改用 response-format.ts 的 isErrorText,覆盖多种 error shape。
+   * 旧实现只检测 {success:false} 一种,漏判 {ok:false} / {error:string} / {error:{message}} /
+   * {error_code, message} 形态的逻辑失败(对标 unity-mcp-server response-format.js:31-41)。
+   */
   private checkJsonSuccessFalse(result: ToolResult): boolean {
     if (!result.content) return false;
     for (const block of result.content) {
       if ("text" in block && typeof block.text === "string") {
-        try {
-          const parsed = JSON.parse(block.text);
-          if (parsed && typeof parsed === "object" && parsed.success === false) return true;
-        } catch { /* not JSON */ }
+        if (isErrorText(block.text)) return true;
       }
     }
     return false;
