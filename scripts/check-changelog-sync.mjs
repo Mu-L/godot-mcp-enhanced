@@ -58,29 +58,40 @@ function extractRecentVersion(changelog) {
 
 /**
  * git log 取待发版 commit(最近版本日期之后)。
- * 返回 [{ hash, subject }] 数组。
+ * 返回 [{ hash, subject, body }] 数组。body 含完整 message(subject + footer),
+ * 用于检测 BREAKING CHANGE: footer 形态(Conventional Commits)。
  */
 function getCommitsSince(sinceDate) {
   // --since 用日期(含当天),取当天及之后的 commit
+  // 用 NUL(%x00)做 commit 记录分隔(因 body 含换行,不能按 \n split);
+  // subject(%s) 与 body(%b) 用 tab(%x09) 分隔
   const log = execSync(
-    `git log --since="${sinceDate}" --format="%H%x09%s" --no-merges`,
+    `git log --since="${sinceDate}" --format="%H%x09%s%x09%b%x00" --no-merges`,
     { encoding: 'utf-8' },
-  ).trim();
-  if (!log) return [];
-  return log.split('\n').map(line => {
-    const [hash, ...subjectParts] = line.split('\t');
-    return { hash: hash.slice(0, 7), subject: subjectParts.join('\t') };
+  );
+  if (!log.trim()) return [];
+  return log.split('\x00').filter(Boolean).map(record => {
+    const [hash, subject, ...bodyParts] = record.split('\t');
+    return { hash: hash.slice(0, 7), subject: subject ?? '', body: bodyParts.join('\t') };
   });
 }
 
 /**
  * 筛需进 CHANGELOG 的 commit(按惯例:feat/fix(security/reliability/correctness)/BREAKING)。
  * 纯 test/docs/refactor/chore/style/ci/build 不检测(本就不进 CHANGELOG)。
+ *
+ * BREAKING 检测两种形态:
+ * 1. subject 前缀 feat!: / fix!: (Conventional Commits 的 ! 语法)
+ * 2. footer BREAKING CHANGE: 描述 (在 body 里)
  */
-const CHANGELOG_WORTHY = /^(feat|fix\(security\)|fix\(reliability\)|fix\(correctness\)|BREAKING)/i;
+const SUBJECT_WORTHY = /^(feat!?|fix\(security\)!?|fix\(reliability\)!?|fix\(correctness\)!?|BREAKING)/i;
+const FOOTPER_BREAKING = /^BREAKING[ -]CHANGE:/im;
 
-function isChangelogWorthy(subject) {
-  return CHANGELOG_WORTHY.test(subject);
+function isChangelogWorthy(subject, body) {
+  if (SUBJECT_WORTHY.test(subject)) return true;
+  // 查 body 的 BREAKING CHANGE: footer(多行 body,逐行查)
+  if (body && FOOTPER_BREAKING.test(body)) return true;
+  return false;
 }
 
 /**
@@ -115,14 +126,14 @@ function main() {
   }
 
   const commits = getCommitsSince(sinceDate);
-  const worthy = commits.filter(c => isChangelogWorthy(c.subject));
+  const worthy = commits.filter(c => isChangelogWorthy(c.subject, c.body));
 
   if (worthy.length === 0) {
     console.log('[changelog-sync] ✓ 最近版本(%s)后无需进 CHANGELOG 的 commit', sinceDate);
     return;
   }
 
-  const missing = worthy.filter(c => !isMentionedInChangelog(c.subject, unreleased, recentVersion));
+  const missing = worthy.filter(c => !isMentionedInChangelog(c.subject + ' ' + c.body, unreleased, recentVersion));
 
   if (missing.length === 0) {
     console.log('[changelog-sync] ✓ %d 个待检 commit 均已在 [Unreleased] 登记', worthy.length);
