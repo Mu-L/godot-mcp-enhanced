@@ -17,6 +17,10 @@ export class EditorToolExecutor {
   // 即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
   // 可选：未注入时不预检（向后兼容既有 new EditorToolExecutor(conn) 调用点）。
   private readonly healthMonitor?: HealthMonitor;
+  // P2-1R (2026-08-11 CMP-1 TOCTOU): 自动重连后 verifyEditorProject 校验期 gate。
+  // GodotServer 注入 () => this._editorVerifying;校验期 _executeInner 入口即时返
+  // VERIFICATION_IN_PROGRESS,防 editor 工具作用错误项目场景树(对齐 B-T3 HOL 预检范式)。
+  private readonly isVerifying?: () => boolean;
   // security P1#2: editor 工具串行化链(防并发 ws.send 致 undo 栈 LIFO 错乱)
   private executeChain: Promise<unknown> = Promise.resolve();
 
@@ -34,9 +38,10 @@ export class EditorToolExecutor {
     }
   };
 
-  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor) {
+  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor, isVerifying?: () => boolean) {
     this.conn = conn;
     this.healthMonitor = healthMonitor;
+    this.isVerifying = isVerifying;
     this.conn.addOnDisconnectHandler(this._disconnectHandler);
     this.conn.addOnReconnectHandler(this._reconnectHandler);
   }
@@ -75,6 +80,16 @@ export class EditorToolExecutor {
       return opsErrorResult(
         'NOT_CONNECTED',
         'Editor is reconnecting (half-open precheck). Retry shortly.',
+      );
+    }
+    // P2-1R: CMP-1 重连 TOCTOU 预检——自动重连后 verifyEditorProject 校验期(~5s RPC 超时)
+    // editorExecutor 已就绪 + connected=true,但项目可能不匹配(端口被另一项目 editor 接管)。
+    // 校验期即时返 VERIFICATION_IN_PROGRESS 跳过,防写操作作用错误场景树(对齐 B-T3 范式)。
+    // verifyEditorProject finally 复位 _editorVerifying,校验完恢复。
+    if (this.isVerifying?.()) {
+      return opsErrorResult(
+        'VERIFICATION_IN_PROGRESS',
+        'Editor is verifying project match after reconnect. Retry shortly.',
       );
     }
     try {

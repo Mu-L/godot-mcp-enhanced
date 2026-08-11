@@ -99,6 +99,9 @@ export class GodotServer {
   private dispatcher: ToolDispatcher | null = null;
   private editorConn: EditorConnection | null = null;
   private editorExecutor: EditorToolExecutor | null = null;
+  // P2-1R (2026-08-11 CMP-1 TOCTOU): 自动重连校验期 flag,传给 EditorToolExecutor 作 gate。
+  // true 期间 editor 工具入口返 VERIFICATION_IN_PROGRESS,防 TOCTOU 窗口期写操作作用错误项目。
+  private _editorVerifying = false;
   private connectionMode: 'headless' | 'editor';
   /** B-T5: pingFn catch 保留 err.code,供 onStateChange 分流——
    *  REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ 降级;
@@ -639,7 +642,7 @@ export class GodotServer {
       // B-T3: hm 提前到 EditorToolExecutor 构造前复用，注入 _executeInner 半开 HOL 预检
       // （reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待，避免串行 executeChain ×30s 放大）。
       const hm = this.dispatcher?.getHealthMonitor();
-      this.editorExecutor = new EditorToolExecutor(this.editorConn, hm);
+      this.editorExecutor = new EditorToolExecutor(this.editorConn, hm, () => this._editorVerifying);
       this.dispatcher?.setEditorExecutor(this.editorExecutor);
       // CMP-16-B (2026-08-08): editor (重)连接成功 → 清 dynamic schema 缓存,下次 tools/list 重新拉取。
       // 这修复竞品"只 fetch 一次不刷新"缺陷(editor 重装 addon 后工具集更新)。
@@ -658,11 +661,16 @@ export class GodotServer {
         // CMP-1 NIT-1 (2026-08-08 第三方审查): 自动重连后重新校验项目匹配。
         // editor 可能重连后对应不同项目(如端口被另一个项目的 editor 接管),需重校验。
         // fire-and-forget:不阻塞重连流程;mismatch 则 handleEditorStall 降级。
+        // P2-1R (2026-08-11): 校验期设 _editorVerifying=true,EditorToolExecutor 入口
+        // 即时返 VERIFICATION_IN_PROGRESS,防 TOCTOU 窗口期写操作作用错误项目场景树。
+        this._editorVerifying = true;
         void this.verifyEditorProject().then((check) => {
           if (!check.ok) {
             getLogger().warn('auth', `Editor project changed after reconnect: expected ${check.expected ?? '(unknown)'}, got ${check.actual ?? '(unreadable)'} — degrading to headless.`);
             this.handleEditorStall();
           }
+        }).finally(() => {
+          this._editorVerifying = false;
         });
         // IPC-R4 (2026-08-08): 重连后通知客户端场景树可能 stale。
         // 重连期间 editor 侧场景可能已切换/节点增删,客户端缓存的 scene tree 状态失效。
