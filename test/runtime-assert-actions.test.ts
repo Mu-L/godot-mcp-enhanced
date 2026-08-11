@@ -91,6 +91,17 @@ describe('runtime-assert scene_structure (P0-1)', () => {
     expect((p.mismatch as Record<string, unknown>)['/root/Main/Boss']).toEqual({ expected: 'present', actual: 'absent' });
   });
 
+  it('mismatch: 期望 absent 但实际 present → passed:false (N.1 子分支)', async () => {
+    // 审查 N.1: runtime-assert.ts:176 内层 if(exists) mismatch[expected:absent,actual:present]
+    // 原三个 scene_structure 测试只测 absent+!exists→pass 和 present+!exists→mismatch,
+    // 漏了 absent+exists→mismatch(场景清理失败/残留节点应报警)。
+    mockedBridge.mockResolvedValue({ result: { nodes: [{ path: '/root/Main/Boss' }] } });
+    const r = await handleTool('runtime_assert', { action: 'scene_structure', nodes: [{ path: '/root/Main/Boss', absent: true }] }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(false);
+    expect((p.mismatch as Record<string, unknown>)['/root/Main/Boss']).toEqual({ expected: 'absent', actual: 'present' });
+  });
+
   it('error: 缺 nodes → INVALID_PARAMS', async () => {
     const r = await handleTool('runtime_assert', { action: 'scene_structure' }, {} as never);
     const p = parse(r);
@@ -124,6 +135,16 @@ describe('runtime-assert screen_text (P0-1)', () => {
     const p = parse(r);
     expect(p.passed).toBe(false);
     expect((p.mismatch as Record<string, unknown>).text).toEqual({ expected: 'present', actual: 'absent' });
+  });
+
+  it('mismatch: present=false 但文本找到 → passed:false (N.2 输入组合)', async () => {
+    // 审查 N.2: runtime-assert.ts:204-210 else 分支的 !present+found 输入组合未独立测
+    // (原只测 present+!found 进 else)。补此覆盖防有人改 :204 为 if(found) return pass。
+    mockedBridge.mockResolvedValue({ result: [{ name: 'Label', text: 'Game Over' }] });
+    const r = await handleTool('runtime_assert', { action: 'screen_text', text: 'Game Over', present: false }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(false);
+    expect((p.mismatch as Record<string, unknown>).text).toEqual({ expected: 'absent', actual: 'present' });
   });
 
   it('error: 缺 text → INVALID_PARAMS', async () => {
