@@ -168,3 +168,28 @@ import('./core/update-checker.js')
 **用户的可控边界**：(1) 不设 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 则 dotnet build 不跑（零外传风险）；(2) 设了 opt-in 后，外传面等同于手动运行 `dotnet build`（用户对自己项目的 .csproj 负责）。
 
 阶段 1+ 均会同步更新本文档与 CHANGELOG，并通过 `setup_project_rules` 写入 `.claude/rules/` 让 AI 在使用本工具时知晓当前阶段。
+
+---
+
+## 非 telemetry 外传点：Vision Router（screenshot vision_route，2026-08-11 审查 P1 披露）
+
+> 此项**不属于 telemetry 子系统**，但属可控外传面，一并列出供用户知情。2026-08-11 隐私审查第 6 轮发现 commit `6f068e8` 引入的 vision-router 此前未在本文档披露。
+
+`screenshot` 工具的 `analyze` action 设 `vision_route=true` 时（`src/tools/screenshot.ts:217`），若同时设了 `GODOT_MCP_VISION_KEY`，会把截图路由到视觉模型翻译成文字描述（让纯文本模型也能"看"截图，对标 godot-ai vision_routing.gd）。
+
+**外传内容**（`src/core/vision-router.ts`）：
+- **截图全文**：`data:image/png;base64,<截图 base64>`（`:149` `image_url` 字段）
+- **prompt**：要求视觉模型"quote text exactly"（精确引用屏幕文字，含 UI 文本/错误消息/HUD 值/debug overlay）+ agent 上下文（`question` 参数，如"我在调试 Player 走路动画"）
+- **endpoint**：默认 `https://api.groq.com/openai/v1/chat/completions`（`:52` `DEFAULT_BASE_URL`，OpenAI dialect 兼容）
+- **模型**：`meta-llama/llama-4-scout-17b-16e-instruct`（groq 视觉模型，有免费档）
+
+**双重 opt-in 门控（默认零外传）**：
+1. **per-call** `vision_route=true`（显式传参，默认 false——不传则零外传）
+2. **env** `GODOT_MCP_VISION_KEY`（视觉模型 API key，未设则 `routeImage` 返 `{success:false, error:'No API key'}`，调用方 fallback 到本地 detail 分层，零外传）
+
+**用户的可控边界**：
+- 不传 `vision_route=true` 或不设 `GODOT_MCP_VISION_KEY` → **零外传**（fallback 本地 detail 分层描述）
+- 设了双重门控后，外传面等同于用户手动把截图发给 groq（用户对自己的 API key + 截图数据负责）
+- **可覆盖 endpoint**：设 `GODOT_MCP_VISION_BASE_URL` 指向自建视觉模型 / 本地 ollama / 国内中转（OpenAI dialect 兼容即可），截图不外传到 groq
+
+**与 update-checker 的对比**：update-checker 是启动时被动外传（IP/UA 到 npmjs.org）；vision-router 是 per-call 显式外传（截图全文到 groq）。两者都默认零外传（前者靠 env opt-out，后者靠双重 opt-in），但触发粒度 + 外传数据量级不同。

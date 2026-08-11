@@ -69,6 +69,8 @@ The above is a **mistake-prevention layer**, not an unbreakable security boundar
 > **⚠️ Honest disclosure — update-checker egress**: every MCP server startup passively fetches `https://registry.npmjs.org/godot-mcp-enhanced/latest` via `fetch(REGISTRY_URL)` in `src/core/update-checker.ts` (24h cache). This is unrelated to telemetry but does send data off-host. **As of v0.25.7, set `GODOT_MCP_UPDATE_CHECK=false` (or `0`/`no`/`off`, case-insensitive) to disable this startup egress**; the `self_update` check action bypasses this gate via `force:true`, and since its risk='read' requires no confirmation token, **AI can autonomously trigger egress** (IP/UA leak to npmjs.org). For strict zero egress, use firewall, `NO_PROXY=registry.npmjs.org`, or readOnly mode rejecting the entire tool. See [`docs/telemetry.md`](docs/telemetry.md).
 >
 > **Proxy environment variables**: update-checker's npm registry fetch respects `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment variables (Node's default `trustEnv`). In enterprise proxy environments, requests go through the proxy; to fully block, set `NO_PROXY=registry.npmjs.org` or use firewall rules. **Intentionally not setting `trustEnv: false`**—doing so would break update checks for legitimate enterprise proxy users.
+>
+> **⚠️ Honest disclosure — vision-router egress**: when `screenshot` analyze action sets `vision_route=true` + `GODOT_MCP_VISION_KEY`, the screenshot base64 + prompt is sent to `https://api.groq.com` (groq vision model). **Dual opt-in, zero egress by default** (no `vision_route` or no key → fallback to local detail tier). Set `GODOT_MCP_VISION_BASE_URL` to point to self-hosted/ollama/regional proxy to avoid egress to groq. See [`docs/telemetry.md`](docs/telemetry.md).
 
 ## Core Capabilities
 

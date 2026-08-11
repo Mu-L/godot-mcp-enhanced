@@ -74,6 +74,8 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 > **⚠️ 诚实披露 update-checker 外传点**:本仓库每次 MCP server 启动时,`src/core/update-checker.ts` 的 `fetch(REGISTRY_URL)` 会**被动 fetch** `https://registry.npmjs.org/godot-mcp-enhanced/latest`(24h 缓存)。此行为与遥测无关但涉及「数据离开本机」。**v0.25.7 起支持 `GODOT_MCP_UPDATE_CHECK=false`(或 `0`/`no`/`off`,大小写不敏感)关闭启动外传**;`self_update` check action 经 `force:true` 短路此门控,且 risk='read' 不经确认令牌,**AI 可自主调用触发外传**(IP/UA 泄漏 npmjs.org)。严格零外传需防火墙、`NO_PROXY=registry.npmjs.org` 或 readOnly 模式拒整工具。详见 [`docs/telemetry.md`](docs/telemetry.md#-诚实披露既有的非遥测外传点)。
 >
 > **代理环境变量**:update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 trustEnv）。企业代理环境下请求经代理；完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
+>
+> **⚠️ 诚实披露 vision-router 外传点**: `screenshot` analyze action 设 `vision_route=true` + `GODOT_MCP_VISION_KEY` 时，截图 base64+prompt 外传到 `https://api.groq.com`（groq 视觉模型）。**双重 opt-in 默认零外传**（不传 `vision_route` 或不设 key → fallback 本地 detail 分层，零外传）。可设 `GODOT_MCP_VISION_BASE_URL` 指向自建/ollama/国内中转避免外传到 groq。详见 [`docs/telemetry.md`](docs/telemetry.md)。
 
 ## Blender 建模（execute_bpy）安全模型
 

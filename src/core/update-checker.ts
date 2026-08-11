@@ -75,7 +75,8 @@ export interface UpdateCheckResult {
 export async function checkForUpdateCached(opts?: { force?: boolean; cacheDir?: string }): Promise<UpdateCheckResult> {
   // 2026-08-06 审查 P3：env 门控（用户可设 GODOT_MCP_UPDATE_CHECK=false 关闭启动外传，
   // 对齐 telemetry opt-in 哲学——telemetry 都 opt-in 了 update-checker 也应可关）。
-  // 注：force=true 时仍走（self_update check action 显式查询属用户主动行为，不受 env 门控）。
+  // 注：force=true 时仍走（self_update check action 经 force:true 短路门控，且 risk='read'
+  // 不经确认令牌，AI 可自主调用触发外传——对齐 docs/telemetry.md 诚实披露段）。
   // 2026-08-07 审查 P1：语义健壮化——原 === 'false' 严格字符串相等，大小写敏感 + 不认 falsy 变体
   // （用户写 =0/=no/=off/=False/=FALSE 都不触发关闭）。改为认 false/0/no/off + 大小写不敏感，
   // 对齐 feature-flags.ts isFeatureEnabled 的标准化逻辑（方向相反：update-checker 是 opt-out 默认开，

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Security
 - **SEC-P2-1**: `test-framework.ts` 补 `requireProjectPath` root 白名单校验（原裸 `validatePath` 仅 resolve 零安全校验，依赖全局门兜底）。
 - **SEC-P2-2**: editor + bridge 两处 GD 侧 secret 写加 symlink 预检（Windows PowerShell `Test-Path`+`Get-Item LinkType`+`exit 3` 拒写；Linux/macOS `readlink` 检测。防预置 symlink follow 覆盖目标文件）。
+- **SEC-P1（披露）**: vision-router 外传截图 base64+prompt 到 groq（commit `6f068e8` 引入，双重 opt-in 门控默认零外传）。[docs/telemetry.md](docs/telemetry.md) 补「非 telemetry 外传点：Vision Router」段完整披露外传内容/门控/可控边界/endpoint 覆盖（`GODOT_MCP_VISION_BASE_URL`）。
 
 ### Added
 - **Tier1-1 structuredContent**: `add_node`/`screenshot` 成功路径补 structuredContent（action/node_name/node_type + image_path/width/height/blank_warning）。
@@ -17,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Tier2-1 skills**: 新增 3 个 godot skill（godot-router 路由器 / screenshot-verify 视觉验证 / godot-tween-taste Tween 审计）。
 - **Tier2-2 tscn parser**: 补 Vector2i/Vector3i/PackedInt32Array/Transform3D 四类型解析（原 fallback 字符串丢失）。
 - **CMP-13 generate-all-modules**: 构建期从 module-loader import 块自动生成 ALL_MODULES 数组（新增工具只需加 import 行）。
+- **Vision Routing**: `screenshot` analyze action 加 `vision_route` 参数，把截图路由到视觉模型（groq llama-4-scout）翻译成文字描述，让纯文本模型也能"看"截图。双重 opt-in 门控（`vision_route=true` + `GODOT_MCP_VISION_KEY`，默认零外传）。详见 [docs/telemetry.md](docs/telemetry.md) 诚实披露段。
 
 ### Testing
 - **P2-6**: `waitForEditorSecret` 时序状态机 characterization（4 测试：超时返 null 不抛错 / 无跨调用缓存 secret 刷新读到新值 / 轮询 pickup 200ms / 空内容继续轮询）。
