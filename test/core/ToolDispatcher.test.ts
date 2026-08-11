@@ -1809,6 +1809,51 @@ describe('executeToolCall profile enforcement (Task 3, A-RCE #3)', () => {
 // record 被调(成功记 ctx.toolName+ok,失败记 +errorType/extractErrorMessage)。
 // 验证 getCallRecorder().getStats() 的 total/success/fail 在成功/失败 dispatch 后变化。
 
+// ── P0-2 (2026-08-11): ACTION_GATED dispatcher 接线集成测 ────────────────────
+// action-gate.test.ts 只覆盖纯函数(isActionGated/isActionAllowed/resolveEnabledGroups)。
+// 本块验证 ToolDispatcher.ts:273-275 的接线层:GODOT_MCP_PRIVILEGED_GROUPS 未设时
+// script.execute_gdscript 被 ACTION_GATED 拦截,设 code-execution 后放行到 handleTool。
+// 删掉 :273-275 不会让任何现有测试红 = 接线零验证(wiring-zero-verification-test-gap
+// 教训复发),本块补这个 gap。action-gate 是真实 import(非 mock),故为真集成测。
+describe('ToolDispatcher ACTION_GATED wiring (P0-2)', () => {
+  const origEnv = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+
+  afterEach(() => {
+    if (origEnv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origEnv;
+  });
+
+  it('blocks script.execute_gdscript when GODOT_MCP_PRIVILEGED_GROUPS unset (integration, not pure-fn)', async () => {
+    delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'script', arguments: { action: 'execute_gdscript', project_path: '/tmp', code: 'pass' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('ACTION_GATED');
+  });
+
+  it('allows script.execute_gdscript when GODOT_MCP_PRIVILEGED_GROUPS=code-execution', async () => {
+    process.env.GODOT_MCP_PRIVILEGED_GROUPS = 'code-execution';
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'script', arguments: { action: 'execute_gdscript', project_path: '/tmp', code: 'pass' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+    expect(result.isError).toBeFalsy();
+  });
+});
+
 describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
   const successResult: ToolResult = {
     content: [{ type: 'text', text: JSON.stringify({ status: 'ok' }) }],
