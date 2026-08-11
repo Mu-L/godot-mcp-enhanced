@@ -29,7 +29,6 @@ import {
   searchTools,
   listCategory,
   getToolSchema,
-  categoryOf,
 } from '../core/tool-discovery.js';
 
 // ─── Delegate (set by ToolDispatcher to enable re-dispatch) ─────────────────

@@ -97,6 +97,12 @@ describe('looksLikeErrorObject', () => {
     expect(looksLikeErrorObject({ error_code: 'UNKNOWN_TOOL', message: 'not found' })).toBe(true);
   });
 
+  it('does NOT flag message-only without error_code (M1: recording.ts {status:ok, message})', () => {
+    // 修复:原 message-only 检查误判 {status:'ok', message:'...'} 为错误(recording.ts:317)
+    expect(looksLikeErrorObject({ message: 'No events to play' })).toBe(false);
+    expect(looksLikeErrorObject({ status: 'ok', events_played: 0, message: 'No events to play' })).toBe(false);
+  });
+
   it('respects explicit success: true over error field', () => {
     // 状态查询类工具带 error 字段但 success=true 不算失败
     expect(looksLikeErrorObject({ success: true, error: 'some warning' })).toBe(false);

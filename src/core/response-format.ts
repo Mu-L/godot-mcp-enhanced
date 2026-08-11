@@ -56,7 +56,7 @@ export function firstSentence(text: string | undefined | null): string | undefin
  * 识别的 shape(godot opsError + unity 兼容):
  *   - {success: false} 或 {ok: false} → true
  *   - {error: "string"} 或 {error: {message: "string"}} → true(unity 形态)
- *   - {message: "string"} 且无 success: true → true(godot advanced-proxy 的 UNKNOWN_TOOL 形态)
+ *   - {error_code, message} 且无 success → true(godot advanced-proxy 形态,M1 收紧:需 error_code 共存)
  *   - {success: true} 或 {ok: true} → false(显式成功优先,状态查询类带 error 字段但成功不算失败)
  *
  * @param obj 待检测对象(非对象/数组返回 false)
@@ -70,9 +70,12 @@ export function looksLikeErrorObject(obj: unknown): boolean {
   // unity 形态:error 为 string 或 {message: string}
   if (typeof o.error === 'string' && (o.error as string).length > 0) return true;
   if (o.error && typeof o.error === 'object' && typeof (o.error as { message?: unknown }).message === 'string') return true;
-  // godot advanced-proxy 形态:{error_code, message}(无 success 字段时,message 存在即视为错误)
-  // 注意:必须在 success 未设置时才认 message,避免误判 {success:true, message:"..."} 的成功响应
-  if (typeof o.message === 'string' && (o.message as string).length > 0 && o.success === undefined && o.ok === undefined) {
+  // godot advanced-proxy 形态:{error_code, message}(M1 收紧:需 error_code 共存才视为错误)
+  // 原仅凭 message 存在 + success 未设即判错误,误伤 {status:'ok', message:'...'}(recording.ts:317) 等正常响应;
+  // advanced-proxy 实际响应都带 success:false(advanced-proxy.ts:180,299),已被上行 o.success===false 捕获,
+  // 此处仅防御无 success 的纯 {error_code, message} 形态
+  if (typeof o.message === 'string' && (o.message as string).length > 0
+      && typeof o.error_code === 'string' && o.success === undefined && o.ok === undefined) {
     return true;
   }
   return false;
