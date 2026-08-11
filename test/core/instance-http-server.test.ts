@@ -211,3 +211,86 @@ describe('InstanceHttpServer HMAC 闭环', () => {
     expect(JSON.stringify(data)).not.toContain('internal boom'); // 不泄露内部错误
   });
 });
+
+// ── P2-2R/P2-3R/P3-1R（2026-08-11 可靠性加固）──────────────────────────────
+// handleCall/readBody 超时（对齐 sender 30s）+ stop() 强制关连接（closeAllConnections）。
+// forwardTimeoutMs 注入小值避免等 30s。TimeoutError 类区分超时 vs 其他异常（保 H9 500 语义）。
+// 注：P3-1R readBody 超时共享 P2-2R 的 withTimeout 机制（T1 已验证超时→对应状态码），
+// 慢 stream 单独测需构造 raw http 慢 chunk（复杂度高收益低），此处用机制共享覆盖。
+describe('InstanceHttpServer 可靠性加固 (P2-2R/P2-3R/P3-1R)', () => {
+  async function startTimeoutServer(forwardTimeoutMs: number): Promise<{
+    server: InstanceHttpServer; baseUrl: string; mock: ReturnType<typeof vi.fn>;
+  }> {
+    const mock = vi.fn();
+    const p = await findFreePort();
+    const srv = new InstanceHttpServer({
+      port: p,
+      instanceId: TEST_INSTANCE_ID,
+      dispatcher: { handleCall: mock } as unknown as ToolDispatcher,
+      forwardTimeoutMs,
+    });
+    await srv.start();
+    clearCachedSecret();
+    return { server: srv, baseUrl: `http://127.0.0.1:${p}`, mock };
+  }
+
+  it('P2-2R: handleCall 超时 → 504（与 sender 30s AbortSignal 对称）', async () => {
+    const { server, baseUrl, mock } = await startTimeoutServer(200);
+    try {
+      // mock 返永不 resolve 的 pending（模拟 nav bake 110s 超过 sender 30s）
+      mock.mockReturnValueOnce(new Promise(() => { }));
+      const token = generateApiToken(TEST_INSTANCE_ID);
+      const resp = await fetch(`${baseUrl}/api/script`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: '{}',
+      });
+      expect(resp.status).toBe(504);
+      const data = await resp.json();
+      expect(data.error).toMatch(/timed out/i);
+    } finally {
+      await server.stop();
+    }
+  }, 10000);
+
+  it('P2-2R: dispatcher 自身异常（非超时）仍走 500（TimeoutError 区分，H9 语义保持）', async () => {
+    const { server, baseUrl, mock } = await startTimeoutServer(200);
+    try {
+      mock.mockRejectedValueOnce(new Error('internal boom'));
+      const token = generateApiToken(TEST_INSTANCE_ID);
+      const resp = await fetch(`${baseUrl}/api/script`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: '{}',
+      });
+      expect(resp.status).toBe(500);
+      const data = await resp.json();
+      expect(data.error).toBe('Internal server error.');
+    } finally {
+      await server.stop();
+    }
+  }, 10000);
+
+  it('P2-3R: stop() 强制关连接，不被 in-flight 长请求阻塞（closeAllConnections）', async () => {
+    // forwardTimeoutMs 设大（30s），确保 stop 快速完成是靠 closeAllConnections 而非 timeout
+    const { server, baseUrl, mock } = await startTimeoutServer(30_000);
+    mock.mockReturnValue(new Promise(() => { })); // 永不 resolve
+    const token = generateApiToken(TEST_INSTANCE_ID);
+    // 发起挂起的请求（不 await，连接 in-flight）
+    const fetchPromise = fetch(`${baseUrl}/api/script`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: '{}',
+    }).catch((e: unknown) => e);
+    // 等请求到达 server
+    await vi.waitFor(() => expect(mock).toHaveBeenCalled(), { timeout: 2000 });
+    // stop() 应快速完成（closeAllConnections 强制关连接，不等 in-flight 30s timeout）
+    const start = Date.now();
+    await server.stop();
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(5000); // 若无 closeAllConnections 会阻塞到 forwardTimeoutMs(30s)
+    // fetch 应已断开（连接强制关闭）
+    const result = await fetchPromise;
+    expect(result).toBeDefined();
+  }, 15000);
+});

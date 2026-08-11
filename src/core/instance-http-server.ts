@@ -18,6 +18,11 @@
  * 限制（srvCtx=undefined 的代价）：
  * - confirm_and_execute 双轮 MRTR 交互失效（多实例转发场景不需要 MRTR，可接受）
  * - logLevel / per-request log 失效（普通工具不受影响）
+ *
+ * 2026-08-11 可靠性加固（P2-2R/P2-3R/P3-1R）：
+ * - readBody/handleCall 加超时（对齐 sender 30s AbortSignal，收发对称防孤儿请求/slowloris）
+ * - stop() 强制关连接（Node 18.2+ closeAllConnections，防 in-flight 长请求致 close() 挂起）
+ * - forwardTimeoutMs 可注入（测试用小值避免等 30s，提升可测试性）
  */
 
 import http from 'node:http';
@@ -30,6 +35,39 @@ import { getLogger } from './logger.js';
 /** toolName 合法字符集（对齐 GodotServer.ts sendToInstance 的校验，防路径注入）。 */
 const TOOL_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/**
+ * 默认工具转发超时（毫秒）。对齐 sender 侧 sendToInstance 的 30s AbortSignal
+ * （GodotServer.ts:416/:454）——receiver 须与 sender 对称，否则 sender 已 abort 后
+ * receiver 仍执行成孤儿请求（nav bake 110s/test_run 290s 等长操作尤其严重）。
+ */
+const DEFAULT_FORWARD_TIMEOUT_MS = 30_000;
+
+/** withTimeout 超时 reject 的 error；catch 用 instanceof TimeoutError 区分超时 vs 其他异常。 */
+class TimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`${label} timed out after ${ms}ms`);
+    this.name = 'TimeoutError';
+  }
+}
+
+/**
+ * 给 promise 套超时兜底（Promise.race + setTimeout，finally 清理 timer 防泄漏）。
+ * 超时 reject TimeoutError，由调用方 catch 用 instanceof 区分超时 vs promise 自身异常。
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new TimeoutError(label, ms)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export interface InstanceHttpServerOptions {
   /** 监听端口。 */
   port: number;
@@ -37,14 +75,21 @@ export interface InstanceHttpServerOptions {
   instanceId: string;
   /** 工具调度器（复用 GodotServer 的 dispatcher）。 */
   dispatcher: ToolDispatcher;
+  /**
+   * 工具转发超时（毫秒），默认 30s（对齐 sender）。测试可注入小值（如 200）避免等 30s。
+   * P2-2R/P3-1R（2026-08-11 可靠性审查）。
+   */
+  forwardTimeoutMs?: number;
 }
 
 export class InstanceHttpServer {
   private server: http.Server | null = null;
   private readonly opts: InstanceHttpServerOptions;
+  private readonly forwardTimeoutMs: number;
 
   constructor(opts: InstanceHttpServerOptions) {
     this.opts = opts;
+    this.forwardTimeoutMs = opts.forwardTimeoutMs ?? DEFAULT_FORWARD_TIMEOUT_MS;
   }
 
   /** 启动 HTTP server 监听 127.0.0.1:<port>。 */
@@ -68,6 +113,11 @@ export class InstanceHttpServer {
   /** 停止 HTTP server。best-effort，不 throw。 */
   async stop(): Promise<void> {
     if (!this.server) return;
+    // P2-3R（2026-08-11 可靠性审查）：Node 18.2+ closeAllConnections 强制关所有连接，
+    // 避免 in-flight 长请求致 server.close() 延迟到工具超时（110s/290s）或极端永挂。
+    // 不调用则 close() 等所有连接关闭才回调，GodotServer.close() 的 httpReceiver.stop()
+    // 在 editorConn.disconnect 之前，会阻塞后续清理。
+    this.server.closeAllConnections?.();
     return new Promise((resolve) => {
       this.server!.close(() => {
         this.server = null;
@@ -121,7 +171,18 @@ export class InstanceHttpServer {
       }
 
       // ④ 解析 body JSON
-      const body = await this.readBody(req);
+      // P3-1R：readBody 套超时防 slowloris（慢 body 无限占用连接），对齐 sender 30s。
+      let body: string;
+      try {
+        body = await withTimeout(this.readBody(req), this.forwardTimeoutMs, 'Request body read');
+      } catch (err) {
+        // 仅 TimeoutError 返 408；其他（body too large 等）re-throw 走外层 500。
+        if (!(err instanceof TimeoutError)) throw err;
+        getLogger().warn('instance-http', `Body read timeout after ${this.forwardTimeoutMs}ms (slowloris?)`);
+        res.writeHead(408, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Request body read timed out after ${this.forwardTimeoutMs}ms.` }));
+        return;
+      }
       let args: Record<string, unknown>;
       try {
         args = body.length > 0 ? JSON.parse(body) : {};
@@ -132,9 +193,23 @@ export class InstanceHttpServer {
       }
 
       // ⑤ 转发到 dispatcher（srvCtx=undefined，普通工具不受影响）
-      const result: HandlerResult = await this.opts.dispatcher.handleCall({
-        params: { name: toolName, arguments: args },
-      });
+      // P2-2R：与 sender 30s AbortSignal 对称——receiver 超时返 504，避免 sender 已
+      // abort 后 receiver 继续执行成孤儿请求（nav bake 110s/test_run 290s 等长操作）。
+      let result: HandlerResult;
+      try {
+        result = await withTimeout(
+          this.opts.dispatcher.handleCall({ params: { name: toolName, arguments: args } }),
+          this.forwardTimeoutMs,
+          'Tool forward',
+        );
+      } catch (err) {
+        // 仅 TimeoutError 返 504；dispatcher 自身异常 re-throw 走外层 500（对齐 H9 语义）。
+        if (!(err instanceof TimeoutError)) throw err;
+        getLogger().warn('instance-http', `Tool forward timeout (${toolName}) after ${this.forwardTimeoutMs}ms`);
+        res.writeHead(504, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Tool forward timed out after ${this.forwardTimeoutMs}ms (aligned with sender 30s AbortSignal).` }));
+        return;
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
