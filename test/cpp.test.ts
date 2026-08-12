@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // fs mock 覆盖 handleTool 写盘 + 路径校验链(validatePath/isPathInAllowedRoots)可能用到的 fs 方法。
 // 范式对齐 test/android.test.ts(realpathSync/statSync/lstatSync 等)。
@@ -13,13 +13,19 @@ const fsMock = vi.hoisted(() => ({
   readFileSync: vi.fn(() => ''),
 }));
 vi.mock('fs', () => fsMock);
-// 旁路 ALLOWED_PROJECT_PATHS 校验,使 requireProjectPath 不抛 —— 等价 path-security 测试隔离。
-vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
+
+// P1-4 (2026-08-11): 改用 asUnrestrictedPath helper(per-test stubEnv + afterEach restore)。
+// 原模块顶层 stubEnv 无 restore,致跨文件 env 泄漏(同 worker 后续路径安全测试继承
+// UNRESTRICTED=true → bypass ALLOWED_PROJECT_PATHS → 安全测试假绿)。对齐 11 个规范文件。
+let restoreUnrestricted: () => void;
+beforeEach(() => { restoreUnrestricted = asUnrestrictedPath(); });
+afterEach(() => { restoreUnrestricted(); });
 
 import {
   renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE,
 } from '../src/tools/cpp-templates.js';
 import { handleTool } from '../src/tools/cpp.js';
+import { asUnrestrictedPath } from './helpers/path-isolation.js';
 
 describe('cpp-templates renderScaffold', () => {
   const ctx = { className: 'Example', parentClass: 'Node', parentInc: 'node', lib: 'example', godotVersion: '4.6' };
