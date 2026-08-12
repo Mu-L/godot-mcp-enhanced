@@ -276,7 +276,7 @@ describe('EditorToolExecutor HOL precheck (B-T3)', () => {
 
     const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
 
-    expect(r.isError).toBeTruthy();
+    expect(r.isError).toBe(true);
     expect(JSON.stringify(r)).toMatch(/NOT_CONNECTED|reconnecting/i);
     // 反向断言：conn.request 未被调用（跳过 30s 等待）
     expect(mockConn.request).not.toHaveBeenCalled();

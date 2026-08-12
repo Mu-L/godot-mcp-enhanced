@@ -62,7 +62,7 @@ describe('Level B: Script editing', () => {
       script_path: 'scripts/new_script.gd',
       content: 'extends Node2D\n\nfunc _ready():\n\tprint("hello")\n',
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     expect(existsSync(join(dirRef.path, 'scripts', 'new_script.gd'))).toBeTruthy();
   });
 
@@ -78,7 +78,7 @@ describe('Level B: Script editing', () => {
       new_content: '',
       search_and_replace: { search: '\tpass', replace: '\tprint("edited")' },
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const content = readFileSync(join(dirRef.path, scriptPath), 'utf-8');
     expect(content).toContain('edited');
   });
@@ -94,7 +94,7 @@ describe('Level B: Script editing', () => {
       action: 'validate_scripts',
       scripts: ['scripts/main.gd'],
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.validated > 0).toBeTruthy();
@@ -126,7 +126,7 @@ describe('Level B: Script editing', () => {
       content: 'extends Node\n',
       overwrite: true,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     expect(existsSync(join(dirRef.path, 'scripts', 'res_path_test.gd'))).toBeTruthy();
   });
 
@@ -144,7 +144,7 @@ describe('Level B: Script editing', () => {
       action: 'read_script',
       script_path: 'res://scripts/res_read_test.gd',
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     expect(result.content[0].text).toContain('test comment');
   });
 
@@ -179,7 +179,7 @@ describe('Level B: Script editing', () => {
       new_content: 'if x > 0:\n  print("positive")\n  print("done")',
       indent_mode: 'smart',
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const content = readFileSync(join(dirRef.path, 'scripts', 'space_indent.gd'), 'utf-8');
     // 新内容应保持 2 空格缩进（与原文件一致）
     expect(content).toContain('  print("positive")');
@@ -196,7 +196,7 @@ describe('Level B: Script editing', () => {
       new_content: 'func new_func():\n\tpass',
       indent_mode: 'smart',
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const content = readFileSync(join(dirRef.path, 'scripts', 'main.gd'), 'utf-8');
     expect(content).toContain('\tpass');
   });

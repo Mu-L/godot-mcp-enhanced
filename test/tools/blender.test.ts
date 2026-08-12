@@ -57,7 +57,7 @@ describe('execute_bpy path validation', () => {
         code: 'import os\nos.system("echo hi")' },
       {} as any);
     expect(r).toBeTruthy();
-    expect((r as any).isError).toBeTruthy();
+    expect((r as any).isError).toBe(true);
     expect(JSON.stringify(r)).toMatch(/SANDBOX_BLOCKED/);
     // 反向断言：未触发 spawn（scan 在 writeFileSync 前 return）
     expect(vi.mocked(runBlenderHeadless)).not.toHaveBeenCalled();
