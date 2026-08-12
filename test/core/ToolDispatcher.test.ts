@@ -1893,6 +1893,45 @@ describe('ToolDispatcher isPathInAllowedRoots wiring (P2-2)', () => {
   });
 });
 
+// ── P2-2 (2026-08-11): validateGodotBinary 接线守护 ────────────────────────
+// 审查 P2-2:ToolDispatcher.ts:672 validateGodotBinary 拦截零集成测
+// (删 :672-676 不会让任何测试红 = binary 校验接线零验证,防 godot_path 指向非 Godot)。
+describe('ToolDispatcher validateGodotBinary wiring (P2-2)', () => {
+  afterEach(() => {
+    mockValidateGodotBinary.mockResolvedValue(true);  // restore 默认(通过)
+  });
+
+  it('validateGodotBinary=false + godot_path → INVALID_PARAMS(守护接线,删 :672 此测试红)', async () => {
+    mockValidateGodotBinary.mockResolvedValue(false);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X', godot_path: '/fake/nonexistent-godot' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('INVALID_PARAMS');
+    expect(JSON.stringify(parsed)).toMatch(/godot_path failed validation|not a valid Godot/i);
+  });
+
+  it('validateGodotBinary=true + godot_path → 放行(对照)', async () => {
+    mockValidateGodotBinary.mockResolvedValue(true);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X', godot_path: '/fake/valid-godot' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+  });
+});
+
 describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
   const successResult: ToolResult = {
     content: [{ type: 'text', text: JSON.stringify({ status: 'ok' }) }],
