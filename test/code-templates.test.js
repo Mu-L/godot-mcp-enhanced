@@ -13,7 +13,7 @@ import {
 
 describe('内置模板', () => {
   it('至少有 10 个模板', () => {
-    expect(TEMPLATES.length >= 10).toBeTruthy();
+    expect(TEMPLATES.length).toBeGreaterThanOrEqual(10);
   });
 
   it('每个模板包含 id / name / description / generate 函数', () => {

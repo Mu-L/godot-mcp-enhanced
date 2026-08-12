@@ -71,7 +71,7 @@ describe('script-tools lint integration', () => {
     const { lintGDScript } = await import('../src/tools/gdscript-lint.js');
     const code = 'extends RigidBody3D\n\nfunc _ready():\n\tvar body = RigidBody3D.new()\n\tbody.bounce = 0.5\n';
     const result = lintGDScript(code);
-    expect(result.errors.length > 0).toBeTruthy();
+    expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0].rule).toBe('L002');
   });
 
