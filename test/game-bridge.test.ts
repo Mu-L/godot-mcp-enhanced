@@ -47,7 +47,8 @@ vi.mock('child_process', async (importOriginal) => {
 });
 vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
 
-import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState, registerBridgePushHandler } from '../src/tools/game-bridge.js';
+import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState, registerBridgePushHandler, sendToBridge } from '../src/tools/game-bridge.js';
+import * as loggerMod from '../src/core/logger.js';
 
 // ===== helpers =====
 
@@ -615,5 +616,37 @@ describe('P1-3: bridge 连接状态机 characterization（change_scene 断连基
     await Promise.all([p1, p2]);
     // 两个 method 请求都被 write（串行，但不丢）
     expect(writtenIds.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── P3-2R (2026-08-12): setBridgeProjectDir in-flight warn 守护 ──────────────
+// 审查 P3-2R: setBridgeProjectDir :327-333 inflightDetected warn 是最小修复
+// (2026-08-06 加),彻底 per-project socket 是架构级 follow-up。本测试守护最小修复接线
+// (防 :327-333 被删不红 = 接线零验证,wiring-zero-verification-test-gap 教训)。
+describe('P3-2R: setBridgeProjectDir in-flight warn 守护', () => {
+  it('in-flight sendToBridge 时 setBridgeProjectDir 调 warn(守护 :327-333 接线)', async () => {
+    const warnSpy = vi.fn();
+    const loggerSpy = vi.spyOn(loggerMod, 'getLogger').mockReturnValue({
+      info: vi.fn(), debug: vi.fn(), warn: warnSpy, error: vi.fn(), close: vi.fn(),
+    });
+
+    // mock socket(防 sendToBridge 真连失败;_sendLock 在 sendToBridge 入口 :422 就 pending)
+    const sock = new EventEmitter();
+    (sock as any).write = vi.fn();
+    (sock as any).destroy = vi.fn();
+    (sock as any).writable = true;
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => { queueMicrotask(() => cb && cb()); return sock; });
+
+    // 发起 sendToBridge(不 await;同步部分 _sendLock = new Promise pending,run 未 settle)
+    const pending = sendToBridge('ping', {}, 100).catch(() => {});
+
+    // setBridgeProjectDir:_sendLock pending → :327 inflightDetected → :328-332 warn
+    setBridgeProjectDir('/p2');
+
+    // 断言 warn(删 :327-333 此测试红 = 接线守护生效)
+    expect(warnSpy).toHaveBeenCalledWith('bridge', expect.stringMatching(/in-flight/i));
+
+    loggerSpy.mockRestore();
+    await pending;
   });
 });
