@@ -45,6 +45,16 @@ func _write_instance_json() -> void:
 
 	# 确保 registry 目录存在
 	DirAccess.make_dir_recursive_absolute(_registry_dir)
+	# P2-4 (2026-08-11): registry 目录权限收紧(Linux/macOS 0o700 owner-only,对齐
+	# instance-api-auth.ts .api-secret 0o600)。防多用户机器其他用户枚举 projectPath/pid
+	# (Linux umask 0022 默认 0755)。Windows icacls 收紧 follow-up(跨用户 ACL 复杂,
+	# 需仔细测试;单人 home 默认私有风险低)。set_unix_permissions 在 Windows 返
+	# ERR_UNAVAILABLE,这里 OS 守卫跳过避免无意义调用。
+	if OS.get_name() != "Windows":
+		# set_unix_permissions 是 DirAccess 实例方法(非静态,实测 Godot 4.6.3),用 DirAccess.open 创建实例
+		var da := DirAccess.open(_registry_dir)
+		if da:
+			da.set_unix_permissions(_registry_dir, 0b111000000)  # 0o700 = owner rwx
 
 	var project_path: String = ProjectSettings.globalize_path("res://").rstrip("/")
 	var project_name: String = project_path.get_file()
