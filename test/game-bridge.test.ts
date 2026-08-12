@@ -319,6 +319,41 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
+  describe('P1-5: TCP 分片 — buffer 累积重组(game-bridge.ts:364 buffer += data)', () => {
+    // 2026-08-11 审查 P1-5:TCP 分片/半包/粘包零覆盖。生产 TCP 抖动产生分片,buffer 累积
+    // 逻辑(:364 buffer += data,:366 indexOf '\n' 按 \n 切行)回归致请求 hang 但测试全绿。
+    // 粘包(push + response 同 chunk)已由 P3-6(:277)覆盖;本块聚焦分片(单 JSON 拆多 chunk)。
+    it('response JSON 拆 3 chunk emit 仍正确 resolve(buffer 等末尾 \\n 才 parse)', async () => {
+      const authResp = JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n';
+      const sock = new EventEmitter();
+      (sock as any).write = vi.fn((data: string) => {
+        const req = JSON.parse(data);
+        if (req.id === 0) {
+          queueMicrotask(() => sock.emit('data', Buffer.from(authResp)));
+        } else {
+          // 分片:methodResp(动态 req.id,对齐 P3-6 范式)拆 3 chunk(前两片无 \n,末片含 \n)
+          const methodResp = JSON.stringify({ id: req.id, result: { ok: true } }) + '\n';
+          queueMicrotask(() => {
+            sock.emit('data', Buffer.from(methodResp.slice(0, 8)));
+            sock.emit('data', Buffer.from(methodResp.slice(8, 20)));
+            sock.emit('data', Buffer.from(methodResp.slice(20)));
+          });
+        }
+      });
+      (sock as any).destroy = vi.fn();
+      (sock as any).writable = true;
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+        queueMicrotask(() => { if (cb) cb(); });
+        return sock;
+      });
+
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      const text = (result?.content?.[0] as { text: string }).text;
+      expect(text).toMatch(/"ok":\s*true/);  // 分片重组后正确 resolve(非 hang/超时)
+    });
+  });
+
   describe('P1-8: 废弃 socket 的延迟 close/error 不破坏新 socket (invalidate race)', () => {
     // 复现报告 P1-8 真实 race: A 连上 _socket=A → B _doConnect 入口 _invalidateSocket() destroy A、_socket=null
     // → B 连上 _socket=B → A.destroy() 的 close **异步触发**(此时 _socket 已是 B)→ 持久 close handler 若无守卫
