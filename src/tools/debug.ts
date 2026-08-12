@@ -138,7 +138,12 @@ export const TOOL_META: Record<
       // Phase 2(读取类)
       stack_trace: 'read',
       inspect_frame: 'read',
-      evaluate: 'read',  // 求值可能有副作用(如调用 setter),但默认归 read;竞品也不 gate
+      evaluate: 'write',  // P1 (2026-08-11 审查): evaluate 发任意 GDScript expression 到游戏执行
+                            // (OS.execute/load/eval/file IO),与 execute_gdscript 等价 RCE 面。原 'read'
+                            // 低估威胁(注释"竞品也不 gate"是缺陷非标准)。改 'write' 触发 confirm
+                            // (guard.ts:67 非 read 需确认)。注:RiskLevel 无 'execute','write' 等价触发。
+                            // 第一层:action-gate('debug.evaluate' ∈ code-execution opt-in gate)。
+                            // 第三层(GD 侧 scanGdscriptSandbox)deferred:GD 侧无现成沙箱,需单独实现。
       // Phase 3(执行控制/热重载有副作用)
       step: 'write',
       continue: 'write',

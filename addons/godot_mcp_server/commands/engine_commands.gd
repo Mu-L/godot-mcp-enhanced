@@ -23,7 +23,7 @@ const DEFAULT_CALL_DENYLIST := [
 	"free", "queue_free", "queue_delete",
 	"add_child", "remove_child", "set_owner",
 	"call", "callv", "call_deferred", "call_threadsafe",
-	"set_script",
+	"set_script", "set", "set_indexed",  # P2-1 (2026-08-11): 通用 property setter,可 callv("set",["script",val]) 绕 set_script deny
 	"emit_signal", "connect", "disconnect",
 ]
 # call_method args 数量上限(对标 bridge _cmd_call_method:939 的 8 限制)

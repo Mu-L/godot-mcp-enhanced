@@ -21,6 +21,10 @@ const GATED_ACTIONS: Record<string, string[]> = {
   'code-execution': [
     'script.execute_gdscript',
     'blender.execute_bpy',
+    // P1 (2026-08-11 审查): debug.evaluate 发任意 GDScript expression 到游戏进程执行
+    // (expression 可含 OS.execute/load/eval/file IO),与 execute_gdscript 等价 RCE 面。
+    // 原 action-gate 漏配 + debug.ts 标 read + GD 侧无沙箱 = 三层防护全缺。此为第一层(opt-in gate)。
+    'debug.evaluate',
   ],
 };
 

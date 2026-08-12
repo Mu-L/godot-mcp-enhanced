@@ -90,8 +90,28 @@ func _update_last_seen() -> void:
 
 ## I-1 fix (审查 IMPORTANT): 原子写——先写 .tmp 再 rename(对齐 headless mcp_bridge.gd:480-489 范式),
 ## 防 TS 读 registry 时读到半写 JSON 致 JSON.parse 失败 → 实例被静默跳过。
+## P2-3 (2026-08-11 审查): 写前 symlink 预检(对齐 SEC-P2-2 mcp_bridge.gd:383-413)。
+## 攻击者预置 .tmp/_instance_file 为 symlink 指向任意文件,rename 覆盖目标。
+## GD 无原生 symlink 检测 API,Windows 借 PowerShell Get-Item LinkType,Linux 借 readlink。
+func _is_symlink(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	if OS.get_name() == "Windows":
+		OS.set_environment("_MCP_SYMLINK_CHK", path)
+		var ec := OS.execute("powershell", PackedStringArray(["-NoProfile", "-Command", "if ((Get-Item -LiteralPath $env:_MCP_SYMLINK_CHK -Force).LinkType) { exit 3 }"]), [])
+		OS.unset_environment("_MCP_SYMLINK_CHK")
+		return ec == 3
+	else:
+		var ec := OS.execute("readlink", PackedStringArray([path]), [])
+		return ec == OK
+
+
 func _write_json_atomic(data: Dictionary) -> void:
 	var tmp_file := _instance_file + ".tmp"
+	# P2-3: 写前 symlink 预检(防 rename 覆盖 symlink 目标)
+	if _is_symlink(tmp_file) or _is_symlink(_instance_file):
+		push_warning("[MCP] instance_registry: %s or its .tmp is a symlink — refusing to write (possible symlink attack)" % _instance_file)
+		return
 	var f := FileAccess.open(tmp_file, FileAccess.WRITE)
 	if f == null:
 		push_warning("[MCP] instance_registry: could not write %s (error %d)" % [tmp_file, FileAccess.get_open_error()])

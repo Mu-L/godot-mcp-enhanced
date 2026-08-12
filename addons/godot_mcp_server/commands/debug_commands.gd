@@ -505,6 +505,10 @@ func handle_reload_scripts(params: Dictionary) -> Dictionary:
 		var path_str: String = str(p)
 		if not path_str.begins_with("res://"):
 			return {"error": {"code": -32602, "message": "Path must be a res:// path, got: %s" % path_str}}
+		# P2-5 (2026-08-11 审查): 防 path traversal(../ 绕 res:// 限制)。4 道守卫
+		# (playing/session/非暂停/MCP addon)兜底仍在,此为对称加固(与其他工具 path 校验对齐)。
+		if path_str.contains(".."):
+			return {"error": {"code": -32602, "message": "Path must not contain '..' (path traversal blocked): %s" % path_str}}
 		# 防 reload MCP 自身 addon 致 debug session 断
 		if path_str.begins_with("res://addons/godot_mcp_server/"):
 			return {"error": {"code": -32000, "message": "Refusing to reload MCP server addon scripts (%s) — this would break the debug session. Reload MCP changes via editor restart." % path_str}}

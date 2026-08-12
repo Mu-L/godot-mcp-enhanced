@@ -197,7 +197,7 @@ describe('CMP-14: debug.ts 工具层(Phase 2/3)', () => {
     expect(risks.pause).toBe('write');
     expect(risks.reload_scripts).toBe('write');
     expect(risks.stack_trace).toBe('read');
-    expect(risks.evaluate).toBe('read');
+    expect(risks.evaluate).toBe('write');  // P1 (2026-08-11): evaluate 改 write(任意代码执行面,触发 confirm),原 read 低估威胁
   });
 
   it('CMP-14s: debug.ts readonly=false(含 write action)+ long_running=true', async () => {

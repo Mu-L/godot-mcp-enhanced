@@ -90,7 +90,7 @@ const ALLOWED_METHODS := [
 # set_script 加载任意脚本(=RCE)、queue_free/free 销毁节点、add_child/remove_child 改树结构、
 # call/callv 间接调用任意方法(绕白名单)、emit_signal 触发已连接回调、connect/disconnect 改信号拓扑。
 const EXTRA_METHODS_BLOCKLIST := [
-	"set_script", "set_owner", "queue_free", "free", "add_child", "remove_child",
+	"set_script", "set", "set_indexed", "set_owner", "queue_free", "free", "add_child", "remove_child",  # P2-2 (2026-08-11): set/set_indexed 对称(防 opt-in EXTRA_METHODS 后 node.set("script",...) 绕 set_script)
 	"call", "callv", "emit_signal", "connect", "disconnect",
 ]
 
