@@ -195,6 +195,9 @@ jobs:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           # 2026-08-06 审查测试-P2-4：启用 L2 bridge 字段级守护（headless spawn 游戏进程，不需 GUI editor）
           GODOT_MCP_E2E_L2: '1'
+          # P1-2 (2026-08-11): MULTI_INSTANCE 接入 matrix(L3 godot_list_instances/select/
+          # dynamic/advanced;headless 无 editor 实例注册,返空列表/error 文本,expectHasText 仍过)
+          GODOT_MCP_MULTI_INSTANCE: '1'
       - name: Upload e2e-report
         if: always()
         uses: actions/upload-artifact@v4
