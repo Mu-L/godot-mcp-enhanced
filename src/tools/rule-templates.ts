@@ -58,17 +58,26 @@ godot-mcp-enhanced 提供 40 个 MCP 工具（228 个 action，权威数据见 d
 - **完整类模式**：手写 \`extends SceneTree\`，适合需要 \`_process()\` 或复杂生命周期的场景。
 - **load_autoloads=true**：在完整项目环境中运行，可访问 DataRegistry、PlayerData 等全局单例。启动较慢（需加载整个项目），仅在确实需要 Autoload 时开启。
 - **注意**：片段模式中 \`func\`/\`var\`/\`const\` 声明自动放在类级别，语句行放在 \`_initialize()\` 体内。
+- **⚠️ 沙箱安全限制（C-04 已知限制）**：GDScript 沙箱扫描基于正则匹配（非语法解析），设计用于防止**意外误操作**，**不可防御恶意/蓄意绕过**。已知绕过向量包括：
+  - 字符串拼接：\`str("OS")+".cmd()"\` 或 \`%\` 格式化构造危险 API 名
+  - 变量间接调用：通过 \`call()\` / \`funcref()\` 的非字面量参数绕过静态扫描
+  - 注释中包含危险 API 名称会导致误报拦截（安全侧失败）
+  - **适用场景**：本地单用户开发环境（信任调用者）。**不适用于多用户/远程/不可信输入场景**——后者需要容器/VM 隔离 + \`GODOT_MCP_ALLOW_UNSAFE=false\`
+  - **write_script/edit_script 也走沙箱扫描**：写入 .gd 前对内容调 \`scanGdscriptSandbox\`，发现已知危险 API 模式（清单不列举防被侦察）则阻断（SANDBOX_VIOLATION），与 execute_gdscript 同威胁面对齐。双 opt-in 旁路（\`UNRESTRICTED + DISABLE_SAFETY\`）
 
 ### edit_script — 脚本编辑
 
-- **优先使用 search_and_replace**：基于内容匹配，对行号偏移鲁棒，CRLF 安全。
-- **行范围模式**（start_line/end_line）：仅在 search_and_replace 无法使用时（如批量重复修改）。
+- **优先使用 search_and_replace**：基于内容匹配，对行号偏移鲁棒，CRLF 安全。**⚠️ 不要使用 Claude 内置 Edit 工具编辑 .gd 文件**——内置 Edit 无法正确处理 GDScript 的 tab 缩进，匹配率极低。始终使用 MCP 的 \`edit_script\` + \`search_and_replace\` 参数。
+- **search_and_replace 免确认**：使用 \`search_and_replace\` 模式的 \`edit_script\` 无需 confirmation token，直接执行，减少 API 调用。
+- **行范围模式**（start_line/end_line）：仅在 search_and_replace 无法使用时（如批量重复修改）。仍需 confirmation token。
 - **indent_mode**：\`smart\`（推荐）自动对齐缩进；\`raw\` 仅在确认缩进正确时使用。
 - **verify_content**：提供期望内容作为守卫，防止过时的行号编辑。
 
 ### dev_loop vs 单独工具
 
 - **dev_loop**：执行 GDScript → 可选验证 → 可选 Bridge 查询/截图 → 可选断言 → 可选状态保存。适合一体化验证流程。
+- **★ dev_loop 的 \`code\` 全行匹配 E2E DSL 会静默切 Bridge 序列**：若 \`code\` 每一非空行都匹配 DSL 语法（\`waitFor(...)\`/\`click(x,y)\`/\`press(...)\`/\`typeText(...)\`/\`waitMs(...)\`），dev_loop **不执行 GDScript，而是逐行作为 Bridge 命令**发送（返回 \`mode: "dsl"\`）。传含 \`click(100,100)\` 的内容会被当 bridge 脚本——意图跑 GDScript 时避免整段恰好全是 DSL 语法。
+- **dev_loop \`acceptance.assertions\` 三类型前置条件**：\`gdscript\`（默认，headless 跑断言脚本）、\`screenshot_diff\`（**需 Bridge 连接**，take_screenshot + 可选余弦相似度预筛 + 可见性检查）、\`frame_degradation\`（**需先 \`frame_sequence\` 捕获帧**或手动提供 \`frames_dir\`，否则无帧可比）。用高级断言前先确认前置满足。
 - **单独工具**：execute_gdscript + validate_scripts + run_and_verify 灵活组合。适合多步调试或需要中间检查的场景。
 
 ### debug — 断点管理（editor-only）
@@ -87,8 +96,10 @@ godot-mcp-enhanced 提供 40 个 MCP 工具（228 个 action，权威数据见 d
 
 ### run_and_verify vs 手动组合
 
-- **run_and_verify**：一键 headless 运行 + 错误分析 + 可选场景树快照。适合快速检查。
+- **run_and_verify**：一键 headless 运行 + 错误分析 + 可选场景树快照。适合快速检查。**自动读取 project.godot 的 autoload 配置**，将 autoload 单例相关的"Identifier not found"错误标记为 headless_limitation 而非真实错误，减少误报。
 - **手动组合**：run_project + get_debug_output + stop_project。适合需要精细控制运行时长的场景。
+  - \`run_project\` 支持 \`wait_for_bridge\` 参数（默认 false）：true 时等待 Bridge 就绪再返回（用 \`game-bridge.isBridgeReady\` 零接触探测）。
+  - \`run_project\` 支持 \`bridge_timeout\` 参数（默认 10 秒）：等待 Bridge 就绪的最大超时时间。
 
 ## 运行时 vs 持久化
 
@@ -98,6 +109,18 @@ godot-mcp-enhanced 提供 40 个 MCP 工具（228 个 action，权威数据见 d
 - **持久化方法**：使用 add_node（写入 .tscn）+ save_scene 保存。或用 write_script / edit_script 修改 .gd 文件。
 
 > 运行时工具适合验证和测试。若需持久化场景修改，必须使用 add_node + save_scene。
+
+## Headless 截图限制（2D 与 3D）
+
+Headless 模式下场景截图可能完全空白——headless 进程默认用 **RendererDummy**（无 GPU 渲染后端），不初始化渲染服务器，2D CanvasItem 与 3D mesh 都不渲染像素。实测 Godot 4.7 headless 加载 3D 场景得 \`DummyMesh/DummyCamera/DummyMaterial\` 泄漏，截图全背景色空白（PIL 色散 spread=0）。**3D 同样受影响**，非仅 2D。
+
+**推荐工作流**：
+1. 用 \`screenshot(action=capture)\` 尝试截图
+2. 如果返回 \`BLANK_DETECTED\` 警告，使用以下替代方案：
+   - 用户手动截图（F5 运行后截图）
+   - \`screenshot(action=analyze)\` 返回图片的 base64 数据供 AI 视觉分析（需配合 \`image_path\` 指定本地文件）
+   - Bridge \`take_screenshot\`（游戏运行时 GPU viewport 渲染，2D/3D 均可）
+3. 3D 视觉确认同理需 GPU 模式（Bridge 或 editor/GUI）；headless 下用数据铁证替代（场景加载成功 + ArrayMesh 顶点数据 + 几何拓扑 χ）
 
 ## 常见陷阱
 

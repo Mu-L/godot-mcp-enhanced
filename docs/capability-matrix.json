@@ -1,5 +1,5 @@
 {
-  "version": "0.28.1",
+  "version": "0.28.2",
   "tools": [
     {
       "name": "android",
@@ -1442,8 +1442,8 @@
       "guarded": true,
       "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 6,
-        "write": 4,
+        "read": 5,
+        "write": 5,
         "destructive": 0,
         "process": 0
       },

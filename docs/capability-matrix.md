@@ -5,7 +5,7 @@
 ## 概览
 - 工具总数：40
 - securityLevel：danger-api 10 / guarded 20 / safe 10
-- risk：read 112 / write 92 / destructive 10 / process 14
+- risk：read 111 / write 93 / destructive 10 / process 14
 - L2 覆盖：covered 0 / partial 0 / none 40
 - token 预算：tools/list ≈ 79320B / ~19830 tokens（description 13157B / schema 66163B，schema 占 83%）
 - annotations：readOnly 8 / destructive 5 / idempotent 11
