@@ -61,7 +61,7 @@ describe('Level B: Project management', () => {
     const result = await callProject('create_project', {
       project_path: newDir,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     expect(existsSync(join(newDir, 'project.godot'))).toBeTruthy();
   });
 
@@ -70,7 +70,7 @@ describe('Level B: Project management', () => {
     const result = await callProject('read_project_config', {
       project_path: dirRef.path,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     const appSection = parsed.application || parsed['application'];
@@ -83,7 +83,7 @@ describe('Level B: Project management', () => {
     const result = await callValidation('validate_project', {
       project_path: dirRef.path,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.valid !== false).toBeTruthy();
@@ -95,11 +95,11 @@ describe('Level B: Project management', () => {
       project_path: dirRef.path,
       extensions: ['.gd'],
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     const files = parsed.files || [];
-    expect(files.length > 0).toBeTruthy();
+    expect(files.length).toBeGreaterThan(0);
     for (const f of files) {
       expect(f.endsWith('.gd')).toBeTruthy();
     }
@@ -113,7 +113,7 @@ describe('Level B: Project management', () => {
       project_path: dirRef.path,
       scripts: [],
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const parsed = JSON.parse(result.content[0].text);
     expect(typeof parsed.validated === 'number').toBeTruthy();
   });

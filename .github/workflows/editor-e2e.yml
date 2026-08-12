@@ -86,6 +86,13 @@ jobs:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           E2E_EDITOR: '1'
 
+      # P1-1 (2026-08-11 审查): e2e-phase1-discovery 加进 weekly(消除死代码,原任何 CI 都不执行)
+      - name: E2E phase1 discovery (三级 discovery + dynamic 工具集成)
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-phase1-discovery.test.ts --reporter=json --outputFile=coverage/editor-e2e-phase1.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+          E2E_EDITOR: '1'
+
       - name: Upload editor-e2e reports
         if: always()
         uses: actions/upload-artifact@v4
