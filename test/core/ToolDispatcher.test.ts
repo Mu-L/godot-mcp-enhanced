@@ -1854,6 +1854,45 @@ describe('ToolDispatcher ACTION_GATED wiring (P0-2)', () => {
   });
 });
 
+// ── P2-2 (2026-08-11): 安全接线守护(isPathInAllowedRoots)────────────────────
+// 审查 P2-2:ToolDispatcher.ts:640 isPathInAllowedRoots 拦截零集成测(删 :640-641
+// 不会让任何测试红)。本块守护 project_path 路径校验接线(PATH_NOT_ALLOWED)。
+// validateGodotBinary(:672)接线测试标 follow-up(触发需 godotOverride 特定条件)。
+describe('ToolDispatcher isPathInAllowedRoots wiring (P2-2)', () => {
+  afterEach(() => {
+    mockIsPathInAllowedRoots.mockReturnValue(true);  // restore 默认(放行)
+  });
+
+  it('isPathInAllowedRoots=false → PATH_NOT_ALLOWED(守护接线,删 :640 此测试红)', async () => {
+    mockIsPathInAllowedRoots.mockReturnValue(false);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/etc/passwd', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('isPathInAllowedRoots=true → 放行(对照,防过度拦截)', async () => {
+    mockIsPathInAllowedRoots.mockReturnValue(true);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+  });
+});
+
 describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
   const successResult: ToolResult = {
     content: [{ type: 'text', text: JSON.stringify({ status: 'ok' }) }],
