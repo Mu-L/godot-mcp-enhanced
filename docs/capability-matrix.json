@@ -1,5 +1,5 @@
 {
-  "version": "0.28.2",
+  "version": "0.28.3",
   "tools": [
     {
       "name": "android",
@@ -1070,6 +1070,93 @@
       }
     },
     {
+      "name": "audit",
+      "group": "unknown",
+      "description": "操作审计日志查询(G3)。action=get_log 读 {project}/.godot/mcp_audit.jsonl 统计回放(操作计数/风险高亮/最近条目/时间范围);action=suggest_rollback 对指定条目给诚实回滚建议(create 类可删/project.godot before_values/其余靠 Git)。write/destructive 操作经 audit after middleware 自动落盘(changed_files 为项目相对路径,PII 护栏)。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "get_log",
+              "suggest_rollback"
+            ],
+            "description": "get_log=读统计回放;suggest_rollback=对指定条目给回滚建议"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "项目路径(默认 resolveProjectPath 自动解析)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "get_log:取末尾 N 条(默认全部)"
+          },
+          "since": {
+            "type": "string",
+            "description": "get_log:ISO 时间过滤(只看此后)"
+          },
+          "entry_index": {
+            "type": "number",
+            "description": "suggest_rollback:条目序号(从 get_log entries[].index)"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "project_path",
+        "limit",
+        "since",
+        "entry_index"
+      ],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 2,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 386,
+        "schemaBytes": 577,
+        "totalBytes": 963
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
       "name": "blender",
       "group": "blender",
       "description": "Blender 程序化建模。action=execute_bpy：AI 写 bpy 片段，headless 跑，自动导 glb 到 res://。（⚠️ bpy 是全功能 Python，威胁面=宿主 RCE，高于 execute_gdscript 沙箱一个量级。仅约束 glb 导出落点，不约束 bpy 内部文件操作。本地单用户信任模型。）",
@@ -1953,7 +2040,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, audit",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2002,9 +2089,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 179,
+        "descBytes": 186,
         "schemaBytes": 205,
-        "totalBytes": 384
+        "totalBytes": 391
       },
       "annotations": {
         "readOnlyHint": false,

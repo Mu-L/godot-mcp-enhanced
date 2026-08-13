@@ -65,6 +65,7 @@ import * as debug from '../tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Ph
 import * as engine from '../tools/engine.js';  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
 import * as runtimeAssert from '../tools/runtime-assert.js';
 import * as help from '../tools/help.js';
+import * as audit from '../tools/audit.js';  // G3 (2026-08-13): 操作审计日志查询
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ const ALL_MODULES: ToolModule[] = [
   engine,
   runtimeAssert,
   help,
+  audit,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

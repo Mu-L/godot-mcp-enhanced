@@ -20,6 +20,7 @@ import {
 import { isActionGated, isActionAllowed, resolveEnabledGroups } from './action-gate.js';
 import {
   getAllToolDefinitions,
+  getActionRisk,
   getModuleForTool,
   getToolDefinition,
   isToolAllowed,
@@ -34,6 +35,7 @@ import { validateArgs } from './args-validator.js';
 import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
 import { classifyError, newTraceId, InternalError } from './tool-errors.js';
+import { isAuditEnabled, appendAuditLine, inferChangedFiles, isTokenRequestResult } from './audit-log.js';
 import { truncateResponse } from './response-limiter.js';
 import { isErrorText } from './response-format.js';
 import * as ps from './process-state.js';
@@ -356,7 +358,9 @@ export class ToolDispatcher {
             `Please call the original tool again — the server will re-generate a fresh token with the full args.`);
           console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
           // 跳到执行段（下面 confirmedPending 赋值后共用）
-          return this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+          const __confirmedResult = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+          await this._auditConfirmedExecution(pending, startTime, __confirmedResult, traceId);
+          return __confirmedResult;
         }
 
         if (confirmed === undefined) {
@@ -393,7 +397,9 @@ export class ToolDispatcher {
 
         const pending = consumeToken(token);
         if (!pending) return opsErrorResult('TOKEN_EXPIRED', 'Confirmation token expired during MRTR round-trip');
-        return this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+        const __confirmedResult2 = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+        await this._auditConfirmedExecution(pending, startTime, __confirmedResult2, traceId);
+        return __confirmedResult2;
       }
 
       // ── 3. 确认令牌检查（IMP-6: 前置 legacy 映射，防 legacy name 如 remove_node 绕过 guard）──
@@ -526,6 +532,46 @@ export class ToolDispatcher {
     });
 
     // IMPORTANT-5: 全局 rate limit(防 AI 失控循环耗尽资源)。默认 60 次/秒软限。
+    // G3 (2026-08-13): 操作级审计 after middleware(借鉴 devtool,appendFile 原子修复 writeFile 竞态)。
+    // 只审计 write/destructive/process(getActionRisk 复用 guard 数据源);read 跳过。
+    // audit 是 side effect,不改 result;审计失败 catch 静默(不影响工具结果,对齐 G2 catch 哲学)。
+    mw.push({
+      name: 'audit',
+      before: async () => ({ passed: true }),
+      after: async (ctx, result) => {
+        if (!isAuditEnabled()) return result;
+        const action = String(ctx.args.action ?? '');
+        const risk = getActionRisk(ctx.toolName, action);
+        if (!risk || risk === 'read') return result;
+        // B-1 修复(审查):令牌请求响应(返回 requires_confirmation,操作未执行)不记虚假 ok=true。
+        // 真实执行经 confirm_and_execute → _auditConfirmedExecution 补审计(_confirmExecute 绕过 middleware)。
+        if (isTokenRequestResult(result)) return result;
+        // project_path fallback(elicitation 浅拷贝 footgun:after hook args.project_path 可能丢注入值)
+        const projectPath = (typeof ctx.args.project_path === 'string' && ctx.args.project_path)
+          ? ctx.args.project_path : resolveProjectPath();
+        if (!projectPath) return result;
+        const isError = result.isError === true || this.checkJsonSuccessFalse(result);
+        const { files, batch } = inferChangedFiles(ctx.toolName, action, ctx.args, projectPath);
+        try {
+          await appendAuditLine(projectPath, {
+            timestamp: new Date().toISOString(),
+            trace_id: ctx.traceId,
+            tool: ctx.toolName,
+            action,
+            risk,
+            ok: !isError,
+            project_path: projectPath,
+            changed_files: files,
+            duration_ms: Date.now() - ctx.startTime,
+            ...(batch ? { details: { batch: true } } : {}),
+          });
+        } catch {
+          // 审计落盘失败不影响工具结果(对齐 G2 catch 哲学;audit 是 best-effort 事后记录)
+        }
+        return result;
+      },
+    });
+
     mw.push(createRateLimitMiddleware());
 
     // B2: 接线 elicitation 强制顶层 required 校验。elicitFn=createElicitFn()(GodotServer
@@ -742,6 +788,45 @@ export class ToolDispatcher {
       return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
     }
     return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
+  }
+
+  /** B-1 修复(审查):confirm_and_execute 真实执行后补审计。
+   *  _confirmExecute → dispatchTool 绕过 executeMiddleware,audit middleware 接不到;
+   *  且外层 confirm_and_execute 的 ctx.action='' 会被 audit 跳过。故此处用 pending 的
+   *  真实 tool/action/risk + 真实执行结果显式补一条审计(details.confirmed=true 标记)。 */
+  private async _auditConfirmedExecution(
+    pending: { toolName: string; args: Record<string, unknown> },
+    startTime: number,
+    result: ToolResult,
+    traceId: string,
+  ): Promise<void> {
+    // 全 body 包 try/catch:审计是 best-effort side effect,任何失败(含 mock 环境 getActionRisk
+    // 未提供 / 路径不可写 / inferChangedFiles 异常)都不影响工具结果(对齐 G2 catch 哲学)。
+    try {
+      if (!isAuditEnabled()) return;
+      const action = String(pending.args.action ?? '');
+      const risk = getActionRisk(pending.toolName, action);
+      if (!risk || risk === 'read') return; // confirm 的都是非 read,防御
+      const projectPath = (typeof pending.args.project_path === 'string' && pending.args.project_path)
+        ? pending.args.project_path : resolveProjectPath();
+      if (!projectPath) return;
+      const isError = result.isError === true || this.checkJsonSuccessFalse(result);
+      const { files } = inferChangedFiles(pending.toolName, action, pending.args, projectPath);
+      await appendAuditLine(projectPath, {
+        timestamp: new Date().toISOString(),
+        trace_id: traceId,
+        tool: pending.toolName,
+        action,
+        risk,
+        ok: !isError,
+        project_path: projectPath,
+        changed_files: files,
+        duration_ms: Date.now() - startTime,
+        details: { confirmed: true }, // 标记:确认后真实执行(区别于令牌请求的虚假记录)
+      });
+    } catch {
+      // 审计失败不影响工具结果
+    }
   }
 
   private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter): Promise<ToolResult> {

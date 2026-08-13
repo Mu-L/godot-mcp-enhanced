@@ -18,7 +18,7 @@
 **✅ 已执行**:PR [#9067](https://github.com/punkpeye/awesome-mcp-servers/pull/9067),Gaming 小节 `Coding-Solo/godot-mcp` 行后新增条目(commit `fcaa22f`,diff 1 file +1 line):
 
 ```
-- [wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) 📇 🏠 - A free, open-source MCP server for the Godot game engine with 40 merged tools (scenes, scripts, UI, animation, physics, particles, navigation, audio, testing, export), a 3-layer architecture (headless CLI + editor WebSocket + game bridge), and systematic security guards (path allowlist, GDScript injection defense, sandbox, confirmation tokens). Godot 4.5–4.7 compatibility matrix.
+- [wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) 📇 🏠 - A free, open-source MCP server for the Godot game engine with 41 merged tools (scenes, scripts, UI, animation, physics, particles, navigation, audio, testing, export), a 3-layer architecture (headless CLI + editor WebSocket + game bridge), and systematic security guards (path allowlist, GDScript injection defense, sandbox, confirmation tokens). Godot 4.5–4.7 compatibility matrix.
 ```
 
 badge 图例(README 顶部核实):📇 TypeScript codebase + 🏠 Local service(与 Coding-Solo 一致)。意外发现该小节还有 `buildepicshit/Wick`(C# Godot MCP,53 工具),本项目是第三个 Godot 方案。等维护者 Frank Fiegel 审核(通常数日)。
@@ -28,11 +28,11 @@ badge 图例(README 顶部核实):📇 TypeScript codebase + 🏠 Local service(
 
 中文版:
 ```markdown
-- **Godot 引擎(增强版)**:[wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) — 免费开源的 Godot MCP 服务器,40 个工具覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构 + 系统化安全防护。Godot 4.5–4.7 兼容矩阵。
+- **Godot 引擎(增强版)**:[wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) — 免费开源的 Godot MCP 服务器,41 个工具覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出,三层架构 + 系统化安全防护。Godot 4.5–4.7 兼容矩阵。
 ```
 英文版:
 ```markdown
-- **Godot (Enhanced)**: [wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) — Free, open-source MCP server for the Godot engine. 40 tools (...), 3-layer architecture (...), systematic security guards (...), Godot 4.5–4.7 compat matrix.
+- **Godot (Enhanced)**: [wgt19861219/godot-mcp-enhanced](https://github.com/wgt19861219/godot-mcp-enhanced) — Free, open-source MCP server for the Godot engine. 41 tools (...), 3-layer architecture (...), systematic security guards (...), Godot 4.5–4.7 compat matrix.
 ```
 </details>
 
