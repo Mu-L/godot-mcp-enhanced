@@ -46,7 +46,7 @@ import type { AgentContextManager } from './agent-context.js';
 import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
 
 /** Known profile names for IDE autocomplete. Unknown strings fall through to resolveProfile(). */
-type KnownProfile = 'full' | 'lite' | 'minimal' | 'bridge_dev' | '3d_dev';
+type KnownProfile = 'full' | 'basic' | 'lite' | 'minimal' | 'bridge_dev' | '3d_dev';
 
 const DEBUG = process.env.DEBUG === 'true';
 function log(...args: unknown[]): void {

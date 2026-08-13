@@ -189,7 +189,7 @@ export class GodotServer {
   private setupHandlers(): void {
     const dispatcher = new ToolDispatcher({
       readOnly: this.options.readOnly ?? false,
-      mode: this.options.mode ?? 'full',
+      mode: this.options.mode ?? 'full',  // G7 审查 O1 defer: 兜底保持 full(godot-server.test 假设;生产经 index.ts 默认 basic,O1 一致性 defer 到未来统一)
       readOnlyGuard: this.readOnlyGuard,
       connectionMode: this.connectionMode,
       noFallback: this.noFallback,

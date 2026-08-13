@@ -197,11 +197,15 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   dynamic: { description: '动态工具（Godot 端注册但 MCP 侧未定义）', tools: ['godot_advanced_tool', 'godot_list_dynamic_routes'], requires: [] },
 };
 
-/** 6 preset profiles. Each maps to an array of group names. */
+/** 7 preset profiles. Each maps to an array of group names. */
 export const PROFILES: Record<string, string[]> = {
   full:        Object.keys(TOOL_GROUPS),
   // BREAKING CHANGE: lite now uses group-based expansion (matches current LITE_TOOLS content)
   lite:        ['core', 'bridge', 'animation', 'audio', 'signal', 'visual', 'code', 'test', 'profiler'],
+  // G7 (2026-08-13): basic = 默认 profile(BREAKING from full)。对齐 GoPeak compact 默认小暴露,
+  // 省 ~60% context(79KB→~30KB)。组清单 = lite(basic 语义名,lite 保留 --lite 兼容)。
+  // RCE action(execute_gdscript 等)经 action-gate 默认全 gate 兜底,需 GODOT_MCP_PRIVILEGED_GROUPS 解锁。
+  basic:       ['core', 'bridge', 'animation', 'audio', 'signal', 'visual', 'code', 'test', 'profiler'],
   minimal:     ['core'],
   slim:        ['core'],  // intentional alias of minimal - proxy tool is in core group,
   bridge_dev:  ['core', 'bridge', 'profiler', 'test', 'dynamic'],

@@ -79,8 +79,9 @@ describe('tool-registry groups and profiles', () => {
   });
 
   describe('PROFILES', () => {
-    it('should define 6 profiles', () => {
-      expect(Object.keys(PROFILES)).toHaveLength(6);
+    it('should define 7 profiles (G7 +basic)', () => {
+      expect(Object.keys(PROFILES)).toHaveLength(7);
+      expect(PROFILES.basic).toBeDefined();  // G7: basic = 默认 profile(BREAKING from full)
     });
 
     it('should have full profile include all 22 groups', () => {

@@ -143,7 +143,7 @@ MCP client ──stdio──▶ enhanced server ──127.0.0.1:WS──▶ edit
 
 | 场景 | 配置 | 安全度 |
 |---|---|---|
-| **单用户开发机**(默认) | 默认配置 | ✅ 多层 accident guard 足够 |
+| **单用户开发机**(默认) | 默认 basic profile(G7:lite 9 组 + RCE gated,省 ~60% context;回退 `GODOT_MCP_PROFILE=full`) | ✅ accident guard 足够 |
 | **CI/Docker** | `GODOT_MCP_ALLOW_UNSAFE=false` + 容器隔离 | ✅ 真 isolation |
 | **多用户/共享主机** | **不支持默认配置** | ⚠️ 需手动 chmod secret + 容器,否则本地提权 |
 | **不可信 AI/对抗输入** | 容器/VM + 禁用危险 action | ⚠️ GDScript 沙箱不防对抗,必须容器 |

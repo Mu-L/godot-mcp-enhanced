@@ -73,7 +73,8 @@ export async function startMcpServer(args: string[]): Promise<void> {
     : args.includes('--lite') ? 'lite'
     : process.env.GODOT_MCP_MODE === 'minimal' ? 'minimal'
     : process.env.GODOT_MCP_MODE === 'lite' ? 'lite'
-    : 'full'
+    : process.env.GODOT_MCP_MODE === 'full' ? 'full'  // G7: 显式 full 回退(默认改 basic)
+    : 'basic'  // G7 (2026-08-13): 默认从 full 改 basic(BREAKING,省 ~60% context)。回退:GODOT_MCP_PROFILE=full 或 --profile=full
   );
 
   const connectionMode = process.env.GODOT_MCP_MODE === 'editor' ? 'editor' : 'headless';
