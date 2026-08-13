@@ -198,3 +198,33 @@ describe('screenshot analyze: vision_route=true 成功 → 纯文本描述', () 
     expect((result.structuredContent as { action: string }).action).toBe('screenshot_analyze_vision');
   });
 });
+
+// ─── F-4: JPEG 超限 fallback(不直发超大 base64 到 vision API)──────────────
+
+describe('F-4: JPEG 超过降采样阈值时 fallback 到 detail 分层', () => {
+  const JPG_LARGE_PATH = resolve(TMP_DIR, 'large.jpg');
+
+  beforeEach(() => {
+    // 2MB 假 JPEG(不需有效 JPEG 头,size 检查在解码前)
+    writeFileSync(JPG_LARGE_PATH, Buffer.alloc(2 * 1024 * 1024, 0xff));
+    process.env.GODOT_MCP_VISION_KEY = 'fake-key';
+  });
+  afterEach(() => { delete process.env.GODOT_MCP_VISION_KEY; });
+
+  it('大 JPEG(>1MB)→ 不调用 routeImage,fallback note 含 "downsampling threshold"', async () => {
+    const result = await handleTool('screenshot', {
+      action: 'analyze',
+      image_path: JPG_LARGE_PATH,
+      project_path: TMP_DIR,
+      vision_route: true,
+      detail: 'full',
+    }, mockCtx) as ToolResult;
+
+    // 应回落到 detail=full(含 image content),而非走 vision route(不含)
+    const textBlock = result.content.find(c => c.type === 'text');
+    const text = (textBlock as { text?: string })?.text ?? '';
+    expect(text).toContain('downsampling threshold');
+    // 不应调到 vision API(无 vision_description)
+    expect(text).not.toContain('vision_description');
+  });
+});

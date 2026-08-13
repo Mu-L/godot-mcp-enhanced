@@ -91,6 +91,23 @@ describe('runtime-assert scene_structure (P0-1)', () => {
     expect((p.mismatch as Record<string, unknown>)['/root/Main/Boss']).toEqual({ expected: 'present', actual: 'absent' });
   });
 
+  // F-3: 前缀命名冲突(Player vs PlayerHealth)不再假通过
+  it('F-3: 前缀命名冲突 — /root/Main/Player 期望存在但树里只有 PlayerHealth → 不假通过', async () => {
+    mockedBridge.mockResolvedValue({ result: { nodes: [{ path: '/root/Main/PlayerHealth' }] } });
+    const r = await handleTool('runtime_assert', { action: 'scene_structure', nodes: [{ path: '/root/Main/Player' }] }, {} as never);
+    const p = parse(r);
+    // 原 treeJson.includes('/root/Main/Player') 会匹配到 PlayerHealth 前缀 → 假通过;
+    // 修复后应精确匹配 → passed:false
+    expect(p.passed).toBe(false);
+  });
+
+  it('F-3: absent 前缀冲突 — PlayerHealth 在树里,期望 Player absent 不应误报 present', async () => {
+    mockedBridge.mockResolvedValue({ result: { nodes: [{ path: '/root/Main/PlayerHealth' }] } });
+    const r = await handleTool('runtime_assert', { action: 'scene_structure', nodes: [{ path: '/root/Main/Player', absent: true }] }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(true);
+  });
+
   it('mismatch: 期望 absent 但实际 present → passed:false (N.1 子分支)', async () => {
     // 审查 N.1: runtime-assert.ts:176 内层 if(exists) mismatch[expected:absent,actual:present]
     // 原三个 scene_structure 测试只测 absent+!exists→pass 和 present+!exists→mismatch,

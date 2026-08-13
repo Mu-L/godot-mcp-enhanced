@@ -224,26 +224,37 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           (args as Record<string, unknown>)._visionFallbackNote = fallbackNote;
         } else {
           // 图片预处理:缩放到最长边 1024px(减少 API 成本,对标 godot-ai _downscale_image_if_needed)
-          let routeBase64: string;
-          let routeMime: 'image/png' | 'image/jpeg';
+          let routeBase64: string | undefined;
+          let routeMime: 'image/png' | 'image/jpeg' = 'image/png';
           if (isPng) {
             const thumb = downsampleToThumbnail(imageBuffer, 1024);
             routeBase64 = thumb.base64;
             routeMime = thumb.mimeType as 'image/png' | 'image/jpeg';
           } else {
-            routeBase64 = imageBuffer.toString('base64');
-            routeMime = 'image/jpeg';
+            // F-4: JPEG 无法用 downsampleToThumbnail(仅支持 PNG 解码)。原实现直发全量 base64,
+            // 大 JPEG(~10MB→~13MB base64)可能触发 API 413 且与"减少 API 成本"目标矛盾。
+            // 加大小阈值:超 1MB 的 JPEG fallback 到 detail 分层(而非发超大请求)。
+            const VISION_MAX_JPEG_BYTES = 1024 * 1024; // 1MB
+            if (imageBuffer.length > VISION_MAX_JPEG_BYTES) {
+              (args as Record<string, unknown>)._visionFallbackNote =
+                `⚠ Vision routing skipped: JPEG image (${(imageBuffer.length / 1024).toFixed(0)}KB) exceeds ${VISION_MAX_JPEG_BYTES / 1024}KB downsampling threshold (JPEG decode not supported). Falling back to detail=${args.detail ?? 'full'}.`;
+            } else {
+              routeBase64 = imageBuffer.toString('base64');
+              routeMime = 'image/jpeg';
+            }
           }
 
-          const vr = await routeImage(routeBase64, routeMime, {
-            apiKey: visionKey,
-            model: process.env.GODOT_MCP_VISION_MODEL,
-            question: typeof args.vision_question === 'string' ? args.vision_question : undefined,
-            timeoutMs: process.env.GODOT_MCP_VISION_TIMEOUT_MS ? parseInt(process.env.GODOT_MCP_VISION_TIMEOUT_MS, 10) : undefined,
-            baseUrl: process.env.GODOT_MCP_VISION_BASE_URL,
-          });
+          // 仅在拿到有效 base64 时调用 routeImage(JPEG 超限 fallback 时 routeBase64 为 undefined)
+          if (routeBase64 !== undefined) {
+            const vr = await routeImage(routeBase64, routeMime, {
+              apiKey: visionKey,
+              model: process.env.GODOT_MCP_VISION_MODEL,
+              question: typeof args.vision_question === 'string' ? args.vision_question : undefined,
+              timeoutMs: process.env.GODOT_MCP_VISION_TIMEOUT_MS ? parseInt(process.env.GODOT_MCP_VISION_TIMEOUT_MS, 10) : undefined,
+              baseUrl: process.env.GODOT_MCP_VISION_BASE_URL,
+            });
 
-          if (vr.success && vr.description) {
+            if (vr.success && vr.description) {
             // 成功:只返回 TextContent(描述 + routed_via),丢弃 image block(省 token)
             return {
               ...textResult(JSON.stringify({
@@ -262,6 +273,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
           // 失败:fallback 到 detail 分层 + 追加 note
           (args as Record<string, unknown>)._visionFallbackNote = `⚠ Vision routing failed: ${vr.error}. Falling back to detail=${args.detail ?? 'full'}.`;
+          }
         }
       }
 

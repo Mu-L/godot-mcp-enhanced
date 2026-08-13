@@ -29,6 +29,42 @@ describe('validateCommitOperations (IMPORTANT-7)', () => {
     ]);
     expect(err).toContain('Op 1');
   });
+
+  // F-5: 数值字段运行时校验,堵 as unknown as 强转的 GDScript 注入面
+  it('F-5: rejects non-numeric coords.x (injection vector)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G', coords: { x: '0), OS.execute("sh",["-c","rm -rf ~"]) #', y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/coords.*\{x:number.*y:number\}/);
+  });
+
+  it('F-5: rejects non-numeric source_id', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G', coords: { x: 1, y: 1 }, source_id: 'evil', atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/source_id.*finite number/);
+  });
+
+  it('F-5: rejects malformed region for tile_fill', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_fill', node_path: 'G', region: { x: 0, y: 0, w: 'wide', h: 1 }, source_id: 0, atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/region.*\{x,y,w,h: number\}/);
+  });
+
+  it('F-5: rejects non-string node_path', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_erase', node_path: 123, coords: { x: 1, y: 1 } },
+    ]);
+    expect(err).toMatch(/node_path.*string/);
+  });
+
+  it('F-5: accepts well-formed tile_set (no false rejection)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G/T', coords: { x: 1, y: 2 }, source_id: 0, atlas: { x: 0, y: 0 }, alternative_tile: 5 },
+    ]);
+    expect(err).toBeNull();
+  });
 });
 
 describe('scene-commit: generateCommitScript', () => {

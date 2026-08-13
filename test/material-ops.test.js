@@ -13,6 +13,7 @@ import {
   genShaderLoadFileScript,
   genShaderSaveFileScript,
   genShaderApplyTemplateScript,
+  parseMaterialParam,
 } from '../src/tools/material-ops.js';
 
 describe('handleTool set_params (IMP-1: BLOCKED_PROPS)', () => {
@@ -439,5 +440,27 @@ describe('handleTool routing', () => {
     expect(result).toBeTruthy();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.success).toBe(false);
+  });
+});
+
+// F-7: % 字符不再被 gdEscape 双写为 %%(改用 escapeForGdLiteral)
+describe('F-7: percent preservation (escapeForGdLiteral)', () => {
+  it('parseMaterialParam preserves % in string values', () => {
+    const result = parseMaterialParam('100%');
+    // 不应出现 %% 双写
+    expect(result).not.toContain('%%');
+    expect(result).toBe('"100%"');
+  });
+
+  it('genShaderSaveFileScript preserves % in shader code', () => {
+    const script = genShaderSaveFileScript('/root/Player', 'shader_type canvas_item;\n// 50% opacity\nvoid fragment() { COLOR.a = 0.5; }');
+    // store_string 的参数中 % 不应被双写
+    expect(script).not.toContain('%%');
+    expect(script).toContain('50% opacity');
+  });
+
+  it('genShaderWriteScript preserves % in shader code (JSON round-trip)', () => {
+    const script = genShaderWriteScript('/root/Player', 0, '// usage: 30%\nshader_type canvas_item;');
+    expect(script).not.toContain('%%');
   });
 });

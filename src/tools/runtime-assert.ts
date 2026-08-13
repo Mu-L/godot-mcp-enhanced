@@ -155,6 +155,24 @@ async function assertNodeState(args: Record<string, unknown>): Promise<ToolResul
 }
 
 /** scene_structure: 断言节点存在/缺席/类型匹配 */
+
+/**
+ * F-3: 递归收集场景树中所有 path 字段到 Set,用于精确匹配(替代原 JSON.stringify 子串匹配)。
+ * 兼容平坦 {nodes:[{path}]} 与嵌套 {children:[...]} 两种形态。
+ */
+function collectPaths(obj: unknown, out: Set<string>): void {
+  if (Array.isArray(obj)) {
+    for (const item of obj) collectPaths(item, out);
+    return;
+  }
+  if (obj && typeof obj === 'object') {
+    const o = obj as { path?: unknown; children?: unknown; nodes?: unknown };
+    if (typeof o.path === 'string') out.add(o.path);
+    if (o.children !== undefined) collectPaths(o.children, out);
+    if (o.nodes !== undefined) collectPaths(o.nodes, out);
+  }
+}
+
 async function assertSceneStructure(args: Record<string, unknown>): Promise<ToolResult> {
   const nodes = args.nodes as Array<{ path: string; type?: string; absent?: boolean }>;
   if (!nodes || !Array.isArray(nodes)) {
@@ -166,12 +184,18 @@ async function assertSceneStructure(args: Record<string, unknown>): Promise<Tool
     return textResult(JSON.stringify({ success: false, error: `Bridge error: ${resp.error.message}`, error_code: 'BRIDGE_ERROR' }));
   }
 
-  // get_tree 返回场景树 JSON，用字符串包含匹配节点路径
-  const treeJson = JSON.stringify(resp.result ?? {});
+  // F-3: get_tree 返回 {nodes:[{path,...}]} 结构。原用 JSON.stringify 后子串包含匹配,
+  // 前缀命名(Player vs PlayerHealth)会假通过/假失败。改为收集所有 path 到 Set 精确匹配。
+  const paths = new Set<string>();
+  collectPaths(resp.result, paths);
+
   const mismatch: Record<string, { expected: unknown; actual: unknown }> = {};
 
   for (const node of nodes) {
-    const exists = treeJson.includes(node.path) || treeJson.includes(node.path.replace('/root/', ''));
+    const p = node.path;
+    // 同时接受 /root/Main/Player 与 Main/Player 两种写法(去掉 /root/ 前缀)
+    const alt = p.replace('/root/', '');
+    const exists = paths.has(p) || paths.has(alt) || paths.has('/root/' + alt);
     if (node.absent) {
       if (exists) mismatch[node.path] = { expected: 'absent', actual: 'present' };
     } else {

@@ -21,12 +21,78 @@ export type CommitOp = typeof COMMIT_OPERATIONS[number];
 export function validateCommitOperations(operations: Array<Record<string, unknown>>): string | null {
   const validOps = new Set<string>(COMMIT_OPERATIONS);
   for (let i = 0; i < operations.length; i++) {
-    const opType = operations[i]?.op;
+    const op = operations[i];
+    const opType = op?.op;
     if (typeof opType !== 'string' || !validOps.has(opType)) {
       return `Op ${i}: invalid op "${String(opType)}". Valid: ${COMMIT_OPERATIONS.join(', ')}`;
     }
+    // F-5: 逐 op 校验数值/向量/字符串字段的运行时类型。原实现只校验 op 字段,
+    // 其余字段靠 TS 接口(编译时)+ as unknown as 强转,runtime 可被绕过;
+    // generateCommitScript 把 op.coords.x 等直接 ${} 插值进 GDScript,
+    // 字符串值可注入(二线 scanGdscriptSandbox 兜底,但纵深防御应在输入校验层先拦)。
+    const err = validateOpFields(i, opType, op ?? {});
+    if (err) return err;
   }
   return null;
+}
+
+// F-5: 运行时类型守卫
+function isNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+function isVec2(v: unknown): boolean {
+  return typeof v === 'object' && v !== null
+    && isNum((v as { x?: unknown }).x) && isNum((v as { y?: unknown }).y);
+}
+function isStr(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+/** F-5: 按 op 类型校验必填字段的运行时类型,堵 as unknown as 强转的注入面。 */
+function validateOpFields(idx: number, opType: string, op: Record<string, unknown>): string | null {
+  const at = `Op ${idx} (${opType})`;
+  const needStr = (key: string): string | null =>
+    !isStr(op[key]) ? `${at}: "${key}" must be a string` : null;
+  const needVec2 = (key: string): string | null =>
+    !isVec2(op[key]) ? `${at}: "${key}" must be {x:number, y:number}` : null;
+  const needNum = (key: string): string | null =>
+    !isNum(op[key]) ? `${at}: "${key}" must be a finite number` : null;
+  const optNum = (key: string): string | null =>
+    op[key] !== undefined && !isNum(op[key]) ? `${at}: optional "${key}" must be a finite number` : null;
+
+  switch (opType) {
+    case 'tile_set': {
+      return needStr('node_path') || needVec2('coords') || needNum('source_id')
+        || needVec2('atlas') || optNum('alternative_tile');
+    }
+    case 'tile_fill': {
+      const rg = op.region as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | undefined;
+      const regionValid = !!rg && isNum(rg.x) && isNum(rg.y) && isNum(rg.w) && isNum(rg.h);
+      if (!regionValid) return `${at}: "region" must be {x,y,w,h: number}`;
+      return needNum('source_id') || needVec2('atlas') || optNum('alternative_tile');
+    }
+    case 'tile_erase': {
+      return needStr('node_path') || needVec2('coords');
+    }
+    case 'tile_clear': {
+      return needStr('node_path');
+    }
+    case 'tileset_assign': {
+      return needStr('node_path') || needStr('tileset_path');
+    }
+    case 'node_property': {
+      return needStr('path') || needStr('property')
+        || (op.value === undefined ? `${at}: "value" is required` : null);
+    }
+    case 'node_add': {
+      // parent 可省略(generator 默认),但若提供必须是 string(防 gdEscape(undefined) 崩溃)
+      const parentErr = op.parent !== undefined && !isStr(op.parent)
+        ? `${at}: optional "parent" must be a string` : null;
+      return needStr('name') || needStr('type') || parentErr;
+    }
+    default:
+      return null;
+  }
 }
 
 interface TileSetOp {

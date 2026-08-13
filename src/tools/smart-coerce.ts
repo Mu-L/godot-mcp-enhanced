@@ -21,6 +21,11 @@ function hexToNorm(hex: string): [number, number, number, number] {
   let h = hex.replace('#', '');
   if (h.length === 3) h = h[0]! + h[0]! + h[1]! + h[1]! + h[2]! + h[2]!;
   if (h.length === 4) h = h[0]! + h[0]! + h[1]! + h[1]! + h[2]! + h[2]! + h[3]! + h[3]!;
+  // F-8: 合法 hex 颜色经扩展后长度必为 6 或 8;长度 5/7(原 {3,8} 正则误放行)在此显式拒绝,
+  // 避免静默切片产生错误颜色值。理论上层正则已拦截,此处 defensive 双保险。
+  if (h.length !== 6 && h.length !== 8) {
+    throw new Error(`Invalid hex color length after expansion: "${hex}" -> length ${h.length}`);
+  }
   const r = Math.round(parseInt(h.slice(0, 2), 16) / 255 * 1000) / 1000;
   const g = Math.round(parseInt(h.slice(2, 4), 16) / 255 * 1000) / 1000;
   const b = Math.round(parseInt(h.slice(4, 6), 16) / 255 * 1000) / 1000;
@@ -42,8 +47,9 @@ export function smartCoerce(value: unknown): unknown {
 
   const trimmed = value.trim();
 
-  // 1. Hex color: #RGB, #RRGGBB, #RRGGBBAA
-  if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) {
+  // 1. Hex color: #RGB, #RGBA, #RRGGBB, #RRGGBBAA (F-8: 显式枚举合法长度,
+  //    原 {3,8} 误放行长度 5/7 致 hexToNorm 静默切片产生错误颜色)
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(trimmed)) {
     const [r, g, b, a] = hexToNorm(trimmed);
     return `Color(${r}, ${g}, ${b}, ${a})`;
   }
