@@ -9,6 +9,9 @@ const DANGEROUS_BPY_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bos\.system\b/, label: 'os.system (system command)' },
   { pattern: /\bos\.popen\b/, label: 'os.popen (system command)' },
   { pattern: /\bos\.exec/, label: 'os.exec* (system command)' },
+  // S-2: 补 os.spawn*/os.posix_spawn*(与 os.system 等价的进程派生族,原清单漏)
+  { pattern: /\bos\.spawn\w*\b/, label: 'os.spawn* (system command)' },
+  { pattern: /\bos\.posix_spawn\w*\b/, label: 'os.posix_spawn* (system command)' },
   { pattern: /\bsubprocess\b/, label: 'subprocess (system command)' },
   { pattern: /\bos\.remove\b|\bos\.unlink\b|\bshutil\.rmtree\b/, label: 'file/dir deletion' },
   // negative lookbehind 排除方法调用(`bpy.ops.image.open(...)`/`x.open(...)`)与标识符拼接(`xopen(`)，
@@ -108,12 +111,18 @@ function detectBpyFormatStringBypass(code: string): string[] {
 }
 
 export function scanBpySandbox(code: string): string[] {
-  // 对齐 scanGdscriptSandbox 双开关语义(简化):DISABLE_SAFETY + UNRESTRICTED 总开关旁路。
-  if (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_UNRESTRICTED === 'true') {
-    if (process.env.GODOT_MCP_DISABLE_SAFETY === 'true') {
-      getLogger().warn('security', '⚠️ execute_bpy sandbox bypassed (GODOT_MCP_DISABLE_SAFETY=true). Full Python RCE surface.');
-    }
+  // S-1: 对齐 scanGdscriptSandbox 的 P0-1 双 opt-in 契约(gdscript-executor.ts:1054-1055):
+  // 需 GODOT_MCP_UNRESTRICTED=true 同时设 GODOT_MCP_DISABLE_SAFETY/ALLOW_UNSAFE 才旁路。
+  // 原单 || 会因 CI/Docker 遗留单个 DISABLE_SAFETY=true 静默旁路整个 bpy Python RCE 沙箱。
+  const bypass = process.env.GODOT_MCP_UNRESTRICTED === 'true'
+    && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
+  if (bypass) {
+    getLogger().warn('security', '⚠️ execute_bpy sandbox bypassed (UNRESTRICTED + DISABLE_SAFETY/ALLOW_UNSAFE). Full Python RCE surface.');
     return [];
+  }
+  if (process.env.GODOT_MCP_DISABLE_SAFETY === 'true' || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true') {
+    // 单设 DISABLE_SAFETY 而无 UNRESTRICTED:保持沙箱激活(对齐 gdscript-executor.ts:429)
+    getLogger().warn('security', 'GODOT_MCP_DISABLE_SAFETY/ALLOW_UNSAFE ignored for execute_bpy — requires GODOT_MCP_UNRESTRICTED=true (S-1 double-opt-in). Sandbox stays active.');
   }
   const warnings: string[] = [];
   const skeleton = stripPythonLiterals(code);

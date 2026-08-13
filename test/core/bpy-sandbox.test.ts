@@ -20,9 +20,24 @@ describe('scanBpySandbox', () => {
     expect(scanBpySandbox('bpy.ops.mesh.primitive_cube_add()\nbpy.context.object.location = (1,2,3)')).toEqual([]);
   });
 
-  it('DISABLE_SAFETY bypasses (local trust opt-in)', () => {
+  it('S-1: DISABLE_SAFETY alone does NOT bypass (double opt-in, 对齐 gdscript P0-1)', () => {
+    // 原单 || 旁路有 bug:CI/Docker 遗留单个 DISABLE_SAFETY=true 会静默关掉整个 bpy RCE 沙箱。
+    // 修复后需同时 UNRESTRICTED=true 才旁路(对齐 gdscript-executor.ts:1054-1055)。
+    vi.stubEnv('GODOT_MCP_DISABLE_SAFETY', 'true');
+    // 单设 DISABLE_SAFETY → 沙箱保持激活,os.system 仍被 flag
+    expect(scanBpySandbox('os.system("x")').length).toBeGreaterThan(0);
+  });
+
+  it('S-1: UNRESTRICTED + DISABLE_SAFETY 双开才旁路', () => {
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
     vi.stubEnv('GODOT_MCP_DISABLE_SAFETY', 'true');
     expect(scanBpySandbox('os.system("x")')).toEqual([]);
+  });
+
+  it('S-2: flags os.spawn* / os.posix_spawn* (原清单漏)', () => {
+    expect(scanBpySandbox('os.spawnl(os.P_WAIT, "/bin/sh", "sh", "-c", "rm -rf ~")').length).toBeGreaterThan(0);
+    expect(scanBpySandbox('os.posix_spawn("/bin/sh", ["sh"], {})').length).toBeGreaterThan(0);
+    expect(scanBpySandbox('os.spawnvp("ls", ["ls"])').length).toBeGreaterThan(0);
   });
 
   it('does not flag dangerous name inside string literal', () => {
