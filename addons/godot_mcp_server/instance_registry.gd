@@ -107,14 +107,23 @@ func _update_last_seen() -> void:
 ## P2-3 (2026-08-11 审查): 写前 symlink 预检(对齐 SEC-P2-2 mcp_bridge.gd:383-413)。
 ## 攻击者预置 .tmp/_instance_file 为 symlink 指向任意文件,rename 覆盖目标。
 ## GD 无原生 symlink 检测 API,Windows 借 PowerShell Get-Item LinkType,Linux 借 readlink。
+## S-4 (2026-08-12 审查): (1) path 经命令行参数传(非进程级 env),消除多实例并发 _MCP_SYMLINK_CHK 互相覆盖;
+##     (2) Windows fail-closed — PowerShell 不可用/超时/ec 非 0 非 3 时视为可疑拒绝写(原 return ec==3 fail-open)。
 func _is_symlink(path: String) -> bool:
 	if not FileAccess.file_exists(path):
 		return false
 	if OS.get_name() == "Windows":
-		OS.set_environment("_MCP_SYMLINK_CHK", path)
-		var ec := OS.execute("powershell", PackedStringArray(["-NoProfile", "-Command", "if ((Get-Item -LiteralPath $env:_MCP_SYMLINK_CHK -Force).LinkType) { exit 3 }"]), [])
-		OS.unset_environment("_MCP_SYMLINK_CHK")
-		return ec == 3
+		# PowerShell 单引号字符串转义:' → ''
+		var esc_path := path.replace("'", "''")
+		var cmd := "if ((Get-Item -LiteralPath '%s' -Force).LinkType) { exit 3 } else { exit 0 }" % esc_path
+		var ec := OS.execute("powershell", PackedStringArray(["-NoProfile", "-Command", cmd]), [])
+		if ec == 3:
+			return true  # 是 symlink
+		if ec == 0:
+			return false  # 非 symlink
+		# fail-closed:PowerShell 不可用/受限/超时(ec != 0 且 != 3)→ 视为可疑拒绝写
+		push_warning("[MCP] instance_registry: symlink check inconclusive (powershell ec=%d) for %s — refusing to write (fail-closed)" % [ec, path])
+		return true
 	else:
 		var ec := OS.execute("readlink", PackedStringArray([path]), [])
 		return ec == OK

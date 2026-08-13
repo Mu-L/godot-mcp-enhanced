@@ -15,8 +15,9 @@
  */
 
 import { readdir, readFile, writeFile, mkdir, unlink, rename } from 'fs/promises';
+import { execFileSync } from 'node:child_process';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, userInfo } from 'os';
 import { randomBytes } from 'crypto';
 import { getLogger } from './logger.js';
 
@@ -47,7 +48,9 @@ function isInstanceInfo(obj: unknown): obj is InstanceInfo {
   if (typeof obj !== 'object' || obj === null) return false;
   const o = obj as Record<string, unknown>;
   return (
-    typeof o.id === 'string' && o.id.length > 0 &&
+    // S-6: id 必须是无路径分隔符/无 .. 的纯标识符(对齐 projectPath 的段级校验),
+    // 防 evil.json 注入 {id:"../../etc/x"} 经 unregisterSelf 拼路径删任意 .json。
+    typeof o.id === 'string' && o.id.length > 0 && /^[A-Za-z0-9_-]+$/.test(o.id) &&
     typeof o.projectPath === 'string' && o.projectPath.length > 0 &&
     typeof o.projectName === 'string' && o.projectName.length > 0 &&
     typeof o.port === 'number' && o.port >= 1 && o.port <= 65535 &&
@@ -78,6 +81,26 @@ const DEFAULT_PORT_END = 9090;
 
 function getDefaultRegistryDir(): string {
   return join(homedir(), '.godot-mcp', 'instances');
+}
+
+/**
+ * S-5: Windows 下收紧 registry 文件 ACL(对齐 instance-api-auth.ts:81-92,但 registry 文件需可改可删)。
+ * Linux/macOS 由 writeFile mode:0o600 / mkdir mode:0o700 覆盖;Windows 无视 mode,需 icacls。
+ * 用 /inheritance:r + username:F(owner 完全控制,移除继承 = 其他人无权)—— 非 :R(只读会致
+ * updateLastSeen/unregisterSelf 的写/删失败)。best-effort:失败只 warn,不阻断写入。
+ */
+function hardenFilePermissionsWindows(filePath: string): void {
+  if (process.platform !== 'win32') return;
+  try {
+    const username = userInfo().username;
+    if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
+      execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:F`], { stdio: 'ignore' });
+    } else {
+      getLogger().warn('instance-manager', `Username "${username}" has unexpected chars, skipping ACL restriction for ${filePath}`);
+    }
+  } catch {
+    getLogger().warn('instance-manager', `ACL restriction failed for ${filePath}, file may inherit default permissions`);
+  }
 }
 
 function parsePortRange(): [number, number] {
@@ -187,9 +210,12 @@ export class InstanceManager {
     const filePath = join(dir, `${info.id}.json`);
     const tmpPath = `${filePath}.tmp`;
     try {
-      await mkdir(dir, { recursive: true });
-      await writeFile(tmpPath, JSON.stringify(info, null, 2), 'utf-8');
+      // S-5: registry 文件含 projectPath + pid,收紧权限防多用户机器信息泄露
+      // (对齐 instance-api-auth.ts:78 的 0o600 + icacls 模式)。
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await writeFile(tmpPath, JSON.stringify(info, null, 2), { encoding: 'utf-8', mode: 0o600 });
       await rename(tmpPath, filePath);
+      hardenFilePermissionsWindows(filePath);
     } catch (err) {
       getLogger().warn('instance-manager', `registerSelf failed for ${info.id}: ${err instanceof Error ? err.message : err}`);
       throw err;
@@ -220,7 +246,7 @@ export class InstanceManager {
         if (!isInstanceInfo(parsed)) continue;
         parsed.lastSeen = new Date().toISOString();
         const tmpPath = `${filePath}.tmp`;
-        await writeFile(tmpPath, JSON.stringify(parsed, null, 2), 'utf-8');
+        await writeFile(tmpPath, JSON.stringify(parsed, null, 2), { encoding: 'utf-8', mode: 0o600 });
         await rename(tmpPath, filePath);
         return; // 只更新第一个找到的文件
       } catch { /* 文件不存在/损坏→试下一个目录 */ }

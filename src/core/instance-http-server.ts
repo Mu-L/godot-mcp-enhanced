@@ -224,12 +224,14 @@ export class InstanceHttpServer {
   private async readBody(req: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
     let totalLen = 0;
-    const MAX_BODY = 10 * 1024 * 1024; // 10MB
+    // S-7: 降到 1MB(原 10MB)。MCP 工具 args JSON 极少超 1MB(scene_file 内容按 path 传非 inline),
+    // 降低单请求内存占用峰值,限制已认证者(同机拿 secret)的资源耗尽面。
+    const MAX_BODY = 1024 * 1024; // 1MB
     for await (const chunk of req) {
       const buf = chunk as Buffer;
       totalLen += buf.length;
       if (totalLen > MAX_BODY) {
-        throw new Error('Request body too large (max 10MB)');
+        throw new Error('Request body too large (max 1MB)');
       }
       chunks.push(buf);
     }

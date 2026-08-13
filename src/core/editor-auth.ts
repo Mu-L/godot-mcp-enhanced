@@ -130,25 +130,25 @@ export async function waitForEditorSecret(
       continue;
     }
 
-    // Check permissions ONCE when file first appears (sync icacls — unavoidable on Windows)
-    if (!permChecked) {
-      // S-1 (2026-06-24 审查): symlink 检查——与 readEditorSecret Imp-9 对称。
-      // 必须在 checkFilePermissions 之前:后者的 statSync/icacls 会 follow symlink,看到的是
-      // 目标文件权限(可能 OK)且 icacls 会改 symlink 目标 ACL(副作用)。攻击者把 mcp_editor.key
-      // 设为 symlink 指向权限 OK 的任意可读文件即可绕过权限检查。lstatSync 不 follow。
-      try {
-        if (lstatSync(secretFilePath).isSymbolicLink()) {
-          getLogger().error('security', `Editor secret file ${secretFilePath} is a symlink — refusing to read.`);
-          return null;
-        }
-      } catch (err: unknown) {
-        // ENOENT: existsSync 后文件被删(竞态),静默继续轮询;其他 lstat 错误 log 后继续(下轮重试)
-        if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          getLogger().error('auth', `Failed to lstat editor secret: ${(err as NodeJS.ErrnoException).code} — ${getErrorMessage(err)}`);
-        }
-        await new Promise(r => setTimeout(r, interval));
-        continue;
+    // S-3 (TOCTOU fix): symlink 每轮复检(轻量 lstatSync,无 execFileSync)。
+    // 原实现只在文件首次出现时检查一次,permChecked=true 后 5s 轮询期内(~25 次)不再复核,
+    // 攻击者可在首检后把 mcp_editor.key 换 symlink 指向已知内容文件 → 伪造 editor 身份。
+    try {
+      if (lstatSync(secretFilePath).isSymbolicLink()) {
+        getLogger().error('security', `Editor secret file ${secretFilePath} is a symlink — refusing to read.`);
+        return null;
       }
+    } catch (err: unknown) {
+      // ENOENT: existsSync 后文件被删(竞态),静默继续轮询;其他 lstat 错误 log 后继续(下轮重试)
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        getLogger().error('auth', `Failed to lstat editor secret: ${(err as NodeJS.ErrnoException).code} — ${getErrorMessage(err)}`);
+      }
+      await new Promise(r => setTimeout(r, interval));
+      continue;
+    }
+
+    // Check permissions ONCE when file first appears (sync icacls — unavoidable on Windows, expensive)
+    if (!permChecked) {
       if (!checkFilePermissions(secretFilePath)) {
         getLogger().error('security', `Refusing to use editor secret with insecure permissions: ${secretFilePath}`);
         return null;
