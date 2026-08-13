@@ -1,4 +1,4 @@
-import { expect, it, describe } from 'vitest';
+import { expect, it, describe, vi } from 'vitest';
 import {
   ACTIONS,
   getToolDefinitions,
@@ -7,6 +7,15 @@ import {
   genStateSetPosition,
   genStateSetBlend,
 } from '../src/tools/animtree.js';
+
+// F-6: mock executeGdscript 以验证 handler→generator 路由(原 bug 下此路径是死代码)
+vi.mock('../src/gdscript-executor.js', () => ({
+  executeGdscript: vi.fn().mockResolvedValue({
+    success: true, compile_success: true, run_success: true,
+    outputs: [{ value: '{"ok": true}' }], raw_output: '', run_error: '', errors: [],
+    duration_ms: 1,
+  }),
+}));
 
 const fakeCtx = { findGodot: async () => '/fake/godot' };
 
@@ -143,7 +152,7 @@ describe('animtree handleTool', () => {
     expect(parsed.success).toBe(false);
   });
 
-  it('animtree_state_edit rejects missing action', async () => {
+  it('animtree_state_edit rejects missing sub_action', async () => {
     const result = await handleTool('animtree', {
       action: 'animtree_state_edit',
       project_path: '/fake/project',
@@ -152,6 +161,49 @@ describe('animtree handleTool', () => {
     expect(result).toBeTruthy();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.success).toBe(false);
+    expect(parsed.error).toMatch(/sub_action/);
+  });
+
+  // F-6 正向测试:验证 set_position/set_blend 路由可达(原 bug 下整条 action 死代码)
+  it('animtree_state_edit set_position routes to generator (F-6 fix)', async () => {
+    const result = await handleTool('animtree', {
+      action: 'animtree_state_edit',
+      sub_action: 'set_position',
+      project_path: '/fake/project',
+      node_path: 'root/Tree',
+      state_name: 'idle',
+      position: { x: 10, y: 20 },
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('animtree_state_edit set_blend routes to generator (F-6 fix)', async () => {
+    const result = await handleTool('animtree', {
+      action: 'animtree_state_edit',
+      sub_action: 'set_blend',
+      project_path: '/fake/project',
+      node_path: 'root/Tree',
+      parameter_name: 'blend',
+      value: 0.5,
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('animtree_state_edit rejects invalid sub_action', async () => {
+    const result = await handleTool('animtree', {
+      action: 'animtree_state_edit',
+      sub_action: 'bogus',
+      project_path: '/fake/project',
+      node_path: 'root/Tree',
+    }, fakeCtx);
+    expect(result).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toMatch(/set_position.*set_blend/);
   });
 
   it('animtree_add_transition rejects missing from_state', async () => {

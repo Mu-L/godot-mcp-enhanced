@@ -661,6 +661,14 @@
           "value": {
             "description": "参数值（float 用于 blends，{x,y} 用于 blend spaces）"
           },
+          "sub_action": {
+            "type": "string",
+            "enum": [
+              "set_position",
+              "set_blend"
+            ],
+            "description": "animtree_state_edit 的子操作：set_position 设置状态位置(需 state_name + position)；set_blend 设置混合参数(需 parameter_name + value)"
+          },
           "load_autoloads": {
             "type": "boolean",
             "description": "是否加载 Autoload 上下文（默认 true）"
@@ -689,6 +697,7 @@
         "conditions",
         "parameter_name",
         "value",
+        "sub_action",
         "load_autoloads"
       ],
       "readonly": false,
@@ -724,8 +733,8 @@
       },
       "size": {
         "descBytes": 243,
-        "schemaBytes": 2356,
-        "totalBytes": 2599
+        "schemaBytes": 2592,
+        "totalBytes": 2835
       },
       "annotations": {
         "readOnlyHint": false,

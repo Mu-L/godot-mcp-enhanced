@@ -7,7 +7,7 @@
 - securityLevel：danger-api 10 / guarded 20 / safe 10
 - risk：read 111 / write 93 / destructive 10 / process 14
 - L2 覆盖：covered 0 / partial 0 / none 40
-- token 预算：tools/list ≈ 79320B / ~19830 tokens（description 13157B / schema 66163B，schema 占 83%）
+- token 预算：tools/list ≈ 79556B / ~19889 tokens（description 13157B / schema 66399B，schema 占 83%）
 - annotations：readOnly 8 / destructive 5 / idempotent 11
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
