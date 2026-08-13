@@ -86,4 +86,8 @@ describe('Phase 1e: isError write-back to client', () => {
     // {ok:false} 也应被识别为错误(unity 形态)
     expect(result.isError).toBe(true);
   });
+
+  // 注:F-2 的负向验证(非首块 "Error:" 用户文本不被误判)在 response-format.test.ts
+  // 以 isErrorText(text, { checkTextPrefix }) 单元测试覆盖 —— 那里可直接控制 checkTextPrefix,
+  // 不受本集成层 project_path 注入失败(handler 未执行)的干扰。
 });

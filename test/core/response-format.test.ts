@@ -181,4 +181,23 @@ describe('isErrorText', () => {
   it('returns false for JSON array without error', () => {
     expect(isErrorText('[1,2,3]')).toBe(false);
   });
+
+  // F-2: checkTextPrefix 选项 — 工具返回的用户文本(如 screenshot question="Error: ...")
+  // 在非首块时不应被 /^Error[:\s]/ 误判为工具失败。
+  it('F-2: checkTextPrefix=false 不对纯文本做 Error: 前缀检测', () => {
+    // 默认(checkTextPrefix=true):"Error: ..." 被识别为错误(首块场景)
+    expect(isErrorText('Error: 描述这个对话框')).toBe(true);
+    // checkTextPrefix=false:同样文本不再被误判(非首块用户文本场景)
+    expect(isErrorText('Error: 描述这个对话框', { checkTextPrefix: false })).toBe(false);
+    expect(isErrorText('Error something', { checkTextPrefix: false })).toBe(false);
+  });
+
+  it('F-2: checkTextPrefix=false 时 JSON 错误检测仍生效(结构化错误可在任意块)', () => {
+    expect(isErrorText('{"success":false}', { checkTextPrefix: false })).toBe(true);
+    expect(isErrorText('{"ok":false,"reason":"x"}', { checkTextPrefix: false })).toBe(true);
+  });
+
+  it('F-2: checkTextPrefix=false 时合法 JSON 不被误判', () => {
+    expect(isErrorText('{"success":true,"data":1}', { checkTextPrefix: false })).toBe(false);
+  });
 });
