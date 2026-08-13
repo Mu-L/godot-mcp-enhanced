@@ -91,7 +91,7 @@ export function looksLikeErrorObject(obj: unknown): boolean {
  *
  * @param text 待检测文本
  */
-export function isErrorText(text: string): boolean {
+export function isErrorText(text: string, opts?: { checkTextPrefix?: boolean }): boolean {
   if (typeof text !== 'string' || text.length === 0) return false;
   const first = text[0]!;
   if (first === '{' || first === '[') {
@@ -108,5 +108,9 @@ export function isErrorText(text: string): boolean {
       // JSON 解析失败,fall through 到文本检测
     }
   }
-  return /^Error[:\s]/.test(text);
+  // F-2: /^Error[:\s]/ 纯文本前缀检测默认开,但可经 opts 关闭。
+  // checkJsonSuccessFalse 对非首个 text block 关闭此项,避免把工具返回的用户文本
+  // (如 screenshot 的 question="Error: 描述这个对话框")误判为工具失败。
+  const checkTextPrefix = opts?.checkTextPrefix ?? true;
+  return checkTextPrefix && /^Error[:\s]/.test(text);
 }

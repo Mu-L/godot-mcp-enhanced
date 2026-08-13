@@ -1,6 +1,7 @@
 // src/core/EditorConnection.ts
 import WebSocket from 'ws';
 import { getLogger } from './logger.js';
+import { ConnectionError, InternalError } from './tool-errors.js';
 import { getErrorMessage } from '../types.js';
 
 // I-01: Auth uses a dedicated id outside the normal requestId sequence to avoid conflicts.
@@ -144,7 +145,7 @@ export class EditorConnection {
     this.host = options.host ?? '127.0.0.1';
     // Reject non-localhost hosts — WebSocket auth is plaintext (no TLS)
     if (this.host !== '127.0.0.1' && this.host !== 'localhost' && this.host !== '::1') {
-      throw new Error(`Editor WebSocket only supports localhost connections for security (got: ${this.host})`);
+        throw new InternalError('Editor WebSocket only supports localhost connections');
     }
     this.shouldReconnect = options.reconnect ?? true;
     this.reconnectEnabled = this.shouldReconnect;
@@ -340,8 +341,8 @@ export class EditorConnection {
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.connected) {
-        // B4: 挂 err.code='NOT_CONNECTED' 供 Executor 分流(do_not_retry)
-        reject(Object.assign(new Error('Not connected'), { code: 'NOT_CONNECTED' }));
+        // B4: ConnectionError 自带 code='NOT_CONNECTED'(ToolError 字段)供 Executor 分流(do_not_retry)。
+        reject(new ConnectionError());
         return;
       }
       // Increment and wrap (ID 0 is reserved/skipped to avoid falsy confusion).
@@ -392,7 +393,7 @@ export class EditorConnection {
    * a full scene-tree refresh if any were lost.
    */
   notify(method: string, params: Record<string, unknown> = {}): void {
-    if (!this.ws || !this.connected) throw new Error('Not connected');
+    if (!this.ws || !this.connected) throw new ConnectionError();
     try {
       this.ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
     } catch (err) {
@@ -438,7 +439,7 @@ export class EditorConnection {
   private performAuth(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.editorSecret) {
-        reject(new Error('Cannot authenticate: not connected or no secret'));
+        reject(new ConnectionError('Cannot authenticate: not connected or no secret'));
         return;
       }
       let settled = false;

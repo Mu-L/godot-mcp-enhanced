@@ -57,6 +57,8 @@ export interface DispatchContext {
   args: Record<string, unknown>;
   startTime: number;
   phase: 'before' | 'after';
+  /** G2 (2026-08-13): per-request trace id (16 hex),注入 result._meta 供 client/可观测追踪。 */
+  traceId: string;
 }
 
 export type MiddlewareResult =

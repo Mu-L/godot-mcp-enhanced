@@ -33,6 +33,7 @@ import {
 import { validateArgs } from './args-validator.js';
 import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
 import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
+import { classifyError, newTraceId, InternalError } from './tool-errors.js';
 import { truncateResponse } from './response-limiter.js';
 import { isErrorText } from './response-format.js';
 import * as ps from './process-state.js';
@@ -235,7 +236,7 @@ export class ToolDispatcher {
       : VALID_LOG_LEVELS.has(rawLogLevel) ? (rawLogLevel as LogLevel)
       : null;  // 非法值视为 null(旧行为);SEP-2577 建议返 -32602 但 enhanced 在 middleware 层不阻断
 
-    const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before' };
+    const ctx: DispatchContext = { toolName: name, args, startTime, phase: 'before', traceId: newTraceId() };
 
     // P1-7 (SEP-2577): per-request logLevel 包裹整个工具调用链(middleware + executeToolCall +
     // dispatchTool + confirm_and_execute)。withRequestLogLevelAsync 在 await 期间保持
@@ -249,13 +250,13 @@ export class ToolDispatcher {
     return withRequestLogFn(requestLogFn ?? null, () =>
       withRequestLogLevelAsync(requestLogLevel, () =>
         executeMiddleware(this.middleware, ctx, async () => {
-          return this.executeToolCall(name, args, startTime, progressEmitter, srvCtx);
+          return this.executeToolCall(name, args, startTime, ctx.traceId, progressEmitter, srvCtx);
         }),
       ),
     );
   }
 
-  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
+  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, traceId: string, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
     // ── Task 3 (A-RCE #3): profile 硬隔离入口强制 ──
     // isToolAllowed 原只在 getFilteredTools 广告层(:183),被转发 MCP 客户端(拿完整
     // tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/slim 过滤的工具。此处对称补强:
@@ -410,6 +411,7 @@ export class ToolDispatcher {
               confirmation_token: token,
               message: `Tool "${name}" requires confirmation. Call confirm_and_execute with this token to proceed.`,
               ttl_seconds: TOKEN_TTL_MS / 1000,
+              expires_at: Date.now() + TOKEN_TTL_MS,
             }),
           }],
         };
@@ -446,9 +448,14 @@ export class ToolDispatcher {
       // 导致 godot_path 参数和项目感知 findGodot 在最常用路径失效。
       return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log('Tool error:', name, msg);
-      return opsErrorResult('TOOL_ERROR', msg);
+      // G2 (2026-08-13): 结构化错误分类 + PII 护栏。classifyError 从异常【类型】映射,
+      // 绝不读 err.message。safeMessage 进 client 响应(PII-safe);完整 err.message 只 log。
+      const { category, retryable, code, safeMessage } = classifyError(err);
+      log('Tool error:', name, traceId, category, err instanceof Error ? err.message : String(err));
+      // G2: error_category/retryable/trace_id 进 content JSON(opsErrorResult,AI 可读)。
+      // 注:telemetry 仍固定 TOOL_ERROR(defects.ts telemetry-error-category-pii-leak 硬约束),
+      // response 侧已升级结构化 category;telemetry 升级待 defect 检测器认可结构化模式。
+      return opsErrorResult(code, safeMessage, { retryable, errorCategory: category, traceId });
     }
   }
 
@@ -480,7 +487,10 @@ export class ToolDispatcher {
           this.healthMonitor.recordSuccess(duration);
           recorder.record(ctx.toolName, true, duration);
         }
-        return result;
+        // G2: trace_id/duration_ms 注入 _meta(MCP 标准,SDK ResultMetaObjectSchema looseObject 透传到 wire)。
+        // TS caveat:CallToolResult._meta 推断类型只声明 serverInfo key,用断言放宽(运行时/wire 已验证)。
+        const __g2Meta = (result as ToolResult & { _meta?: Record<string, unknown> })._meta ?? {};
+        return { ...result, _meta: { ...__g2Meta, trace_id: ctx.traceId, duration_ms: duration } } as ToolResult;
       },
     });
 
@@ -506,6 +516,8 @@ export class ToolDispatcher {
           // T1: 固定枚举 'TOOL_ERROR'。原 safeErrorCategory(extractErrorMessage(result)) 会把
           // 原始错误文本（含路径/项目名 PII）仅替标点后塞进 error_category，Stage 1 接 endpoint
           // 即外传 PII。result 无结构化 code，按错误文本推断 category 主观且 YAGNI，故固定枚举。
+          // G2 注:结构化 error_category 已在 response content JSON(opsErrorResult)给 AI;telemetry
+          // 维持固定是 defects.ts telemetry-error-category-pii-leak 硬约束,待检测器升级认可结构化。
           error_category: isError ? 'TOOL_ERROR' : undefined,
           project_hash: typeof ctx.args.project_path === 'string' ? hashProject(ctx.args.project_path) : undefined,
         });
@@ -584,7 +596,7 @@ export class ToolDispatcher {
       return {};
     }
     if (depth > ToolDispatcher.MAX_NORMALIZE_DEPTH) {
-      throw new Error(`normalizeArgs depth limit (${ToolDispatcher.MAX_NORMALIZE_DEPTH}) exceeded — flatten nested args`);
+      throw new InternalError(`normalizeArgs depth limit (${ToolDispatcher.MAX_NORMALIZE_DEPTH}) exceeded — flatten nested args`);
     }
     const args: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawArgs)) {
@@ -638,10 +650,11 @@ export class ToolDispatcher {
    */
   private validatePathArgs(args: Record<string, unknown>): ToolResult | null {
     if (typeof args.project_path === 'string' && !isPathInAllowedRoots(args.project_path)) {
-      return opsErrorResult('PATH_NOT_ALLOWED', `Path not in ALLOWED_PROJECT_PATHS: ${args.project_path}. Check your ALLOWED_PROJECT_PATHS setting.`);
+      // G2: PII 护栏 — 不把 project_path 原值拼进 message(含绝对路径=PII)。errorCategory 走结构化枚举。
+      return opsErrorResult('PATH_NOT_ALLOWED', 'project_path is not in ALLOWED_PROJECT_PATHS. Check your setting.', { errorCategory: 'path' });
     }
     if (typeof args.search_dir === 'string' && !isPathInAllowedRoots(args.search_dir)) {
-      return opsErrorResult('PATH_NOT_ALLOWED', `Search directory not in ALLOWED_PROJECT_PATHS: ${args.search_dir}. Check your ALLOWED_PROJECT_PATHS setting.`);
+      return opsErrorResult('PATH_NOT_ALLOWED', 'search_dir is not in ALLOWED_PROJECT_PATHS. Check your setting.', { errorCategory: 'path' });
     }
     return null;
   }
@@ -852,9 +865,15 @@ export class ToolDispatcher {
    */
   private checkJsonSuccessFalse(result: ToolResult): boolean {
     if (!result.content) return false;
+    // F-2: JSON shape 检测对所有 block 启用(结构化错误可在任意 block);
+    // 但 /^Error[:\s]/ 纯文本前缀检测仅对首个 text block 启用,避免工具返回的
+    // 用户文本(如 screenshot question="Error: ...")被误判为工具失败。
+    let seenTextBlock = false;
     for (const block of result.content) {
       if ("text" in block && typeof block.text === "string") {
-        if (isErrorText(block.text)) return true;
+        const isFirst = !seenTextBlock;
+        seenTextBlock = true;
+        if (isErrorText(block.text, { checkTextPrefix: isFirst })) return true;
       }
     }
     return false;

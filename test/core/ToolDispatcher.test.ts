@@ -77,8 +77,14 @@ vi.mock('../../src/core/path-utils.js', () => ({
 }));
 
 vi.mock('../../src/tools/shared.js', () => ({
-  opsErrorResult: vi.fn((code: string, msg: string) => ({
-    content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: msg, error_code: code, warnings: [] }) }],
+  opsErrorResult: vi.fn((code: string, msg: string, opts?: { suggestion?: string; retryable?: boolean; errorCategory?: string; traceId?: string }) => ({
+    content: [{ type: 'text' as const, text: JSON.stringify({
+      success: false, error: msg, error_code: code, warnings: [],
+      // G2 (2026-08-13): 透传结构化错误三元组(镜像 src/tools/shared/errors.ts opsError)
+      ...(opts?.retryable !== undefined ? { retryable: opts.retryable } : {}),
+      ...(opts?.errorCategory ? { error_category: opts.errorCategory } : {}),
+      ...(opts?.traceId ? { trace_id: opts.traceId } : {}),
+    }) }],
     isError: true,
   })),
   COMMON_ERROR_CODES: { INVALID_PARAMS: 'INVALID_PARAMS' },
@@ -902,15 +908,37 @@ describe('ToolDispatcher.handleCall', () => {
     expect(firstText).not.toContain('EDITOR_FALLBACK');
   });
 
-  // [T19] catch 异常 → 错误消息
-  it('catches exceptions and returns error message', async () => {
+  // [T19] catch 异常 → PII-safe 结构化错误(G2:不再外泄 err.message)
+  it('catches exceptions and returns PII-safe structured error (G2 trace+PII)', async () => {
     const guard = createMockGuard(false);
-    const mockModule = { handleTool: vi.fn().mockRejectedValue(new Error('boom')) };
+    const mockModule = { handleTool: vi.fn().mockRejectedValue(new Error('boom with /home/secret/path')) };
     mockGetModuleForTool.mockReturnValue(mockModule);
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
     const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('boom');
+    const parsed = JSON.parse(text);
+    // G2 (2026-08-13): PII 护栏 — 主 catch 用 classifyError(原生 Error 兜底 INTERNAL),
+    // 绝不读 err.message。'boom with /home/secret/path' 不进响应;safeMessage='Internal error'。
+    expect(parsed.error_code).toBe('INTERNAL');
+    expect(parsed.error_category).toBe('internal');
+    expect(parsed.retryable).toBe(false);
+    expect(parsed.error).toBe('Internal error');
+    expect(parsed.error).not.toContain('boom');        // err.message 不外泄
+    expect(parsed.error).not.toContain('secret');      // PII 路径不外泄
+    expect(parsed.trace_id).toMatch(/^[0-9a-f]{16}$/); // G2 trace_id 注入
+  });
+
+  // [G2-meta] 成功路径注入 _meta.trace_id + _meta.duration_ms(审查 I-2 补强:
+  //   healthSample after 经 middleware 链式赋值注入,缺测试则未来 middleware 顺序调整无法发现回归)
+  it('injects _meta.trace_id + duration_ms on success path (G2)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue({ content: [{ type: 'text' as const, text: '{"success":true,"data":{}}' }] }) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+    const meta = (result as { _meta?: Record<string, unknown> })._meta;
+    expect(meta?.trace_id).toMatch(/^[0-9a-f]{16}$/);
+    expect(typeof meta?.duration_ms).toBe('number');
   });
 
   // ── validateCommonArgs 类型校验 ──────────────────────────────────────────
