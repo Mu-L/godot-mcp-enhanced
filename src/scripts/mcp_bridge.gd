@@ -62,6 +62,12 @@ var _playtest_step_pending: Array = []  # [{peer: StreamPeerTCP, pid: int, id: V
 # 防多 peer 场景下 peer B 断开误清 peer A 的 physics 锁/snapshot。
 var _playtest_owner_pid: int = -1
 var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buffer_bytes 取用
+# G1 (2026-08-13) control-first satellite 层(附录 F.1):freeze/unfreeze/step_until
+# owner_pid 独占(仿 _playtest_owner_pid,防多 peer 误清);step_until 走延迟通道(同 __PLAYTEST_STEP__)
+var _control_frozen: bool = false
+var _control_owner_pid: int = -1
+var _control_step_until_pending: Array = []  # [{peer_id,pid,id,frames_remaining,wall_deadline_ms,conditions,_added_this_frame}]
+var _pending_control_step_until_result: Dictionary = {}  # 临时:_handle_message 存,_process_buffer_bytes 取
 # CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
 # 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
 var _error_capture: _ErrorCapture = null
@@ -103,6 +109,9 @@ func _ready() -> void:
 	# CMP-2 (2026-08-08): 注册 runtime error 捕获(在 _start_server 前,确保任何启动错误也被捕)。
 	_error_capture = _ErrorCapture.new()
 	OS.add_logger(_error_capture)
+	# G1 (2026-08-13): PROCESS_MODE_ALWAYS — freeze 设 tree.paused=true 后 bridge _process 必须继续,
+	# 否则 TCP 死锁(附录 F.1 BLOCKING)。注意 BLOCKED_PROPERTIES 禁远程 set process_mode,本地 _ready 设不冲突。
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	# Headless 也启动 Bridge: run_project 跑 headless 游戏需 Bridge 通信(DisplayServer=headless)。
 	# --headless --script 场景若端口被占, _start_server 的 listen() 失败会安全跳过(warning+return)。
 	_start_server()
@@ -225,6 +234,73 @@ func _process(_delta: float) -> void:
 				}
 			})
 			target_peer.put_data((step_result + "\n").to_utf8_buffer())
+
+	# ─── G1 (2026-08-13) control-first: freeze 维持 + step_until 轮询 ──
+	# freeze 维持:每帧重设 paused(防游戏代码 WHEN_PAUSED 解 pause)。step_until 时 _control_frozen=false
+	# (临时解开,让游戏跑),此块自然跳过;step_until 完成 refreeze 后恢复 _control_frozen=true。
+	if _control_frozen:
+		get_tree().paused = true
+	# step_until 轮询:每帧递减 frames_remaining + 求值 conditions[](AND 全满足即停)
+	if _control_step_until_pending.size() > 0:
+		var su_completed: Array = []
+		var now_ms := Time.get_ticks_msec()
+		for su_idx in range(_control_step_until_pending.size()):
+			var su_entry: Dictionary = _control_step_until_pending[su_idx]
+			if bool(su_entry.get("_added_this_frame", false)):
+				su_entry["_added_this_frame"] = false
+				continue
+			su_entry["frames_remaining"] = int(su_entry["frames_remaining"]) - 1
+			var cond_error := ""
+			var all_met := true
+			var conds: Array = su_entry["conditions"]
+			for cond in conds:
+				var cdict: Dictionary = cond
+				var node_path := str(cdict["path"])
+				var n := get_node_or_null(node_path)
+				if n == null or not is_instance_valid(n):
+					cond_error = "node not found/freed: %s" % node_path
+					all_met = false
+					break
+				var prop := str(cdict["property"])
+				if not (prop in n):
+					cond_error = "property not found: %s.%s" % [node_path, prop]
+					all_met = false
+					break
+				var nget: Variant = n.get(prop)
+				if not _compare_values(nget, str(cdict["op"]), cdict["value"]):
+					all_met = false
+			if cond_error != "" or all_met or int(su_entry["frames_remaining"]) <= 0 or now_ms > int(su_entry["wall_deadline_ms"]):
+				if cond_error != "":
+					su_entry["_error"] = cond_error
+				su_entry["_met"] = all_met and cond_error == ""
+				su_completed.append(su_idx)
+		su_completed.reverse()
+		for su_idx in su_completed:
+			var su_entry: Dictionary = _control_step_until_pending[su_idx]
+			_control_step_until_pending.remove_at(su_idx)
+			# refreeze:若 step_until 前 frozen,完成时恢复 freeze
+			if bool(su_entry.get("refreeze", false)):
+				_control_frozen = true
+				get_tree().paused = true
+			var peer_id: int = int(su_entry["peer_id"])
+			var target_peer: StreamPeerTCP = null
+			for p in _peers:
+				if p.get_instance_id() == peer_id:
+					target_peer = p
+					break
+			if target_peer == null:
+				continue
+			var su_result := JSON.stringify({
+				"id": su_entry["id"],
+				"result": {
+					"success": true,
+					"predicate_met": bool(su_entry.get("_met", false)),
+					"frames_elapsed": int(su_entry["max_frames"]) - int(su_entry["frames_remaining"]),
+					"wall_exceeded": now_ms > int(su_entry["wall_deadline_ms"]),
+					"error": str(su_entry.get("_error", "")),
+				}
+			})
+			target_peer.put_data((su_result + "\n").to_utf8_buffer())
 
 	# ─── Property monitor sampling (C-07: per-peer) ─────────────────────────
 	var dead_monitors: Array = []
@@ -603,6 +679,21 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				"frames_remaining": frames,
 				"_added_this_frame": true,  # I-2 修复:本帧不递减,下一帧才开始计帧
 			})
+		elif response.begins_with("__PLAYTEST_CONTROL_STEP_UNTIL__"):
+			# G1: 从临时变量取 step_until 完整 params 存 pending(_process 轮询 conditions)
+			var su_payload: Dictionary = _pending_control_step_until_result
+			_pending_control_step_until_result = {}
+			_control_step_until_pending.append({
+				"peer_id": peer.get_instance_id(),
+				"pid": pid,
+				"id": _last_step_request_id,
+				"frames_remaining": int(su_payload["max_frames"]),
+				"max_frames": int(su_payload["max_frames"]),
+				"wall_deadline_ms": Time.get_ticks_msec() + int(su_payload["wall_budget_ms"]),
+				"conditions": su_payload["conditions"],
+				"refreeze": bool(su_payload.get("refreeze", false)),
+				"_added_this_frame": true,
+			})
 		else:
 			peer.put_data((response + "\n").to_utf8_buffer())
 	_peer_buffers[key] = raw
@@ -699,6 +790,13 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_playtest_restore(params)
 		"playtest.step":
 			result = _cmd_playtest_step(params)
+		# G1 (2026-08-13) control-first satellite 层(附录 F.1)
+		"playtest.freeze":
+			result = _cmd_control_freeze(params, pid)
+		"playtest.unfreeze":
+			result = _cmd_control_unfreeze(params, pid)
+		"playtest.step_until":
+			result = _cmd_control_step_until(params, pid)
 		_:
 			error = {"code": -32601, "message": "Method not found: %s. 若为新增 method（如 get_node_layout），项目根 mcp_bridge.gd 可能版本过旧，请重新 game_bridge_install 或同步上游 src/scripts/mcp_bridge.gd。" % method}
 
@@ -711,6 +809,11 @@ func _handle_message(raw: String, pid: int) -> String:
 	if error.is_empty() and result is Dictionary and result.has("__playtest_step__"):
 		_last_step_request_id = id
 		return "__PLAYTEST_STEP__%d__" % int(result["frames"])
+	# G1: step_until 同款哨兵(延迟通道)。完整 result 存临时变量,_process_buffer_bytes 取用存 pending。
+	if error.is_empty() and result is Dictionary and result.has("__playtest_control_step_until__"):
+		_last_step_request_id = id
+		_pending_control_step_until_result = result
+		return "__PLAYTEST_CONTROL_STEP_UNTIL__"
 	if error.is_empty():
 		return JSON.stringify({"id": id, "result": result})
 	else:
@@ -1691,6 +1794,12 @@ func _cleanup_peer_state(pid: int) -> void:
 		if not _playtest_snapshot.is_empty():
 			_playtest_snapshot.clear()
 		_playtest_owner_pid = -1
+	# G1 (2026-08-13) control-first:持有者断开时还原 freeze(防游戏永久暂停)+ 清 step_until pending
+	if pid == _control_owner_pid:
+		_control_frozen = false
+		_control_owner_pid = -1
+		get_tree().paused = false
+		_control_step_until_pending.clear()
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
 		var i: int = _playtest_step_pending.size() - 1
@@ -1943,6 +2052,114 @@ func _cmd_playtest_step(params: Dictionary) -> Dictionary:
 	if frames < 1 or frames > 60:
 		return {"error": {"code": -1, "message": "frames must be 1-60, got %d" % frames}}
 	return {"__playtest_step__": true, "frames": frames}
+
+
+# ─── G1 (2026-08-13) control-first satellite 层(附录 F.1)─────────────────
+# freeze/unfreeze/step_until:借鉴 satellite mcp_game_bridge.gd,叠加到 enhanced determinism-first。
+# process_mode=PROCESS_MODE_ALWAYS(_ready 设)保证 freeze 时 bridge _process 继续。
+# step_until 用结构化条件 {path,property,op,value}[](AND),不引入 Expression(规避白名单绕过 + RCE)。
+const _CONTROL_MAX_FRAMES := 600  # step_until 帧上限(~10s@60fps)
+const _CONTROL_DEFAULT_WALL_BUDGET_MS := 30000  # wall 兜底(防 time_scale=0/暂停饿死)
+const _CONTROL_ALLOWED_OPS := ["==", "!=", "<", ">", "<=", ">="]
+
+func _cmd_control_freeze(params: Dictionary, pid: int) -> Dictionary:
+	# owner 独占:已有其他 owner 持有 → 拒(防多 peer 冲突)
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	_control_owner_pid = pid
+	_control_frozen = true
+	get_tree().paused = true  # freeze:每帧 _process 重设(防游戏代码解 pause)
+	return {"success": true, "frozen": true}
+
+func _cmd_control_unfreeze(params: Dictionary, pid: int) -> Dictionary:
+	# 仅 owner 可 unfreeze(防 peer B 误清 peer A 的 freeze)
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	_control_frozen = false
+	_control_owner_pid = -1
+	get_tree().paused = false
+	return {"success": true, "frozen": false}
+
+func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
+	# owner 独占
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	var conditions: Variant = params.get("conditions", [])
+	if not (conditions is Array) or conditions.size() == 0:
+		return {"error": {"code": -1, "message": "conditions must be a non-empty array of {path,property,op,value}"}}
+	# 校验每个 condition(结构化,不引入 Expression)
+	var validated: Array = []
+	for cond in conditions:
+		if not (cond is Dictionary):
+			return {"error": {"code": -1, "message": "each condition must be an object {path,property,op,value}"}}
+		var cdict: Dictionary = cond
+		if not (cdict.has("path") and cdict.has("property") and cdict.has("op") and cdict.has("value")):
+			return {"error": {"code": -1, "message": "condition missing required key (path/property/op/value)"}}
+		var op := str(cdict["op"])
+		if not _CONTROL_ALLOWED_OPS.has(op):
+			return {"error": {"code": -1, "message": "op must be one of %s, got %s" % [str(_CONTROL_ALLOWED_OPS), op]}}
+		if not _is_safe_value(cdict["value"]):
+			return {"error": {"code": -1, "message": "condition value failed _is_safe_value (几何/标量/PackedArray only)"}}
+		validated.append(cdict)
+	var max_frames: int = int(params.get("max_frames", _CONTROL_MAX_FRAMES))
+	if max_frames < 1 or max_frames > _CONTROL_MAX_FRAMES:
+		return {"error": {"code": -1, "message": "max_frames must be 1-%d, got %d" % [_CONTROL_MAX_FRAMES, max_frames]}}
+	var wall_budget_ms: int = int(params.get("wall_budget_ms", _CONTROL_DEFAULT_WALL_BUDGET_MS))
+	if wall_budget_ms < 1000 or wall_budget_ms > 60000:
+		return {"error": {"code": -1, "message": "wall_budget_ms must be 1000-60000, got %d" % wall_budget_ms}}
+	# step_until:临时解 pause 开窗让游戏跑(若原 frozen,记 refreeze 完成时恢复)。
+	# _process 每帧求值 conditions,满足/帧尽/wall 超时 → push 响应 + (若 refreeze)re-freeze。
+	var refreeze: bool = _control_frozen
+	_control_owner_pid = pid
+	_control_frozen = false  # 临时解:让 _process 不维持 paused,游戏跑
+	get_tree().paused = false  # 开窗
+	return {"__playtest_control_step_until__": true, "conditions": validated, "max_frames": max_frames, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze}
+
+# 结构化条件求值:actual op target(标量/String/Vector,不引入 Expression)
+func _compare_values(actual: Variant, op: String, target: Variant) -> bool:
+	if actual is float or actual is int:
+		var a: float = float(actual)
+		var t: float = float(target)
+		match op:
+			"==": return is_equal_approx(a, t)
+			"!=": return not is_equal_approx(a, t)
+			"<": return a < t
+			">": return a > t
+			"<=": return a <= t
+			">=": return a >= t
+	if actual is String or actual is bool:
+		match op:
+			"==": return str(actual) == str(target)
+			"!=": return str(actual) != str(target)
+			"<": return str(actual) < str(target)
+			">": return str(actual) > str(target)
+			"<=": return str(actual) <= str(target)
+			">=": return str(actual) >= str(target)
+	if actual is Vector2 or actual is Vector3:
+		# N-1 修复(审查):Vector 属性 value 必须是标量(按 length 比)或 Vector,否则 return false
+		# (防 Array/Dict value 经 float() 静默转 0.0 致条件永不满足、静默耗尽帧/wall)
+		if not (target is int or target is float or target is Vector2 or target is Vector3):
+			return false
+		var len_a: float = 0.0
+		var len_t: float = 0.0
+		if actual is Vector2:
+			len_a = (actual as Vector2).length()
+			len_t = float(target) if not (target is Vector2) else (target as Vector2).length()
+		else:
+			len_a = (actual as Vector3).length()
+			len_t = float(target) if not (target is Vector3) else (target as Vector3).length()
+		match op:
+			"==": return is_equal_approx(len_a, len_t)
+			"!=": return not is_equal_approx(len_a, len_t)
+			"<": return len_a < len_t
+			">": return len_a > len_t
+			"<=": return len_a <= len_t
+			">=": return len_a >= len_t
+	# 其他类型(Color/Rect 等):仅 == / !=(str 比较)
+	match op:
+		"==": return str(actual) == str(target)
+		"!=": return str(actual) != str(target)
+		_: return false  # 不支持 < > 等于非标量/Vector
 
 
 func _input(event: InputEvent) -> void:
