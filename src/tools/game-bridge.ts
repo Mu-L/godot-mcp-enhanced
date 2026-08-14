@@ -42,7 +42,7 @@ const ERROR_CODES = {
 } as const;
 
 /** Clamp a millisecond timeout value. Returns default on invalid/zero input.
- *  Exported for pure-function unit tests (game-bridge-validation.test.ts),对齐 shared/validation.ts 的 validateTimeout。 */
+ *  Exported for pure-function unit tests (game-bridge-validation.test.ts)。 */
 export function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
   if (value === undefined || value === null) return def;
   const n = Number(value);
