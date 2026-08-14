@@ -53,6 +53,13 @@ export class EditorConnection {
   private _disconnectFired = false;
 
   /**
+   * A-3 (2026-08-14 finding :932): auth 失败(exhaustion)已 fire 标记。
+   * 去重:同一轮"auth 耗尽"只 fire 一次 reconnectExhausted handlers(对齐 I-04
+   * "exactly once" 不变量),下次成功连接时复位。
+   */
+  private _authExhaustedFired = false;
+
+  /**
    * Backward-compatible setter: converts a direct assignment like
    * `conn.onDisconnect = fn` into the multicast Set pattern.
    */
@@ -122,6 +129,21 @@ export class EditorConnection {
         handler();
       } catch (err) {
         getLogger().warn('editor', `reconnect handler threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  /**
+   * I-04/A-3: fire reconnectExhausted handlers。
+   * 2026-08-06 审查 P2：迭代前 Array.from 快照 + try/catch 容错（对齐 fireDisconnect/fireReconnect），
+   * 防第一个 handler 调 disconnect() 触发 reconnectExhaustedHandlers.clear() 致后续 handler 静默丢失。
+   */
+  private fireReconnectExhausted(): void {
+    for (const handler of Array.from(this.reconnectExhaustedHandlers)) {
+      try {
+        handler();
+      } catch (err) {
+        getLogger().warn('editor', `reconnectExhausted handler threw: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -228,6 +250,18 @@ export class EditorConnection {
             this.ws = null;
             ws.removeAllListeners();
             ws.terminate();
+            // A-3 (2026-08-14 finding :932, P0): auth 失败(如 editor 重启换 secret)同样意味着
+            // 本连接的自动重连链死亡 —— reconnectEnabled 已置 false,scheduleReconnect 入口
+            // 永远静默 return,原实现只在耗尽分支 fire exhaustion,此处不 fire 则上层
+            // (EditorConnectionManager.handleStall) 无降级路径 → conn 永不置 null →
+            // manage_tools(reconnect) 只会 ec.connect()(旧 secret)永远失败并累计
+            // authFailureCount,5 次后 5 分钟 lockout,只能重启 MCP 服务端。
+            // 此处 fire 后 handleStall 置 conn=null → rebuild()(重读 secret)路径可达。
+            // _authExhaustedFired 去重:同一轮"auth 耗尽"只 fire 一次(下次成功连接复位)。
+            if (!this._authExhaustedFired) {
+              this._authExhaustedFired = true;
+              this.fireReconnectExhausted();
+            }
             if (!settled) { settled = true; reject(authErr); }
             return;
           }
@@ -242,6 +276,8 @@ export class EditorConnection {
         }
         const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
+        // A-3: 成功连接复位 auth 耗尽去重标记(新一轮生命周期允许再次 fire)
+        this._authExhaustedFired = false;
         // A-1 (2026-08-14 finding :937): connect 成功时清掉遗留的 backoff timer。
         // backoff 挂起窗口内手动 connect 成功后,旧 timer 若不清,触发时会再跑一次 connect(),
         // 而 connect 入口(:164-169)无条件 terminate 现有 ws → 弹跳健康连接,
@@ -502,15 +538,7 @@ export class EditorConnection {
       // I-04: Fire dedicated exhaustion handlers instead of relying on fireDisconnect dedup.
       // This ensures consumers (e.g. GodotServer) always get notified when reconnect is exhausted,
       // regardless of whether fireDisconnect was already called by ws.on('close').
-      // 2026-08-06 审查 P2：迭代前 Array.from 快照 + try/catch 容错（对齐 fireDisconnect/fireReconnect），
-      // 防第一个 handler 调 disconnect() 触发 reconnectExhaustedHandlers.clear() 致后续 handler 静默丢失。
-      for (const handler of Array.from(this.reconnectExhaustedHandlers)) {
-        try {
-          handler();
-        } catch (err) {
-          getLogger().warn('editor', `reconnectExhausted handler threw: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      this.fireReconnectExhausted();
       return;
     }
     const base = Math.min(
