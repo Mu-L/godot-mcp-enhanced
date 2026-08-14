@@ -17,7 +17,9 @@ const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
  *  会在注释中间截断丢成员(实测 bridge 侧曾因此丢 call_deferred/call_threadsafe/
  *  queue_delete 三个成员,契约假绿)。每行剥 # 行内注释后提取 "..." 字符串。 */
 function parseGdStringArray(gdSrc: string, constName: string): string[] {
-  const startRe = new RegExp(`const ${constName} := \\[`);
+  // `^` 锚定行首(逐行 test + m 标志):防注释行恰好含 `const X := [` 文本时被误认
+  // 为数组起点(如 `# const DEFAULT_CALL_DENYLIST := [...历史说明...]`)误吞成员。
+  const startRe = new RegExp(`^const ${constName} := \\[`, 'm');
   const names: string[] = [];
   let inArray = false;
   for (const rawLine of gdSrc.split('\n')) {

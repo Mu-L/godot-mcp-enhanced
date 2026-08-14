@@ -10,6 +10,10 @@ vi.mock('../src/gdscript-executor.js', () => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
   })),
+  // B-1 fix round 1 (2026-08-14): create_project 落盘 main.gd/脚手架 .gd 前过
+  // scanScriptSandboxOrThrow(→ scanGdscriptSandbox);本文件用例均为合法生成内容,
+  // mock 返回空警告(放行)以保持 happy-path 语义。
+  scanGdscriptSandbox: vi.fn(() => []),
 }));
 
 // Mock batchValidateScripts so validate_scripts doesn't spawn Godot
