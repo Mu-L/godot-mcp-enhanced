@@ -34,7 +34,8 @@ describe('内置模板', () => {
   it('每个模板 generate({}) 返回非空字符串', () => {
     for (const tpl of TEMPLATES) {
       const code = tpl.generate({});
-      expect(typeof code === 'string' && code.length > 0).toBeTruthy();
+      expect(typeof code).toBe('string');
+      expect(code.length).toBeGreaterThan(0);
     }
   });
 });
@@ -99,11 +100,11 @@ describe('T008 CharacterBody2D 模板', () => {
   expect(tpl).toBeTruthy();
 
   it('generate 包含 extends CharacterBody2D', () => {
-    expect(tpl.generate({}).includes('extends CharacterBody2D')).toBeTruthy();
+    expect(tpl.generate({})).toContain('extends CharacterBody2D');
   });
 
   it('generate 包含 move_and_slide', () => {
-    expect(tpl.generate({}).includes('move_and_slide')).toBeTruthy();
+    expect(tpl.generate({})).toContain('move_and_slide');
   });
 
   it('自定义参数 speed 生效', () => {
@@ -124,11 +125,11 @@ describe('T010 StateMachine 模板', () => {
   expect(tpl).toBeTruthy();
 
   it('generate 包含 enum State', () => {
-    expect(tpl.generate({}).includes('enum State')).toBeTruthy();
+    expect(tpl.generate({})).toContain('enum State');
   });
 
   it('generate 包含 match current_state', () => {
-    expect(tpl.generate({}).includes('match current_state')).toBeTruthy();
+    expect(tpl.generate({})).toContain('match current_state');
   });
 
   it('默认状态列表包含 IDLE, RUN, JUMP', () => {

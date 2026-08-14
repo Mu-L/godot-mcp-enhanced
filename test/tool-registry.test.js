@@ -42,7 +42,7 @@ describe('tool-registry', () => {
     const ro = getReadOnlyTools();
     expect(ro).toContain('read_scene');
     expect(ro).toContain('get_project_info');
-    expect(!ro.includes('add_node')).toBeTruthy();
+    expect(ro).not.toContain('add_node');
   });
 
   it('lists all write tools', () => {
@@ -54,7 +54,7 @@ describe('tool-registry', () => {
     const wr = getWriteTools();
     expect(wr).toContain('add_node');
     expect(wr).toContain('write_script');
-    expect(!wr.includes('read_scene')).toBeTruthy();
+    expect(wr).not.toContain('read_scene');
   });
 
   it('getAllToolNames returns all registered names', () => {
