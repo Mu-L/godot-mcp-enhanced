@@ -58,7 +58,7 @@ vi.mock('../../src/core/tool-registry.js', () => ({
   tryLegacyMapping: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock('../../src/guard.js', () => ({
+vi.mock('../../src/core/guard.js', () => ({
   requiresConfirmation: mockRequiresConfirmation,
   createPendingToken: mockCreatePendingToken,
   consumeToken: mockConsumeToken,

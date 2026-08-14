@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
-import { getActionRisk, getActionRisks } from './core/tool-registry.js';
-import { InternalError, RateLimitError } from './core/tool-errors.js';
+import { getActionRisk, getActionRisks } from './tool-registry.js';
+import { InternalError, RateLimitError } from './tool-errors.js';
 
 interface PendingToken {
   token: string;

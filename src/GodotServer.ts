@@ -33,7 +33,7 @@ const require = createRequire(import.meta.url);
 const pkgVersion = require('../package.json').version;
 import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { ToolDispatcher } from './core/ToolDispatcher.js';
-import * as guard from './guard.js';
+import * as guard from './core/guard.js';
 import { EditorConnection } from './core/EditorConnection.js';
 import { EditorToolExecutor } from './core/EditorToolExecutor.js';
 import { dynamicSchema } from './core/dynamic-schema.js';

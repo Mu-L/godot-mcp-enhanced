@@ -16,7 +16,7 @@ import {
   consumeToken,
   peekToken,
   TOKEN_TTL_MS,
-} from '../guard.js';
+} from './guard.js';
 import { isActionGated, isActionAllowed, resolveEnabledGroups } from './action-gate.js';
 import {
   getAllToolDefinitions,

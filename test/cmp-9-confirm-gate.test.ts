@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { registerAllModules } from '../src/core/module-loader.js';
 import { getActionRisks } from '../src/core/tool-registry.js';
-import { requiresConfirmation } from '../src/guard.js';
+import { requiresConfirmation } from '../src/core/guard.js';
 
 // CMP-9 confirm gate 二期(2026-08-08):验证 engine call_method 触发确认令牌。
 //

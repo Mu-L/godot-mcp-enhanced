@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isGuardedTool, requiresConfirmation } from '../../src/guard.js';
+import { isGuardedTool, requiresConfirmation } from '../../src/core/guard.js';
 import { registerAllModules } from '../../src/core/module-loader.js';
 import { getActionRisks } from '../../src/core/tool-registry.js';
 

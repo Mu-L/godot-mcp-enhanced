@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import {
   requiresConfirmation, createPendingToken, consumeToken, peekToken, pendingCount, resetState,
   TOKEN_TTL_MS,
-} from '../src/guard.js';
+} from '../src/core/guard.js';
 import { registerAllModules } from '../src/core/module-loader.js';
 
 // 注册所有模块的 actionRisks，供 requiresConfirmation 派生判定
