@@ -806,9 +806,9 @@ func _handle_message(raw: String, pid: int) -> String:
 		"playtest.fixed_delta":
 			result = _cmd_playtest_fixed_delta(params, pid)
 		"playtest.snapshot":
-			result = _cmd_playtest_snapshot(params)
+			result = _cmd_playtest_snapshot(params, pid)
 		"playtest.restore":
-			result = _cmd_playtest_restore(params)
+			result = _cmd_playtest_restore(params, pid)
 		"playtest.step":
 			result = _cmd_playtest_step(params)
 		# G1 (2026-08-13) control-first satellite 层(附录 F.1)
@@ -1820,12 +1820,15 @@ func _cleanup_peer_state(pid: int) -> void:
 			Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
 			Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
 			_playtest_fixed_delta_saved.clear()
-			_playtest_active = false
 		# 2026-08-07 审查 P1 修复：snapshot 同属 playtest 全局状态，peer 断开必须同步 clear。
 		# 否则：(1) _playtest_snapshot（可达 50000 节点×N 属性，数十 MB）永久驻留内存（泄漏）；
 		# (2) 后续新 peer 调 playtest.restore 误读到这份陈旧快照，场景已变 → 节点状态损坏。
 		if not _playtest_snapshot.is_empty():
 			_playtest_snapshot.clear()
+		# 2026-08-14 审查 D-4 修复：_playtest_active 复位移出 fixed_delta 分支（与 snapshot.clear
+		# 同级）——seed-only/snapshot-only 周期同样要复位。残留 true 会令 _input 跳过录制，
+		# recording.start 表面成功但录不到任何事件（静默失效）。
+		_playtest_active = false
 		_playtest_owner_pid = -1
 	# G1 (2026-08-13) control-first:持有者断开时还原 freeze(防游戏永久暂停)+ 清 step_until pending
 	if pid == _control_owner_pid:
@@ -1974,6 +1977,10 @@ func _cmd_click_button(params: Dictionary) -> Variant:
 # ④ 不保 RigidBody 物理速度(靠 seed+fixed_delta 重放) ⑤ monitor samples 不在 snapshot 范围
 
 func _cmd_playtest_seed(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：owner 互斥（对齐 freeze :2076-2078）——其他 peer 已持有
+	# playtest 时拒绝，防 peer B 静默抢占 owner 覆盖全局 RNG 破坏 peer A 的确定性重放。
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	var seed_value: int = int(params.get("seed", 0))
 	seed(seed_value)  # @GlobalScope.seed,影响全局 randi/randf
 	_playtest_active = true
@@ -1982,6 +1989,9 @@ func _cmd_playtest_seed(params: Dictionary, pid: int) -> Variant:
 	return {"success": true, "seed": seed_value, "note": "global RNG seeded (per-instance RandomNumberGenerator unaffected)"}
 
 func _cmd_playtest_fixed_delta(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：owner 互斥（同 _cmd_playtest_seed，防抢占 physics 锁）
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	var hz: int = int(params.get("hz", 60))
 	if hz < 1 or hz > 1000:
 		return {"error": {"code": -1, "message": "hz must be 1-1000, got %d" % hz}}
@@ -2003,7 +2013,12 @@ func _cmd_playtest_fixed_delta(params: Dictionary, pid: int) -> Variant:
 
 const PLAYTEST_SNAPSHOT_HARD_STOP: int = 50000  # 对齐 _cmd_get_scene_stats 上限，防大场景 OOM/栈溢
 
-func _cmd_playtest_snapshot(params: Dictionary) -> Variant:
+func _cmd_playtest_snapshot(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：snapshot-only peer 也登记 owner（首个 playtest 操作者语义）。
+	# 此前 snapshot 不登记 → snapshot-only peer 断线走不到 `pid == _playtest_owner_pid`
+	# 清理分支 → 数十 MB 快照永久驻留 + 陈旧快照被新 peer restore 写坏场景。
+	if _playtest_owner_pid == -1:
+		_playtest_owner_pid = pid
 	# 复用 _cmd_get_node_properties 序列化器:遍历场景树,每个节点存 {properties, parent}
 	_playtest_snapshot.clear()
 	var root := get_tree().root
@@ -2037,7 +2052,11 @@ func _collect_node_snapshot(node: Node, parent_path: String) -> void:
 	for child in node.get_children():
 		_collect_node_snapshot(child, path)
 
-func _cmd_playtest_restore(params: Dictionary) -> Variant:
+func _cmd_playtest_restore(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：restore 受 owner 互斥约束（全局快照属 owner，防任意 peer
+	# 抢先 restore 把他人快照写进场景）。
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	if _playtest_snapshot.is_empty():
 		return {"error": {"code": -1, "message": "No snapshot saved. Call playtest_snapshot first."}}
 	var restored: int = 0
@@ -2078,6 +2097,9 @@ func _cmd_playtest_restore(params: Dictionary) -> Variant:
 		Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
 		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
 		_playtest_fixed_delta_saved.clear()
+	# 2026-08-14 审查 D-4 修复：restore 完成 = playtest 周期结束，复位 _playtest_active。
+	# 此前 seed→restore 后残留 true → _input 持续跳过录制 → recording.start 静默失效。
+	_playtest_active = false
 	return {"success": true, "restored": restored, "skipped_freed": skipped_freed}
 
 func _cmd_playtest_step(params: Dictionary) -> Dictionary:
