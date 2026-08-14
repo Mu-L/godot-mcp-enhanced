@@ -8,6 +8,7 @@ import { errorResult } from '../types.js';
 import type { DispatchContext, Middleware, MiddlewareResult, ToolResult, HandlerResult } from '../types.js';
 import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { isFeatureEnabled } from './feature-flags.js';
+import { classifyError } from './tool-errors.js';
 import type { RequestedSchema } from './elicit.js';
 
 // ─── Pipeline Executor ────────────────────────────────────────────────────────
@@ -39,8 +40,8 @@ export async function executeMiddleware(
         break;
       }
     } catch (err) {
-      getLogger().error('middleware', `Before hook "${mw.name}" threw: ${err}`);
-      result = errorResult(`Middleware "${mw.name}" error: ${err instanceof Error ? err.message : String(err)}`);
+      getLogger().error('middleware', `Before hook "${mw.name}" threw: ${err instanceof Error ? err.stack : String(err)}`);
+      result = errorResult(`Middleware "${mw.name}" error: ${classifyError(err).safeMessage}`);
       rejected = true;
       break;
     }
@@ -53,7 +54,7 @@ export async function executeMiddleware(
     } catch (err) {
       // Log full exception (including stack trace) so crashes are diagnosable
       getLogger().error('middleware', `Tool execution threw: ${err instanceof Error ? err.stack : String(err)}`);
-      result = errorResult(`Tool execution error: ${err instanceof Error ? err.message : String(err)}`);
+      result = errorResult(`Tool execution error: ${classifyError(err).safeMessage}`);
     }
   }
 

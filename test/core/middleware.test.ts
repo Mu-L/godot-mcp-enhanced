@@ -123,7 +123,10 @@ describe('executeMiddleware', () => {
     const result = await executeMiddleware([mw], makeCtx(), async () => textResult('ok'));
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { type: string; text: string }).text).toContain('before boom');
+    // G2 PII 护栏: catch 用 classifyError 的 safeMessage,不外泄 err.message('before boom')
+    const beforeText = (result.content[0] as { type: string; text: string }).text;
+    expect(beforeText).toContain('Internal error');
+    expect(beforeText).not.toContain('before boom');
   });
 
   it('catches tool execution errors', async () => {
@@ -132,7 +135,10 @@ describe('executeMiddleware', () => {
     });
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { type: string; text: string }).text).toContain('tool crashed');
+    // G2 PII 护栏: 兜底 catch 用 safeMessage,不外泄 err.message('tool crashed')
+    const execText = (result.content[0] as { type: string; text: string }).text;
+    expect(execText).toContain('Internal error');
+    expect(execText).not.toContain('tool crashed');
   });
 });
 

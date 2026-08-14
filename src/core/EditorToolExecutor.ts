@@ -4,6 +4,8 @@ import type { ToolResult } from '../types.js';
 import { resolveEditorMethod } from './editor-method-map.js';
 import type { HealthMonitor } from './health-monitor.js';
 import { opsErrorResult } from '../tools/shared.js';
+import { classifyError } from './tool-errors.js';
+import { getLogger } from './logger.js';
 
 export class EditorToolExecutor {
   private syncActive = false;
@@ -169,7 +171,15 @@ export class EditorToolExecutor {
           message.includes('JSON parse error')
         ));
 
-      const errorPayload: Record<string, unknown> = { error: message };
+      // PII 护栏(G2 收尾): 连接错误 message 是连接语义(Not connected 等,非 PII),客户端需识别;
+      // 非连接错误(GDScript 报错等)可能含绝对路径/项目名 = PII,用 classifyError 的 safeMessage。
+      const classified = classifyError(err);
+      const safeErrorText = isConnectionError ? message : classified.safeMessage;
+      if (!isConnectionError) {
+        // 完整 message 仅 log 到 server(诊断不丢),不外传 client
+        getLogger().debug('editor', `Editor tool error [${classified.category}/${classified.code}]: ${message}`);
+      }
+      const errorPayload: Record<string, unknown> = { error: safeErrorText };
       // I-12: 保留插件结构化 code/data（连接类错误除外——它们的 code 是本地连接语义非插件语义,
       // 暴露给客户端会被误解为插件 JSON-RPC code 触发错误处理逻辑）
       if (!isConnectionError && err instanceof Error && 'code' in err) {
@@ -274,9 +284,10 @@ export class EditorToolExecutor {
       };
     } catch (err) {
       this.conn.offNotification('scene_tree_changed', this.handleTreeChange);
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): message 可能含 GDScript 报错路径 = PII,用 safeMessage;完整文本 log 到 server
+      getLogger().debug('editor', `Editor tool error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        content: [{ type: 'text', text: JSON.stringify({ error: classifyError(err).safeMessage }) }],
         isError: true,
       };
     }
@@ -302,9 +313,10 @@ export class EditorToolExecutor {
       };
     } catch (err) {
       // 即使 request 失败（如已断连），仍然返回已缓冲的变更
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): warning 文本用 safeMessage,完整 message log 到 server
+      getLogger().debug('editor', `sync_stop error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ warning: message, buffered_changes: changes }) }],
+        content: [{ type: 'text', text: JSON.stringify({ warning: classifyError(err).safeMessage, buffered_changes: changes }) }],
       };
     }
   }
@@ -316,9 +328,10 @@ export class EditorToolExecutor {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): message 可能含 GDScript 报错路径 = PII,用 safeMessage;完整文本 log 到 server
+      getLogger().debug('editor', `Editor tool error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        content: [{ type: 'text', text: JSON.stringify({ error: classifyError(err).safeMessage }) }],
         isError: true,
       };
     }

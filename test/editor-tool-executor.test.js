@@ -243,7 +243,9 @@ describe('EditorToolExecutor sync lifecycle (mocked conn)', () => {
     const result = await executor.execute('editor', { action: 'sync_stop' });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.buffered_changes).toHaveLength(1);
-    expect(parsed.warning).toBe('Stop failed');
+    // G2 PII 护栏: warning 用 classifyError 的 safeMessage(原生 Error → 'Internal error'),
+    // 不外泄 err.message;本测试核心是 buffered_changes 仍返回(上行断言)。
+    expect(parsed.warning).toBe('Internal error');
   });
 });
 
