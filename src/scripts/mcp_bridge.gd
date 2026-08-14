@@ -2152,7 +2152,12 @@ func _cmd_control_unfreeze(params: Dictionary, pid: int) -> Dictionary:
 	_control_step_until_pending.clear()
 	# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值,而非硬设 false
 	# (防游戏暂停菜单/回合制自身暂停状态被清——菜单开着但游戏在跑)。
-	get_tree().paused = _control_paused_saved
+	# Nit-A (2026-08-14 审查补修):仅 saved_valid 时才还原 paused——(a) 从未 freeze
+	# (owner=-1 放行)直接 unfreeze;(b) 非 refreeze step_until 完成已清 S/V 后 owner
+	# 空转持有期间游戏自行 paused。两种边缘下无有效原值,无条件还原会把游戏自暂停
+	# 清成过期的 false。S/V 清除不受守卫影响(无论是否还原都要清)。
+	if _control_paused_saved_valid:
+		get_tree().paused = _control_paused_saved
 	_control_paused_saved = false
 	_control_paused_saved_valid = false
 	return {"success": true, "frozen": false}

@@ -57,6 +57,22 @@ describe('D-2 [P2]: freeze 系列保存-还原游戏自身 paused(三处还原�
     expect(s.includes('_control_paused_saved_valid = false'), 'unfreeze 缺 saved_valid 清除').toBe(true);
   });
 
+  it('D-2c2 [Nit-A]: unfreeze 还原受 saved_valid 守卫(无有效保存不覆盖 paused)', () => {
+    // Nit-A (2026-08-14 审查补修):(a) 从未 freeze 直接 unfreeze;(b) 非 refreeze
+    // step_until 完成已清 S/V 后 owner 空转持有。两种边缘下无条件还原会把游戏自暂停
+    // 清成过期 false。还原必须在 if _control_paused_saved_valid: 守卫内(2 Tab 缩进)。
+    const s = sliceBetween('func _cmd_control_unfreeze', 'func _cmd_control_step_until');
+    expect(
+      s.includes('if _control_paused_saved_valid:\n\t\tget_tree().paused = _control_paused_saved'),
+      'unfreeze 还原缺 saved_valid 守卫(嵌套 2 Tab)'
+    ).toBe(true);
+    // 负向:守卫后的还原不再以函数体 1 Tab 裸露(旧无条件还原模式)
+    expect(
+      s.includes('\n\tget_tree().paused = _control_paused_saved'),
+      'unfreeze 仍存在无条件 1 Tab 还原(Nit-A 未修)'
+    ).toBe(false);
+  });
+
   it('D-2d: 还原点2 step_until 完成分支恢复原值(非 refreeze 且 pending 清空)', () => {
     // 完成逻辑在 _process 的 step_until 轮询段(非独立 func),用全文锚定:
     // elif 分支 = 最后一个开窗 entry 完成时还原,且带 not _control_frozen 防护
