@@ -293,6 +293,11 @@ export function getDynamicToolNames(): readonly string[] {
   return [...dynamicToolNames];
 }
 
+/** A1 (2026-08-11 审查): 判断某工具名是否动态注册(供 confirm/action-gate 反查静态 risk 用)。 */
+export function isDynamicToolName(name: string): boolean {
+  return dynamicToolNames.has(name);
+}
+
 /** Check if a tool is allowed under current active groups. */
 export function isToolAllowed(toolName: string): boolean {
   if (ALWAYS_ALLOWED.has(toolName)) return true;

@@ -55,6 +55,9 @@ vi.mock('../../src/core/tool-registry.js', () => ({
   LITE_TOOLS: new Set<string>(),
   MINIMAL_TOOLS: new Set<string>(),
   isToolAllowed: vi.fn().mockReturnValue(true),
+  // A1 (2026-08-11): dispatcher 新增动态工具门反查 import,mock 工厂缺此导出会在
+  // executeToolCall 调 undefined 报 TypeError(测试全红)
+  isDynamicToolName: vi.fn().mockReturnValue(false),
   setActiveGroups: vi.fn(),
   resolveProfile: vi.fn().mockReturnValue(new Set<string>()),
   skipProjectPath: mockSkipProjectPath,

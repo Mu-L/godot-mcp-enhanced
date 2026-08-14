@@ -18,7 +18,10 @@ import {
   TOKEN_TTL_MS,
 } from './guard.js';
 import { isActionGated, isActionAllowed, resolveEnabledGroups } from './action-gate.js';
+// A1 (2026-08-11 审查 P1):动态工具名反查静态 (tool, action),堵 confirm/action-gate 双绕过
+import { resolveDynamicTool } from './dynamic-risk-map.js';
 import {
+  isDynamicToolName,
   getAllToolDefinitions,
   getActionRisk,
   getModuleForTool,
@@ -272,11 +275,17 @@ export class ToolDispatcher {
     // P0-3 action-gate：action 级权限拦截（默认 gate RCE action）
     // 与 profile（工具级编译时）+ manage_tools（工具级运行时）互补：
     // action-gate 是最细粒度——tools/list 仍暴露工具，仅 gated action 调用被拒。
+    // A1 (2026-08-11 审查 P1): 动态注册的平铺工具(如 debug_evaluate)不在静态 metaRegistry,
+    // isActionGated('debug_evaluate','') 永不命中 → gated action 经动态通道绕过。经
+    // METHOD_TO_TOOL 反查回静态 (tool, action) 再判定;执行仍用原平铺名(editor 转发需要)。
     const _action = typeof args.action === 'string' ? args.action : '';
-    if (isActionGated(name, _action) && !isActionAllowed(name, _action, resolveEnabledGroups())) {
-      log('executeToolCall: action %s.%s gated by capability gate', name, _action);
+    const _dyn = isDynamicToolName(name) ? resolveDynamicTool(name) : undefined;
+    const _gateTool = _dyn?.tool ?? name;
+    const _gateAction = _dyn?.action ?? _action;
+    if (isActionGated(_gateTool, _gateAction) && !isActionAllowed(_gateTool, _gateAction, resolveEnabledGroups())) {
+      log('executeToolCall: action %s.%s gated by capability gate', _gateTool, _gateAction);
       return opsErrorResult('ACTION_GATED',
-        `action '${_action}' is gated (security: code-execution). Set GODOT_MCP_PRIVILEGED_GROUPS=code-execution to enable.`);
+        `action '${_gateAction}' is gated (security: code-execution). Set GODOT_MCP_PRIVILEGED_GROUPS=code-execution to enable.`);
     }
     // Snapshot current mode + executor for consistent routing throughout this call
     const currentMode = this.connectionMode;
@@ -403,10 +412,16 @@ export class ToolDispatcher {
       }
 
       // ── 3. 确认令牌检查（IMP-6: 前置 legacy 映射，防 legacy name 如 remove_node 绕过 guard）──
+      // A1 (2026-08-11 审查 P1): 动态工具名同样前置反查——guard 对动态工具名查 metaRegistry
+      // 返 undefined(永不确认),等价静态调用(engine+call_method,write)经动态通道绕门。
+      // 反查优先级:legacy 映射 > 动态映射 > 原名。未映射的动态方法风险未知 → fail-closed
+      // 直接要求确认(防 GD 新增 method 漏登记 METHOD_TO_TOOL 时静默绕门)。
       const legacyMap = tryLegacyMapping(name);
-      const guardName = legacyMap?.tool ?? name;
-      const guardArgs = legacyMap ? { ...args, action: legacyMap.action } : args;
-      if (requiresConfirmation(guardName, guardArgs)) {
+      const dynMap = isDynamicToolName(name) ? resolveDynamicTool(name) : undefined;
+      const guardName = legacyMap?.tool ?? dynMap?.tool ?? name;
+      const guardArgs = (legacyMap ?? dynMap) ? { ...args, action: legacyMap?.action ?? dynMap?.action } : args;
+      const confirmRequired = (isDynamicToolName(name) && !dynMap) || requiresConfirmation(guardName, guardArgs);
+      if (confirmRequired) {
         const token = createPendingToken(name, args);  // 原始 name/args(confirm_and_execute 执行用)
         return {
           content: [{

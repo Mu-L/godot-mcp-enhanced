@@ -26,6 +26,7 @@ const {
   mockIsToolAllowed,
   mockSetActiveGroups,
   mockValidateGodotBinary,
+  mockIsDynamicToolName,
 } = vi.hoisted(() => ({
   mockGetAllToolDefinitions: vi.fn<() => Tool[]>(),
   mockGetModuleForTool: vi.fn(),
@@ -42,6 +43,8 @@ const {
   mockIsToolAllowed: vi.fn().mockReturnValue(true),
   mockSetActiveGroups: vi.fn(),
   mockValidateGodotBinary: vi.fn().mockResolvedValue(true),
+  // A1 (2026-08-11): dispatcher 动态工具门反查依赖;默认 false(非动态),用例内按需 mockReturnValue
+  mockIsDynamicToolName: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../src/core/tool-registry.js', () => ({
@@ -52,6 +55,7 @@ vi.mock('../../src/core/tool-registry.js', () => ({
   LITE_TOOLS: mockLITE_TOOLS,
   MINIMAL_TOOLS: mockMINIMAL_TOOLS,
   isToolAllowed: mockIsToolAllowed,
+  isDynamicToolName: mockIsDynamicToolName,
   setActiveGroups: mockSetActiveGroups,
   resolveProfile: vi.fn().mockReturnValue(new Set()),
   skipProjectPath: vi.fn().mockReturnValue(false),
@@ -687,6 +691,65 @@ describe('ToolDispatcher.handleCall', () => {
 
     // 重置 tryLegacyMapping mock(clearAllMocks 不重置 implementation,避免污染后续 case)
     (tryLegacyMapping as ReturnType<typeof vi.fn>).mockReturnValue(null);
+  });
+
+  // ── A1 (2026-08-11 审查 P1): CMP-16-B 动态工具绕过 confirm/action-gate 双层门修复 ──
+  // 动态注册的平铺工具名(如 engine_call_method)不在静态 metaRegistry → guard 查不到 risk
+  // 永不确认、action-gate 永不命中。修复:经 METHOD_TO_TOOL 反查静态 (tool, action) 后判定。
+  it('A1: dynamic tool confirm gate resolves static (tool, action) via METHOD_TO_TOOL', async () => {
+    const guard = createMockGuard(false);
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'engine_call_method');
+    // requiresConfirmation 对反查后的 (engine, action=call_method) 返回 true(真实 registry 中该 action risk=write)
+    mockRequiresConfirmation.mockImplementation(
+      (guardName: string, guardArgs: { action?: string }) =>
+        guardName === 'engine' && guardArgs?.action === 'call_method',
+    );
+    mockCreatePendingToken.mockReturnValue('dyn-token-789');
+
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    const result = await dispatcher.handleCall({
+      params: { name: 'engine_call_method', arguments: { node_path: 'root/Player', method: 'set_position' } },
+    });
+
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.requires_confirmation).toBe(true);
+    expect(parsed.confirmation_token).toBe('dyn-token-789');
+    // A1 核心:guard 必须以反查后的 (engine, action=call_method) 判定,而非裸动态名(查不到 risk 即放行)
+    expect(mockRequiresConfirmation).toHaveBeenCalledWith('engine', expect.objectContaining({ action: 'call_method' }));
+    // createPendingToken 以原始动态名登记(confirm_and_execute 据此执行 editor 转发)
+    expect(mockCreatePendingToken).toHaveBeenCalledWith('engine_call_method', expect.objectContaining({ node_path: 'root/Player' }));
+    mockIsDynamicToolName.mockReturnValue(false);
+  });
+
+  it('A1: dynamic tool gated action (debug_evaluate → debug.evaluate) hits ACTION_GATED', async () => {
+    vi.stubEnv('GODOT_MCP_PRIVILEGED_GROUPS', '');  // 未设 privileged 组 → gated
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'debug_evaluate');
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: createMockGuard(false) });
+    const result = await dispatcher.handleCall({
+      params: { name: 'debug_evaluate', arguments: { expression: '1+1' } },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.error_code).toBe('ACTION_GATED');
+    // 修复前:isActionGated('debug_evaluate','') 永不命中 → 直接放行执行(gated action 绕过)
+    mockIsDynamicToolName.mockReturnValue(false);
+    vi.unstubAllEnvs();
+  });
+
+  it('A1: unmapped dynamic tool fails closed (confirmation required, risk unknown)', async () => {
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'future_unmapped_method');
+    mockRequiresConfirmation.mockReturnValue(false);  // guard 本身放行
+    mockCreatePendingToken.mockReturnValue('fail-closed-token');
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: createMockGuard(false) });
+    const result = await dispatcher.handleCall({
+      params: { name: 'future_unmapped_method', arguments: {} },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    // METHOD_TO_TOOL 未登记 → 风险未知 → fail-closed 要求确认(防 GD 新增 method 漏映射静默绕门)
+    expect(parsed.requires_confirmation).toBe(true);
+    mockIsDynamicToolName.mockReturnValue(false);
   });
 
   // [T12] editor 模式 + executor 存在 → 转发
