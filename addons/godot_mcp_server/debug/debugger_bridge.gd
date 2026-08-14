@@ -68,22 +68,58 @@ var _states: Dictionary = {}
 # 已连接信号的面板 instance id 集合(防重复连)
 var _hooked_panels: Dictionary = {}
 
+# B1 (2026-08-11 审查): 记录全部 connect(source+signal+Callable),dispose() 时逐一 disconnect。
+# EditorDebuggerPlugin extends RefCounted(非 Node):不需手动 free(check:gdscript 实测 free() 报
+# "Attempted to free a RefCounted object"),但面板信号(连在持久化于 editor 的
+# ScriptEditorDebugger 面板上)持有绑定本对象的 Callable(引用计数)——不断开则本对象永不释放,
+# 且插件 reload 后残留连接致调试器消息被新旧两份 bridge 双重处理。
+var _connections: Array = []
+
+# B2 (2026-08-11 审查): _capture(虚方法,权威路径)与面板信号(兜底路径)双重消费去重计数。
+# 同一底层调试器消息若两条路径都触发(NIT-1 遗留问号,引擎文档含糊),vars 会翻倍。
+# 协议:capture 侧计数 _cap_counts,面板回调侧计数 _panel_counts;面板回调发现本周期自己
+# 的序号 ≤ capture 已消费数时跳过(capture 已处理同一条)。capture 从不触发时 _cap_counts
+# 恒 0,面板路径全量处理(兜底生效)。stack_dump / stack_frame_vars 起始新周期时归零 var 计数。
+var _cap_counts: Dictionary = {}
+var _panel_counts: Dictionary = {}
+
 
 # ─── EditorDebuggerPlugin 虚方法重写 ──────────────────────────────────────────
 
 func _setup_session(session_id: int) -> void:
 	# 会话创建时触发。获取 session 引用并连信号。
 	# session 本身经 get_session(session_id) 按需取(不长期持有,防 session 失效后访问)。
+	# B1: 信号连接经 _connect_tracked 登记,dispose() 时统一断开。
 	var session: EditorDebuggerSession = get_session(session_id)
 	if session == null:
 		return
 	# 连 breaked/continued/stopped 信号更新 _states
-	if not session.is_connected("breaked", Callable(self, "_on_session_breaked").bind(session_id)):
-		session.connect("breaked", Callable(self, "_on_session_breaked").bind(session_id))
-	if not session.is_connected("continued", Callable(self, "_on_session_continued").bind(session_id)):
-		session.connect("continued", Callable(self, "_on_session_continued").bind(session_id))
-	if not session.is_connected("stopped", Callable(self, "_on_session_stopped").bind(session_id)):
-		session.connect("stopped", Callable(self, "_on_session_stopped").bind(session_id))
+	_connect_tracked(session, "breaked", Callable(self, "_on_session_breaked").bind(session_id))
+	_connect_tracked(session, "continued", Callable(self, "_on_session_continued").bind(session_id))
+	_connect_tracked(session, "stopped", Callable(self, "_on_session_stopped").bind(session_id))
+
+
+## B1: connect 并登记(source/sig/cb 三元组),供 dispose() 逐一 disconnect。
+func _connect_tracked(source: Object, sig: String, cb: Callable) -> void:
+	if source.is_connected(sig, cb):
+		return
+	source.connect(sig, cb)
+	_connections.append({"source": source, "sig": sig, "cb": cb})
+
+
+## B1 (2026-08-11 审查): 断开全部已记录信号 + 清状态。plugin.gd _exit_tree 在
+## remove_debugger_plugin 后调 dispose()——EditorDebuggerPlugin extends RefCounted,断开
+## 全部信号(尤其持久化面板侧)后引用归零自动释放;不断开则面板 Callable 持引用永不释放。
+func dispose() -> void:
+	for c in _connections:
+		var source: Object = c["source"]
+		if source != null and is_instance_valid(source) and source.is_connected(c["sig"], c["cb"]):
+			source.disconnect(c["sig"], c["cb"])
+	_connections.clear()
+	_states.clear()
+	_hooked_panels.clear()
+	_cap_counts.clear()
+	_panel_counts.clear()
 
 
 func _has_capture(capture: String) -> bool:
@@ -101,6 +137,10 @@ func _capture(message: String, data: Array, session_id: int) -> bool:
 	match message:
 		"stack_dump":
 			# data = Array of frame dicts {file, line, function, ...}
+			# B2: capture 侧计数 +1(面板回调据此跳过重复消费);var 计数新周期归零。
+			_cap_counts["dump"] = int(_cap_counts.get("dump", 0)) + 1
+			_cap_counts["var"] = 0
+			_panel_counts["var"] = 0
 			state["frames"] = []
 			for i in range(data.size()):
 				var frame_info = data[i]
@@ -118,12 +158,16 @@ func _capture(message: String, data: Array, session_id: int) -> bool:
 			return true
 		"stack_frame_vars":
 			# data[0] = num_vars(该帧变量数,后续 stack_frame_var 逐个到)
+			_cap_counts["vars"] = int(_cap_counts.get("vars", 0)) + 1
+			_cap_counts["var"] = 0
+			_panel_counts["var"] = 0
 			if data.size() > 0:
 				state["expected_vars"] = int(data[0])
 				state["vars"] = []
 			return true
 		"stack_frame_var":
 			# data = [name, kind_int, ?, value_variant](对标竞品 data[3] 是值)
+			_cap_counts["var"] = int(_cap_counts.get("var", 0)) + 1
 			if data.size() >= 4:
 				var kind_code: int = int(data[1]) if data.size() > 1 else -1
 				state["vars"].append({
@@ -189,11 +233,33 @@ func _new_state() -> Dictionary:
 
 func current_break() -> Dictionary:
 	# 返回当前 breaked==true 的 state(多 session 取第一个;空则返 {})
+	# 注:数据读取三件套(stack_trace/inspect_frame/evaluate)已改用 resolve_session()
+	# 消除 session 归属错配(A4);本方法仍供 step/continue/pause + await_new_break 使用。
 	for sid in _states:
 		var state: Dictionary = _states[sid]
 		if state.get("breaked", false):
 			return state
 	return {}
+
+
+## A4 (2026-08-11 审查 P2:debug session 无 peer 关联):单 session 解析。
+## current_break() 取"第一个 breaked"(Dictionary 迭代序)而 handle_evaluate 用
+## active_sessions()[0](get_session 序),两者可能指向不同 session——evaluate 发到
+## A 的 session、读 B 的 state,结果串台。Phase 1 明确单 session 语义:
+## 0 个 → 报错;多个 → 明确报错(不支持多 session 调试);恰 1 个 → 返回同一来源的
+## session + state(调用方不再自行拼接两个可能错配的查询)。
+func resolve_session() -> Dictionary:
+	var ids: Array = []
+	for sid in _states:
+		var session: EditorDebuggerSession = get_session(sid)
+		if session != null and is_instance_valid(session):
+			ids.append(sid)
+	if ids.is_empty():
+		return {"ok": false, "error": {"code": -32000, "message": "No active debugger session (run the project first)."}}
+	if ids.size() > 1:
+		return {"ok": false, "error": {"code": -32000, "message": "Multiple debugger sessions active (%d). Multi-session debugging is not supported in Phase 1 — stop other running game instances and retry." % ids.size()}}
+	var sid: int = ids[0]
+	return {"ok": true, "session": get_session(sid), "state": _states[sid]}
 
 
 func active_sessions() -> Array:
@@ -377,23 +443,39 @@ func ensure_connected() -> Dictionary:
 		if not _hooked_panels.has(pid):
 			# 连面板级信号(stack_dump/stack_frame_vars/stack_frame_var 是面板信号)
 			# 注:ScriptEditorDebugger 面板本身 emit 这些信号(非 session)
+			# B1: 经 _connect_tracked 登记,dispose() 统一断开(面板持久化于 editor,不断则 reload 后残留)
 			if panel.has_signal("stack_dump"):
-				panel.connect("stack_dump", Callable(self, "_on_panel_stack_dump").bind(panel))
+				_connect_tracked(panel, "stack_dump", Callable(self, "_on_panel_stack_dump").bind(panel))
 			if panel.has_signal("stack_frame_vars"):
-				panel.connect("stack_frame_vars", Callable(self, "_on_panel_stack_frame_vars").bind(panel))
+				_connect_tracked(panel, "stack_frame_vars", Callable(self, "_on_panel_stack_frame_vars").bind(panel))
 			if panel.has_signal("stack_frame_var"):
-				panel.connect("stack_frame_var", Callable(self, "_on_panel_stack_frame_var").bind(panel))
+				_connect_tracked(panel, "stack_frame_var", Callable(self, "_on_panel_stack_frame_var").bind(panel))
 			_hooked_panels[pid] = true
 	return {"found": true, "hooked": _hooked_panels.size() > 0, "panels": panels}
 
 
+## B2: 面板回调去重守卫——本周期面板路径已消费序号 < capture 已消费序号时,说明该消息
+## 已被 _capture 处理(同一底层消息两条路径都触发),跳过防 vars 翻倍;否则面板路径
+## 处理(capture 未触发的兜底场景)。返回 true = 跳过。
+func _panel_duplicate(key: String) -> bool:
+	var consumed: int = int(_panel_counts.get(key, 0))
+	if consumed < int(_cap_counts.get(key, 0)):
+		_panel_counts[key] = consumed + 1
+		return true
+	_panel_counts[key] = consumed + 1
+	return false
+
+
 # 面板级信号回调(与 _capture 互补,面板直接 emit 的信号走这里)
-# NIT-1(2026-08-09 第三方审查):_capture 返 true 消费消息后,面板是否仍 emit 信号文档含糊。
-# 若两条路径都对同一消息触发,vars 可能翻倍。editor 实测时重点验证:
-# 若 _capture 已充分(栈/变量正确),可注释掉面板信号连接;若 _capture 未触发,保留面板信号作 fallback。
+# B2 (2026-08-11 审查,NIT-1 落地):_capture 返 true 消费消息后,面板是否仍 emit 信号文档含糊。
+# 若两条路径都对同一消息触发,vars 翻倍。去重协议:_panel_duplicate 守卫——capture 已消费
+# 的消息面板侧跳过;capture 从不触发时面板全量处理(兜底)。editor 实测时验证:_capture 充分
+# 则面板路径自然休眠(计数恒被压制),无翻倍;_capture 不触发则面板路径兜底,数据不缺。
 # _capture 是 EditorDebuggerPlugin 虚方法(更标准),面板信号是兜底。
 func _on_panel_stack_dump(stack: Array, panel: Node) -> void:
 	# 面板 emit stack_dump 信号时,更新对应 session state
+	if _panel_duplicate("dump"):
+		return
 	var pid: int = panel.get_instance_id()
 	for sid in _states:
 		var state: Dictionary = _states[sid]
@@ -413,6 +495,8 @@ func _on_panel_stack_dump(stack: Array, panel: Node) -> void:
 
 
 func _on_panel_stack_frame_vars(num_vars: int, panel: Node) -> void:
+	if _panel_duplicate("vars"):
+		return
 	for sid in _states:
 		_states[sid]["expected_vars"] = num_vars
 		_states[sid]["vars"] = []
@@ -420,6 +504,8 @@ func _on_panel_stack_frame_vars(num_vars: int, panel: Node) -> void:
 
 
 func _on_panel_stack_frame_var(name: String, _type: int, value: Variant, panel: Node) -> void:
+	if _panel_duplicate("var"):
+		return
 	for sid in _states:
 		var state: Dictionary = _states[sid]
 		state["vars"].append({

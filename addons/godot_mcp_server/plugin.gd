@@ -42,8 +42,14 @@ func _exit_tree() -> void:
 		instance_registry.queue_free()
 	instance_registry = null
 	# CMP-14: 注销 debugger bridge(对称移除)
+	# B1 (2026-08-11 审查): EditorDebuggerPlugin extends RefCounted(非 Node)——不需手动 free
+	# (check:gdscript 实测 free() 报 "Attempted to free a RefCounted object"),引用归零自动释放。
+	# 但持久化面板(ScriptEditorDebugger)的信号连接持有绑定了 bridge 的 Callable(引用计数),
+	# 不断开则 bridge 永不释放 + reload 后残留连接致消息双重处理。dispose() 断全部已登记信号。
 	if _debugger_bridge != null:
 		remove_debugger_plugin(_debugger_bridge)
+		if _debugger_bridge.has_method("dispose"):
+			_debugger_bridge.call("dispose")
 		_debugger_bridge = null
 	if status_panel and is_instance_valid(status_panel):
 		remove_control_from_bottom_panel(status_panel)
