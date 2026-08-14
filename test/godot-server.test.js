@@ -258,7 +258,7 @@ describe('GodotServer', () => {
 
       // Verify: degraded to headless
       expect(server.connectionMode).toBe('headless');
-      expect(server.editorConn).toBeNull();
+      expect(server.editorMgr.conn).toBeNull();
 
       await server.close();
     });

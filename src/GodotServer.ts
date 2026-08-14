@@ -11,7 +11,6 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 ] as const;
 import { join } from 'path';
 import { readInstructions } from './core/instructions.js';
-import { waitForEditorSecret } from './core/editor-auth.js';
 import { registerBridgePushHandler, setBridgeProjectDir } from './tools/game-bridge.js';
 import {
   listResources as listMcpResources,
@@ -34,8 +33,7 @@ const pkgVersion = require('../package.json').version;
 import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { ToolDispatcher } from './core/ToolDispatcher.js';
 import * as guard from './core/guard.js';
-import { EditorConnection } from './core/EditorConnection.js';
-import { EditorToolExecutor } from './core/EditorToolExecutor.js';
+import { EditorConnectionManager } from './core/EditorConnectionManager.js';
 import { dynamicSchema } from './core/dynamic-schema.js';
 import { getAllToolNames, registerDynamicTools } from './core/tool-registry.js';
 import { findGodot, clearGodotPathCache, getCachedGodotPath } from './core/godot-finder.js';
@@ -52,7 +50,7 @@ import { killProcess } from './core/process-state.js';
 import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.js';
 import { setProgressSender, setProgressClientReady } from './core/progress.js';
 import { setElicitServer } from './core/elicit.js';
-import { resolveProjectPath, safeRealPath } from './core/path-utils.js';
+import { resolveProjectPath } from './core/path-utils.js';
 import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
 import { FileStateStore } from './core/state-store.js';
@@ -61,17 +59,6 @@ import { FileStateStore } from './core/state-store.js';
 export { clearGodotPathCache, getCachedGodotPath };
 
 const DEBUG = process.env.DEBUG === 'true';
-const EDITOR_SECRET_TIMEOUT_MS = 5000;
-
-// 编辑器重连参数（env 可覆盖，默认对齐 EditorConnection 构造默认）。
-// 运行时读（非 module-level 固化）：连接是低频操作，且避免测试需在 import 前设 env。
-// 主要为集成测试可注入低 attempts/interval 跑真实重连耗尽（默认 20 次 × backoff 到 60s 不可测）。
-function readPositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 function log(...args: unknown[]): void {
   if (!DEBUG) return;
@@ -97,19 +84,10 @@ export class GodotServer {
   private options: ServerOptions;
   private readOnlyGuard: ReadOnlyGuard;
   private dispatcher: ToolDispatcher | null = null;
-  private editorConn: EditorConnection | null = null;
-  private editorExecutor: EditorToolExecutor | null = null;
-  // P2-1R (2026-08-11 CMP-1 TOCTOU): 自动重连校验期 flag,传给 EditorToolExecutor 作 gate。
-  // true 期间 editor 工具入口返 VERIFICATION_IN_PROGRESS,防 TOCTOU 窗口期写操作作用错误项目。
-  private _editorVerifying = false;
   private connectionMode: 'headless' | 'editor';
-  /** B-T5: pingFn catch 保留 err.code,供 onStateChange 分流——
-   *  REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ 降级;
-   *  NOT_CONNECTED/CONNECTION_LOST(下线)→ 让 EditorConnection 自动重连兜底,不抢占。 */
-  private _lastPingErrCode: string | undefined;
-  // 方案B: 供 rebuildEditorConnection() 重建降级后的 editor 连接(port 存实例,secret 重建时重读)
-  private editorPort: number | null = null;
-  private editorProjectPath: string | null = null;
+  // P1 架构修复: editor 连接生命周期(WS + executor + heartbeat + 降级)抽到 EditorConnectionManager。
+  // 通过 host 回调(onConnected/onDegrade)同步本类的 connectionMode 字段。
+  private editorMgr: EditorConnectionManager | null = null;
   private noFallback: boolean;
   private agentCtx: AgentContextManager;
   private stateStore: FileStateStore | null = null;
@@ -233,12 +211,14 @@ export class GodotServer {
 
     // Connect manage-tools notification callback
     setOnGroupsChanged(() => this.sendToolListChanged());
-    setConnectionStatusProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
-    setGetContextConnectionProvider(() => buildConnectionStatus(this.editorConn, this.dispatcher?.getHealthMonitor() ?? null));
+    // P1 架构修复: editor 连接访问统一经 editorMgr.getConn()(editor 模式 run() 时构造,headless 时为 null)。
+    setConnectionStatusProvider(() => buildConnectionStatus(this.editorMgr?.getConn() ?? null, this.dispatcher?.getHealthMonitor() ?? null));
+    setGetContextConnectionProvider(() => buildConnectionStatus(this.editorMgr?.getConn() ?? null, this.dispatcher?.getHealthMonitor() ?? null));
     setEditorSceneProvider(async () => {
-      if (!this.editorConn?.isConnected()) return null;
+      const conn = this.editorMgr?.getConn();
+      if (!conn?.isConnected()) return null;
       try {
-        const result = await this.editorConn.request('editor_get_scene_stats', {});
+        const result = await conn.request('editor_get_scene_stats', {});
         return (result as { stats?: { path: string; root: string; nodeCount: number; typeTopN?: Array<{ type: string; n: number }>; truncated?: boolean } | null })?.stats ?? null;
       } catch {
         return null;  // editor error（如 NO_SCENE -32005）→ null 降级
@@ -247,17 +227,18 @@ export class GodotServer {
     // CMP-16-B (2026-08-08): 注入 dynamic-schema fetcher(live schema 从 editor addon 拉 param docs)。
     // editor 离线时 fetcher 返回 null → dynamicSchema 降级空数组(只留 godot_advanced_tool 兜底)。
     dynamicSchema.setFetcher(async () => {
-      if (!this.editorConn?.isConnected()) return null;
+      const conn = this.editorMgr?.getConn();
+      if (!conn?.isConnected()) return null;
       try {
-        const result = await this.editorConn.request('list_param_docs', {});
+        const result = await conn.request('list_param_docs', {});
         return (result as { result?: Record<string, unknown> } | null)?.result as Record<string, { description: string; params: Array<{ name: string; type: string; required: boolean; desc: string }> }> ?? null;
       } catch {
         return null;  // editor 离线/超时 → null 降级
       }
     });
     setReconnectEditor(buildReconnectEditor(
-      () => this.editorConn,
-      () => this.rebuildEditorConnection(), // 方案B: editor 降级后重建连接(重读 secret + new EditorConnection)
+      () => this.editorMgr?.getConn() ?? null,
+      () => this.editorMgr?.rebuild() ?? Promise.resolve({ connected: false, detail: 'editor manager not initialized' }),
     ));
 
     // ── MCP Prompts handlers (Phase 5b) ────────────────────────────────────────
@@ -539,256 +520,29 @@ export class GodotServer {
     });
 
     if (this.connectionMode === 'editor') {
+      // P1 架构修复: editor 连接生命周期委托 EditorConnectionManager。
+      // 进程级 exit(noFallback)留本类;连接/降级/heartbeat/项目校验归 manager。
       const port = parseInt(process.env.GODOT_EDITOR_PORT ?? '9090', 10);
-      this.editorPort = port; // 方案B: 存实例字段供 rebuild 重建
       const projectPath = resolveProjectPath();
-      this.editorProjectPath = projectPath ?? null; // 方案B: 归一化 undefined → null
-      let secret: string | undefined;
-      if (projectPath) {
-        secret = (await waitForEditorSecret(projectPath, EDITOR_SECRET_TIMEOUT_MS)) ?? undefined;
-      }
-      if (!secret) {
-        getLogger().warn('auth', 'No editor secret found — plugin may not be running');
-        if (this.noFallback) {
-          getLogger().error('auth', 'Editor auth required but no secret available. Install the editor plugin.');
-          // I-CQ-01: Graceful cleanup before exit
-          getLogger().close();
-          process.exit(1);
-        }
-        getLogger().warn('godot-mcp', 'Running in Headless mode (no editor auth).');
-        this.dispatcher?.markEditorFallback();
-        this.connectionMode = 'headless';
-        this.dispatcher?.setConnectionMode('headless');
-      } else {
-        // 建立连接 + executor 接线 + 降级 handler 提取到 establishEditorConnection(rebuild 复用)
-        const result = await this.establishEditorConnection(port, secret);
-        if (result.connected) {
-          log('Editor: %s', result.detail);
-        } else {
-          if (this.noFallback) {
-            getLogger().error('auth', `Editor mode required but connection failed: ${result.detail}`);
-            getLogger().error('auth', 'Set GODOT_MCP_NO_FALLBACK=false to allow fallback, or install the plugin.');
-            process.exit(1);
-          }
-          getLogger().warn('godot-mcp', `${result.detail}.`);
-          getLogger().warn('godot-mcp', 'Running in Headless mode. UndoRedo disabled, no scene state persistence.');
-          this.dispatcher?.markEditorFallback();
+      this.editorMgr = new EditorConnectionManager({
+        dispatcher: this.dispatcher!,
+        sendLoggingMessage: (opts) => this.server.sendLoggingMessage(opts),
+        onConnected: () => {
+          this.connectionMode = 'editor';
+          this.dispatcher?.setConnectionMode('editor');
+        },
+        onDegrade: () => {
           this.connectionMode = 'headless';
-          this.dispatcher?.setConnectionMode('headless');
-        }
+        },
+      }, { port, projectPath: projectPath ?? null, noFallback: this.noFallback });
+      const result = await this.editorMgr.init();
+      if (!result.connected && this.noFallback) {
+        getLogger().error('auth', `Editor mode required but failed: ${result.detail}`);
+        getLogger().error('auth', 'Set GODOT_MCP_NO_FALLBACK=false to allow fallback, or install the plugin.');
+        getLogger().close();
+        process.exit(1);
       }
     }
-  }
-
-  /** 编辑器不可用时的统一降级动作（WS 重连耗尽 / 心跳检测卡死 共用）。
-   *  2026-07-12 P0：抽公共逻辑，reconnectExhausted handler 与 onStateChange 回调共用。 */
-  private handleEditorStall(): void {
-    // B2: 清 zombie——旧 EditorConnection 的 WS 仍 OPEN + reconnectEnabled=true,
-    // 不 disconnect 则闭包重连耗尽后跨实例触发 reconnectExhausted 再降级。
-    try { this.editorConn?.disconnect(); } catch { /* best-effort */ }
-    this.dispatcher?.markEditorFallback();
-    this.connectionMode = 'headless';
-    // I-04: atomic degradeToHeadless() 避免 two separate _pendingModeSwitch writes racing
-    this.dispatcher?.degradeToHeadless();
-    // 降级后停心跳：editorConn 置 null 后 pingFn 必返 false，继续 recordFailure 是噪声。
-    // rebuild 成功后 establishEditorConnection 会重新 startHeartbeat。
-    this.dispatcher?.getHealthMonitor().stopHeartbeat();
-    this.editorConn = null;
-    // CMP-16-B: editor 降级 → 清 dynamic schema 缓存(下次 tools/list 返空,降级到 godot_advanced_tool 兜底)
-    dynamicSchema.invalidate();
-  }
-
-  /**
-   * 建立 editor 连接:new EditorConnection + connect + executor 接线 + 挂降级 handler。
-   * 成功 → connectionMode='editor' + setConnectionMode('editor');失败 → 清理 editorConn,返回 {connected:false}。
-   * 不含 noFallback exit / headless 降级(那是 run() 初始化语义);rebuild 复用此方法(失败不 exit,保持 headless)。
-   * I-04: 降级用专用 reconnectExhausted handler(非 disconnect handler——后者每次 ws.close 触发会过早降级)。
-   */
-  private async establishEditorConnection(port: number, secret: string): Promise<{ connected: boolean; detail: string }> {
-    // 清理旧连接(rebuild 场景:降级后可能有残留或并发重建)
-    // 2026-08-07 审查 P2 修复：显式 destroy 旧 editorExecutor，防 handler 残留。
-    // 当前 disconnect 的 clear() 兜底清了 handler set，但耦合脆弱——若未来 disconnect
-    // 不再 clear，旧 executor handler 会残留指向已废弃 conn。显式 destroy 是防御性加固。
-    if (this.editorExecutor) {
-      try { this.editorExecutor.destroy(); } catch { /* best-effort */ }
-      this.editorExecutor = null;
-    }
-    if (this.editorConn) {
-      try { this.editorConn.disconnect(); } catch { /* best-effort */ }
-      this.editorConn = null;
-    }
-    this.editorConn = new EditorConnection({
-      port,
-      reconnect: true,
-      secret,
-      maxReconnectAttempts: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_ATTEMPTS', 20),
-      reconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_INTERVAL', 1000),
-      maxReconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_MAX_INTERVAL', 60000),
-    });
-    try {
-      await this.editorConn.connect();
-      // CMP-1 (2026-08-08): 连接成功后立即校验 editor 对应的项目根,防跨项目误操作。
-      // 发 editor_get_project_path RPC 读 editor 的 res:// 绝对路径,与 this.editorProjectPath
-      // (resolveProjectPath 结果)归一化比对。mismatch → disconnect + 返回失败(走降级路径)。
-      // editorProjectPath=null(resolveProjectPath 返 undefined,无 project.godot 上下文)→ 跳过,不阻断。
-      const projectCheck = await this.verifyEditorProject();
-      if (!projectCheck.ok) {
-        try { this.editorConn.disconnect(); } catch { /* best-effort */ }
-        this.editorConn = null;
-        const expected = projectCheck.expected ?? '(unknown)';
-        const actual = projectCheck.actual ?? '(unreadable)';
-        return { connected: false, detail: `Editor project mismatch: expected ${expected}, got ${actual}` };
-      }
-      // B-T3: hm 提前到 EditorToolExecutor 构造前复用，注入 _executeInner 半开 HOL 预检
-      // （reconnecting 时即时返 NOT_CONNECTED，跳过 30s conn.request 等待，避免串行 executeChain ×30s 放大）。
-      const hm = this.dispatcher?.getHealthMonitor();
-      this.editorExecutor = new EditorToolExecutor(this.editorConn, hm, () => this._editorVerifying);
-      this.dispatcher?.setEditorExecutor(this.editorExecutor);
-      // CMP-16-B (2026-08-08): editor (重)连接成功 → 清 dynamic schema 缓存,下次 tools/list 重新拉取。
-      // 这修复竞品"只 fetch 一次不刷新"缺陷(editor 重装 addon 后工具集更新)。
-      dynamicSchema.invalidate();
-      this.editorConn.addOnReconnectExhaustedHandler(() => {
-        getLogger().warn('godot-mcp', 'Editor reconnect attempts exhausted — degrading to headless mode.');
-        this.handleEditorStall();
-      });
-      // B-T5: 编辑器重连成功 → 即刻复位 hm state=connected + 清 heartbeat 失败计数。
-      // 避免 refused 不抢占后 hm 卡 reconnecting(下次 ping 要等 probeIntervalMs=60s 才纠正),
-      // 期间 B-T3 半开 HOL 预检(_executeInner getState===reconnecting)会拦所有 editor 工具致卡顿。
-      // 链完整性:refused→hm reconnecting 但不降级→EditorConnection 20 次退避重连→重连成功→
-      // 本 handler 复位 hm→恢复;重连耗尽→上面 reconnectExhausted handler→handleEditorStall 兜底降级。
-      this.editorConn.addOnReconnectHandler(() => {
-        if (hm) hm.reset();
-        // CMP-1 NIT-1 (2026-08-08 第三方审查): 自动重连后重新校验项目匹配。
-        // editor 可能重连后对应不同项目(如端口被另一个项目的 editor 接管),需重校验。
-        // fire-and-forget:不阻塞重连流程;mismatch 则 handleEditorStall 降级。
-        // P2-1R (2026-08-11): 校验期设 _editorVerifying=true,EditorToolExecutor 入口
-        // 即时返 VERIFICATION_IN_PROGRESS,防 TOCTOU 窗口期写操作作用错误项目场景树。
-        this._editorVerifying = true;
-        void this.verifyEditorProject().then((check) => {
-          if (!check.ok) {
-            getLogger().warn('auth', `Editor project changed after reconnect: expected ${check.expected ?? '(unknown)'}, got ${check.actual ?? '(unreadable)'} — degrading to headless.`);
-            this.handleEditorStall();
-          }
-        }).finally(() => {
-          this._editorVerifying = false;
-        });
-        // IPC-R4 (2026-08-08): 重连后通知客户端场景树可能 stale。
-        // 重连期间 editor 侧场景可能已切换/节点增删,客户端缓存的 scene tree 状态失效。
-        // 用 sendLoggingMessage(走 SDK 正规 logging 路径,对齐 P1-7 范式 :477)。
-        // best-effort:通知失败不影响重连流程。
-        try {
-          const maybePromise = this.server.sendLoggingMessage({
-            level: 'warning',
-            logger: 'server',
-            data: 'Editor reconnected — scene tree may be stale. Re-run editor_get_scene_tree to refresh cached node paths.',
-          });
-          if (maybePromise && typeof maybePromise === 'object' && 'catch' in maybePromise) {
-            (maybePromise as Promise<void>).catch(() => {});
-          }
-        } catch { /* best-effort:通知失败不影响重连 */ }
-      });
-      // ipc P0-2 fix: 接线 HealthMonitor 心跳 — 检测编辑器卡死(TCP OPEN 但主线程阻塞时 ping 超时 → 降级)。
-      // 间隔 15s < 编辑器侧 INACTIVITY_TIMEOUT(30s), 避免边界竞争误杀; 心跳维持 activity 亦间接缓解长操作误杀(P0-3)。
-      if (hm) {
-        hm.startHeartbeat(
-          () => (this.editorConn
-            ? this.editorConn.request('ping', {}, { timeoutMs: 5000 })
-                .then(() => { this._lastPingErrCode = undefined; return true; })
-                .catch((err: unknown) => {
-                  // B-T5: 保留 err.code 供 onStateChange 分流(旧实现毯式 catch `() => false` 丢 code)。
-                  const e = err as { code?: string } | null | undefined;
-                  this._lastPingErrCode = e?.code;
-                  return false;
-                })
-            : Promise.resolve(false)),
-        );
-        // 2026-07-12 P0 控制回路接线 + B-T5 分流:
-        // - REQUEST_TIMEOUT(TCP OPEN 主线程卡死)→ handleEditorStall 降级。WS 不 close, ws.on('close')→scheduleReconnect
-        //   不触发,自动重连救不了;必须主动降级让用户用 headless 工作 + 手动 reconnect。
-        // - NOT_CONNECTED/CONNECTION_LOST(下线/重启/瞬时不可达)→ 不降级,让 EditorConnection ws.close 已触发的
-        //   scheduleReconnect(20 次退避)自动兜底。disconnect 会杀重连(reconnectEnabled=false),抢占致用户须手动 reconnect。
-        //   重连成功后 addOnReconnectHandler 即时复位 hm;重连耗尽 reconnectExhausted handler 最终兜底降级。
-        hm.onStateChange((_from, to) => {
-          if (to === 'reconnecting' && this.connectionMode === 'editor') {
-            if (this._lastPingErrCode === 'REQUEST_TIMEOUT') {
-              getLogger().warn('godot-mcp', 'Heartbeat REQUEST_TIMEOUT (editor main thread blocked) — degrading to headless.');
-              this.handleEditorStall();
-            } else {
-              getLogger().info('godot-mcp', `Heartbeat ${this._lastPingErrCode || 'unknown'} (editor down/refused) — letting auto-reconnect handle, not degrading.`);
-            }
-          }
-        });
-        // B6: 重建(rebuild)成功后 hm.state 可能残留 'reconnecting'(上次 stall 留下),
-        // 首个心跳要等 heartbeatIntervalMs 才纠正——期间 onStateChange 不再触发降级但状态错。
-        // 显式 setState('connected') 即刻复位。首次连接 hm 本就 connected,此处为 no-op。
-        // B1 兼容：connected 态下工具失败(TOOL_ERROR)只进 degraded 不进 reconnecting,
-        // 故此复位不会被 TOOL_ERROR 误触发再次降级。
-        hm.setState('connected');
-      }
-      this.connectionMode = 'editor';
-      this.dispatcher?.setConnectionMode('editor');
-      return { connected: true, detail: `Connected to Godot plugin on port ${port}` };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.editorConn = null;
-      return { connected: false, detail: `Editor connection failed: ${msg}` };
-    }
-  }
-
-  /**
-   * CMP-1 (2026-08-08): 校验 editor 连接对应的项目根与当前配置一致。
-   * 发 editor_get_project_path RPC 读 editor 的 res:// 绝对路径,与 this.editorProjectPath
-   * (resolveProjectPath 结果)归一化比对。mismatch → ok:false(调用方 disconnect + 降级)。
-   * editorProjectPath=null(无 project.godot 上下文)→ 跳过校验(ok:true,不阻断)。
-   */
-  private async verifyEditorProject(): Promise<{ ok: boolean; expected?: string; actual?: string }> {
-    if (this.editorProjectPath === null) {
-      // 无期望路径(不在项目内 / resolveProjectPath 返 undefined)→ 无法对照,不阻断。
-      return { ok: true };
-    }
-    if (!this.editorConn) {
-      return { ok: false, expected: this.editorProjectPath, actual: '(no connection)' };
-    }
-    try {
-      const resp = await this.editorConn.request('editor_get_project_path', {}, { timeoutMs: 5000 }) as Record<string, unknown> | null;
-      const actual = String(resp?.project_path ?? '');
-      if (!actual) {
-        return { ok: false, expected: this.editorProjectPath, actual: '(empty)' };
-      }
-      if (normalizeForCompare(actual) !== normalizeForCompare(this.editorProjectPath)) {
-        // NIT-3 (2026-08-08 第三方审查): 字面比对不等时,再做一次 realpath 归一化比對。
-        // 防junction/symlink启动 editor 致两端返回不同表示(D:\projects vs C:\real\projects)。
-        // safeRealPath 走 realpathSync(失败则 walk-up 找祖先解析),对存在的路径必成功。
-        try {
-          const realActual = safeRealPath(actual);
-          const realExpected = safeRealPath(this.editorProjectPath);
-          if (normalizeForCompare(realActual) === normalizeForCompare(realExpected)) {
-            return { ok: true };
-          }
-        } catch { /* realpath 失败则用字面比对结果(保守拒绝) */ }
-        return { ok: false, expected: this.editorProjectPath, actual };
-      }
-      return { ok: true };
-    } catch (err) {
-      // RPC 超时 / error → 保守拒绝(读不到 project_path 不应静默通过)。
-      const msg = err instanceof Error ? err.message : String(err);
-      return { ok: false, expected: this.editorProjectPath, actual: `(unreadable: ${msg})` };
-    }
-  }
-
-  /**
-   * 方案B: editor 降级后(editorConn=null),manage_tools reconnect 触发重建连接。
-   * 重新读 secret(editor 可能重启换密钥)+ establishEditorConnection。失败保持 headless(不 exit)。
-   */
-  private async rebuildEditorConnection(): Promise<{ connected: boolean; detail: string }> {
-    if (this.editorPort === null || !this.editorProjectPath) {
-      return { connected: false, detail: 'editor 连接信息丢失(未初始化),重启 MCP 服务端恢复' };
-    }
-    const secret = (await waitForEditorSecret(this.editorProjectPath, EDITOR_SECRET_TIMEOUT_MS)) ?? undefined;
-    if (!secret) {
-      return { connected: false, detail: '未找到 editor secret(插件未运行?),用 launch_editor / F5 启动编辑器后重试 reconnect' };
-    }
-    return this.establishEditorConnection(this.editorPort, secret);
   }
 
   /** 标记状态为脏，触发防抖刷盘。 */
@@ -819,11 +573,12 @@ export class GodotServer {
       // P2-1: 自动卸载 overrides(graceful shutdown 时清理,防半装状态)。
       // 仅对已知项目路径卸载(editorProjectPath);headless 模式下项目路径不持久化,
       // agent 须手动调 uninstall_override action。
-      if (this.options.overrides && this.options.overrides.length > 0 && this.editorProjectPath) {
+      const editorProjectPath = this.editorMgr?.getProjectPath() ?? null;
+      if (this.options.overrides && this.options.overrides.length > 0 && editorProjectPath) {
         try {
           const { uninstallAllOverrides } = await import('./core/overrides.js');
-          const n = uninstallAllOverrides(this.editorProjectPath);
-          if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${this.editorProjectPath}`);
+          const n = uninstallAllOverrides(editorProjectPath);
+          if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${editorProjectPath}`);
         } catch (err) {
           getLogger().warn('godot-mcp', `Override auto-uninstall failed (best effort): ${err instanceof Error ? err.message : err}`);
         }
@@ -852,11 +607,9 @@ export class GodotServer {
         try { await mgr.unregisterSelf(this.selfInstanceId); } catch { /* best-effort */ }
         this.selfInstanceId = null;
       }
-      if (this.editorConn) {
-        this.editorConn.disconnect();
-        this.editorConn = null;
-        this.dispatcher?.setEditorExecutor(null);
-        log('Editor connection closed');
+      if (this.editorMgr) {
+        this.editorMgr.close();
+        this.editorMgr = null;
       }
       const proc = ps.getRunningProcess();
       if (proc && !proc.killed) {
@@ -914,16 +667,6 @@ export class GodotServer {
       log('Server shut down');
     }
   }
-}
-
-/**
- * CMP-1 (2026-08-08): 路径归一化用于跨端比对(editor 返回的 res:// 绝对路径 vs resolveProjectPath 结果)。
- * 反斜杠→正斜杠;去尾部分隔符;Windows 下 lowerCase(盘符大小写不敏感);Linux/macOS 保留大小写。
- */
-function normalizeForCompare(p: string): string {
-  let s = p.replace(/\\/g, '/').replace(/\/+$/, '');
-  if (process.platform === 'win32') s = s.toLowerCase();
-  return s;
 }
 
 /**

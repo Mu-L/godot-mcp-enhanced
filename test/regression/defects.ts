@@ -880,8 +880,8 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // fix: handleEditorStall 入口 try { this.editorConn?.disconnect() } catch {} 清 zombie。
     // detect: handleEditorStall 函数体含 disconnect() 调用(切片从函数头到下一个 private 方法)。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
-      const start = f.indexOf('handleEditorStall(): void');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
+      const start = f.indexOf('handleStall(): void');
       if (start < 0) return 1;
       const nextPrivate = f.indexOf('\n  private ', start + 10);
       const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 800);
@@ -892,7 +892,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 链路 ~225s(5×30s+UI 恢复)。fix: ping 独立 5s 超时(request('ping', {}, { timeoutMs: 5000 })),
     // 半开降级缩到 ~85s(5×5s+连接周期)。detect: ping 调用带 timeoutMs 选项。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
       return /request\(\s*['"]ping['"][^)]*timeoutMs\s*:/.test(f) ? 0 : 1;
     } },
   { key: 'executor-do-not-retry-string-match', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
@@ -924,8 +924,8 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // fix: establishEditorConnection 成功路径末尾显式 hm.setState('connected') 即刻复位。
     // detect: establishEditorConnection 函数体含 setState('connected')。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
-      const start = f.indexOf('private async establishEditorConnection');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
+      const start = f.indexOf('private async establish');
       if (start < 0) return 1;
       const nextPrivate = f.indexOf('\n  private ', start + 10);
       const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 3000);
@@ -1315,7 +1315,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // detect: 五特征齐备(_lastPingErrCode 字段 + catch 保留 err.code + onStateChange 分流 REQUEST_TIMEOUT
     //         + 非 REQUEST_TIMEOUT else 分支不调 handleEditorStall + addOnReconnectHandler 调 hm.reset())。
     detect: () => {
-      const src = readSrc('src/GodotServer.ts');
+      const src = readSrc('src/core/EditorConnectionManager.ts');
       // 1. 声明 _lastPingErrCode 字段
       const hasField = /private\s+_lastPingErrCode\s*:\s*string\s*\|\s*undefined/.test(src);
       // 2. pingFn catch 保留 err.code 到 _lastPingErrCode(非毯式 () => false)
@@ -1324,7 +1324,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const onStateIdx = src.indexOf('hm.onStateChange(');
       const onStateSlice = onStateIdx > 0 ? src.slice(onStateIdx, onStateIdx + 1500) : '';
       const hasRequestTimeoutBranch = /REQUEST_TIMEOUT/.test(onStateSlice);
-      const hasHandleStall = /this\.handleEditorStall\(\)/.test(onStateSlice);
+      const hasHandleStall = /this\.handleStall\(\)/.test(onStateSlice);
       // 4. 非 REQUEST_TIMEOUT 分支不调 handleEditorStall(含 else / letting / not degrading 语义)
       const hasElse = /\belse\b/.test(onStateSlice);
       const hasNoDegradeLog = /not degrading|letting|auto-reconnect/.test(onStateSlice);
