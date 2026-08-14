@@ -1042,11 +1042,110 @@ func _cmd_set_node_property(params: Dictionary) -> Variant:
 		return {"error": {"code": -1, "message": "Node not found: %s" % path}}
 	if _is_blocked_property(prop):
 		return {"error": {"code": -2, "message": "Blocked property: %s" % prop}}
+	# E-2 (2026-08-14): 属性存在性校验——原实现两道守卫后裸 node.set,拼错属性名是
+	# no-op + success:true(三路 editor/headless/bridge 中唯一无存在性校验的,brief :100 P2)。
+	# 对齐 headless godot_operations.gd _set_property_with_coerce 的 "Property not found"
+	# 拒绝 + editor command_helpers.gd coerce_property_value 四层第 2 层。
+	var prop_type := _get_property_type(node, prop)
+	if prop_type == -1:
+		return {"error": {"code": -7, "message": "Property not found: %s on %s" % [prop, node.get_class()]}}
 	if not _is_safe_value(value):
 		var type_info: String = "null" if value == null else value.get_class()
 		return {"error": {"code": -3, "message": "Value type not allowed: %s" % type_info}}
-	node.set(prop, value)
+	# E-2 (2026-08-14): 数学类型 coerce——JSON Array/Dict 输入经 node.set 是静默 no-op
+	# 但返 success(Godot 4.x verified,见 command_helpers.gd:93-94 注释)。仅 Array/Dict
+	# 输入走转换(null/标量/已是数学类型透传,保持 bridge 原行为);对齐 headless E-1 修复
+	# + editor coerce_value_for_property,消灭三路行为撕裂。
+	var coerced: Variant = value
+	if value is Array or value is Dictionary:
+		coerced = _coerce_math_value(prop_type, value)
+		if coerced == null:
+			return {"error": {"code": -8, "message": "Property %s: cannot coerce %s (missing/null component)" % [prop, value]}}
+	node.set(prop, coerced)
 	return {"success": true, "node": path, "property": prop}
+
+
+# E-2 (2026-08-14): 查属性声明类型(get_property_list)。存在性校验(-1=不存在)+
+# _coerce_math_value 分派共用。DUPLICATE 副本:对齐 headless godot_operations.gd
+# _get_property_type(独立 runtime script,同步维护;bridge autoload 无法 import 同款)。
+func _get_property_type(obj: Object, key: String) -> int:
+	for p in obj.get_property_list():
+		if String(p.get("name", "")) == key:
+			return int(p.get("type", TYPE_NIL))
+	return -1
+
+
+# E-2 (2026-08-14): MCP JSON Array/Dict 输入 → Godot 数学类型真转换(DUPLICATE 三副本之一)。
+# ⚠️ 三副本同步关系(改任一处须同步另外两处):
+#   源(editor 侧):   addons/godot_mcp_server/commands/command_helpers.gd coerce_value_for_property
+#   副本(headless):  src/scripts/godot_operations.gd _coerce_math_value
+#   副本(bridge 侧): 本文件 _coerce_math_value
+# 对齐 godot_operations.gd _is_safe_value 的既有 DUPLICATE 做法(C-03 同步模式)。
+# 与 editor 源版差异(有意,与 headless 副本一致): 按属性声明类型 prop_type 分派而非
+# typeof(current);支持 Dict{x,y,z,w}/{r,g/b/a} 输入;补 Vector4i/Rect2/Rect2i 构造。
+# 返回 null = Array/Dict 输入但分量缺失/为 null 无法构造(调用方报错拒绝)。
+func _coerce_math_value(prop_type: int, value: Variant) -> Variant:
+	if not (value is Array or value is Dictionary):
+		return value  # 已是数学类型/标量等,透传交 node.set
+	var x: Variant = _math_comp(value, 0, "x")
+	var y: Variant = _math_comp(value, 1, "y")
+	var z: Variant = _math_comp(value, 2, "z")
+	var w: Variant = _math_comp(value, 3, "w")
+	var r: Variant = _math_comp(value, 0, "r")
+	var g: Variant = _math_comp(value, 1, "g")
+	var b: Variant = _math_comp(value, 2, "b")
+	var a: Variant = _math_comp(value, 3, "a")
+	if prop_type == TYPE_VECTOR2:
+		if x != null and y != null:
+			return Vector2(float(x), float(y))
+	elif prop_type == TYPE_VECTOR2I:
+		if x != null and y != null:
+			return Vector2i(int(x), int(y))
+	elif prop_type == TYPE_VECTOR3:
+		if x != null and y != null and z != null:
+			return Vector3(float(x), float(y), float(z))
+	elif prop_type == TYPE_VECTOR3I:
+		if x != null and y != null and z != null:
+			return Vector3i(int(x), int(y), int(z))
+	elif prop_type == TYPE_VECTOR4:
+		if x != null and y != null and z != null and w != null:
+			return Vector4(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_VECTOR4I:
+		if x != null and y != null and z != null and w != null:
+			return Vector4i(int(x), int(y), int(z), int(w))
+	elif prop_type == TYPE_COLOR:
+		# 先 r/g/b/a 键名,再 x/y/z/w(对齐 headless _has_components 两种键名都接受)
+		if r != null and g != null and b != null:
+			return Color(float(r), float(g), float(b), float(a) if a != null else 1.0)
+		if x != null and y != null and z != null:
+			return Color(float(x), float(y), float(z), float(w) if w != null else 1.0)
+	elif prop_type == TYPE_PLANE:
+		if x != null and y != null and z != null and w != null:
+			return Plane(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_QUATERNION:
+		if x != null and y != null and z != null and w != null:
+			return Quaternion(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2:
+		if x != null and y != null and z != null and w != null:
+			return Rect2(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2I:
+		if x != null and y != null and z != null and w != null:
+			return Rect2i(int(x), int(y), int(z), int(w))
+	return null
+
+
+# E-2: 数学分量读取——Array 按索引,Dict 按 key(x/y/z/w 或 r/g/b/a);越界/缺键/值为 null 返 null。
+func _math_comp(value: Variant, index: int, key: String) -> Variant:
+	if value is Array:
+		var arr: Array = value
+		if index < arr.size() and arr[index] != null:
+			return arr[index]
+		return null
+	if value is Dictionary:
+		var dict: Dictionary = value
+		if dict.has(key) and dict[key] != null:
+			return dict[key]
+	return null
 
 
 func _cmd_call_method(params: Dictionary) -> Variant:
