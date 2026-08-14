@@ -130,7 +130,9 @@ func _is_symlink(path: String) -> bool:
 
 
 func _write_json_atomic(data: Dictionary) -> void:
-	var tmp_file := _instance_file + ".tmp"
+	# B3 (2026-08-11 审查): tmp 加 pid 后缀——同项目多 editor 读同端口共享同一 registry 文件,
+	# 固定 .tmp 路径两实例交错写会互相损坏(写一半被对方 rename)。pid 后缀互不干扰。
+	var tmp_file := _instance_file + ".%d.tmp" % OS.get_process_id()
 	# P2-3: 写前 symlink 预检(防 rename 覆盖 symlink 目标)
 	if _is_symlink(tmp_file) or _is_symlink(_instance_file):
 		push_warning("[MCP] instance_registry: %s or its .tmp is a symlink — refusing to write (possible symlink attack)" % _instance_file)
@@ -148,12 +150,30 @@ func _write_json_atomic(data: Dictionary) -> void:
 
 
 ## 删自己的 instance JSON(对齐 mcp_editor.key "只删自己" 范式)
+## B3 (2026-08-11 审查): 原只查 file_exists 就删——同项目多 editor 共享同一 registry 文件
+## (文件名 port-based),B 退出会删掉 A 的文件(A 仍在跑,TS discovery 丢实例)。
+## 现读 JSON 验 pid:文件记录的 pid == 自己才删;pid 是别人的(另一实例仍持有)则跳过。
+## lastSeen 由仍存活的实例心跳继续维护(pid 字段随其心跳写入),discovery 不受影响。
 func _remove_instance_json() -> void:
 	if _instance_file.is_empty():
 		return
-	# 只删自己的文件(id 匹配),防误删其他实例的 JSON
-	if FileAccess.file_exists(_instance_file):
-		DirAccess.remove_absolute(_instance_file)
+	if not FileAccess.file_exists(_instance_file):
+		return
+	var f := FileAccess.open(_instance_file, FileAccess.READ)
+	if f == null:
+		DirAccess.remove_absolute(_instance_file)  # 读不开(损坏)→ 删除让存活实例重写
+		return
+	var content := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(content)
+	if parsed == null or not parsed is Dictionary:
+		DirAccess.remove_absolute(_instance_file)  # 损坏 JSON → 删除让存活实例重写
+		return
+	var file_pid: int = int(parsed.get("pid", 0))
+	if file_pid != 0 and file_pid != OS.get_process_id():
+		push_warning("[MCP] instance_registry: %s is owned by live pid %d (not us %d) — leaving it in place" % [_instance_file, file_pid, OS.get_process_id()])
+		return
+	DirAccess.remove_absolute(_instance_file)
 
 
 func _get_registry_dir() -> String:

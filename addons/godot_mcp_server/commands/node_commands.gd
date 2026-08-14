@@ -313,12 +313,18 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 				op["target"].callv(op["method"], op["args"])
 
 	# 扫孤儿：commit 后任何未入树的 cls（add_child 失败的预 instantiate Node）立即 free 防 leak。
+	# B5 (2026-08-11 审查): 同轮统计真实入树数——原返回 added: validated.size() 是乐观陈述,
+	# C11 孤儿扫描 free 掉的 add_child 失败者也计入,极端场景(parent freed 致 add_child 失败)
+	# added > 实际入树数 = 假成功。added 改基于 is_inside_tree() 真实计数。
+	var added := 0
 	for v in validated:
 		var cls: Node = v["cls"]
 		if cls != null and is_instance_valid(cls) and not cls.is_inside_tree():
 			cls.free()
+		elif cls != null and is_instance_valid(cls):
+			added += 1
 
-	return {"result": {"added": validated.size(), "failed": failed}}
+	return {"result": {"added": added, "failed": failed}}
 
 
 func _is_allowed_node_type(node_type: String) -> bool:
