@@ -236,7 +236,7 @@ import { tmpdir } from 'os';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
-import { opsErrorResult } from './shared/errors.js';
+import { opsErrorResult } from '../core/shared/errors.js';
 import { resolveWithinRoot, normalizeUserProjectPath, requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted as executeGdscript } from '../gdscript-executor.js';
 

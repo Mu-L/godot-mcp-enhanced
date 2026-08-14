@@ -33,7 +33,7 @@ import {
 } from './tool-registry.js';
 import { validateArgs } from './args-validator.js';
 import { isPathInAllowedRoots, parseGodotConfig } from '../helpers.js';
-import { opsErrorResult, COMMON_ERROR_CODES } from '../tools/shared.js';
+import { opsErrorResult, COMMON_ERROR_CODES } from './shared/errors.js';
 import { classifyError, newTraceId, InternalError } from './tool-errors.js';
 import { isAuditEnabled, appendAuditLine, inferChangedFiles, isTokenRequestResult } from './audit-log.js';
 import { truncateResponse } from './response-limiter.js';

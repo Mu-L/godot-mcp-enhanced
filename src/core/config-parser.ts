@@ -112,8 +112,8 @@ export function parseGodotConfig(content: string): GodotConfig {
 
 // ─── MCP output parser ────────────────────────────────────────────────────────
 
-// TODO: move MARKER_RESULT/MARKER_ERROR to src/core/constants.ts to avoid core→tools dependency
-import { MARKER_RESULT, MARKER_ERROR } from '../tools/shared.js';
+// 架构修复: MARKER_RESULT/MARKER_ERROR 已上移到 core/shared(原 TODO 已解决),消除 core→tools 倒置
+import { MARKER_RESULT, MARKER_ERROR } from './shared/gdscript-templates.js';
 
 export function parseMcpScriptOutput(rawOutput: string, exitCode: number | null, resultMarker = MARKER_RESULT, errorMarker = MARKER_ERROR): unknown {
   const lines = rawOutput.split('\n');

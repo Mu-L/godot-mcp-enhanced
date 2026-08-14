@@ -3,7 +3,7 @@ import type { EditorConnection } from './EditorConnection.js';
 import type { ToolResult } from '../types.js';
 import { resolveEditorMethod } from './editor-method-map.js';
 import type { HealthMonitor } from './health-monitor.js';
-import { opsErrorResult } from '../tools/shared.js';
+import { opsErrorResult } from './shared/errors.js';
 import { classifyError } from './tool-errors.js';
 import { getLogger } from './logger.js';
 
