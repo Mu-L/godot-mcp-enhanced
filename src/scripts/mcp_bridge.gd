@@ -67,6 +67,12 @@ var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buff
 var _control_frozen: bool = false
 var _control_owner_pid: int = -1
 var _control_step_until_pending: Array = []  # [{peer_id,pid,id,frames_remaining,wall_deadline_ms,conditions,_added_this_frame}]
+# 2026-08-14 审查 D-2 修复:freeze/开窗介入前保存游戏自身 paused 原值(游戏代码可能自己
+# paused=true,如暂停菜单/回合制),control 层退出(unfreeze/step_until 完成/owner 断线)
+# 时还原原值而非硬设 false。saved_valid 防重复 freeze 把维持中的 true 覆盖真实原值
+# (不变式:frozen=true -> saved_valid=true)。
+var _control_paused_saved: bool = false
+var _control_paused_saved_valid: bool = false
 var _pending_control_step_until_result: Dictionary = {}  # 临时:_handle_message 存,_process_buffer_bytes 取
 # CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
 # 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
@@ -289,7 +295,14 @@ func _process(_delta: float) -> void:
 			# refreeze:若 step_until 前 frozen,完成时恢复 freeze
 			if bool(su_entry.get("refreeze", false)):
 				_control_frozen = true
-				get_tree().paused = true
+				get_tree().paused = true  # freeze 维持(游戏原值仍由 _control_paused_saved 持有,unfreeze 时还原)
+			elif _control_step_until_pending.is_empty() and not _control_frozen:
+				# 2026-08-14 审查 D-2 修复:最后一个开窗 entry 完成且无冻结,游戏回归自身
+				# paused 原值(而非硬设 false)。pending 非空/冻结中不还原(后续 entry 仍需
+				# 开窗推进,或由 freeze 维持、unfreeze/断线还原点统一处理)。
+				get_tree().paused = _control_paused_saved
+				_control_paused_saved = false
+				_control_paused_saved_valid = false
 			var peer_id: int = int(su_entry["peer_id"])
 			var target_peer: StreamPeerTCP = null
 			for p in _peers:
@@ -1818,7 +1831,11 @@ func _cleanup_peer_state(pid: int) -> void:
 	if pid == _control_owner_pid:
 		_control_frozen = false
 		_control_owner_pid = -1
-		get_tree().paused = false
+		# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值(freeze/开窗介入前保存),
+		# 而非硬设 false——覆盖 step_until 开窗中(owner 持有但非 frozen)断线的场景。
+		get_tree().paused = _control_paused_saved
+		_control_paused_saved = false
+		_control_paused_saved_valid = false
 		_control_step_until_pending.clear()
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
@@ -2087,6 +2104,11 @@ func _cmd_control_freeze(params: Dictionary, pid: int) -> Dictionary:
 	if _control_owner_pid != -1 and _control_owner_pid != pid:
 		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
 	_control_owner_pid = pid
+	# 2026-08-14 审查 D-2 修复:freeze 前保存游戏自身 paused 原值(在置 true 之前)。
+	# saved_valid 防"冻结中重复 freeze"把维持中的 true 覆盖真实原值。
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
 	_control_frozen = true
 	get_tree().paused = true  # freeze:每帧 _process 重设(防游戏代码解 pause)
 	return {"success": true, "frozen": true}
@@ -2097,7 +2119,16 @@ func _cmd_control_unfreeze(params: Dictionary, pid: int) -> Dictionary:
 		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
 	_control_frozen = false
 	_control_owner_pid = -1
-	get_tree().paused = false
+	# 2026-08-14 审查 D-1 (P1) 修复:unfreeze 即放弃控制,必须清 step_until pending。
+	# 否则残留 pending 完成时会 refreeze(重新置 frozen+paused)而 owner 已=-1,
+	# 游戏永久暂停无人能解(owner 断线路径 _cleanup_peer_state 已有 clear,此路径
+	# 此前漏了,两路径不对称)。
+	_control_step_until_pending.clear()
+	# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值,而非硬设 false
+	# (防游戏暂停菜单/回合制自身暂停状态被清——菜单开着但游戏在跑)。
+	get_tree().paused = _control_paused_saved
+	_control_paused_saved = false
+	_control_paused_saved_valid = false
 	return {"success": true, "frozen": false}
 
 func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
@@ -2131,6 +2162,11 @@ func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
 	# _process 每帧求值 conditions,满足/帧尽/wall 超时 → push 响应 + (若 refreeze)re-freeze。
 	var refreeze: bool = _control_frozen
 	_control_owner_pid = pid
+	# 2026-08-14 审查 D-2 修复:开窗前若无有效保存则记录当前 paused(refreeze 周期已由
+	# freeze 保存;非 refreeze 周期此处保存的即游戏自身原值),供完成/断线还原点恢复。
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
 	_control_frozen = false  # 临时解:让 _process 不维持 paused,游戏跑
 	get_tree().paused = false  # 开窗
 	return {"__playtest_control_step_until__": true, "conditions": validated, "max_frames": max_frames, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze}
