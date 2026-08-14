@@ -727,7 +727,6 @@ export function getAllTemplates(projectPath?: string): CodeTemplate[] {
 
 // ─── MCP Tool Definitions ───────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 project。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] code-templates module is absorbed into project. Do not register directly.`);
   return [
@@ -781,7 +780,6 @@ export async function handleTemplateAction(
   return handleTool('templates', patchedArgs, ctx);
 }
 
-/** @deprecated v0.18.0 — 已合并到 project。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string, args: Record<string, unknown>, _ctx: unknown
 ): Promise<ToolResult | null> {

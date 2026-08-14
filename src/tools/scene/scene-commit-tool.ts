@@ -10,7 +10,6 @@ import { generateCommitScript, validateCommitOperations, type CommitOperation } 
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { opsErrorResult } from '../shared.js';
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] scene-commit-tool module is absorbed into scene. Do not register directly.`);
   return [{
@@ -117,7 +116,6 @@ export async function handleCommitAction(
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext,
 ): Promise<ToolResult | null> {

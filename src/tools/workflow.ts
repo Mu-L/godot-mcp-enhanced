@@ -748,7 +748,6 @@ func _initialize():
       return textResult(JSON.stringify(summary, null, 2));
     }
 
-    // ── Absorbed from batch-tools.ts ──
     case 'create_files':
     case 'run_verify':
     case 'diff_scenes':

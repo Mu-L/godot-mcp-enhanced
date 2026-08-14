@@ -15,7 +15,6 @@ const VALID_ASSERTIONS = new Set(['node_exists', 'property_equals', 'signal_conn
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] test-framework module is absorbed into validation. Do not register directly.`);
   return [
@@ -62,7 +61,6 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool handler ───────────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'test') return null;
 

@@ -271,7 +271,6 @@ import type { ToolContext, ToolResult } from "../types.js";
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from "../helpers.js";
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] game-design module is absorbed into validation. Do not register directly.`);
   return [
@@ -309,7 +308,6 @@ export function getToolDefinitions(): Tool[] {
   ];
 }
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string,
   args: Record<string, unknown>,

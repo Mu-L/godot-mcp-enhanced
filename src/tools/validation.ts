@@ -103,11 +103,8 @@ const ACTIONS = [
   'validate_project',
   'validate_scripts',
   'import_resources',
-  // Absorbed from test-framework.ts
   'assert', 'stress', 'export_list_presets', 'export_get_preset', 'export_build',
-  // Absorbed from game-design.ts
   'validate_gdd', 'chain_verify',
-  // Absorbed from delivery.ts
   'verify_delivery',
 ] as const;
 
