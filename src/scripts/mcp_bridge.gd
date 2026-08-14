@@ -98,10 +98,14 @@ const ALLOWED_METHODS := [
 const EXTRA_METHODS_BLOCKLIST := [
 	"set_script", "set", "set_indexed", "set_owner", "queue_free", "free", "add_child", "remove_child",  # P2-2 (2026-08-11): set/set_indexed 对称(防 opt-in EXTRA_METHODS 后 node.set("script",...) 绕 set_script)
 	"call", "callv", "emit_signal", "connect", "disconnect",
-	# A5 (2026-08-11 审查): 间接调用入口与销毁对称——call_deferred/call_threadsafe 可在 args
+	# A5 (2026-08-11 审查): 间接调用入口与销毁对称——call_deferred/call_thread_safe 可在 args
 	# 里带被禁方法名(call_method(method="call_deferred", args=["set_script", ...])绕 BLOCKLIST,
 	# 它只查顶层 method 名看不见内层);queue_delete 对称 queue_free。
-	"call_deferred", "call_threadsafe", "queue_delete",
+	# B-2 (2026-08-14): 原写的无下划线拼写(callthreadsafe 连写)是拼写错误——Godot 4 真实
+	# 方法名 call_thread_safe(data/godot-classes.json 实证:定义于 Node),错误拼写永不命中。
+	# 补 propagate_call(子树递归调用入口)。拼写契约由
+	# test/denylist-godot-classes-contract.test.ts 守护。
+	"call_deferred", "call_thread_safe", "propagate_call", "queue_delete",
 ]
 
 # ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -1055,7 +1059,13 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 				break
 	# P1-6: EXTRA_METHODS 即使显式列出,危险方法仍拒绝(防 env 误设致 RCE/运行时结构破坏)
 	if _extra_ok and method in EXTRA_METHODS_BLOCKLIST:
-		return {"error": {"code": -6, "message": "Method blocked even with GODOT_MCP_BRIDGE_EXTRA_METHODS (dangerous, changes runtime structure): %s" % method}}
+		# B-2 (2026-08-14): 内层检查——间接调用入口(args[0]=内层方法名)命中 BLOCKLIST 时,
+		# 若 args[0] 也是 BLOCKLIST 方法(如 call_thread_safe + set_script),拒绝信息一并标注
+		# 内外两层(纵深防御 + 诊断增强)。仅 BLOCKLIST 命中分支内检查,正常方法不受影响。
+		var _inner_note := ""
+		if args.size() > 0 and args[0] is String and args[0] in EXTRA_METHODS_BLOCKLIST:
+			_inner_note = " Inner method '%s' is also blocked." % args[0]
+		return {"error": {"code": -6, "message": "Method blocked even with GODOT_MCP_BRIDGE_EXTRA_METHODS (dangerous, changes runtime structure): %s%s" % [method, _inner_note]}}
 	if not method in ALLOWED_METHODS and not _extra_ok:
 		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):

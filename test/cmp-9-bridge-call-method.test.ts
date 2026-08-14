@@ -4,26 +4,28 @@ import { readFileSync } from 'node:fs';
 // CMP-9-B (2026-08-08): bridge 通道 _cmd_call_method 放宽 — 源码字面量契约测试。
 // mcp_bridge.gd 运行在游戏进程,无法单测运行时行为;这里验证源码改动落位。
 // 对标竞品 regiellis/godot-mcp-go 的 runtime.call(运行中游戏进程上调方法)。
+// B-2 (2026-08-14): BLOCKLIST 命中分支加内层 args[0] 检查(约 500 字符),
+// _cmd_call_method 函数体窗口 2600 → 3200 保持覆盖到函数尾部的强转/undoable 声明。
 
 describe('CMP-9-B: bridge _cmd_call_method 放宽（GD 源码契约）', () => {
   const gd = readFileSync('src/scripts/mcp_bridge.gd', 'utf8');
 
   it('CMP-9B-a: _cmd_call_method 含 did-you-mean 调用', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 2600);
+    const slice = gd.slice(fnStart, fnStart + 3200);
     expect(slice.includes('_suggest_bridge_method'), '缺 did-you-mean 调用').toBe(true);
     expect(slice.includes('Did you mean'), '缺 did-you-mean 提示文案').toBe(true);
   });
 
   it('CMP-9B-b: _cmd_call_method 含 args 类型强转', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 2600);
+    const slice = gd.slice(fnStart, fnStart + 3200);
     expect(slice.includes('_coerce_bridge_args'), '缺类型强转调用').toBe(true);
   });
 
   it('CMP-9B-c: _cmd_call_method 返回 undoable=false', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 2600);
+    const slice = gd.slice(fnStart, fnStart + 3200);
     expect(slice.includes('"undoable": false'), '缺 undoable=false 声明').toBe(true);
   });
 
@@ -85,13 +87,13 @@ describe('CMP-9-B: 向后兼容不变量（GD 源码契约）', () => {
 
   it('CMP-9B-j: get() 的 blocked property 检查保留(line 941 原逻辑)', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 2600);
+    const slice = gd.slice(fnStart, fnStart + 3200);
     expect(slice.includes('_is_blocked_property'), '缺 blocked property 检查').toBe(true);
   });
 
   it('CMP-9B-k: args 数量上限 8 保留', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 2600);
+    const slice = gd.slice(fnStart, fnStart + 3200);
     expect(slice.includes('max 8'), '缺 args 数量上限').toBe(true);
   });
 });

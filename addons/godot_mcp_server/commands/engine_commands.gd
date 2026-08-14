@@ -19,10 +19,14 @@ const MEMBER_LIMIT := 200
 # 间接调用(call/callv/call_deferred,绕 deny-list)、脚本注入(set_script=RCE)、信号拓扑(connect/disconnect/emit_signal)。
 # 对标竞品 regiellis/godot-mcp-go 的 node.call 无过滤是缺陷;enhanced 坚持 deny-list 护城河。
 # env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可追加(逗号分隔,env ∪ 默认表,只能加不能减;A3 2026-08-11 原替换语义是 footgun)。显式设空串=完全放开(风险自担)。
+# B-2 (2026-08-14): 原写的无下划线拼写(callthreadsafe 连写)是拼写错误——Godot 4 真实
+# 方法名 call_thread_safe(data/godot-classes.json 实证:定义于 Node),错误拼写永不命中 →
+# deny-list 被绕。补 propagate_call(子树递归调用,同 call_thread_safe 是间接调用入口)。
+# 拼写契约由 test/denylist-godot-classes-contract.test.ts 从 godot-classes.json 生成守护。
 const DEFAULT_CALL_DENYLIST := [
 	"free", "queue_free", "queue_delete",
 	"add_child", "remove_child", "set_owner",
-	"call", "callv", "call_deferred", "call_threadsafe",
+	"call", "callv", "call_deferred", "call_thread_safe", "propagate_call",
 	"set_script", "set", "set_indexed",  # P2-1 (2026-08-11): 通用 property setter,可 callv("set",["script",val]) 绕 set_script deny
 	"emit_signal", "connect", "disconnect",
 ]
@@ -235,7 +239,15 @@ func handle_call_method(params: Dictionary) -> Dictionary:
 	# 2. deny-list 检查(env 可覆盖)
 	var denylist := _resolve_call_denylist()
 	if method in denylist:
-		return {"error": {"code": -6, "message": "Method blocked by deny-list (dangerous, changes runtime structure or enables RCE): %s. Set env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE to customize." % method}}
+		# B-2 (2026-08-14): 内层检查——间接调用入口(call/callv/call_deferred/call_thread_safe/
+		# propagate_call)的 args[0] 是内层方法名。deny 方法命中时若 args[0] 也是 deny 方法
+		# (如 call_thread_safe + set_script),拒绝信息一并标注内外两层(纵深防御 + 诊断增强)。
+		# 仅 deny 命中分支内检查,正常方法(如 set_position)的 args[0] 不受影响。
+		var inner_note := ""
+		var probe_args: Array = params.get("args") if params.get("args") is Array else []
+		if probe_args.size() > 0 and probe_args[0] is String and denylist.has(probe_args[0]):
+			inner_note = " Inner method '%s' is also in the deny-list." % probe_args[0]
+		return {"error": {"code": -6, "message": "Method blocked by deny-list (dangerous, changes runtime structure or enables RCE): %s.%s Set env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE to customize." % [method, inner_note]}}
 
 	# 3. 方法存在性 + did-you-mean
 	if not node.has_method(method):

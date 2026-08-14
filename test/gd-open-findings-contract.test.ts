@@ -5,7 +5,7 @@
  *   A2 websocket_server debug in-flight 互斥(_states 串台)
  *   A3 engine_commands deny-list env 追加语义(∪ 默认表)
  *   A4 debugger_bridge resolve_session + debug_commands 数据三件套接线
- *   A5 mcp_bridge EXTRA_METHODS_BLOCKLIST 补 call_deferred/call_threadsafe/queue_delete
+ *   A5 mcp_bridge EXTRA_METHODS_BLOCKLIST 补 call_deferred/call_thread_safe/queue_delete(B-2 修正拼写)
  *   B1 debugger_bridge dispose/_connect_tracked + plugin.gd _exit_tree free
  *   B2 debugger_bridge _panel_duplicate 去重守卫
  *   B3 instance_registry 删除验 pid + tmp pid 后缀
@@ -91,11 +91,14 @@ describe('A4: debugger_bridge resolve_session + debug_commands 接线', () => {
 });
 
 describe('A5: bridge EXTRA_METHODS_BLOCKLIST 补间接调用入口', () => {
-  it('BLOCKLIST 含 call_deferred/call_threadsafe/queue_delete', () => {
+  // B-2 (2026-08-14): call_threadsafe 是拼写错误(Godot 4 真实方法名 call_thread_safe,
+  // data/godot-classes.json 实证),A5 照抄审查文本固化错误拼写 → 改正确拼写并补 propagate_call。
+  // 拼写全量契约见 test/denylist-godot-classes-contract.test.ts。
+  it('BLOCKLIST 含 call_deferred/call_thread_safe/propagate_call/queue_delete', () => {
     const blockMatch = BRIDGE_SCRIPT_CODE.match(/const EXTRA_METHODS_BLOCKLIST := \[([\s\S]*?)\]/);
     expect(blockMatch, 'EXTRA_METHODS_BLOCKLIST 块未找到').toBeTruthy();
     const body = blockMatch![1]!;
-    for (const m of ['call_deferred', 'call_threadsafe', 'queue_delete']) {
+    for (const m of ['call_deferred', 'call_thread_safe', 'propagate_call', 'queue_delete']) {
       expect(body).toContain(`"${m}"`);
     }
   });
