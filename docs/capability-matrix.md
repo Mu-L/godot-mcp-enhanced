@@ -4,14 +4,15 @@
 
 ## 概览
 - 工具总数：41
-- securityLevel：danger-api 10 / guarded 20 / safe 11
+- securityLevel：danger-api 11 / guarded 20 / safe 10
 - risk：read 113 / write 93 / destructive 10 / process 14
 - L2 覆盖：covered 0 / partial 0 / none 41
-- token 预算：tools/list ≈ 81258B / ~20315 tokens（description 13820B / schema 67438B，schema 占 83%）
+- token 预算：tools/list ≈ 81251B / ~20313 tokens（description 13813B / schema 67438B，schema 占 83%）
 - annotations：readOnly 9 / destructive 5 / idempotent 12
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
+- `audit` (core)
 - `godot_get_context` (core)
 - `help` (core)
 - `manage_tools` (core)
@@ -30,7 +31,7 @@
 - `animtree` (animation)
 - `asset` (asset)
 - `audio` (audio)
-- `audit` (unknown)
+- `audit` (core)
 - `blender` (blender)
 - `cpp` (code)
 - `csv_to_resources` (unknown)

@@ -13,6 +13,11 @@ import { readAuditLog, suggestRollback, AUDIT_LOG_REL } from '../core/audit-log.
 import { resolveProjectPath } from '../core/path-utils.js';
 import { join } from 'path';
 
+// C-1 (2026-08-14): 导出 TOOL_NAMES 供 scripts/check-tool-groups.mjs 归组对账。
+// 此前不导出 → 正则提取型守门扫描不到 audit → 游离 TOOL_GROUPS 未被发现(第 4 次同类盲区)。
+const TOOL_NAMES = ['audit'] as const;
+export { TOOL_NAMES };
+
 export function getToolDefinitions(): Tool[] {
   return [{
     name: 'audit',

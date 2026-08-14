@@ -164,7 +164,7 @@ export interface ToolGroupDef {
 
 /** Tool groups for fine-grained profile configuration. Count verified by test/tool-groups.test.js (number omitted here to avoid drift as groups are added). */
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
-  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help'], requires: [], protected: true },
+  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help', 'audit'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
   bridge:     { description: 'Game Bridge', tools: ['game'], requires: ['bridge'] },
   animation:  { description: '动画系统', tools: ['animation', 'animtree', 'animation_track'], requires: [] },

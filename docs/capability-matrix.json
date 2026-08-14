@@ -1071,7 +1071,7 @@
     },
     {
       "name": "audit",
-      "group": "unknown",
+      "group": "core",
       "description": "操作审计日志查询(G3)。action=get_log 读 {project}/.godot/mcp_audit.jsonl 统计回放(操作计数/风险高亮/最近条目/时间范围);action=suggest_rollback 对指定条目给诚实回滚建议(create 类可删/project.godot before_values/其余靠 Git)。write/destructive 操作经 audit after middleware 自动落盘(changed_files 为项目相对路径,PII 护栏)。",
       "inputSchema": {
         "type": "object",
@@ -1117,7 +1117,7 @@
       "readonly": true,
       "longRunning": false,
       "guarded": false,
-      "securityLevel": "safe",
+      "securityLevel": "danger-api",
       "riskDistribution": {
         "read": 2,
         "write": 0,
@@ -2040,7 +2040,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch, audit",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2089,9 +2089,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 186,
+        "descBytes": 179,
         "schemaBytes": 205,
-        "totalBytes": 391
+        "totalBytes": 384
       },
       "annotations": {
         "readOnlyHint": false,

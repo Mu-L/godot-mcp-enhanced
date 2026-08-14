@@ -201,7 +201,7 @@ describe('tool-registry groups and profiles', () => {
       expect(LITE_TOOLS.has('validation')).toBe(true);
     });
 
-    it('MINIMAL_TOOLS should contain only core 9 tools', () => {
+    it('MINIMAL_TOOLS should contain only core 10 tools', () => {
       expect(MINIMAL_TOOLS.has('project')).toBe(true);
       expect(MINIMAL_TOOLS.has('scene')).toBe(true);
       expect(MINIMAL_TOOLS.has('script')).toBe(true);
@@ -211,7 +211,9 @@ describe('tool-registry groups and profiles', () => {
       expect(MINIMAL_TOOLS.has('godot_get_context')).toBe(true);
       expect(MINIMAL_TOOLS.has('runtime_assert')).toBe(true);
       expect(MINIMAL_TOOLS.has('help')).toBe(true);
-      expect(MINIMAL_TOOLS.size).toBe(9);
+      // C-1 (2026-08-14): audit 归入 core 组(修复游离 TOOL_GROUPS 生产 bug),9→10
+      expect(MINIMAL_TOOLS.has('audit')).toBe(true);
+      expect(MINIMAL_TOOLS.size).toBe(10);
     });
   });
 });

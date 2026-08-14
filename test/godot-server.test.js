@@ -358,6 +358,7 @@ describe('GodotServer', () => {
       const liteTools = [
         'project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context',
         'runtime_assert', 'help',
+        'audit', // C-1 (2026-08-14): audit 归入 core 组,lite(含 core)随之可见
         'game',
         'animation', 'animtree', 'animation_track',
         'audio',
