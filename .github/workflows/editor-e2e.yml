@@ -61,6 +61,14 @@ jobs:
           chmod +x /tmp/godot-bin/Godot_v4.7.1-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.7.1-stable_linux.x86_64" >> "$GITHUB_ENV"
 
+      # I-1 (2026-08-14 第三方审查): real-project/addons/ 是 gitignored 本地副本,
+      # CI 全新 checkout 缺失 → hasProject false → 全部 editor-e2e 静默 skip(工作流
+      # 假绿数月)。每次运行前从 addons/ 主副本拷入,CI 永远测当前源(零滞后)。
+      - name: Sync addon into real-project fixture (gitignored, missing on fresh checkout)
+        run: |
+          mkdir -p test/fixtures/real-project/addons
+          cp -r addons/godot_mcp_server test/fixtures/real-project/addons/
+
       # 跑 e2e-resilience-editor（SIGKILL 崩溃注入 + N=5 并发串行 undo 安全）
       # xvfb-run -a 自动分配空闲 display 号，-s 给 X server 参数（24-bit color + 1920x1080 分辨率）
       - name: E2E resilience editor (SIGKILL reconnect + concurrency)
