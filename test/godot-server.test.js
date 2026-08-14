@@ -86,6 +86,7 @@ vi.mock('../src/core/process-state.js', () => ({
 
 // ─── Import SUT (after mocks) ────────────────────────────────────────────────
 import { GodotServer, clearGodotPathCache, getCachedGodotPath } from '../src/GodotServer.js';
+import { handleTool as instanceHandleTool, setInstanceManager, setInstanceRouter } from '../src/tools/instance-tools.js';
 import { EditorConnection } from '../src/core/EditorConnection.js';
 import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';
 
@@ -197,6 +198,27 @@ describe('GodotServer', () => {
       await server.close();
       await server.close();
       expect(mockServerClose).toHaveBeenCalled();
+    });
+
+    // P0-2 架构修复: close() 须清理 tools 侧模块级引用,防测试隔离泄漏/热重启残留。
+    // 以 instance-tools 为代表(setInstanceManager/setInstanceRouter 在 run() 注入,close 应清空);
+    // setDynamicSender/setToolCallDelegate/setBridgeProjectDir 在同一 finally 块,结构对称,由本机制保证。
+    it('clears tools-side module-level refs (instance manager/router) on close', async () => {
+      // 注入 stub(模拟 run() initMultiInstance 的注入效果)
+      setInstanceManager({ loadFromRegistry: async () => [], getAllInstances: () => [], getStatus: () => 'online' });
+      setInstanceRouter({ getSelectedId: () => null });
+      // 注入生效: godot_list_instances 不返 NOT_INITIALIZED
+      const before = await instanceHandleTool('godot_list_instances', {}, {});
+      expect(before.content[0].text).not.toContain('NOT_INITIALIZED');
+      // close 触发 finally 清理
+      const server = new GodotServer('/fake/ops.gd');
+      await server.close();
+      // 清理生效: godot_list_instances 返 NOT_INITIALIZED(证明 _manager 已清空)
+      const after = await instanceHandleTool('godot_list_instances', {}, {});
+      expect(after.content[0].text).toContain('NOT_INITIALIZED');
+      // 清理测试残留防泄漏
+      setInstanceManager(null);
+      setInstanceRouter(null);
     });
   });
 

@@ -319,7 +319,7 @@ function _ensureConnection(timeout: number): Promise<Socket> {
  * per-server 单项目，跨项目切换是异常用法，由调用方保证不并发）。彻底修复需引入 per-project
  * 锁 + per-project socket 状态，属架构级改造，超本轮 scope（留 follow-up）。
  */
-export function setBridgeProjectDir(projectDir: string): void {
+export function setBridgeProjectDir(projectDir: string | null): void {
   if (_projectDir === projectDir) return;
   // 检测 in-flight：_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
   // （_sendLock 在 sendToBridge:385-388 获取，.finally(resolveLock) 释放）

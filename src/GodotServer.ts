@@ -12,7 +12,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 import { join } from 'path';
 import { readInstructions } from './core/instructions.js';
 import { waitForEditorSecret } from './core/editor-auth.js';
-import { registerBridgePushHandler } from './tools/game-bridge.js';
+import { registerBridgePushHandler, setBridgeProjectDir } from './tools/game-bridge.js';
 import {
   listResources as listMcpResources,
   listResourceTemplates as listMcpResourceTemplates,
@@ -904,6 +904,13 @@ export class GodotServer {
       setProgressClientReady(false);
       setElicitServer(null);
       setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
+      // 架构修复 P0-2: 补齐 tools 侧模块级引用清理(close 原本漏清这 5 个,
+      // 致 instance-tools/advanced-proxy/game-bridge 持有上一 server 闭包 → 测试隔离泄漏 / 热重启残留)
+      setInstanceManager(null);
+      setInstanceRouter(null);
+      setDynamicSender(null);
+      setToolCallDelegate(null);
+      setBridgeProjectDir(null);
       log('Server shut down');
     }
   }
