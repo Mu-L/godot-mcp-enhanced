@@ -9,6 +9,7 @@ import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { parseTscn } from '../tscn/tscn-parser.js';
 import { spawnGodot } from './spawn-helper.js';
+import { scanScriptSandboxOrThrow } from './script.js';
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
@@ -114,6 +115,18 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
         if (existsSync(absPath) && !f.overwrite) {
           skipped.push(relPath);
+          continue;
+        }
+
+        // B-1 (SEC-P1-1): create_files 写 .gd 前过沙箱扫描(此前裸 writeFileSync 绕过;
+        // 后置 batchValidateScripts 仅语法 parse + lint 不扫危险 API)。危险 .gd 拒写入
+        // failed(其余文件继续批处理);非 .gd 路径 scanScriptSandboxOrThrow 直接放行不受影响。
+        const sandboxGuard = scanScriptSandboxOrThrow(f.content, absPath);
+        if (sandboxGuard) {
+          // opsErrorResult 的 content[0] 恒为 text 块,但类型联合不保证,运行时判别收窄
+          const guardBlock = sandboxGuard.content[0];
+          const guardMsg = guardBlock && guardBlock.type === 'text' ? guardBlock.text : 'SANDBOX_VIOLATION';
+          failed.push({ path: relPath, error: guardMsg });
           continue;
         }
 

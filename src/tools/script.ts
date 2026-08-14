@@ -73,7 +73,10 @@ async function checkTextResourceGuard(ctx: ToolContext, path: string): Promise<T
  *
  * @returns opsErrorResult 若检测到危险模式且未旁路;null 表示通过(安全或已旁路)
  */
-function scanScriptSandboxOrThrow(content: string, filePath: string): ToolResult | null {
+// B-1 (2026-08-14): 导出供三个 .gd 写入旁路入口共用(quick_scene/batch create_files/
+// templates apply_template)。全仓所有写 .gd 落盘前必须过此扫描(SEC-P1-1 同一威胁面:
+// tscn 绑 ExtResource 后编辑器打开/run_project 即执行)。
+export function scanScriptSandboxOrThrow(content: string, filePath: string): ToolResult | null {
   // 只扫 .gd(C# 等不适用 scanGdscriptSandbox 的 GDScript 专用模式)
   if (!filePath.endsWith('.gd')) return null;
   // 双 opt-in 旁路(对齐 gdscript-executor.ts:1054-1055)
