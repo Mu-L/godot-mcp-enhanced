@@ -443,4 +443,43 @@ describe('SEC-P1-1 B-1: create_project 第4写入面(godot_version / project_nam
     expect(text).toContain('godot_version');
     expect(existsSync(join(tmpDir, '.github', 'workflows', 'godot-ci.yml'))).toBe(false);
   });
+
+  // Fix round 1 concern 1 (2026-08-14): generateCiTemplate 的 pre-release 分支
+  // (`godotVersion.includes('-')`) 被旧正则入口拒绝成死代码 — 扩展字符集白名单
+  // `-[A-Za-z0-9.]+`,覆盖 Godot 官方 pre-release 命名(4.4.1-rc1 / 4.4-beta2)。
+  it('create_project godot_version pre-release 版本号(4.4.1-rc1 / 4.4-beta2)通过校验', async () => {
+    const { handleTool } = await import('../src/tools/project.js');
+    const ctx = { findGodot: async () => '/fake/godot' };
+    for (const pre of ['4.4.1-rc1', '4.4-beta2']) {
+      const newDir = join(tmpDir, `pre-${pre.replace(/[^a-zA-Z0-9]/g, '_')}`);
+      const res = await handleTool('project', {
+        action: 'create_project',
+        project_path: newDir,
+        godot_version: pre,
+      }, ctx);
+
+      expect(res.isError, `godot_version=${pre} 是合法 pre-release,应放行`).not.toBe(true);
+      const mainGd = readFileSync(join(newDir, 'scripts', 'main.gd'), 'utf-8');
+      expect(mainGd).toContain(`Hello, Godot ${pre}!`);
+      expect(mainGd).not.toContain('OS.execute');
+    }
+  });
+
+  it('create_project godot_version pre-release 扩展后注入仍被拒(- 后含引号/换行非法字符)', async () => {
+    const { handleTool } = await import('../src/tools/project.js');
+    const ctx = { findGodot: async () => '/fake/godot' };
+    const newDir = join(tmpDir, 'evil-pre');
+    const res = await handleTool('project', {
+      action: 'create_project',
+      project_path: newDir,
+      // `-` 前缀是合法 pre-release 形态,但后随引号+换行+OS.execute — 字符集白名单外
+      godot_version: '4.4")\nOS.execute("calc" # -x',
+    }, ctx);
+
+    expect(res.isError).toBe(true);
+    const text = res.content[0].text;
+    expect(text).toContain('INVALID_PARAMS');
+    expect(text).toContain('godot_version');
+    expect(existsSync(newDir)).toBe(false);
+  });
 });

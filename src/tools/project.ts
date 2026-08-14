@@ -713,7 +713,10 @@ jobs:
 // 威胁模型:该参数直接字符串拼接进 scripts/main.gd(print Hello 串,main.tscn 绑
 // ExtResource 后 run_project 即执行)与 CI workflow 的 wget URL/文件名 — 严格
 // X.Y / X.Y.Z 数字白名单,拒绝一切引号/换行/括号等注入载体。
-const GODOT_VERSION_RE = /^\d+\.\d+(\.\d+)?$/;
+// Fix round 1 concern 1: 追加可选 pre-release 后缀 `-[A-Za-z0-9.]+`(Godot 官方
+// 命名如 4.4.1-rc1 / 4.4-beta2),救活 generateCiTemplate 的 includes('-') 分支;
+// 后缀字符集仅字母/数字/点,无引号/换行/括号等注入载体,注入面保持封闭。
+const GODOT_VERSION_RE = /^\d+\.\d+(\.\d+)?(-[A-Za-z0-9.]+)?$/;
 
 /** 解析并校验 args.godot_version。缺省返回 '4.4';非法格式返回 null(调用方 return
  *  invalidGodotVersionResult)。非 string 类型(如 number)同样拒绝。 */
@@ -728,7 +731,7 @@ function parseGodotVersionArg(args: Record<string, unknown>): string | null {
 function invalidGodotVersionResult(raw: unknown): ToolResult {
   return opsErrorResult(
     'INVALID_PARAMS',
-    `Invalid godot_version ${JSON.stringify(raw ?? null)}: must be "X.Y" or "X.Y.Z" format (e.g. 4.4, 4.7.1). ` +
+    `Invalid godot_version ${JSON.stringify(raw ?? null)}: must be "X.Y", "X.Y.Z" or "X.Y.Z-pre" pre-release format (e.g. 4.4, 4.7.1, 4.4.1-rc1; suffix charset: letters/digits/dots only). ` +
     'The value is embedded into generated main.gd and CI workflow files, so only strict numeric formats are accepted.',
   );
 }
