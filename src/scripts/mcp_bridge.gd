@@ -2103,6 +2103,10 @@ func _cmd_playtest_restore(params: Dictionary, pid: int) -> Variant:
 	return {"success": true, "restored": restored, "skipped_freed": skipped_freed}
 
 func _cmd_playtest_step(params: Dictionary) -> Dictionary:
+	# 2026-08-14 审查 D-6 修复：frozen 守卫——冻结中 step 的帧递减不感知 paused，
+	# 游戏未推进却返 success（假成功）。入口明确报错，引导先 unfreeze。
+	if _control_frozen:
+		return {"error": {"code": -1, "message": "game is frozen; unfreeze before stepping"}}
 	# step 走延迟响应:_handle_message 返回哨兵字符串,_process_buffer_bytes 存 pending,
 	# _process 每帧递减 frames_remaining(I-2 修复:加入帧不递减,下一帧起计),到 0 时 push 响应。
 	# 非真 await physics_frame coroutine(bridge TCP 同步模型不支持),而是 _process 计数器轮询,
@@ -2178,8 +2182,9 @@ func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
 	if max_frames < 1 or max_frames > _CONTROL_MAX_FRAMES:
 		return {"error": {"code": -1, "message": "max_frames must be 1-%d, got %d" % [_CONTROL_MAX_FRAMES, max_frames]}}
 	var wall_budget_ms: int = int(params.get("wall_budget_ms", _CONTROL_DEFAULT_WALL_BUDGET_MS))
-	if wall_budget_ms < 1000 or wall_budget_ms > 60000:
-		return {"error": {"code": -1, "message": "wall_budget_ms must be 1000-60000, got %d" % wall_budget_ms}}
+	# 2026-08-14 审查 D-5 修复：上限压 50s（clamp）。等待期 bridge 无字节往来，60s 会被
+	# 同文件 INACTIVITY_TIMEOUT=60.0 idle 断连切断（响应丢失+状态突变），压到 50s 留 10s 余量。
+	wall_budget_ms = clampi(wall_budget_ms, 1000, 50000)
 	# step_until:临时解 pause 开窗让游戏跑(若原 frozen,记 refreeze 完成时恢复)。
 	# _process 每帧求值 conditions,满足/帧尽/wall 超时 → push 响应 + (若 refreeze)re-freeze。
 	var refreeze: bool = _control_frozen
