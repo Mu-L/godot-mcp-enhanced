@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHmac } from 'node:crypto';
 import {
   generateApiToken,
   verifyApiToken,
@@ -131,6 +132,26 @@ describe('instance-api-auth', () => {
       expect(verifyApiToken('inst-1', forged)).toBe(false); // HMAC 错 → 拒绝
       // 原有效 token 仍可用:伪造 token 未污染 nonce N(修复前此处因 nonce 被占会失败)
       expect(verifyApiToken('inst-1', token)).toBe(true);
+    });
+
+    it('A6: rejects far-future timestamps (future-skew upper bound)', () => {
+      // 构造远未来 timestamp 的 token:原校验只查过去方向,now+1年的 token 在真实时间
+      // 追上前持续有效。需用真实 secret 自签(HMAC 必须正确才能到达时效分支之后被拒)。
+      const secret = getOrCreateApiSecret();
+      const futureTs = (Date.now() + 365 * 24 * 3600 * 1000).toString();
+      const nonce = 'deadbeefdeadbeef';
+      const hmac = createHmac('sha256', secret).update(`inst-1:${futureTs}:${nonce}`).digest('hex');
+      const futureToken = `${futureTs}.${nonce}.${hmac}`;
+      expect(verifyApiToken('inst-1', futureToken)).toBe(false);
+    });
+
+    it('A6: nonce replay window survives restart (persistence across clearCachedSecret)', () => {
+      const token = generateApiToken('inst-1');
+      expect(verifyApiToken('inst-1', token)).toBe(true);
+      // clearCachedSecret 清内存 Map + 重置懒加载标记 = 模拟 server 重启
+      // (修复前:重启后 _usedNonces 空,60s TTL 内同 token 可重放)
+      clearCachedSecret();
+      expect(verifyApiToken('inst-1', token)).toBe(false);  // 从盘上回载的 nonce 仍拒重放
     });
   });
 

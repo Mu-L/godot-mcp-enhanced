@@ -26,13 +26,25 @@ import { homedir, userInfo } from 'node:os';
 import { getLogger } from './logger.js';
 
 const API_SECRET_FILENAME = '.api-secret';
+const API_NONCES_FILENAME = '.api-nonces.json';
 const HMAC_ALGORITHM = 'sha256';
 const TOKEN_TTL_MS = 60_000; // 签名有效期 60 秒
+
+// A6 (2026-08-11 审查): 时钟偏移上界。原校验只查过去方向(Date.now() - timestamp > TTL),
+// 远未来 timestamp(now+1年)可通过过期检查,该 token 在真实时间追上前持续有效。
+// localhost 同机通信时钟偏移近零,5s 上界只容忍 NTP 抖动级别的正向漂移。
+const MAX_CLOCK_SKEW_MS = 5_000;
 
 // S-3: Nonce 防重放 — 记录最近使用的 nonce（TTL 内去重）
 const _usedNonces = new Map<string, number>();
 const NONCE_CLEANUP_INTERVAL = 120_000; // 每 2 分钟清理过期 nonce
 let _lastNonceCleanup = Date.now();
+
+// A6: nonce 持久化 — server 重启会清空内存 Map,60s TTL 重放窗口重新打开。
+// 近 TTL 的已用 nonce 落盘 ~/.godot-mcp/.api-nonces.json,启动时懒加载回内存。
+// 失败(磁盘/权限)降级内存-only,不阻断认证(纵深防御层,非可用性依赖)。
+let _noncesLoaded = false;
+let _noncePersistWarned = false;
 
 let _cachedSecret: string | null = null;
 
@@ -131,9 +143,15 @@ export function verifyApiToken(instanceId: string, token: string): boolean {
   const timestamp = parseInt(timestampStr, 10);
   if (!Number.isFinite(timestamp)) return false;
 
-  // 检查时效性
+  // 检查时效性(过去方向:TTL 过期;未来方向:A6 时钟偏移上界)
   if (Date.now() - timestamp > TOKEN_TTL_MS) return false;
+  if (timestamp - Date.now() > MAX_CLOCK_SKEW_MS) return false;
 
+  // A6: 懒加载持久化的 nonce(重启防重放窗口)
+  if (!_noncesLoaded) {
+    _loadPersistedNonces();
+    _noncesLoaded = true;
+  }
   // S-3: Nonce 防重放检查(仅查重;记录推迟到 HMAC 验证通过后 — A-2,避免伪造 token 污染 nonce 池)
   const nonceKey = `${instanceId}:${nonce}`;
   if (_usedNonces.has(nonceKey)) return false; // 已使用的 nonce → 重放攻击
@@ -160,9 +178,52 @@ export function verifyApiToken(instanceId: string, token: string): boolean {
     if (mismatch !== 0) return false;
     // A-2: HMAC 验证通过后才记录 nonce,避免伪造 token 提前污染 nonce 池(否则伪造签名可占用合法 nonce)
     _usedNonces.set(nonceKey, Date.now());
+    _persistNonces();
     return true;
   } catch {
     return false;
+  }
+}
+
+// ─── A6: nonce 持久化(重启防重放窗口) ────────────────────────────────────────
+
+function _nonceStorePath(): string {
+  return join(getRegistryDir(), API_NONCES_FILENAME);
+}
+
+function _loadPersistedNonces(): void {
+  // 只回载仍在有效窗(TTL*2)内的条目,过期的留在盘上等下次写入时清掉
+  const cutoff = Date.now() - TOKEN_TTL_MS * 2;
+  try {
+    const path = _nonceStorePath();
+    if (!existsSync(path)) return;
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+    if (parsed == null || typeof parsed !== 'object') return;
+    for (const [key, ts] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof ts === 'number' && ts > cutoff) _usedNonces.set(key, ts);
+    }
+  } catch {
+    // 读失败(损坏/权限)降级内存-only——防重放退化为重启后窗口重开,不阻断认证
+    if (!_noncePersistWarned) {
+      getLogger().warn('instance-api-auth', 'Failed to load persisted nonces — replay protection degraded to memory-only until restart');
+      _noncePersistWarned = true;
+    }
+  }
+}
+
+function _persistNonces(): void {
+  try {
+    const path = _nonceStorePath();
+    const dir = getRegistryDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const out: Record<string, number> = {};
+    for (const [key, ts] of _usedNonces) out[key] = ts;
+    writeFileSync(path, JSON.stringify(out), { encoding: 'utf-8', mode: 0o600 });
+  } catch {
+    if (!_noncePersistWarned) {
+      getLogger().warn('instance-api-auth', 'Failed to persist nonces — replay protection degraded to memory-only until restart');
+      _noncePersistWarned = true;
+    }
   }
 }
 
@@ -178,4 +239,6 @@ export function buildAuthHeaders(instanceId: string): Record<string, string> {
 export function clearCachedSecret(): void {
   _cachedSecret = null;
   _usedNonces.clear();
+  // A6: 重置懒加载标记,下个 verify 重新从盘上加载(测试 beforeEach/afterEach rmSync MOCK_HOME 后状态干净)
+  _noncesLoaded = false;
 }
