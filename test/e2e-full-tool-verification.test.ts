@@ -827,13 +827,13 @@ describe.skipIf(!hasRealProject)('L1 real-project: cpp scaffold_gdextension', { 
 // beforeAll 快照 project.godot,afterAll 恢复(game_bridge_install 写 autoload)+ stop + 删密钥。
 // action 前缀:game_bridge_install/query/write/input/wait 带 game_ 前缀;monitor/watch/find_ui 不带。
 // ═══════════════════════════════════════════════════════════════════════════════
-if (!process.env.CI && (!hasGodot || !hasRealProject || !OPT_IN_L2)) {
+if (!hasGodot || !hasRealProject || !OPT_IN_L2) {
   const _reason = !hasGodot ? 'Godot not found'
     : !hasRealProject ? 'no real project fixture'
     : 'GODOT_MCP_E2E_L2=1 not set';
   process.stderr.write(`[skip] L2 bridge suite skipped — ${_reason}. Set GODOT_MCP_E2E_L2=1 + install Godot to enable.\n`);
 }
-describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || !OPT_IN_L2)('L2 real-project: bridge 正路径', { timeout: 120_000, sequential: true }, () => {
   let projectGodotSnap = '';
 
   beforeAll(() => {
@@ -891,7 +891,7 @@ describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L
 // action:recording 用 runtime record_start/stop/play(plan 写 recording_* 错);
 //         profiler snapshot/start/get_data/stop。
 // ═══════════════════════════════════════════════════════════════════════════════
-describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 real-project: recording + profiler', { timeout: 150_000 }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || !OPT_IN_L2)('L2 real-project: recording + profiler', { timeout: 150_000 }, () => {
   let projectGodotSnap = '';
 
   beforeAll(() => {
@@ -899,10 +899,10 @@ describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L
     process.env.GODOT_MCP_BRIDGE_PERSISTENT_SECRET = 'true';
   });
 
-  if (!process.env.CI && !OPT_IN_L2) {
+  if (!OPT_IN_L2) {
     process.stderr.write('[skip] L2 recording test skipped — GODOT_MCP_E2E_L2=1 not set. Set GODOT_MCP_E2E_L2=1 to enable recording E2E.\n');
   }
-  it.skipIf(process.env.CI || !OPT_IN_L2)('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
+  it.skipIf(!OPT_IN_L2)('recording start/stop/play(需游戏 + bridge 输入捕获)', async () => {
     // 单 it:afterEach 在 it 间 kill 进程,故 recording 链路(依赖游戏运行)单 it 内完成
     const install = await callToolReal('game', { action: 'game_bridge_install' });
     expectSuccess(install);
@@ -1026,7 +1026,7 @@ describe.skipIf(!hasRealProject)('L3: android(adb)', { timeout: 60_000 }, () => 
 // P1-fix(测试 gate): 补 OPT_IN_L2 + CI gate，对齐 :818 bridge suite / :884 stderr 警告的意图。
 // 原仅 gate hasGodot+hasRealProject，npm test 默认就跑 run_project（--debug 非 headless），
 // 起 Godot GUI 窗口；fixture project.godot 改写瞬间被 Godot 读取不完整 → 弹"no main scene"系统窗。
-describe.skipIf(!hasGodot || !hasRealProject || process.env.CI || !OPT_IN_L2)('L2 run_project bridge-not-ready → isError', { timeout: 60_000 }, () => {
+describe.skipIf(!hasGodot || !hasRealProject || !OPT_IN_L2)('L2 run_project bridge-not-ready → isError', { timeout: 60_000 }, () => {
   it('wait_for_bridge + 无 bridge install → isError:true', async () => {
     const r = await callToolReal('runtime', { action: 'run_project', wait_for_bridge: true, bridge_timeout: 3, timeout: 30 });
     expect(r.isError).toBe(true);
