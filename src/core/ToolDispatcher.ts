@@ -423,36 +423,8 @@ export class ToolDispatcher {
         };
       }
 
-      // ── 4. editor 模式 dispatch ──
-      if (currentMode === 'editor' && currentExecutor) {
-        const logger = getLogger();
-        const callId = logger.toolStart(name, args);
-        const editorResult = await currentExecutor.execute(name, args);
-        // P1-1 (2026-07-06 review): editor 模式盲目路由 — command_handler 只认扁平 method
-        // (add_node/open_scene/...), TS 工具是 (tool,action) 命名(script/screenshot/project/...),
-        // 转发后落到 -32601 Unknown method 静默失效。检测到 -32601 自动回退 headless dispatchTool,
-        // 让非编辑器原生工具在 editor 模式仍可用; 编辑器认的工具照常走 editor(保留 undo/sync)。
-        // isError 前置：只在 editor 报错时才检测 -32601，避免未来 plugin 成功响应顶层带数字 code
-        // 被误判为 unknown method 触发静默降级 headless（见 ToolDispatcher.test「isError guard」负面用例）。
-        if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
-          logger.toolEnd(callId, name, Date.now() - startTime, 'editor_unknown_method_fallback');
-          return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
-        }
-        const duration = Date.now() - startTime;
-        logger.toolEnd(callId, name, duration);
-        // I-08: Only append _duration_ms if the editor plugin didn't already include it
-        const hasDuration = editorResult.content?.some((c: { type?: string; text?: string }) =>
-          typeof c.text === 'string' && c.text.startsWith('_duration_ms:'));
-        const content = hasDuration
-          ? editorResult.content
-          : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-        return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
-      }
-
-      // ── 5. headless dispatch ──
-      // CR-1: 必须传入 findGodotOverride,否则 perCallCtx 回退到 this.ctx.findGodot,
-      // 导致 godot_path 参数和项目感知 findGodot 在最常用路径失效。
-      return this.attachFallbackWarning(await this.dispatchTool(name, args, startTime, findGodotOverride, progressEmitter));
+      // ── 4+5. editor/headless dispatch(抽到 _dispatchEditorOrHeadless,与 _confirmExecute 复用)──
+      return await this._dispatchEditorOrHeadless(name, args, currentMode, currentExecutor, startTime, findGodotOverride, progressEmitter);
     } catch (err) {
       // G2 (2026-08-13): 结构化错误分类 + PII 护栏。classifyError 从异常【类型】映射,
       // 绝不读 err.message。safeMessage 进 client 响应(PII-safe);完整 err.message 只 log。
@@ -768,26 +740,9 @@ export class ToolDispatcher {
       await this.resolveFindGodotOverride(pending.args);
     if (confirmedFindGodotErr) return confirmedFindGodotErr;
 
-    // 复用同一 editor/headless 分支逻辑
+    // editor/headless 分支逻辑复用 _dispatchEditorOrHeadless(与 executeToolCall 共用)
     log('[CONFIRM] Executing confirmed tool: %s', pending.toolName);
-    if (currentMode === 'editor' && currentExecutor) {
-      const logger = getLogger();
-      const confirmCallId = logger.toolStart(pending.toolName, pending.args);
-      const editorResult = await currentExecutor.execute(pending.toolName, pending.args);
-      if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
-        logger.toolEnd(confirmCallId, pending.toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
-        return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
-      }
-      const duration = Date.now() - startTime;
-      logger.toolEnd(confirmCallId, pending.toolName, duration);
-      const hasDuration = editorResult.content?.some((c: { type?: string; text?: string }) =>
-        typeof c.text === 'string' && c.text.startsWith('_duration_ms:'));
-      const content = hasDuration
-        ? editorResult.content
-        : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
-      return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
-    }
-    return this.attachFallbackWarning(await this.dispatchTool(pending.toolName, pending.args, startTime, confirmedFindGodotOverride, progressEmitter));
+    return this._dispatchEditorOrHeadless(pending.toolName, pending.args, currentMode, currentExecutor, startTime, confirmedFindGodotOverride, progressEmitter);
   }
 
   /** B-1 修复(审查):confirm_and_execute 真实执行后补审计。
@@ -827,6 +782,47 @@ export class ToolDispatcher {
     } catch {
       // 审计失败不影响工具结果
     }
+  }
+
+  /**
+   * editor/headless dispatch 共用逻辑(executeToolCall 与 _confirmExecute 复用,消除重复)。
+   * editor 模式:currentExecutor.execute;-32601 unknown method 自动回退 headless(P1-1:
+   *  command_handler 只认扁平 method,TS 工具 (tool,action) 命名转发落 -32601 静默失效,
+   *  检测到 -32601 回退让非编辑器原生工具在 editor 模式仍可用;isError 前置避免误判)。
+   * headless 模式:dispatchTool(findGodotOverride 必传,CR-1)。
+   */
+  private async _dispatchEditorOrHeadless(
+    toolName: string,
+    args: Record<string, unknown>,
+    currentMode: 'headless' | 'editor',
+    currentExecutor: EditorToolExecutor | null,
+    startTime: number,
+    findGodotOverride: ((projectPath?: string) => Promise<string>) | undefined,
+    progressEmitter: ProgressEmitter | undefined,
+  ): Promise<ToolResult> {
+    if (currentMode === 'editor' && currentExecutor) {
+      const logger = getLogger();
+      const callId = logger.toolStart(toolName, args);
+      const editorResult = await currentExecutor.execute(toolName, args);
+      // isError 前置:只在 editor 报错时才检测 -32601,避免 plugin 成功响应顶层带数字 code
+      // 被误判 unknown method 触发静默降级(见 ToolDispatcher.test「isError guard」负面用例)。
+      if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
+        logger.toolEnd(callId, toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
+        return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter));
+      }
+      const duration = Date.now() - startTime;
+      logger.toolEnd(callId, toolName, duration);
+      // I-08: Only append _duration_ms if the editor plugin didn't already include it
+      const hasDuration = editorResult.content?.some((c: { type?: string; text?: string }) =>
+        typeof c.text === 'string' && c.text.startsWith('_duration_ms:'));
+      const content = hasDuration
+        ? editorResult.content
+        : [...editorResult.content, { type: 'text' as const, text: `_duration_ms: ${duration}` }];
+      return this.attachFallbackWarning(truncateResponse({ ...editorResult, content }));
+    }
+    // CR-1: 必须传入 findGodotOverride,否则 perCallCtx 回退 this.ctx.findGodot,
+    // 导致 godot_path 参数和项目感知 findGodot 在最常用路径失效。
+    return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter));
   }
 
   private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter): Promise<ToolResult> {
