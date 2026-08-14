@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join, basename, isAbsolute, relative } from 'path';
+import { isPathInAllowedRoots } from '../core/path-utils.js';
 
 export interface SkillMatch {
   source: string;
@@ -131,7 +132,8 @@ function buildWarning(items: CriticalItem[]): string {
 export async function searchSkills(
   libraries: string[],
   query: string,
-  limit = 10
+  limit = 10,
+  opts: { fromEnv?: boolean } = {},
 ): Promise<SearchResult> {
   const matches: SkillMatch[] = [];
   const missing: MissingLibrary[] = [];
@@ -148,6 +150,15 @@ export async function searchSkills(
       real = await fs.realpath(lib);
     } catch {
       missing.push({ path: lib, reason: 'not found' });
+      continue;
+    }
+    // B-3 (2026-08-14): explicit libraries 参数限 ALLOWED_PROJECT_PATHS 白名单(对齐
+    // deny-by-default)。此前 validateLibraryPath 只查非空/无 ../ /绝对路径,AI 可传
+    // C:/Users/<user>/Documents 等任意目录,walkMd 递归读全部 .md 正文片段返回。
+    // env GODOT_SKILL_LIBRARIES 是服务器管理员配置的合法入口(fromEnv=true 豁免,
+    // 保持现状合法);explicit 把选择权交给 AI 才是问题。越界进 missing 不硬崩。
+    if (!opts.fromEnv && !isPathInAllowedRoots(real)) {
+      missing.push({ path: lib, reason: 'outside allowed roots (not in ALLOWED_PROJECT_PATHS)' });
       continue;
     }
     const source = basename(real);

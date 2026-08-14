@@ -28,12 +28,15 @@ export function getToolDefinitions(): Tool[] {
   ];
 }
 
-function resolveLibraries(args: Record<string, unknown>): string[] {
+// B-3 (2026-08-14): 返回来源标记 — explicit(参数)与 env(管理员配置)区分:
+// explicit 需过 ALLOWED_PROJECT_PATHS 白名单(searchSkills 内检查),env 豁免。
+// 二者互斥(explicit 存在则不用 env),来源对整次调用一致。
+function resolveLibraries(args: Record<string, unknown>): { paths: string[]; fromEnv: boolean } {
   const explicit = args.libraries;
-  if (Array.isArray(explicit)) return explicit.filter(s => typeof s === 'string');
+  if (Array.isArray(explicit)) return { paths: explicit.filter(s => typeof s === 'string'), fromEnv: false };
   const env = process.env.GODOT_SKILL_LIBRARIES;
-  if (env) return env.split(',').map(s => s.trim()).filter(Boolean);
-  return [];
+  if (env) return { paths: env.split(',').map(s => s.trim()).filter(Boolean), fromEnv: true };
+  return { paths: [], fromEnv: false };
 }
 
 export async function handleTool(
@@ -48,7 +51,7 @@ export async function handleTool(
     return errorResult('query is required');
   }
 
-  const libraries = resolveLibraries(args);
+  const { paths: libraries, fromEnv } = resolveLibraries(args);
   if (libraries.length === 0) {
     return errorResult(
       'No skill libraries configured. Pass `libraries` (absolute paths) or set GODOT_SKILL_LIBRARIES env (comma-separated).'
@@ -58,7 +61,7 @@ export async function handleTool(
   const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 10;
 
   try {
-    const { matches, missing } = await searchSkills(libraries, String(query), limit);
+    const { matches, missing } = await searchSkills(libraries, String(query), limit, { fromEnv });
     const result: Record<string, unknown> = {
       total_matches: matches.length,
       matches,

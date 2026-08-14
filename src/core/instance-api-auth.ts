@@ -53,6 +53,28 @@ function getRegistryDir(): string {
   return join(homedir(), '.godot-mcp');
 }
 
+/** B-4 (2026-08-14): 写前 symlink 预检 — .api-secret 与 .api-nonces.json 两处共用。
+ *  攻击者预置目标路径为 symlink,writeFileSync follow symlink 会覆盖被指向文件
+ *  (nonce 是固定格式 JSON,每次合法验签 _persistNonces 都会覆写)。对齐 :64-69
+ *  读侧预检模式(阶段4-3 Imp-9):lstatSync 不 follow;存在且 isSymbolicLink 则拒写
+ *  + error 告警返回 false;lstat 失败保守拒写。写入成功返回 true;写失败抛错由
+ *  调用方 try/catch 降级(两层调用方均有降级语义,认证不被磁盘问题阻断)。 */
+function safeWriteNoSymlink(path: string, data: string, opts: { mode?: number } = {}): boolean {
+  if (existsSync(path)) {
+    try {
+      if (lstatSync(path).isSymbolicLink()) {
+        getLogger().error('security', `Refusing to write ${path}: target is a symlink (possible pre-positioned overwrite attack). Skipping write.`);
+        return false;
+      }
+    } catch (statErr) {
+      getLogger().error('security', `lstat failed for ${path} — refusing write (conservative): ${statErr instanceof Error ? statErr.message : statErr}`);
+      return false;
+    }
+  }
+  writeFileSync(path, data, { encoding: 'utf-8', ...(opts.mode !== undefined ? { mode: opts.mode } : {}) });
+  return true;
+}
+
 /** 读取或创建共享 API secret */
 export function getOrCreateApiSecret(): string {
   if (_cachedSecret) return _cachedSecret;
@@ -87,10 +109,12 @@ export function getOrCreateApiSecret(): string {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(secretPath, secret, { encoding: 'utf-8', mode: 0o600 });
+    // B-4: 写前 symlink 预检(读侧 :68 unlink 后到此处写之间存在 TOCTOU 竞态窗口,
+    // 攻击者可重建 symlink;拒写时 secret 仅内存生效,降级不阻断认证)
+    const written = safeWriteNoSymlink(secretPath, secret, { mode: 0o600 });
 
     // Windows: 收紧 ACL — I-01 fix: 使用 os.userInfo().username + execFileSync 防止 ACL 注入
-    if (process.platform === 'win32') {
+    if (written && process.platform === 'win32') {
       try {
         const username = userInfo().username;
         if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
@@ -103,7 +127,11 @@ export function getOrCreateApiSecret(): string {
       }
     }
 
-    getLogger().info('instance-api-auth', `Generated new API secret at ${secretPath}`);
+    if (written) {
+      getLogger().info('instance-api-auth', `Generated new API secret at ${secretPath}`);
+    } else {
+      getLogger().warn('instance-api-auth', `API secret not persisted (${secretPath} is a symlink) — in-memory only until restart`);
+    }
   } catch (err) {
     getLogger().warn('instance-api-auth', `Failed to persist API secret: ${err instanceof Error ? err.message : err}`);
   }
@@ -197,6 +225,13 @@ function _loadPersistedNonces(): void {
   try {
     const path = _nonceStorePath();
     if (!existsSync(path)) return;
+    // B-4 (2026-08-14): 读侧 symlink 预检(对齐 .api-secret :68 模式)——symlink 指向的
+    // "nonce 池"是攻击者可控输入,回载等于让攻击者伪造重放拒绝(DoS)或探测 nonce 状态。
+    // 命中则不读,降级内存-only。
+    if (lstatSync(path).isSymbolicLink()) {
+      getLogger().error('security', `Nonce store ${path} is a symlink — refusing to load (possible pre-positioned attack).`);
+      return;
+    }
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
     if (parsed == null || typeof parsed !== 'object') return;
     for (const [key, ts] of Object.entries(parsed as Record<string, unknown>)) {
@@ -218,7 +253,13 @@ function _persistNonces(): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const out: Record<string, number> = {};
     for (const [key, ts] of _usedNonces) out[key] = ts;
-    writeFileSync(path, JSON.stringify(out), { encoding: 'utf-8', mode: 0o600 });
+    // B-4: 写前 symlink 预检(防 follow symlink 覆写任意文件);拒写降级内存-only
+    if (!safeWriteNoSymlink(path, JSON.stringify(out), { mode: 0o600 })) {
+      if (!_noncePersistWarned) {
+        getLogger().warn('instance-api-auth', 'Failed to persist nonces — replay protection degraded to memory-only until restart');
+        _noncePersistWarned = true;
+      }
+    }
   } catch {
     if (!_noncePersistWarned) {
       getLogger().warn('instance-api-auth', 'Failed to persist nonces — replay protection degraded to memory-only until restart');
