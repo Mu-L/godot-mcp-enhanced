@@ -1,6 +1,6 @@
 // src/core/middleware.ts
 //
-// Middleware pipeline executor and connection-check middleware factory.
+// Middleware pipeline executor and middleware factories (rate-limit / elicitation).
 
 import { getLogger } from './logger.js';
 import type { Tool } from "@modelcontextprotocol/server";
@@ -74,35 +74,9 @@ export async function executeMiddleware(
   return result!;
 }
 
-// ─── Connection Check Middleware Factory ───────────────────────────────────────
-
-/**
- * Create a middleware that rejects online-only tools when disconnected.
- *
- * @param isConnected  - Function returning true if the connection is alive
- * @param isOfflineCapable - Function returning true if a tool can run without connection
- */
-export function createConnectionCheckMiddleware(
-  isConnected: () => boolean,
-  isOfflineCapable: (toolName: string) => boolean,
-): Middleware {
-  return {
-    name: 'connection-check',
-
-    async before(ctx: DispatchContext): Promise<MiddlewareResult> {
-      if (!isConnected() && !isOfflineCapable(ctx.toolName)) {
-        return {
-          rejected: true,
-          error: errorResult(
-            `DISCONNECTED: Tool "${ctx.toolName}" requires an active connection. ` +
-            `Check that the game/editor is running and try again.`,
-          ),
-        };
-      }
-      return { passed: true };
-    },
-  };
-}
+// (createConnectionCheckMiddleware 已删除:生产未接入的 dead code,接入需统一
+//  bridge/editor 两套连接信号源,成本高于收益;现有断连由各工具 handler 内部
+//  返 BRIDGE_NOT_CONNECTED 处理。2026-08-14 P2-2 清理。)
 
 // ─── Elicitation Middleware Factory ────────────────────────────────────────────
 

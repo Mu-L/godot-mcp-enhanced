@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ToolResult, MiddlewareResult, DispatchContext, Middleware } from '../../src/types.js';
-import { executeMiddleware, createConnectionCheckMiddleware, createElicitationMiddleware } from '../../src/core/middleware.js';
+import { executeMiddleware, createElicitationMiddleware } from '../../src/core/middleware.js';
 import { textResult, errorResult } from '../../src/types.js';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { RequestedSchema } from '../../src/core/elicit.js';
@@ -139,56 +139,6 @@ describe('executeMiddleware', () => {
     const execText = (result.content[0] as { type: string; text: string }).text;
     expect(execText).toContain('Internal error');
     expect(execText).not.toContain('tool crashed');
-  });
-});
-
-// ─── createConnectionCheckMiddleware ──────────────────────────────────────────
-
-describe('createConnectionCheckMiddleware', () => {
-  it('rejects online-only tools when disconnected', async () => {
-    const mw = createConnectionCheckMiddleware(
-      () => false,  // disconnected
-      (name) => name.startsWith('offline_'),  // only offline_ tools are ok
-    );
-
-    const result = await mw.before(makeCtx('editor_sync'));
-
-    expect('rejected' in result && result.rejected).toBe(true);
-  });
-
-  it('allows offline-capable tools when disconnected', async () => {
-    const mw = createConnectionCheckMiddleware(
-      () => false,  // disconnected
-      (name) => name.startsWith('offline_'),
-    );
-
-    const result = await mw.before(makeCtx('offline_read'));
-
-    expect('passed' in result && result.passed).toBe(true);
-  });
-
-  it('allows all tools when connected', async () => {
-    const mw = createConnectionCheckMiddleware(
-      () => true,   // connected
-      () => false,  // nothing is offline-capable
-    );
-
-    const result = await mw.before(makeCtx('editor_sync'));
-
-    expect('passed' in result && result.passed).toBe(true);
-  });
-
-  it('integrates with pipeline — blocks disconnected online tool', async () => {
-    const mw = createConnectionCheckMiddleware(
-      () => false,
-      () => false,
-    );
-    const toolFn = vi.fn().mockResolvedValue(textResult('done'));
-
-    const result = await executeMiddleware([mw], makeCtx('some_tool'), toolFn);
-
-    expect(toolFn).not.toHaveBeenCalled();
-    expect(result.isError).toBe(true);
   });
 });
 
