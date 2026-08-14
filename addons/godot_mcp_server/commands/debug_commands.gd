@@ -240,14 +240,26 @@ func handle_stack_trace(params: Dictionary) -> Dictionary:
 	# 1. 确保面板信号已连接(首次调用时 discover)
 	bridge.call("ensure_connected")
 
-	# 2. 取当前 breaked 状态
-	var state: Dictionary = bridge.call("current_break")
-	if state.is_empty():
-		# 游戏未暂停在断点
+	# 2. A4: 单 session 解析(替代 current_break 的"第一个 breaked"+ 面板归属含糊迭代,
+	#    消除与 evaluate/active_sessions()[0] 的 session 归属错配)
+	var rs: Dictionary = bridge.call("resolve_session")
+	if not bool(rs.get("ok", false)):
+		var rs_err: Dictionary = rs.get("error", {})
+		if str(rs_err.get("message", "")).begins_with("Multiple"):
+			return {"error": rs_err}
+		# 无活跃 session(未运行/未断点)→ 原同款提示(含 playing 状态)
 		return {"result": {
 			"breaked": false,
 			"playing": EditorInterface.is_playing_scene(),
 			"note": "Game is not paused at a breakpoint. Use debug_pause or set a breakpoint first." if EditorInterface.is_playing_scene() else "No scene is playing. Run the project (F5) first.",
+		}}
+	var state: Dictionary = rs["state"]
+	if not bool(state.get("breaked", false)):
+		# 有 session 但未暂停在断点
+		return {"result": {
+			"breaked": false,
+			"playing": EditorInterface.is_playing_scene(),
+			"note": "Game is not paused at a breakpoint. Use debug_pause or set a breakpoint first.",
 		}}
 
 	# 3. settle:等栈/变量落地(信号可能滞后 50-200ms)
@@ -294,8 +306,12 @@ func handle_inspect_frame(params: Dictionary) -> Dictionary:
 	var frame_index: int = int(params.get("frame_index", 0))
 
 	bridge.call("ensure_connected")
-	var state: Dictionary = bridge.call("current_break")
-	if state.is_empty():
+	# A4: 单 session 解析(state/session 同源,消除 current_break+active_sessions[0] 错配)
+	var rs: Dictionary = bridge.call("resolve_session")
+	if not bool(rs.get("ok", false)):
+		return {"error": rs.get("error", {})}
+	var state: Dictionary = rs["state"]
+	if not bool(state.get("breaked", false)):
 		return {"error": {"code": -32000, "message": "Game is not paused, so there is no frame to inspect. Set a breakpoint and pause first."}}
 
 	# 切帧(触发编辑器自动拉该帧变量)
@@ -342,15 +358,15 @@ func handle_evaluate(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32602, "message": "expression is required (GDScript expression to evaluate in the current breakpoint context)"}}
 
 	bridge.call("ensure_connected")
-	var state: Dictionary = bridge.call("current_break")
-	if state.is_empty():
+	# A4: 单 session 解析——evaluate 用与 state 同源的 session(原 current_break 取"第一个
+	# breaked" + active_sessions()[0] 取首个 session,两者可能不同 session,结果串台)。
+	var rs: Dictionary = bridge.call("resolve_session")
+	if not bool(rs.get("ok", false)):
+		return {"error": rs.get("error", {})}
+	var state: Dictionary = rs["state"]
+	if not bool(state.get("breaked", false)):
 		return {"error": {"code": -32000, "message": "Game is not paused, so there is no breakpoint context to evaluate in. Pause at a breakpoint first."}}
-
-	# 经 session.send_message("evaluate") 发表达式,bridge._capture 等 evaluation_return
-	var sessions: Array = bridge.call("active_sessions")
-	if sessions.is_empty():
-		return {"error": {"code": -32000, "message": "No active debugger session to evaluate in."}}
-	var session: EditorDebuggerSession = sessions[0][1]
+	var session: EditorDebuggerSession = rs["session"]
 
 	# 重置 eval 接收标志
 	state["eval_received"] = false

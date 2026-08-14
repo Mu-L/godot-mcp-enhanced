@@ -22,6 +22,17 @@ var _authenticated_peers: Dictionary = {}  # peer_id (int) -> true
 var _auth_fail_count: Dictionary = {}
 var _auth_locked_until: Dictionary = {}
 var _crypto: Crypto
+# A2 (2026-08-11 审查 P1:debug 异步请求竞争共享 _states):debug 请求 in-flight 互斥。
+# _handle_message 由 _process 轮询同步调,debug coroutine await 挂起后循环继续处理下个
+# packet → 两个并发 evaluate/inspect_frame 竞争同一 _states[session_id](eval_result 单槽
+# 被后发者重置/错消费,selected_frame 互相覆盖),AI 拿串台数据且无报错。
+# 同一时刻只允许一个在途 debug coroutine;新的 debug 请求到达时若在途则立即拒绝。
+# stale 自愈:coroutine 内部 script error 会中止恢复路径(GDScript 无 finally),flag 可能
+# 卡死 true → 超过 _DEBUG_STALE_MS(120s,debug 操作自身 ≤3s settle/2s step)视为 stale
+# 强制放行 + push_warning。
+const DEBUG_IN_FLIGHT_STALE_MS := 120000
+var _debug_in_flight := false
+var _debug_in_flight_since := 0
 
 func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
@@ -386,7 +397,18 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		# CMP-14 (2026-08-09): debug Phase 2/3 走 async 入口(信号+settle 轮询)。
 		# Phase 1 三个断点 method(set/clear/list)保持同步(gutter 操作无需 async)。
 		# 栈帧/变量/step/reload 需 await settle 或 await_new_break,走 coroutine 防饿死 WS keepalive。
-		response = await _command_handler.handle_debug_async(_method, parsed.get("params", {}), _request_counter)
+		# A2: debug 协程共享 debugger_bridge._states(eval_result 单槽/selected_frame),
+		# 并发在途会串台 —— in-flight 互斥,新请求在互斥窗内直接拒绝(非排队,客户端重试即可)。
+		if _debug_in_flight and Time.get_ticks_msec() - _debug_in_flight_since < DEBUG_IN_FLIGHT_STALE_MS:
+			response = {"error": {"code": -32000, "message": "Another debug request is already in flight (debugger requests are serialized — shared breakpoint state would otherwise cross-contaminate). Retry after it completes."}}
+		else:
+			if _debug_in_flight:
+				push_warning("[MCP] debug in-flight flag stale for %d ms (coroutine aborted by script error?) — releasing" % (Time.get_ticks_msec() - _debug_in_flight_since))
+			_debug_in_flight = true
+			_debug_in_flight_since = Time.get_ticks_msec()
+			response = await _command_handler.handle_debug_async(_method, parsed.get("params", {}), _request_counter)
+			# coroutine 恢复后立即释放(在 §10 peer 守卫之前,无论 peer 是否还在都释放)
+			_debug_in_flight = false
 	else:
 		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)
 	# §10 peer 生命周期守卫：coroutine 恢复时 peer 可能已 CLOSED/被 free
