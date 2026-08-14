@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security — 2026-08-11 审查 open findings 批次(A1-A7)
+
+- **A1 [P1] 动态工具 confirm/action-gate 双绕过修复**:CMP-16-B 动态注册的平铺工具(`engine_call_method`/`debug_evaluate` 等)不在静态 metaRegistry → guard 查不到 risk 永不确认、action-gate 永不命中,等价静态调用(write 需确认)经动态通道绕过双层门。修复:`src/core/dynamic-risk-map.ts`(method→静态 (tool,action) 反查表)+ ToolDispatcher 两道门用反查结果判定;未映射动态方法 fail-closed 要求确认。双副本与 `check-command-docs-drift.mjs` 的 METHOD_TO_TOOL 经契约测试同步。
+- **A2 [P1] debug 异步请求 _states 串台修复**:editor WS packet 循环不串行化 coroutine,两个并发 evaluate/inspect_frame 竞争同一 `_states[session_id]`(eval_result 单槽被后发者重置/错消费)。修复:websocket_server debug 请求 in-flight 互斥(新请求立即拒绝,120s stale 自愈)。
+- **A4 [P2] debug session 归属错配修复**:`current_break()`(第一个 breaked)与 `active_sessions()[0]`(首个 session)可能指向不同 session,evaluate 发 A 读 B。修复:新增 `resolve_session()` 单 session 语义(多 session 明确报错),stack_trace/inspect_frame/evaluate 三件套统一接线。
+- **A5 [P2] bridge EXTRA_METHODS_BLOCKLIST 补间接调用入口**:补 `call_deferred`/`call_threadsafe`/`queue_delete`(可经 args 带内层被禁方法名绕顶层 BLOCKLIST)。
+- **A6 [P2] multi-instance HMAC token 加固**:补 timestamp future-skew 上界(5s,原远未来 token 在真实时间追上前持续有效)+ 已用 nonce 持久化 `~/.godot-mcp/.api-nonces.json`(原重启清内存,60s TTL 重放窗口重开;失败降级内存-only)。
+
+### Fixed — 同批次 GDScript 修复(B1-B5,行为契约测试 gd-open-findings-contract)
+
+- **B1 [P1] debugger_bridge 生命周期修复**:`EditorDebuggerPlugin` extends RefCounted,面板信号连接持有绑定 bridge 的 Callable(引用计数)——从不 disconnect 则 bridge 永不释放,插件 reload 后残留连接致新 bridge 重连同一持久化面板、调试器消息双重处理。修复:`_connect_tracked` 登记 + `dispose()` 断全部信号 + `_exit_tree` 接线(引用归零自动释放,不手动 free——check:gdscript 实测 RefCounted free() 报错,审查原始描述"需手动 free"有误)。
+- **B2 [P2] _capture/面板信号双重消费 vars 翻倍**:计数去重协议(capture 权威,面板回调发现自己序号 ≤ capture 已消费数时跳过;capture 不触发时面板兜底全量)。
+- **B3 [P2] instance_registry 多实例互删**:删除验 pid(原 B 退出删掉 A 的 registry 文件)+ tmp 文件 pid 后缀(原固定路径两实例交错损坏)。
+- **B4 [P2] bridge `_jsonify` 补 Object 分支**:非 Node/非 Resource Object 返 `{type, instance_id}`,对齐 editor 侧序列化(原 return val 原样,JSON.stringify 可能失败)。
+- **B5 [P2] `batch_add_nodes` added 假成功**:added 改基于 `is_inside_tree()` 真实计数(原 `validated.size()` 把 C11 孤儿扫描 free 掉的也计入)。
+
+### Changed
+
+- **A3 [P2] `GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE` 语义改追加**:env 非空 → env ∪ DEFAULT_CALL_DENYLIST(只能加不能减;原完全替换是 footgun,想多挡一个方法会丢全部默认防护)。显式空串 = 完全放开(逃生口保留)。
+
+### Tests
+
+- **C2 弱断言精确化收尾**:11 处 `includes().toBeTruthy()` → `toContain`(含 instance-scene 4 处 OR 模糊匹配改解析 `error_code` 精确断言)+ 3 处 `length>0` 拆分。
+- **C3 project-management 失败分支**:补 7 个 fs 级错误分支用例(缺 project.godot/非法 renderer/已存在项目/白名单外 key/UNKNOWN_ACTION;核实 project.ts 不调 executeGdscript,mockFailureResult 形态不适用)。
+- **C5 L2 CI 假接线修复**:`GODOT_MCP_E2E_L2=1` 在 ci.yml matrix 早已设置,但 e2e 内三个 L2 describe 的 skipIf 含 `process.env.CI` 永真短路(从未真跑)。去 CI gate + matrix E2E 步骤包 `xvfb-run`(L2 run_project 起游戏进程需显示);editor 韧性 weekly cron 改每日(回归窗口 7 天→1 天)。
+
 ## [0.28.3] - 2026-08-13
 
 ### Added — 战略批收尾（14 竞品路线图 G1/G3/G7 落地，详见 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)）
@@ -693,7 +719,7 @@ v0.19.0 发版后版本元数据漂移修复(npm v0.19.0 基于 tag 2a48d06,mani
 
 - **沙箱绕过组**(`gdscript-executor.ts`):拼接窗口 4→8(MAX_CONCAT_WINDOW)、补 `Engine/FileAccess/DirAccess/JavaScriptBridge` 索引访问拦截、`Expression.execute` 正则跨行(`[\s\S]{0,500}?` 防 ReDoS)、`ResourceLoader.load` 正则去贪婪、`detectAutoloadUsage` 改 stripLiterals 骨架扫描消除注释误触
 - **stripLiterals res:// 保留 + 三引号归一**:剥字符串内容时保留 `res://` 前缀(消除 `load("res://")` 误报回归);三引号开/闭引号归一为单个(让单 `"` 正则覆盖三引号,避免负向预查回溯陷阱)
-- **HMAC 启动警告**(`GodotServer.ts`):MULTI_INSTANCE 启用时警告 verifyApiToken 是发送端 only(零生产接线)
+- **HMAC 启动警告**(`GodotServer.ts`):MULTI_INSTANCE 启用时警告 verifyApiToken 是发送端 only(零生产接线)(注:0.28.x 起 MULTI_INSTANCE 接收端已落地 `verifyApiToken` 闭环——见 instance-http-server.ts 入口验签,本行描述仅反映 0.18.2 当时状态)
 - **rate limit 中间件**(`middleware.ts`):createRateLimitMiddleware(全局 60 次/秒软限防 AI 失控循环)
 - **scene-commit 转义 + 校验**:serializeGdValue 补 `\r`/`\t` 转义、validateCommitOperations 结构校验(替代 as unknown as 强转)
 - **P0 命令注入收敛**:`generate-doc-db.js` execSync → execFileSync 数组参数;`.cursor/mcp.json` 本地路径 example 化 + gitignore
