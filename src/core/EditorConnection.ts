@@ -242,6 +242,14 @@ export class EditorConnection {
         }
         const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
+        // A-1 (2026-08-14 finding :937): connect 成功时清掉遗留的 backoff timer。
+        // backoff 挂起窗口内手动 connect 成功后,旧 timer 若不清,触发时会再跑一次 connect(),
+        // 而 connect 入口(:164-169)无条件 terminate 现有 ws → 弹跳健康连接,
+        // in-flight editor 工具请求全部丢失。
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         if (isReconnect) {
           this.fireReconnect();
         }

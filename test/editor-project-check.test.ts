@@ -22,7 +22,8 @@ describe('CMP-1: editor 项目匹配检查（源码字面量契约）', () => {
 
   it('CMP-1a: establish 在 connect() 成功后调用 verifyProject()', () => {
     const body = establishSlice();
-    const connectIdx = body.indexOf('await this.conn.connect()');
+    // A-2 (2026-08-14): establish 改用局部 conn 引用(条件清理防误清并发新 conn)
+    const connectIdx = body.indexOf('await conn.connect()');
     expect(connectIdx, '未找到 conn.connect() 调用').toBeGreaterThan(-1);
     const verifyIdx = body.indexOf('verifyProject()');
     expect(verifyIdx, '未找到 verifyProject() 调用').toBeGreaterThan(-1);
@@ -67,10 +68,13 @@ describe('CMP-1: editor 项目匹配检查（源码字面量契约）', () => {
   });
 
   it('CMP-1d: rebuild 复用 establish(校验覆盖 rebuild 路径)', () => {
-    // rebuild 调 establish,校验自动覆盖,无需重复
-    const rebuildStart = src.indexOf('async rebuild(');
+    // rebuild 调 establish,校验自动覆盖,无需重复。
+    // A-2 (2026-08-14): rebuild 加 in-flight 去重锁(非 async,返回共享 Promise)后委托
+    // _doRebuild,establish 调用移入 _doRebuild —— 切到 establish 定义为止应包含复用调用。
+    const rebuildStart = src.indexOf('rebuild(): Promise<');
     expect(rebuildStart, '未找到 rebuild 方法').toBeGreaterThan(-1);
-    const slice = src.slice(rebuildStart, rebuildStart + 800);
+    const establishStart = src.indexOf('\n  private async establish', rebuildStart);
+    const slice = src.slice(rebuildStart, establishStart > 0 ? establishStart : rebuildStart + 2000);
     expect(
       /this\.establish\(/.test(slice),
       'rebuild 未复用 establish(校验不覆盖 rebuild)',

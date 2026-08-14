@@ -65,6 +65,8 @@ export class EditorConnectionManager {
   private readonly projectPath: string | null;
   private readonly noFallback: boolean;
   private readonly host: EditorConnectionHost;
+  /** A-2: 并发 rebuild in-flight 去重锁(对齐 game-bridge _connectionLock)。 */
+  private _rebuildPromise: Promise<{ connected: boolean; detail: string }> | null = null;
 
   constructor(host: EditorConnectionHost, opts: EditorConnectionOptions) {
     this.host = host;
@@ -122,8 +124,22 @@ export class EditorConnectionManager {
   /**
    * 方案B: editor 降级后(conn=null),manage_tools reconnect 触发重建连接。
    * 重新读 secret(editor 可能重启换密钥)+ establish。失败保持 headless(不 exit)。
+   *
+   * A-2 (2026-08-14 findings :936): 并发 rebuild in-flight 去重(对齐 game-bridge 的
+   * _connectionLock 模式)。并发两次调用时败者 establish 的清理会误伤胜者:
+   * 败者 catch `this.conn=null` 误清纯者刚建的新 conn → 胜者 verifyProject 假 mismatch
+   * "(no connection)" → mismatch 分支 `this.conn.disconnect()` 在 null 上 TypeError 被吞
+   * → 胜者 ws 保持 OPEN 无人断(占 MAX_PEERS 槽 + 僵尸重连)。
+   * 非有意 async: 返回共享 Promise 保持引用相等(败者拿到胜者同一 Promise),async 包装会新建。
    */
-  async rebuild(): Promise<{ connected: boolean; detail: string }> {
+  rebuild(): Promise<{ connected: boolean; detail: string }> {
+    if (this._rebuildPromise) return this._rebuildPromise;
+    this._rebuildPromise = this._doRebuild()
+      .finally(() => { this._rebuildPromise = null; });
+    return this._rebuildPromise;
+  }
+
+  private async _doRebuild(): Promise<{ connected: boolean; detail: string }> {
     if (this.projectPath === null) {
       return { connected: false, detail: 'editor 连接信息丢失(未初始化),重启 MCP 服务端恢复' };
     }
@@ -159,7 +175,7 @@ export class EditorConnectionManager {
       try { this.conn.disconnect(); } catch { /* best-effort */ }
       this.conn = null;
     }
-    this.conn = new EditorConnection({
+    const conn = new EditorConnection({
       port,
       reconnect: true,
       secret,
@@ -167,14 +183,17 @@ export class EditorConnectionManager {
       reconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_INTERVAL', 1000),
       maxReconnectInterval: readPositiveIntEnv('GODOT_MCP_EDITOR_RECONNECT_MAX_INTERVAL', 60000),
     });
+    this.conn = conn;
     try {
-      await this.conn.connect();
+      await conn.connect();
       // CMP-1 (2026-08-08): 连接成功后立即校验 editor 对应的项目根,防跨项目误操作。
       // projectPath=null(无 project.godot 上下文)→ 跳过,不阻断。
       const projectCheck = await this.verifyProject();
       if (!projectCheck.ok) {
-        try { this.conn.disconnect(); } catch { /* best-effort */ }
-        this.conn = null;
+        // A-2: 断开的是本次新建的 conn(局部引用)。用 this.conn 会在并发重建把它换成
+        // 新 conn 时误断胜者,且 this.conn=null 误清胜者 → 其 ws 孤儿。
+        try { conn.disconnect(); } catch { /* best-effort */ }
+        if (this.conn === conn) this.conn = null;
         const expected = projectCheck.expected ?? '(unknown)';
         const actual = projectCheck.actual ?? '(unreadable)';
         return { connected: false, detail: `Editor project mismatch: expected ${expected}, got ${actual}` };
@@ -250,7 +269,9 @@ export class EditorConnectionManager {
       return { connected: true, detail: `Connected to Godot plugin on port ${port}` };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.conn = null;
+      // A-2: 仅当 this.conn 仍是本次新建的 conn 才清。无条件 `this.conn=null` 在并发
+      // 重建场景会误清纯者刚建的新 conn → 胜者 verifyProject 假 mismatch + 孤儿 ws。
+      if (this.conn === conn) this.conn = null;
       return { connected: false, detail: `Editor connection failed: ${msg}` };
     }
   }
