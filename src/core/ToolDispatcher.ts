@@ -527,8 +527,15 @@ export class ToolDispatcher {
       before: async () => ({ passed: true }),
       after: async (ctx, result) => {
         if (!isAuditEnabled()) return result;
-        const action = String(ctx.args.action ?? '');
-        const risk = getActionRisk(ctx.toolName, action);
+        // C-3 (2026-08-14): 动态工具名(如 engine_call_method)不在静态 metaRegistry,
+        // 平铺名 getActionRisk 恒 undefined → 动态通道所有写操作静默零审计。
+        // 经 resolveDynamicTool 反查回静态 (tool, action)(复用 executeToolCall 既有解析),
+        // 与 confirm/action-gate 两道门的 A1 反查对齐。落盘也记解析后的名字
+        // (audit get_log 的 `${tool}.${action}` key 与静态调用一致)。
+        const auditDynMap = isDynamicToolName(ctx.toolName) ? resolveDynamicTool(ctx.toolName) : undefined;
+        const auditTool = auditDynMap?.tool ?? ctx.toolName;
+        const auditAction = auditDynMap?.action ?? String(ctx.args.action ?? '');
+        const risk = getActionRisk(auditTool, auditAction);
         if (!risk || risk === 'read') return result;
         // B-1 修复(审查):令牌请求响应(返回 requires_confirmation,操作未执行)不记虚假 ok=true。
         // 真实执行经 confirm_and_execute → _auditConfirmedExecution 补审计(_confirmExecute 绕过 middleware)。
@@ -538,13 +545,13 @@ export class ToolDispatcher {
           ? ctx.args.project_path : resolveProjectPath();
         if (!projectPath) return result;
         const isError = result.isError === true || this.checkJsonSuccessFalse(result);
-        const { files, batch } = inferChangedFiles(ctx.toolName, action, ctx.args, projectPath);
+        const { files, batch } = inferChangedFiles(auditTool, auditAction, ctx.args, projectPath);
         try {
           await appendAuditLine(projectPath, {
             timestamp: new Date().toISOString(),
             trace_id: ctx.traceId,
-            tool: ctx.toolName,
-            action,
+            tool: auditTool,
+            action: auditAction,
             risk,
             ok: !isError,
             project_path: projectPath,
@@ -774,19 +781,24 @@ export class ToolDispatcher {
     // 未提供 / 路径不可写 / inferChangedFiles 异常)都不影响工具结果(对齐 G2 catch 哲学)。
     try {
       if (!isAuditEnabled()) return;
-      const action = String(pending.args.action ?? '');
-      const risk = getActionRisk(pending.toolName, action);
+      // C-3 (2026-08-14): 与 audit middleware 同步接 resolveDynamicTool 反查 ——
+      // pending.toolName 可能是动态平铺名(engine_call_method),平铺名 getActionRisk
+      // 恒 undefined → 确认执行的动态写操作零审计。反查回静态 (tool, action) 再判风险/落盘。
+      const auditDynMap = isDynamicToolName(pending.toolName) ? resolveDynamicTool(pending.toolName) : undefined;
+      const auditTool = auditDynMap?.tool ?? pending.toolName;
+      const auditAction = auditDynMap?.action ?? String(pending.args.action ?? '');
+      const risk = getActionRisk(auditTool, auditAction);
       if (!risk || risk === 'read') return; // confirm 的都是非 read,防御
       const projectPath = (typeof pending.args.project_path === 'string' && pending.args.project_path)
         ? pending.args.project_path : resolveProjectPath();
       if (!projectPath) return;
       const isError = result.isError === true || this.checkJsonSuccessFalse(result);
-      const { files } = inferChangedFiles(pending.toolName, action, pending.args, projectPath);
+      const { files } = inferChangedFiles(auditTool, auditAction, pending.args, projectPath);
       await appendAuditLine(projectPath, {
         timestamp: new Date().toISOString(),
         trace_id: traceId,
-        tool: pending.toolName,
-        action,
+        tool: auditTool,
+        action: auditAction,
         risk,
         ok: !isError,
         project_path: projectPath,
