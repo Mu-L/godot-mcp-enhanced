@@ -18,7 +18,7 @@ const MEMBER_LIMIT := 200
 # 默认挡:节点销毁(free/queue_free/queue_delete)、运行时结构修改(add_child/remove_child/set_owner)、
 # 间接调用(call/callv/call_deferred,绕 deny-list)、脚本注入(set_script=RCE)、信号拓扑(connect/disconnect/emit_signal)。
 # 对标竞品 regiellis/godot-mcp-go 的 node.call 无过滤是缺陷;enhanced 坚持 deny-list 护城河。
-# env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可覆盖(逗号分隔,显式 opt-in 放开;留空=用默认表)。
+# env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可追加(逗号分隔,env ∪ 默认表,只能加不能减;A3 2026-08-11 原替换语义是 footgun)。显式设空串=完全放开(风险自担)。
 const DEFAULT_CALL_DENYLIST := [
 	"free", "queue_free", "queue_delete",
 	"add_child", "remove_child", "set_owner",
@@ -63,7 +63,7 @@ func get_command_docs() -> Dictionary:
 		},
 		# CMP-9-A (2026-08-08): call_method — 编辑器场景树节点实例方法调用
 		"engine_call_method": {
-			"description": "调用编辑器场景树节点的实例方法(对标竞品 node.call)。deny-list 默认挡危险方法(free/queue_free/set_script/call 等),env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可定制。args 按方法声明类型自动强转。call 不可 undo(response undoable=false)。",
+			"description": "调用编辑器场景树节点的实例方法(对标竞品 node.call)。deny-list 默认挡危险方法(free/queue_free/set_script/call 等),env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可追加(∪ 默认表,只能加不能减;显式空串=放开)。args 按方法声明类型自动强转。call 不可 undo(response undoable=false)。",
 			"params": [
 				CommandHelpers.doc_param("node_path", "String", true, "目标节点路径(如 root/Player,相对编辑器场景树根)"),
 				CommandHelpers.doc_param("method", "String", true, "要调用的方法名(不存在时返回 did-you-mean 建议)"),
@@ -272,21 +272,22 @@ func handle_call_method(params: Dictionary) -> Dictionary:
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-# CMP-9-A: 解析 call_method deny-list。env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 覆盖默认表。
-# env 留空 → 用 DEFAULT_CALL_DENYLIST;env 非空(含空字符串显式清空)→ 用 env 解析结果。
+# CMP-9-A: 解析 call_method deny-list。
+# A3 (2026-08-11 审查): env 非空改「追加」语义(env ∪ DEFAULT_CALL_DENYLIST)。
+# 原「完全替换」是 footgun——用户想多挡一个方法(如 =notification)会丢掉
+# free/queue_free/set_script 全部默认防护;空串更是清空整个默认表。
+# 现:env 未设 → 默认表;env 非空 → 默认表 + env 追加(只能加不能减);
+# env 显式设为空字符串 → 清空(完全放开,风险自担的唯一显式逃生口)。
 func _resolve_call_denylist() -> PackedStringArray:
 	var env_val := OS.get_environment("GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE")
 	if env_val == "" and OS.has_environment("GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE"):
 		# env 显式设为空字符串 = 清空 deny-list(完全放开,风险自担)
 		return PackedStringArray()
-	if env_val == "":
-		# env 未设 → 用默认表
-		return PackedStringArray(DEFAULT_CALL_DENYLIST)
-	# env 非空 → 解析逗号分隔
-	var result: PackedStringArray = PackedStringArray()
+	# env 未设(用默认表)或非空(默认表 + 追加)
+	var result: PackedStringArray = PackedStringArray(DEFAULT_CALL_DENYLIST)
 	for m in env_val.split(","):
 		var trimmed := m.strip_edges()
-		if trimmed != "":
+		if trimmed != "" and not result.has(trimmed):
 			result.append(trimmed)
 	return result
 

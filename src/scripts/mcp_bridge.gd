@@ -98,6 +98,10 @@ const ALLOWED_METHODS := [
 const EXTRA_METHODS_BLOCKLIST := [
 	"set_script", "set", "set_indexed", "set_owner", "queue_free", "free", "add_child", "remove_child",  # P2-2 (2026-08-11): set/set_indexed 对称(防 opt-in EXTRA_METHODS 后 node.set("script",...) 绕 set_script)
 	"call", "callv", "emit_signal", "connect", "disconnect",
+	# A5 (2026-08-11 审查): 间接调用入口与销毁对称——call_deferred/call_threadsafe 可在 args
+	# 里带被禁方法名(call_method(method="call_deferred", args=["set_script", ...])绕 BLOCKLIST,
+	# 它只查顶层 method 名看不见内层);queue_delete 对称 queue_free。
+	"call_deferred", "call_threadsafe", "queue_delete",
 ]
 
 # ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -1097,6 +1101,12 @@ func _jsonify(val: Variant) -> Variant:
 		return {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
 	if val is Node:
 		return str(val.get_path())
+	if val is Object:
+		# B4 (2026-08-11 审查): 非 Node/非 Resource 的 Object(InputEvent/RegExMatch 等)对齐
+		# editor 侧 engine_commands.gd _serialize_return_value 的 Object 分支,返 {type, instance_id}。
+		# 原 return val 原样——JSON.stringify 对裸 Object 可能失败或返不可读 str(),
+		# bridge/editor 两通道返回结构不一致,AI 跨通道比对踩坑。
+		return {"type": val.get_class(), "instance_id": val.get_instance_id()}
 	return val
 
 
