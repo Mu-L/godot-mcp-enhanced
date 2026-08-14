@@ -842,7 +842,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // （消除 env 全局状态与周期 orphan 扫描 tick 的竞态）。
     // detect: 三特征齐备（_spawnedGodotPids 集合 + options.fullSystemScan 显式门控 + optional 签名）；任一缺失即复发。
     detect: () => {
-      const f = readSrc('src/core/process-state.ts');
+      const f = readSrc('src/core/process-state.ts') + readSrc('src/core/orphan-cleanup.ts');
       const hasPidSet = /let _spawnedGodotPids\b/.test(f);
       const hasOptIn = /options\?\.\s*fullSystemScan\s*===\s*true/.test(f);
       const hasOptionalSig = /killOrphanGodotProcesses\(\s*projectDir\?:\s*string/.test(f);
@@ -1237,7 +1237,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     //       POSIX: grep -v -- '--editor'）。
     // detect: 两分支都含 --editor 排除条件（PowerShell -not + POSIX grep -v）。
     detect: () => {
-      const f = readSrc('src/core/process-state.ts');
+      const f = readSrc('src/core/orphan-cleanup.ts');
       const psBlock = f.match(/Where-Object \{[\s\S]*?CommandLine\.Contains[\s\S]*?\}/s);
       const shBlock = f.match(/pgrep -f godot[\s\S]*?grep -F/s);
       const psHasExclude = psBlock ? /-not.*\*--editor\*|--editor.*-not/i.test(psBlock[0]) : false;

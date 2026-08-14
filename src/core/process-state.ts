@@ -10,6 +10,7 @@
 import type { ChildProcess } from 'child_process';
 import { spawn } from 'child_process';
 import { getLogger } from './logger.js';
+import { killOrphanGodotProcesses as cleanupOrphanProcesses, resetOrphanScanTime } from './orphan-cleanup.js';
 
 const isWin = process.platform === 'win32';
 
@@ -339,184 +340,27 @@ export function resetState(): void {
   _shortRunningCount = 0;
   _spawnedGodotPids = new Set();
   _queueTail = Promise.resolve();
-  _lastOrphanScanTime = 0;
+  resetOrphanScanTime();
 }
 
 // Export async queue for consumers that need serialized async operations (e.g. killProcess)
 export { enqueueAsync };
 
-// ─── Orphan process cleanup (V-01 second layer) ────────────────────────────
-
-let _lastOrphanScanTime = 0;
-const ORPHAN_SCAN_INTERVAL_MS = 30_000;
-
-/** Escape single quotes for PowerShell single-quoted strings (' → ''). */
-function escapePsSingleQuote(s: string): string {
-  return s.replace(/'/g, "''");
-}
-
-/** Escape single quotes for POSIX shell single-quoted strings (' → '\''). */
-function escapeShellArg(s: string): string {
-  return s.replace(/'/g, "'\\''");
-}
-
-const ORPHAN_SCAN_TIMEOUT_MS = 15_000;
-
-/**
- * 清理本会话 orphan Godot 进程（V-01 第二层，会话隔离版）。
- *
- * 默认（第一层）：遍历 `_spawnedGodotPids`，清"脱离 `_runningProcess` 管理且仍存活"的 PID。
- *   - 跳过 `_runningProcess.pid`（正在管理的进程不杀）
- *   - 已退出 PID 惰性移除
- *   - 存活且脱离管理 → killPidTree（双平台清整树）
- *
- * opt-in（第二层，崩溃恢复兜底）：`options.fullSystemScan === true` 且提供 projectDir 时，
- *   走 V-01 全系统扫描（清命令行含 projectDir 的所有 Godot，跳过 runningPid）。
- *
- * IPC-R1/R5 (2026-08-08): 原实现读 process.env.GODOT_MCP_FULL_SYSTEM_SCAN 进程级全局状态,
- * STARTUP_CLEANUP 调用方临时设 env + finally 恢复,与 60s 周期 orphan 扫描 tick 存在竞态
- * (全系统扫跑满 15s 时 env 污染周期 tick)。改用显式 options 参数消除 env 隐式全局状态。
- *
- * 30s 节流。返回清理数。
- */
+// P2-4: killOrphanGodotProcesses 薄包装(逻辑移至 orphan-cleanup.ts,ctx 注入破循环)。
+// importer 签名不变(仍 ps.killOrphanGodotProcesses(projectDir, options))。
 export async function killOrphanGodotProcesses(
   projectDir?: string,
   options?: { fullSystemScan?: boolean },
 ): Promise<number> {
-  if (Date.now() - _lastOrphanScanTime < ORPHAN_SCAN_INTERVAL_MS) return 0;
-  _lastOrphanScanTime = Date.now();
-
-  const runningPid = _runningProcess?.pid;
-  let killed = 0;
-
-  // 第一层（默认）：本会话 PID 集合
-  for (const pid of Array.from(_spawnedGodotPids)) {
-    if (pid === runningPid) continue;  // 正在管理，跳过
-    if (!isPidAlive(pid)) { _spawnedGodotPids.delete(pid); continue; }  // 已退出，惰性移除
-    killPidTree(pid);
-    _spawnedGodotPids.delete(pid);
-    killed++;
-  }
-
-  // 第二层（opt-in 崩溃恢复兜底，options.fullSystemScan 显式门控）
-  // IPC-R1/R5: 改用显式参数,不读 process.env(消除 env 全局状态竞态)。
-  // 周期 orphan 扫描(GodotServer.ts 定时器)和 stop_project 不传此参数,保持会话隔离。
-  if (options?.fullSystemScan === true && projectDir) {
-    killed += await fullSystemScanGodot(projectDir, runningPid);
-  }
-  return killed;
+  return cleanupOrphanProcesses(
+    {
+      spawnedPids: _spawnedGodotPids,
+      runningPid: _runningProcess?.pid,
+      isPidAlive,
+      killPidTree,
+    },
+    projectDir,
+    options,
+  );
 }
 
-/**
- * V-01 全系统扫描（仅 GODOT_MCP_FULL_SYSTEM_SCAN=true 时调用）。
- * 扫描命令行含 projectDir 的 Godot 进程并清理，跳过 excludePid（正在管理的进程）。
- * 保留 escapePsSingleQuote / escapeShellArg 转义（注入防护）。
- */
-async function fullSystemScanGodot(projectDir: string, excludePid?: number): Promise<number> {
-  if (!projectDir) return 0;
-  const normalizedDir = projectDir.replace(/\\/g, '/');
-
-  if (isWin) {
-    const safePath = escapePsSingleQuote(normalizedDir);
-    return new Promise((resolve) => {
-      let settled = false;
-      const ps = spawn('powershell', [
-        '-NoProfile', '-Command',
-        // I-01 fix: use ('*'+$path+'*') instead of "*$path*" to avoid $ expansion in -like
-        // D4 fix: -like treats '['/']'/'*'/'?' as wildcards → path containing them mismatches.
-        //         Switch the path test to literal .Contains($path); keep '-like ''*--path*'''
-        //         (literal, no wildcard chars). '$_.CommandLine -and' guards null/empty
-        //         (-and short-circuits before .Contains so null CommandLine won't throw).
-        `$path = '${safePath}'; ` +
-        `Get-CimInstance Win32_Process -Filter "Name LIKE 'Godot%'" | ` +
-        `Where-Object { $_.CommandLine -and $_.CommandLine -like '*--path*' -and $_.CommandLine.Contains($path) -and -not ($_.CommandLine -like '*--editor*') } | ` +
-        `Select-Object -ExpandProperty ProcessId | ForEach-Object { Write-Output $_ }`
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
-      // P2: unref orphan-scan spawn so close() doesn't block Node exit on in-flight scan (15s timeout window).
-      // 对齐 orphanScanTimer.unref() (GodotServer.ts) / heartbeatTimer.unref() (health-monitor.ts)。
-      // 可选链：测试 mock 的 spawn 返回值无 unref（真实 ChildProcess 有）。
-      ps.unref?.();
-
-      // I-03 fix: 15s timeout to prevent hanging on unresponsive WMI/shell
-      const timer = setTimeout(() => {
-        if (!settled && !ps.killed) {
-          settled = true;
-          ps.kill();
-          resolve(0);
-        }
-      }, ORPHAN_SCAN_TIMEOUT_MS);
-
-      let out = '';
-      let stderr = '';
-      ps.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-      ps.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-      ps.on('close', () => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        const pids = out.trim().split('\n').map(Number).filter(n => n > 0 && n !== excludePid);
-        for (const pid of pids) {
-          try {
-            // P1: same async-error guard as forceKillTree — a spawn 'error' without
-            // a listener crashes via uncaughtException. best-effort orphan kill.
-            const tk = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
-            tk.on('error', () => {});
-          } catch { /* best effort */ }
-        }
-        if (stderr) getLogger().debug('process-state', `orphan scan stderr: ${stderr.slice(0, 200)}`);
-        resolve(pids.length);
-      });
-      ps.on('error', (err) => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        getLogger().debug('process-state', `orphan scan error: ${err.message}`);
-        resolve(0);
-      });
-    });
-  } else {
-    // I-02 fix: use single-quoted shell argument with proper escaping
-    const safeDir = escapeShellArg(normalizedDir);
-    return new Promise((resolve) => {
-      let settled = false;
-      const ps = spawn('sh', ['-c',
-        `pgrep -f godot | xargs -I{} sh -c 'cat /proc/{}/cmdline 2>/dev/null | tr "\\0" " " | grep -v -- "--editor" | grep -F -- '${safeDir}' && echo {}'`
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
-      // P2: unref orphan-scan spawn (同 powershell 分支，对齐 orphanScanTimer.unref())。
-      // 可选链：测试 mock 的 spawn 返回值无 unref。
-      ps.unref?.();
-
-      const timer = setTimeout(() => {
-        if (!settled && !ps.killed) {
-          settled = true;
-          ps.kill();
-          resolve(0);
-        }
-      }, ORPHAN_SCAN_TIMEOUT_MS);
-
-      let out = '';
-      let stderr = '';
-      ps.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-      ps.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-      ps.on('close', () => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        const lines = out.trim().split('\n').filter(l => /^\d+$/.test(l.trim()));
-        const pids = lines.map(Number).filter(n => n > 0 && n !== excludePid);
-        for (const pid of pids) {
-          try { process.kill(pid, 'SIGTERM'); } catch { /* best effort */ }
-        }
-        if (stderr) getLogger().debug('process-state', `orphan scan stderr: ${stderr.slice(0, 200)}`);
-        resolve(pids.length);
-      });
-      ps.on('error', (err) => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        getLogger().debug('process-state', `orphan scan error: ${err.message}`);
-        resolve(0);
-      });
-    });
-  }
-}

@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 describe('fullSystemScanGodot filter excludes --editor processes', () => {
-  const srcPath = join(__dirname, '../../src/core/process-state.ts');
+  const srcPath = join(__dirname, '../../src/core/orphan-cleanup.ts');
   const src = readFileSync(srcPath, 'utf-8');
 
   it('PowerShell branch excludes --editor (Windows)', () => {
