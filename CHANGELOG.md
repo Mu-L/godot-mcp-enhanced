@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.28.3] - 2026-08-13
+
+### Added — 战略批收尾（14 竞品路线图 G1/G3/G7 落地，详见 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)）
+- **G3 操作级审计日志**（借鉴 devtool）：danger-api 操作落 `audit.jsonl`（timestamp/operation/changedFiles/details），`appendFile` 原子追加修复 devtool read-modify-write 竞态（多实例并发安全）；confirm gate 真实审计修复（原 getActionRisk 耦合致令牌虚假 ok 绕过审计）。
+- **G1 deterministic playtest control 层**（借鉴 satellite）：`freeze`/`unfreeze`/`step_until` 三 action，结构化条件（frame/signal/property/state）规避 Expression RCE；process_mode=ALWAYS 保 bridge freeze 后不自停。
+- **G7 能力 profile 默认面**（借鉴 GoPeak）：basic（9 组：core/bridge/animation/audio/signal/visual/code/test/profiler）/ advanced / full 三 profile，复用现有 securityLevel 三层自动分 profile。**BREAKING**：默认 profile 从 full 改 basic（schema 79KB→~30KB，省 ~60% context window）；`GODOT_MCP_PROFILE=full` / `manage_tools` 可切回 full。
+
+## [0.28.2] - 2026-08-12
+
 ### Security
 - **SEC-P2-1**: `test-framework.ts` 补 `requireProjectPath` root 白名单校验（原裸 `validatePath` 仅 resolve 零安全校验，依赖全局门兜底）。
 - **SEC-P2-2**: editor + bridge 两处 GD 侧 secret 写加 symlink 预检（Windows PowerShell `Test-Path`+`Get-Item LinkType`+`exit 3` 拒写；Linux/macOS `readlink` 检测。防预置 symlink follow 覆盖目标文件）。
@@ -19,10 +28,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Tier2-2 tscn parser**: 补 Vector2i/Vector3i/PackedInt32Array/Transform3D 四类型解析（原 fallback 字符串丢失）。
 - **CMP-13 generate-all-modules**: 构建期从 module-loader import 块自动生成 ALL_MODULES 数组（新增工具只需加 import 行）。
 - **Vision Routing**: `screenshot` analyze action 加 `vision_route` 参数，把截图路由到视觉模型（groq llama-4-scout）翻译成文字描述，让纯文本模型也能"看"截图。双重 opt-in 门控（`vision_route=true` + `GODOT_MCP_VISION_KEY`，默认零外传）。详见 [docs/telemetry.md](docs/telemetry.md) 诚实披露段。
+- **G2 trace_id + 结构化错误分类**（速赢批，借鉴 xulek，commit `20f9832`）：每响应附 `trace_id`（16hex 全链路）+ `duration_ms` + 结构化 `error_category`（7 类）+ `retryable`；PII 护栏（主 catch 类型映射，`err.message` 不直泄 client）。审查 SHIPPED WITH NITS（EditorToolExecutor catch→return 盲区 deferred，详见 [docs/reviews/](docs/reviews/)）。
+
+### Security（加固批次）
+- **S-1/S-2**: bpy-sandbox 双 opt-in 对齐（`GODOT_MCP_ALLOW_UNSAFE` + `execute_bpy` 显式门）+ spawn 清单补全（commit `53d80be`）。
+- **S-3~S-7**: 多实例 registry/editor-auth/http-server 加固（commit `6fe24b7`）。
+
+### Fixed
+- **P0（F-6 CRITICAL）**: `animtree_state_edit` sub_action 死代码修复（commit `eed26f2`）。
+- **P1（F-1/F-2）**: data-import timeout 钳制 + isErrorText 测试加固（commit `2ee8cc2`）。
+- **P2（F-3/F-4/F-5/F-7/F-8）**: 工具层校验精确化（commit `690838d`）。
+
+### Docs
+- **G8 威胁模型文档**（借鉴 satellite）：[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) 声明 10 层防护实测 + accident guard 边界（诚实区分 accident guard vs security boundary，commit `db44d43`）。
+- deprecated 注释纠偏 + 全功能审计文档（F-Nit / 2026-08-12 audit，commit `619ab6a`）。
 
 ### Testing
 - **P2-6**: `waitForEditorSecret` 时序状态机 characterization（4 测试：超时返 null 不抛错 / 无跨调用缓存 secret 刷新读到新值 / 轮询 pickup 200ms / 空内容继续轮询）。
 - 新增 `check:changelog-sync` CI 检测（advisory）：`fix(security)`/`feat`/`BREAKING` commit 漏登 `[Unreleased]` 时 warn。
+
+## [0.28.1] - 2026-08-11
+
+### Security
+- **批次 C 安全加固**（commit `fdf04ec`）：deny-list / symlink / path / debug.evaluate RCE 多点加固。
+- **instance_registry 目录权限**（commit `6bb2755`）：Linux 收紧到 0o700（P2-4）。
+
+### Testing
+- 弱断言精确化 + 接线守护批次（P1-3~P1-5 / P2-1 / P2-2：cpp `stubEnv` 隔离 / game-bridge TCP 分片重组 / dispatcher `isPathInAllowedRoots` 接线守护 / scene `add_node` 错误路径 / `length>0` 与 `isError` 全局精确化）。
+
+### CI / Docs
+- ci: MULTI_INSTANCE 接入 godot-matrix 版本矩阵（P1-2）。
+- docs: 全批次第三方审查文档（SHIPPED WITH NITS，无 Blocking，commit `9b53dcb`）+ script 工具描述沙箱措辞 generic 化（P2-2，commit `17e22a3`，本 commit 引入 0.28.1 version bump）。
 
 ## [0.28.0] - 2026-08-09
 
