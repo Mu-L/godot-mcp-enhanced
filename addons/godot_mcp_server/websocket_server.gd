@@ -27,12 +27,28 @@ var _crypto: Crypto
 # packet → 两个并发 evaluate/inspect_frame 竞争同一 _states[session_id](eval_result 单槽
 # 被后发者重置/错消费,selected_frame 互相覆盖),AI 拿串台数据且无报错。
 # 同一时刻只允许一个在途 debug coroutine;新的 debug 请求到达时若在途则立即拒绝。
-# stale 自愈:coroutine 内部 script error 会中止恢复路径(GDScript 无 finally),flag 可能
-# 卡死 true → 超过 _DEBUG_STALE_MS(120s,debug 操作自身 ≤3s settle/2s step)视为 stale
-# 强制放行 + push_warning。
+# stale 自愈:超时兜底见 I-4(2026-08-15 实测修正:handler **内部** script error 时
+# GDScript 会以函数返回类型默认值({})恢复 await 侧,互斥锁释放行仍会执行;真正卡死的是
+# 本协程**自身函数体**在 set/release 之间出错——批 H 修复前 response.result 点访问即此类,
+# 该行已改为 get() 兜底,窗口仅剩 set 与 release 之间无其他语句。stale 释放保留作末道兜底)。
 const DEBUG_IN_FLIGHT_STALE_MS := 120000
+# I-4 (2026-08-14 审查 P3): debug 协程挂死(hang)兜底 watch(见 _await_with_watchdog)。
+# 修复面(2026-08-15 headless probe 实测定性):① handler 内部 script error → GDScript
+# 以返回类型默认值({})恢复 caller,现有 reply 路径发 {"result": null},client 不挂——
+# 此类不靠 watchdog;② handler **挂死**(await 的信号永不触发、内部循环失去界)→ caller
+# 的 await 永不恢复 → reply 永不发(client 干等默认 30s)+ 互斥锁卡到 stale 120s——
+# 此类是 watchdog 的修复目标。debug 现有 handler 全为有界循环(settle 700ms/evaluate 3s/
+# step 2s,最大 ~4s),watchdog=10s 正常路径零触发,仅兜未来引入的无界 await。
+const DEBUG_ASYNC_WATCHDOG_MS := 10000
+# I-5 (2026-08-14 审查 P3): WebSocket 握手超时。TCP 已 accept 但握手永不完成的 peer
+# (端口扫描/裸 TCP 客户端连上不发 HTTP Upgrade)停留在 STATE_CONNECTING,原 match 只
+# 处理 OPEN/CLOSED → 不 tick 不移除,永久占 MAX_PEERS=5 槽(5 个即拒绝新连接)。
+# 10s > 正常本机握手(毫秒级)3 个量级,超时即 close + 回收槽位。
+const WS_HANDSHAKE_TIMEOUT_MS := 10000
 var _debug_in_flight := false
 var _debug_in_flight_since := 0
+# I-5: peer 进入 STATE_CONNECTING 的起始时刻(peer instance id → msec),握手完成/移除时清。
+var _connecting_since: Dictionary = {}
 
 func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
@@ -261,6 +277,8 @@ func _process(delta: float) -> void:
 		ws_peer.set_outbound_buffer_size(4 * 1024 * 1024)  # F4(2026-07-29): 4MB outbound 上限防慢消费者堆积 OOM
 		ws_peer.accept_stream(tcp_peer)
 		_peers.append(ws_peer)
+		# I-5: 记录握手起始时刻(CONNECTING 超时判定的基准)
+		_connecting_since[ws_peer.get_instance_id()] = Time.get_ticks_msec()
 		print("[MCP] Client connected (total: %d)" % _peers.size())
 		_update_panel("MCP: %d client(s) connected" % _peers.size())
 
@@ -270,6 +288,8 @@ func _process(delta: float) -> void:
 		peer.poll()
 		match peer.get_ready_state():
 			WebSocketPeer.STATE_OPEN:
+				# I-5: 握手完成,清 CONNECTING 计时
+				_connecting_since.erase(peer.get_instance_id())
 				_heartbeat.tick(delta, peer)
 				var _pkt_count := 0
 				while peer.get_available_packet_count() > 0 and _pkt_count < 50:
@@ -277,6 +297,15 @@ func _process(delta: float) -> void:
 					_handle_message(text, peer)
 					_pkt_count += 1
 					_heartbeat.reset_activity(peer.get_instance_id())
+			WebSocketPeer.STATE_CONNECTING:
+				# I-5 (2026-08-14 审查 P3): 握手超时回收槽位(见 WS_HANDSHAKE_TIMEOUT_MS 注释)。
+				var cid: int = peer.get_instance_id()
+				if not _connecting_since.has(cid):
+					_connecting_since[cid] = Time.get_ticks_msec()
+				if Time.get_ticks_msec() - int(_connecting_since[cid]) > WS_HANDSHAKE_TIMEOUT_MS:
+					push_warning("[MCP] Peer %d WebSocket handshake not completed within %dms — closing (slot reclaimed)" % [cid, WS_HANDSHAKE_TIMEOUT_MS])
+					peer.close()
+					to_remove.append(i)
 			WebSocketPeer.STATE_CLOSED:
 				to_remove.append(i)
 
@@ -285,6 +314,7 @@ func _process(delta: float) -> void:
 		var rid: int = removed_peer.get_instance_id()
 		_heartbeat.remove_peer(rid)
 		_authenticated_peers.erase(rid)
+		_connecting_since.erase(rid)
 		# I-9: 清除断开 peer 的 per-peer 锁定/失败记录,避免字典无限增长
 		_auth_fail_count.erase(rid)
 		_auth_locked_until.erase(rid)
@@ -385,6 +415,10 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		# 并发 nav 请求允许（packet 循环不串行化）：同 peer 多 nav bake 时，先完成的 coroutine 发的
 		# operation_end 可能抢先于仍在 bake 的其他 coroutine 恢复心跳；heartbeat P1#3 hard timeout
 		# 兜底（heartbeat.gd:37-46）防误断（operation_end 仅递减计数，非强制立即恢复）。
+		# I-4 (2026-08-14 审查 P3): 此路径**不**加 script-error watchdog——nav 协程有内部
+		# deadline(bake_mesh 110s == TS client timeoutMs 110s,create_region 28s < client 30s),
+		# 正常路径必在 deadline 内自行返回;提前发兜底 error reply 会与迟到的真实 reply 双发,
+		# 而 ≥110s 的 watchdog 对 client 已无增益(同刻 client 已超时,§10 peer 守卫兜底丢 reply)。
 		response = await _command_handler.handle_nav_async(_method, parsed.get("params", {}), _request_counter)
 	elif _method == "test_run":
 		# P2-12 phase 2: test_run 走 async 入口（防 WS keepalive 饿死）。suite 内每 test 后
@@ -392,6 +426,9 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 		# test_manage 保持同步（秒级 results_get，走 else 分支 handle()）。
 		# client 用 290s timeoutMs（EditorToolExecutor isTestRun 分支）大幅降低 orphan 概率
 		# （优于 nav_bake 默认 30s），但极端超 290s 仍会 orphan，§10 peer 守卫兜底丢 reply。
+		# I-4 (2026-08-14 审查 P3): 同 nav 不加 watchdog——test_run 无内部上界(suite 数×单
+		# suite 耗时不可预估,290s 只是 TS 侧预算),任何固定 watchdog 都可能在合法长 suite 上
+		# 与迟到的真实 reply 双发。script error 时维持文档化限制(client 290s 超时兜底)。
 		response = await _command_handler.handle_test_async(_method, parsed.get("params", {}), _request_counter)
 	elif _method.begins_with("debug_") and _method not in ["debug_set_breakpoint", "debug_clear_breakpoint", "debug_list_breakpoints"]:
 		# CMP-14 (2026-08-09): debug Phase 2/3 走 async 入口(信号+settle 轮询)。
@@ -406,8 +443,18 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 				push_warning("[MCP] debug in-flight flag stale for %d ms (coroutine aborted by script error?) — releasing" % (Time.get_ticks_msec() - _debug_in_flight_since))
 			_debug_in_flight = true
 			_debug_in_flight_since = Time.get_ticks_msec()
-			response = await _command_handler.handle_debug_async(_method, parsed.get("params", {}), _request_counter)
-			# coroutine 恢复后立即释放(在 §10 peer 守卫之前,无论 peer 是否还在都释放)
+			# I-4 (2026-08-14 审查 P3): debug 协程挂死兜底。经 _await_with_watchdog 把
+			# handler fire-and-forget 隔离:handler **挂死**(await 永不恢复)时本协程
+			# 的轮询仍活着,10s 到点返 error reply + 执行到下方释放行(互斥锁不再卡
+			# 120s stale)。handler 内部 script error 的行为(2026-08-15 实测)是 caller
+			# 以类型默认值 {} 恢复——box 立即填充,watchdog 零触发,走既有 reply 路径。
+			# watchdog=10s > debug handler 内部上界之和(evaluate 3s/step 2s+settle
+			# 700ms,最大 ~4s),正常路径零触发。
+			response = await _await_with_watchdog(
+				Callable(_command_handler, "handle_debug_async").bind(_method, parsed.get("params", {}), _request_counter),
+				DEBUG_ASYNC_WATCHDOG_MS, _method)
+			# coroutine 恢复后立即释放(在 §10 peer 守卫之前,无论 peer 是否还在都释放;
+			# I-4 后挂死超时路径同样到达此行——互斥锁不再依赖 120s stale 自愈)
 			_debug_in_flight = false
 	else:
 		response = _command_handler.handle(_method, parsed.get("params", {}), _request_counter)
@@ -434,6 +481,40 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 	var _reply_str := JSON.stringify(reply)
 	if peer.send_text(_reply_str) != OK:
 		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "id": parsed.get("id"), "error": {"code": -32010, "message": "Response exceeds 1MB WebSocket limit"}}))
+
+## I-4 (2026-08-14 审查 P3): 协程挂死(hang)兜底 watch。
+## 2026-08-15 headless probe 实测定性(Godot 4.6.3),两种失效模式行为不同:
+## ① handler 内部 script error → GDScript 以函数返回类型默认值({})恢复 caller,
+##   既有 reply 路径发 {"result": null},client 不挂(批 H 修的"reply 永不发"是本
+##   协程**自身函数体**出错——response.result 点访问——已由批 H get() 兜底修复);
+## ② handler 挂死(await 的信号永不触发)→ caller 的 await 永不恢复 → reply 永不发 +
+##   调用方后续清理(互斥锁释放)全跳过——本 watch 修复此类。
+## 结构:handler 协程经 _fill_response_box fire-and-forget 后台跑(结果写共享 box);本
+## 协程轮询 box —— 正常完成/script-error-默认值返回均零额外延迟;挂死时 box 永不填充,
+## 轮询到 deadline 返 error Dictionary,调用方照常走 reply + 互斥锁释放路径。
+## 仅用于内部上界确定的协程(debug);nav/test_run 不适用的理由见 _handle_message 调用点注释。
+func _await_with_watchdog(fn: Callable, timeout_ms: int, method: String) -> Dictionary:
+	if timeout_ms <= 0:
+		return await fn.call()
+	var box: Dictionary = {"done": false, "response": null}
+	_fill_response_box(fn, box)  # 不 await:后台协程,填完 box 自然结束
+	var deadline := Time.get_ticks_msec() + timeout_ms
+	while not box["done"] and Time.get_ticks_msec() < deadline:
+		await Engine.get_main_loop().process_frame
+	if box["done"]:
+		return box["response"]
+	push_error("[MCP] %s coroutine did not complete within %dms (hung on an await that never resumed?) — replying error + releasing debug mutex" % [method, timeout_ms])
+	return {"error": {"code": -32008, "message": "Editor handler coroutine did not complete within %dms (hung); no reply was produced. Check the editor log for the error." % timeout_ms}}
+
+
+## I-4: 后台协程壳——执行 handler 并把结果写进 box(与 _await_with_watchdog 配对)。
+## 2026-08-15 实测:handler 内部 script error 时本壳的 await 以返回类型默认值({})恢复,
+## box 仍会填充(走既有 degenerate reply 路径);box 永不填充只发生在 handler 真挂死
+## (await 永不返回)时——那才是 watch 要检测的。
+func _fill_response_box(fn: Callable, box: Dictionary) -> void:
+	box["response"] = await fn.call()
+	box["done"] = true
+
 
 func _send_session_sync(peer: WebSocketPeer) -> void:
 	var open_scenes: Array = []
@@ -504,6 +585,7 @@ func _exit_tree() -> void:
 	for peer in _peers: peer.close()
 	_peers.clear()
 	_authenticated_peers.clear()
+	_connecting_since.clear()
 	_auth_fail_count.clear()
 	_auth_locked_until.clear()
 	_delete_secret_file()

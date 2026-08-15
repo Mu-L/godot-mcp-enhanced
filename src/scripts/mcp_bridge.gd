@@ -146,6 +146,12 @@ func _process(_delta: float) -> void:
 		return
 
 	# Accept new connections (Godot 4.6 renamed accept() to take_connection())
+	# I-5 (2026-08-14 审查 P3) 评估结论:editor websocket_server.gd 的 STATE_CONNECTING
+	# 握手超时在此**不需要**——本 bridge 的 peer 是 StreamPeerTCP(TCPServer.take_connection
+	# 返回的入站连接,accept 时即 STATUS_CONNECTED,不存在 CONNECTING 中间态);
+	# "连上不作为"的 peer 由下方 INACTIVITY_TIMEOUT=60s idle 断连兜底(accept 时即记
+	# _peer_last_activity),发非 auth 数据的 peer 首条消息即被断(_process_buffer_bytes
+	# 未认证分支 disconnect_from_host)——槽位占用均有界,无永久占坑路径。
 	var peer: StreamPeerTCP = _server_take_connection()
 	if peer != null:
 		if _peers.size() >= MAX_PEERS:

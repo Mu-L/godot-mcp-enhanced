@@ -61,8 +61,10 @@ describe('A2: websocket_server debug in-flight 互斥(_states 串台)', () => {
     expect(WS_CODE).toContain('DEBUG_IN_FLIGHT_STALE_MS');
     // 互斥命中时立即拒绝(返回 error 而非排队)
     expect(WS_CODE).toMatch(/_debug_in_flight and Time\.get_ticks_msec\(\) - _debug_in_flight_since < DEBUG_IN_FLIGHT_STALE_MS/);
-    // coroutine 恢复后立即释放(在 peer 守卫之前)
-    expect(WS_CODE).toMatch(/response = await _command_handler\.handle_debug_async[\s\S]*?_debug_in_flight = false/);
+    // coroutine 恢复后立即释放(在 peer 守卫之前)。
+    // 批-I I-4 (2026-08-15): await 形态改为 _await_with_watchdog 包装(script-error 兜底),
+    // A2 不变量不变——await 返回(正常完成或 watchdog 超时)后立即置 false。
+    expect(WS_CODE).toMatch(/response = await _await_with_watchdog\(\s*Callable\(_command_handler, "handle_debug_async"\)[\s\S]*?_debug_in_flight = false/);
   });
 });
 
