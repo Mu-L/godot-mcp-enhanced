@@ -177,13 +177,18 @@ function readBridgeSecret(): string | null {
       getLogger().error('security', `Bridge secret file ${secretPath} is a symlink — refusing to read.`);
       return null;
     }
-    // Tighten permissions: owner-only read
+    // Tighten permissions: owner-only
     if (process.platform === 'win32') {
       try {
         // C-ARC-01: Use os.userInfo().username (no env spoofing), strict regex (no backslash)
+        // K-4 (2026-08-15): :R → :M。三副本同步漏改——GD 侧 mcp_bridge.gd/websocket_server.gd
+        // 的 _restrict_secret_permissions 已从 :R 改 :M(R 是 anti-pattern: e2e 结束后清理删不掉
+        // R-only secret → beforeAll 清 .godot 报 EPERM → 后续 e2e L2 整 suite 静默 skip,本地复现),
+        // 本读路径每次 readBridgeSecret 都把 ACL 收紧回 R,把 GD 侧的 M 白改了。:M 与
+        // editor-auth.ts:32 / instance-api-auth 对齐(M=Read+Write+Delete,owner 可删,其他用户无 ACE)。
         const username = userInfo().username;
         if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
-          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:R`], { stdio: 'ignore' });
+          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:M`], { stdio: 'ignore' });
         }
       } catch (err) { getLogger().debug('bridge', `restrict Windows file permissions: ${err}`); }
     } else {
