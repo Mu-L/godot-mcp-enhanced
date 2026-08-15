@@ -415,6 +415,7 @@ describe('GodotServer', () => {
         'signal',
         'material', 'screenshot', 'particles',
         'docs', 'load_skill', 'cpp',
+        'analysis', // v0.30: analysis 归 code 组,lite/basic(含 code)随之可见(纯静态只读)
         'profiler', 'workflow',
       ];
       for (const name of names) {

@@ -9,7 +9,7 @@ import { join } from 'path';
 export const GROUP_SOURCE_FILES: Record<string, string[]> = {
   core: ['project.ts', 'scene.ts', 'script.ts', 'runtime.ts', 'validation.ts', 'manage-tools.ts'],
   editor: ['editor-sync.ts'],
-  bridge: ['game-bridge.ts'],
+  bridge: ['game-bridge.ts', 'qa/index.ts'],  // v0.30: qa 归 bridge 组
   animation: ['animation/animation-ops.ts', 'animation/animation-track.ts', 'animtree.ts'],
   audio: ['audio-ops.ts'],
   visual: ['material-ops.ts', 'screenshot.ts', 'particles.ts'],
@@ -19,7 +19,7 @@ export const GROUP_SOURCE_FILES: Record<string, string[]> = {
   tilemap: ['tilemap-ops.ts'],
   signal: ['signal-ops.ts'],
   profiler: ['profiler-ops.ts', 'workflow.ts'],
-  code: ['docs.ts', 'load-skill.ts'],
+  code: ['docs.ts', 'load-skill.ts', 'analysis/index.ts'],  // v0.30: analysis 归 code 组
   multi_instance: ['instance-tools.ts'],
   dynamic: ['advanced-proxy.ts'],
 };

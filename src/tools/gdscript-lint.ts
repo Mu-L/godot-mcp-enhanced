@@ -37,8 +37,10 @@ export interface LintOutput {
 }
 
 // ─── Utility Functions ──────────────────────────────────────────────────────
+// v0.30 C 批：以下三个 helper 改导出 —— analysis/gdscan.ts 静态信号扫描复用
+// （同源防 drift；此前为模块私有，复用只能复制）。
 
-function isInComment(line: string, matchIndex: number): boolean {
+export function isInComment(line: string, matchIndex: number): boolean {
   let inString = false;
   let stringChar = '';
   for (let i = 0; i < matchIndex && i < line.length; i++) {
@@ -57,7 +59,7 @@ function isInComment(line: string, matchIndex: number): boolean {
   return false;
 }
 
-function isInString(line: string, matchIndex: number): boolean {
+export function isInString(line: string, matchIndex: number): boolean {
   let inString = false;
   let stringChar = '';
   for (let i = 0; i < matchIndex && i < line.length; i++) {
@@ -75,7 +77,7 @@ function isInString(line: string, matchIndex: number): boolean {
   return inString;
 }
 
-function isInCommentOrString(line: string, matchIndex: number): boolean {
+export function isInCommentOrString(line: string, matchIndex: number): boolean {
   return isInComment(line, matchIndex) || isInString(line, matchIndex);
 }
 
