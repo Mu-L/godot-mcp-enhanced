@@ -195,6 +195,24 @@ export class InstanceHttpServer {
       // ⑤ 转发到 dispatcher（srvCtx=undefined，普通工具不受影响）
       // P2-2R：与 sender 30s AbortSignal 对称——receiver 超时返 504，避免 sender 已
       // abort 后 receiver 继续执行成孤儿请求（nav bake 110s/test_run 290s 等长操作）。
+      //
+      // I-6（2026-08-14 审查 P3）：504 只避免孤儿**响应**，不避免孤儿**执行**——504 发出后
+      // dispatcher.handleCall 的 promise 链继续跑（GD 侧 nav bake 继续至其 110s 内部 deadline）。
+      // AbortController 评估结论（不实现）：① handleCall 签名无 AbortSignal，thread 下去要改
+      // ToolDispatcher + 全部工具 handler + EditorConnection.request，跨子系统大改；
+      // ② 即使 TS 侧 pending 被 abort，GD editor 插件协议无取消消息（JSON-RPC 单向 request），
+      // bake 协程照跑至内部 deadline——执行侧无法真正中断，abort 只省 TS 侧等待；
+      // ③ TS 侧 pending 有 timeoutMs 有界（nav 110s / 默认 30s），不无限占用。
+      // 兜底：观察性 log——① 下方 res 'close' 监听记 client 提前断开（sender 已放弃但
+      // 本地仍在执行）；② 504 站点已有 timeout warn log 可量化孤儿执行频率。
+      let forwardSettled = false;
+      res.on('close', () => {
+        // writableEnded=false 的 close = 连接在响应完成前被断（client gone）；
+        // 正常完成/504/500 路径 writableEnded=true 不记（避免误报）。
+        if (!res.writableEnded && !forwardSettled) {
+          getLogger().warn('instance-http', `Client connection closed before tool forward completed (${toolName}) — orphan execution may continue server-side`);
+        }
+      });
       let result: HandlerResult;
       try {
         result = await withTimeout(
@@ -209,6 +227,8 @@ export class InstanceHttpServer {
         res.writeHead(504, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Tool forward timed out after ${this.forwardTimeoutMs}ms (aligned with sender 30s AbortSignal).` }));
         return;
+      } finally {
+        forwardSettled = true;
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

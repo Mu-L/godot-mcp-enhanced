@@ -54,7 +54,7 @@ export function getToolDefinitions(): Tool[] {
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           search_dir: { type: 'string', description: '搜索目录（list_projects）', default: '.' },
-          max_depth: { type: 'number', description: '最大搜索深度（默认 3）', default: 3 },
+          max_depth: { type: 'number', description: '最大搜索深度（默认 3，钳制上限 10）', default: 3 },
           extensions: { type: 'array', items: { type: 'string' }, description: '按扩展名过滤（如 [".gd", ".tscn"]）' },
           subdirectory: { type: 'string', description: '限定子目录' },
           project_name: { type: 'string', description: '项目名称（默认取文件夹名）', default: '' },
@@ -97,7 +97,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   switch (action) {
     case 'list_projects': {
       const searchDir = validatePath(requireString(args, 'search_dir'));
-      const maxDepth = (args.max_depth as number) || 3;
+      // I-7 (2026-08-14 审查 P3): max_depth 钳制 ≤10——scan 逐层 readdirSync 递归,
+      // AI 传 999 会扫全盘(search_dir 上层目录时尤其)。默认 3,上限 10 覆盖合理项目布局。
+      // search_dir root 不做额外校验(用户定夺项:搜索语义天然跨目录)。
+      const maxDepth = Math.min((args.max_depth as number) || 3, 10);
       const projects: string[] = [];
 
       function scan(dir: string, depth: number): void {

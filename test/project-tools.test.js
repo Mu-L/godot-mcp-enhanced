@@ -163,6 +163,27 @@ describe('project-tools handleTool — list_projects', () => {
     expect(parsed.count).toBe(1);
     expect(parsed.projects).toContain(dir);
   });
+
+  it('clamps max_depth to 10 (batch-I I-7): depth-12 project not scanned even with max_depth=999', async () => {
+    const ctx = createMockCtx();
+    // 浅层项目(depth 2):无论钳制与否都应找到
+    const shallow = join(dir, 'shallow_l1', 'shallow_l2');
+    mkdirSync(shallow, { recursive: true });
+    makeGodotProject(shallow);
+    // 深层项目(depth 12):无钳制时 max_depth=999 会递归扫到;钳制 ≤10 后不扫
+    const segments = Array.from({ length: 12 }, (_, i) => `deep_l${String(i + 1).padStart(2, '0')}`);
+    const deep = join(dir, ...segments);
+    mkdirSync(deep, { recursive: true });
+    makeGodotProject(deep);
+
+    const result = await callProject('list_projects', { search_dir: dir, max_depth: 999 }, ctx);
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.projects).toContain(shallow);
+    // 钳制后 effective depth=10,depth-12 目录不在扫描范围
+    expect(parsed.projects).not.toContain(deep);
+    expect(parsed.count).toBe(1);
+  });
 });
 
 // ─── handleTool — get_project_info ──────────────────────────────────────────
