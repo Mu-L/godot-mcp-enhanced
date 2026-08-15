@@ -339,7 +339,7 @@ describe.skipIf(!canRun)('e2e debug tools (editor): 断点链路 + A2 互斥 + P
     const bps = listRes.parsed?.breakpoints;
     expect(Array.isArray(bps), 'breakpoints 应为数组').toBe(true);
     const mine = (bps as Array<Record<string, unknown>>).find((b) => b.path === BP_RES);
-    expect(mine, `list 应含 ${BP_RES} 的断点(实际: ${JSON.stringify(bps)})`).toBeDefined();
+    expect(mine?.path, `list 应含 ${BP_RES} 的断点(实际: ${JSON.stringify(bps)})`).toBe(BP_RES);
     expect((mine!.lines as unknown[]), `断点行应含标记行 ${line}`).toContain(line);
 
     // clear

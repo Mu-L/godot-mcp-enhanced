@@ -103,6 +103,7 @@ async function callTool(toolName: string, args: Record<string, unknown>): Promis
 // v0.20.0 L1 正路径 helper(消费 real-project 靶子) ──────────────────────────
 // 正路径断言:禁止 isError,text 含期望子串(升级现有 text.length>5 浅断言)
 function expectSuccess(r: { text: string; isError: boolean }, substr?: string) {
+  if (r.isError) console.error('[L2-diag] expectSuccess got isError, text =', r.text.slice(0, 400));
   expect(r.isError).toBe(false);
   if (substr) expect(r.text).toContain(substr);
 }

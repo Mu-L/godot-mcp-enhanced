@@ -59,7 +59,6 @@ describe('P2-1 overrides.ts', () => {
       writeFileSync(srcScript, 'extends Node\n', 'utf-8');
 
       const entry = installOverride(srcScript, projectDir);
-      expect(entry).not.toBeNull();
       expect(entry!.autoloadKey).toBe('MCPOVERRIDE_log');
 
       // 脚本拷贝到项目根
@@ -77,7 +76,7 @@ describe('P2-1 overrides.ts', () => {
 
       const first = installOverride(srcScript, projectDir);
       const second = installOverride(srcScript, projectDir);
-      expect(first).not.toBeNull();
+      expect(first?.autoloadKey).toBe('MCPOVERRIDE_log');
       expect(second).toBeNull();
     });
 

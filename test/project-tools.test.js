@@ -148,7 +148,6 @@ describe('project-tools handleTool — list_projects', () => {
     mkdirSync(emptyDir, { recursive: true });
 
     const result = await callProject('list_projects', { search_dir: emptyDir }, ctx);
-    expect(result).not.toBeNull();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.count).toBe(0);
   });

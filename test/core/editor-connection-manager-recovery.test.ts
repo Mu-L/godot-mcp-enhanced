@@ -107,7 +107,7 @@ describe('EditorConnectionManager A-3: secret 轮换后重连链恢复(集成)',
     const init = await mgr.init();
     expect(init.connected).toBe(true);
     expect(connectionCount).toBe(1);
-    expect(mgr.getConn()).not.toBeNull();
+    expect(mgr.getConn()?.isConnected()).toBe(true);
 
     // 模拟编辑器重启: secret 轮换 + 断开现有连接
     serverSecret = 'new-secret';
