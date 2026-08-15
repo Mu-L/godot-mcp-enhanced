@@ -2,7 +2,7 @@
 
 > Free · Open Source · Secure — a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture + runtime control**.
 
-An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 41 MCP tools (merged, with 200+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
+An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 42 MCP tools (merged, with 200+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
 
 > **Tool descriptions are in Chinese** (serving the Chinese Godot developer community; i18n PRs welcome). This English README covers positioning, comparison, security, and setup; for the full per-action tool list see the [Chinese README](README.md) and [capability-matrix](docs/capability-matrix.md).
 
@@ -17,7 +17,7 @@ An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool 
 |---|:---:|:---:|:---:|:---:|
 | Price | **Free** | $15 one-time [^p1] | $19 one-time [^p2] | Free [^p3] |
 | Open Source | **✅ MIT** | ❌ server precompiled/closed [^p1] | ❌ [^p2] | ✅ [^p3] |
-| Tools | **41** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| Tools | **42** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — |
 | Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **Runtime control (engine-level)** | **✅ game bridge: live state / input simulation / record-replay / frame-verify** | ❌ file & editor only | ❌ | ❌ |
@@ -111,9 +111,9 @@ Following agentic-skills methodology (e.g. obra/superpowers), this project ships
 
 Each workflow ships with a checklist + common-deviation tips, keeping AI on-rails and reducing footguns.
 
-## Tools (41)
+## Tools (42)
 
-> **41 MCP tools** (merged tool definitions, 200+ actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
+> **42 MCP tools** (merged tool definitions, 200+ actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
 
 ## MCP Resources
 

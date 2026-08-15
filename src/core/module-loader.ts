@@ -64,6 +64,7 @@ import * as testing from '../tools/testing.js';
 import * as debug from '../tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
 import * as engine from '../tools/engine.js';  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
 import * as runtimeAssert from '../tools/runtime-assert.js';
+import * as qa from '../tools/qa/index.js';  // v0.30 B 批：QA 测试套件编排
 import * as help from '../tools/help.js';
 import * as audit from '../tools/audit.js';  // G3 (2026-08-13): 操作审计日志查询
 
@@ -108,6 +109,7 @@ const ALL_MODULES: ToolModule[] = [
   debug,
   engine,
   runtimeAssert,
+  qa,
   help,
   audit,
 ];

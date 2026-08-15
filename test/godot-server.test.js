@@ -409,6 +409,7 @@ describe('GodotServer', () => {
         'runtime_assert', 'help',
         'audit', // C-1 (2026-08-14): audit 归入 core 组,lite(含 core)随之可见
         'game',
+        'qa', // v0.30: qa 归入 bridge 组,lite/basic(含 bridge)随之可见(run 是 process 风险,经 confirm 门)
         'animation', 'animtree', 'animation_track',
         'audio',
         'signal',

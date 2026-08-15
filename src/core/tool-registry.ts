@@ -166,7 +166,7 @@ export interface ToolGroupDef {
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help', 'audit'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
-  bridge:     { description: 'Game Bridge', tools: ['game'], requires: ['bridge'] },
+  bridge:     { description: 'Game Bridge', tools: ['game', 'qa'], requires: ['bridge'] },
   animation:  { description: '动画系统', tools: ['animation', 'animtree', 'animation_track'], requires: [] },
   audio:      { description: '音频', tools: ['audio'], requires: [] },
   visual:     { description: '视觉', tools: ['material', 'screenshot', 'particles'], requires: [] },

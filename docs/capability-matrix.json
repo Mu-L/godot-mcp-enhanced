@@ -3768,6 +3768,106 @@
       }
     },
     {
+      "name": "qa",
+      "group": "bridge",
+      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行（输入/等待/断言/确定性 playtest/截图证据）→ 聚合报告 + 回归 diff（夜间跑批用）。步骤 type：input(send_key/mouse_click/mouse_move/text/touch/drag)、wait(wait_for_node/wait_for_property)、wait_frames、freeze/unfreeze、step_until(结构化条件)、snapshot/restore、set、call(只读白名单,写方法需 GODOT_MCP_BRIDGE_EXTRA_METHODS)、assert(node_state/scene_structure/screen_text/perf)、screenshot、sleep。options：seed/fixed_delta_hz(确定性)、continue_on_failure、auto_install_bridge/auto_run/stop_after、各超时预算。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "run",
+              "report",
+              "diff"
+            ],
+            "description": "run=执行套件；report=读报告；diff=对比两份报告找回归"
+          },
+          "spec": {
+            "type": "object",
+            "description": "run: inline 套件 spec 对象（结构见 description；步骤带 label 便于 diff 对齐）"
+          },
+          "spec_path": {
+            "type": "string",
+            "description": "run: spec 文件路径（.json 或含 ```qa-spec 围栏的 .md），大套件建议用文件避免 token 截断"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "run: 项目路径（覆盖 spec 内的 project_path；spec 未写时必填）"
+          },
+          "report_path": {
+            "type": "string",
+            "description": "report: 报告路径或 run_id；latest=最新，prev=次新"
+          },
+          "base_path": {
+            "type": "string",
+            "description": "diff: 基线报告（默认 prev）"
+          },
+          "head_path": {
+            "type": "string",
+            "description": "diff: 对比报告（默认 latest）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "spec",
+        "spec_path",
+        "project_path",
+        "report_path",
+        "base_path",
+        "head_path"
+      ],
+      "readonly": false,
+      "longRunning": true,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 2,
+        "write": 0,
+        "destructive": 0,
+        "process": 1
+      },
+      "groupRequires": [
+        "bridge"
+      ],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 736,
+        "schemaBytes": 895,
+        "totalBytes": 1631
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
       "name": "runtime",
       "group": "core",
       "description": "启动编辑器、运行/停止项目、获取调试输出、运行测试、获取 Godot 版本。",
