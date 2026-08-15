@@ -98,6 +98,12 @@ export class GodotServer {
   private httpReceiver: InstanceHttpServer | null = null;
   private instanceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private selfInstanceId: string | null = null;
+  // K-1 (:942①): 已订阅资源 URI 集合。resources/subscribe 记录 / unsubscribe 与 close 清除。
+  // push 事件(notifications/resources/updated)只发 Set 内 URI 的订阅者,对齐 MCP 协议
+  // "should only be sent if the client previously sent a resources/subscribe request"
+  // 与 watch_start/monitor_start push 模式文档"client 需订阅 resources/subscribe 才能收到"。
+  // stdio 单客户端:断连即进程退出,无跨连接泄漏;close() 仍 clear 以支持热重启/测试隔离。
+  private resourceSubscriptions = new Set<string>();
 
   constructor(opsScript: string, options: ServerOptions = {}) {
     this.opsScript = opsScript;
@@ -114,12 +120,22 @@ export class GodotServer {
         // 忽略通知。声明后客户端才会订阅,配合 ttlMs 让缓存能在切组时立即失效。
         capabilities: {
           tools: { listChanged: true },
-          resources: { listChanged: true },
+          // K-1 (:942①): 补 subscribe:true 声明。enhanced 实际处理 resources/subscribe(:267 附近
+          // 记录订阅 URI),push 事件(notifications/resources/updated)只发已订阅客户端;
+          // 此前未声明 → 规范客户端不订阅,push 广播违反 MCP 协议"should only be sent if
+          // the client previously sent a resources/subscribe request"。
+          resources: { listChanged: true, subscribe: true },
           prompts: { listChanged: true },
           completions: {},
           // P1-7 (SEP-2577): emit notifications/message 的 server MUST 声明 logging capability。
           // 此前未声明 → SDK sendLoggingMessage 静默 no-op(logger.ts:155 warn/error 推送失效),
           // 且 GodotServer 直发 notification(notifications/message) 抛 SdkError 被 catch 吞。
+          // K-2 (:942④): setLevel handler 无需显式注册——SDK 2.x Server 构造时若声明 logging
+          // capability 会自动注册内置 logging/setLevel handler(维护 per-session _loggingLevels,
+          // sendLoggingMessage 的 isMessageIgnored 按它过滤)。实测(build 后 InMemoryTransport)
+          // 客户端调用返回 {"result":{}},不会 method not found。⚠️ 此处若再 setRequestHandler
+          // ('logging/setLevel',...) 会 Map.set 覆盖内置 handler → 丢 _loggingLevels 状态维护,
+          // 引入回归。勿重复注册(见 test/k-subscribe-setlevel.test.ts 行为锁定测试)。
           logging: {},
           // P2-5 (SEP-2133): extensions 声明让 modern-era 客户端发现 enhanced 的 runtime-bridge 能力。
           // ⚠️ era-gated:extensions 是 2026-07-28 引入,legacy-era 客户端不认识 → SDK encode 时 strip,对 legacy 无害。
@@ -261,21 +277,31 @@ export class GodotServer {
       );
     });
 
-    // P3-6: Subscriptions/listen — bridge 事件主动推送
-    // resources/subscribe: 客户端订阅(SDK 返回 EmptyResult,实际推送由 notification 完成)
+    // P3-6 + K-1 (:942①): Subscriptions/listen — bridge 事件主动推送
+    // resources/subscribe: 客户端订阅(K-1 起记录 URI,返回 EmptyResult;重复订阅幂等——Set.add 天然去重)
+    // resources/unsubscribe: 取消订阅(URI 出 Set 后 push 不再发)
     // bridge/event push:addon 侧 watch/monitor push 模式产生的事件 → 转发为 MCP notification
-    this.server.setRequestHandler('resources/subscribe', async () => ({}));
-    this.server.setRequestHandler('resources/unsubscribe', async () => ({}));
+    this.server.setRequestHandler('resources/subscribe', async (request) => {
+      this.resourceSubscriptions.add(request.params.uri);
+      return {};
+    });
+    this.server.setRequestHandler('resources/unsubscribe', async (request) => {
+      this.resourceSubscriptions.delete(request.params.uri);
+      return {};
+    });
     registerBridgePushHandler((params) => {
-      // bridge push 消息 → MCP notification(notifications/resources/updated 携带事件数据)
-      // 客户端订阅 bridge://events 后,事件到达即推送(无需轮询 watch_poll/monitor_poll)
+      // K-1: 只发已订阅客户端(bridge://events 在订阅 Set 中才转发)。
+      // 此前无条件广播违反 MCP 协议(未订阅客户端不应收到 resources/updated);
+      // bridge addon → server 的 TCP push 链路不受影响,仅 server→client 转发加过滤。
+      // 客户端订阅 bridge://events 后,事件到达即推送(无需轮询 watch_poll/monitor_poll)。
+      if (!this.resourceSubscriptions.has('bridge://events')) return;
       try {
         this.server.notification({
           method: 'notifications/resources/updated',
           params: { uri: 'bridge://events', ...params },
         });
       } catch {
-        // notification 发送可能因 client 未订阅/断连而抛 SdkError,吞掉不中断
+        // notification 发送可能因 client 断连而抛 SdkError,吞掉不中断
       }
     });
 
@@ -679,6 +705,8 @@ export class GodotServer {
       // 与 dynamicSchema.setFetcher(:229 注入的 fetcher 同样持旧 editorMgr 闭包)。
       registerBridgePushHandler(null);
       dynamicSchema.setFetcher(null);
+      // K-1: 清空资源订阅集合(热重启/测试隔离时防旧订阅状态残留)
+      this.resourceSubscriptions.clear();
       log('Server shut down');
     }
   }
