@@ -13,8 +13,16 @@
 import { syncCheckProjectFixture } from '../src/scoring/check-gdscript.js';
 
 export default function setup(): void {
-  const { srcFiles, scriptFiles } = syncCheckProjectFixture();
+  const { addonFiles, scriptFiles } = syncCheckProjectFixture();
+  // 空守卫(审查 Nit-2):0 文件意味着路径解析错位或源目录异常,静默通过会让
+  // fixture 仍为空壳 → 回到 10s 超时的难诊断失败模式,fail fast 更可诊断
+  if (addonFiles.length === 0 || scriptFiles.length === 0) {
+    throw new Error(
+      `[global-setup] gdscript-check fixture sync 异常: addons=${addonFiles.length}, scripts=${scriptFiles.length}` +
+      '(源目录为空或 cwd 错位,应在仓库根运行 vitest)',
+    );
+  }
   process.stderr.write(
-    `[global-setup] gdscript-check fixture synced (addons=${srcFiles.length}, scripts=${scriptFiles.length})\n`,
+    `[global-setup] gdscript-check fixture synced (addons=${addonFiles.length}, scripts=${scriptFiles.length})\n`,
   );
 }
