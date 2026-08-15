@@ -184,12 +184,29 @@ describe('scene commit editor-scene-save 守卫 + 保存失败假成功（批 F,
   });
 
   it('F-2: save=false 时 saved:false 是预期（未请求保存）→ 不置 isError', async () => {
+    // 注意:此 mock 是 saveBlock(save=false) 正常完成形态 success:true——isError 条件是
+    // success 驱动(批F fix),saved:false 单独不足以触发;若改成 saved 驱动该测试会暴露误报。
     mockExecuteGdscript.mockResolvedValue(execResult('COMMIT_RESULT: {"success":true,"saved":false,"results":[]}'));
 
     const result = await handleTool('scene', commitArgs({ save: false }), ctx);
 
-    // 守卫条件是 save && saved===false;未请求保存不触发
+    // 守卫条件是 commitResult?.success === false;未请求保存且正常完成不触发
     expect(result.isError).toBeFalsy();
+  });
+
+  it('F-2 fix: save=false + stopOnError 中止（stopBlock 真失败）→ isError=true', async () => {
+    // corner(批F审查): stopOnError=true + op 失败中止时 GD 侧 stopBlock 输出
+    // {"success": false, "saved": false, "error_count": N}——真失败,不因 save=false 被排除。
+    mockExecuteGdscript.mockResolvedValue(execResult(
+      'COMMIT_RESULT: {"success":false,"saved":false,"error_count":1,"results":[{"op":"node_property","path":"Root","ok":false,"error":"Node not found"}]}',
+    ));
+
+    const result = await handleTool('scene', commitArgs({ save: false }), ctx);
+
+    expect(result.isError).toBe(true);
+    const text = result.content?.[0]?.text ?? '';
+    expect(text).toContain('"success": false');
+    expect(text).toContain('"error_count": 1');
   });
 
   it('F-2 回归: 保存成功（saved:true）→ 不置 isError', async () => {

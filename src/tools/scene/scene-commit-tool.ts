@@ -113,10 +113,13 @@ export async function handleCommitAction(
 
     // Parse COMMIT_RESULT from output
     const commitResult = parseCommitResult(result.raw_output || result.run_error || '');
-    // F-2 (批 F, 2026-08-14): 请求了保存但写盘失败(ENOSPC/EACCES 等 → saved:false)不再假成功——
-    // 顶层置 isError,防 AI 与 middleware 把写盘失败当成功。覆盖保存失败/stopOnError 中止/load 失败
-    // (三者 saved 均 false)。save=false 时 saved:false 是预期(未请求保存),不触发。
-    if (save && commitResult?.saved === false) {
+    // F-2 (批 F, 2026-08-14; 批F fix 收口): 真失败(COMMIT_RESULT success:false)不再假成功——
+    // 顶层置 isError,防 AI 与 middleware 把失败当成功。单条件 success 驱动,统一覆盖三类真失败:
+    // 保存失败(ENOSPC/EACCES → err != OK → success:false)/stopOnError 中止(stopBlock success:false,
+    // 含 save=false 的中止——原 save && saved===false 条件把该 corner 误排除)/load 失败。
+    // save=false 正常完成的 saved:false 伴随 success:true,不触发;commitResult 为 null
+    // (GDScript 崩溃无 COMMIT_RESULT)时短路走 fallback,行为不变。
+    if (commitResult?.success === false) {
       return { content: [{ type: 'text', text: JSON.stringify(commitResult, null, 2) }], isError: true };
     }
     return textResult(JSON.stringify(commitResult || {
