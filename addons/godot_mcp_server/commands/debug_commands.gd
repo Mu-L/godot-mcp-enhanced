@@ -111,6 +111,11 @@ func handle_set_breakpoint(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32602, "message": "line is required (1-based line number)"}}
 	if not path.begins_with("res://"):
 		return {"error": {"code": -32602, "message": "path must be a res:// path, got: %s" % path}}
+	# I-2 (2026-08-14 审查 P2): 防 path traversal(res://../ 逃出项目根,load()+edit_script
+	# 可加载/打开项目外 .gd,错误信息差构成存在性+行数 oracle)。对齐 handle_reload_scripts
+	# 的 P2-5 同款 contains("..") 拒绝。
+	if path.contains(".."):
+		return {"error": {"code": -32602, "message": "Path must not contain '..' (path traversal blocked): %s" % path}}
 	return _toggle_breakpoint(path, line, true)
 
 
@@ -123,6 +128,9 @@ func handle_clear_breakpoint(params: Dictionary) -> Dictionary:
 		return {"error": {"code": -32602, "message": "line is required (1-based line number)"}}
 	if not path.begins_with("res://"):
 		return {"error": {"code": -32602, "message": "path must be a res:// path, got: %s" % path}}
+	# I-2 (2026-08-14 审查 P2): 同 handle_set_breakpoint,防 path traversal(对称加固)。
+	if path.contains(".."):
+		return {"error": {"code": -32602, "message": "Path must not contain '..' (path traversal blocked): %s" % path}}
 	return _toggle_breakpoint(path, line, false)
 
 
@@ -501,14 +509,20 @@ func handle_reload_scripts(params: Dictionary) -> Dictionary:
 	if not EditorInterface.is_playing_scene():
 		return {"error": {"code": -32000, "message": "No scene is currently playing, so there is nothing to reload into. Run the project (F5) first.", "suggestion": "Use the editor's play button to start the scene before reloading scripts."}}
 
-	# 守卫 2:必须有活跃 debug session
-	var sessions: Array = bridge.call("active_sessions")
-	if sessions.is_empty():
+	# 守卫 2:单 session 解析(I-1 2026-08-14 审查:原 active_sessions()[0] 静默选第一个,
+	# 双 run 时 reload 可能发给非目标 session 且 send_message 无 reply 难察觉;对齐三件套
+	# stack_trace/inspect_frame/evaluate 的 A4 resolve_session() 写法,多 session 明确拒绝)
+	var rs: Dictionary = bridge.call("resolve_session")
+	if not bool(rs.get("ok", false)):
+		var rs_err: Dictionary = rs.get("error", {})
+		if str(rs_err.get("message", "")).begins_with("Multiple"):
+			return {"error": rs_err}
+		# 无活跃 session(游戏启动中)→ 原同款提示
 		return {"error": {"code": -32000, "message": "The game is starting and has no debug session yet. Wait a moment and retry."}}
+	var session: EditorDebuggerSession = rs["session"]
 
-	# 守卫 3:暂停态拒绝(reload 会 queue unheard)
-	var state: Dictionary = bridge.call("current_break")
-	if not state.is_empty():
+	# 守卫 3:暂停态拒绝(reload 会 queue unheard)——state 与 session 同源(resolve_session)
+	if bool(rs["state"].get("breaked", false)):
 		return {"error": {"code": -32009, "message": "The game is paused at a break, and a reload sent now would queue unheard (the debugger freezes message processing while paused).", "suggestion": "Resume it with debug_continue first, then reload."}}
 
 	# 守卫 4:path 校验(防重载 MCP 自身致会话断)
@@ -529,7 +543,6 @@ func handle_reload_scripts(params: Dictionary) -> Dictionary:
 		if path_str.begins_with("res://addons/godot_mcp_server/"):
 			return {"error": {"code": -32000, "message": "Refusing to reload MCP server addon scripts (%s) — this would break the debug session. Reload MCP changes via editor restart." % path_str}}
 
-	var session: EditorDebuggerSession = sessions[0][1]
 	var filesystem = EditorInterface.get_resource_filesystem()
 
 	# 先 update_file 通知编辑器 FS(否则游戏重读旧缓存)
@@ -541,7 +554,7 @@ func handle_reload_scripts(params: Dictionary) -> Dictionary:
 
 	return {"result": {
 		"reloaded": paths,
-		"sessions_active": sessions.size(),
+		"sessions_active": 1,
 		"caveats": [
 			"autoload singletons keep their old instances (state preserved, code updated)",
 			"reload swaps code but not state: @export defaults and initialized vars won't reapply to live nodes",
