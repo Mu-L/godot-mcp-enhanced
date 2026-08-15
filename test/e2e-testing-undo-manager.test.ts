@@ -91,14 +91,20 @@ describe.skipIf(!canRun)('e2e testing: undo_manager suite 经 editor test_run �
     }
   });
 
-  it('test_run suite=undo_manager 返 5 个测试结果（全 PASS 或部分 skip）', async () => {
+  it('test_run suite=undo_manager 返测试结果（failed=0；无打开场景时允许 skip）', async () => {
     const result = await exec!.execute('testing', {
-      action: 'test_run',
+      // 批-I I-8 (批 H 移交): action 必须是 editor-method-map.ts testing 组的合法键
+      // 'run'(映射 method=test_run)。原 'test_run' 未命中 resolveEditorMethod →
+      // fallback method='testing' → GD -32601,该测试自 P2-12 起从未真跑到过 suite。
+      // 同批修复(均因从未真跑未暴露):① JSON.parse 原误把 content[0] 整个 content
+      // 对象当 text 解析("[object Object]" SyntaxError);② 断言的 {summary:{...}}
+      // 嵌套形状与 test_commands.gd 实际返回的扁平 data 形状(total/passed/... 顶层)
+      // 不符——批 H reply 兼容把 {"data": X} reshape 成 result=X。
+      action: 'run',
       project_path: REAL_PROJECT,
       suite: 'undo_manager',
     });
-    const parsed = JSON.parse(result.content[0] as { text: string });
-    // testing 工具返回结构：{ summary: { total, passed, failed, skipped }, results: [...] }
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
     expect(parsed).toBeDefined();
     if (parsed.error) {
       // 如 editor 无打开场景，undo_manager suite 会 skip_suite——记录但不阻断
@@ -107,10 +113,10 @@ describe.skipIf(!canRun)('e2e testing: undo_manager suite 经 editor test_run �
       expect(parsed.error.code === -32004 || /skip|no.*scene/i.test(parsed.error.message ?? '')).toBe(true);
       return;
     }
-    expect(parsed.summary).toBeDefined();
-    expect(parsed.summary.total).toBeGreaterThan(0);
-    // 允许 skipped > 0（无场景时 skip），但 failed 必须 0
-    expect(parsed.summary.failed ?? 0).toBe(0);
-    process.stderr.write(`[undo_manager] suite 结果: ${JSON.stringify(parsed.summary)}\n`);
+    // 扁平契约:suites_run 含 undo_manager,total>0,failed 必须 0(skipped 允许>0,无场景时)
+    expect(parsed.suites_run).toContain('undo_manager');
+    expect(parsed.total ?? 0).toBeGreaterThan(0);
+    expect(parsed.failed ?? 0).toBe(0);
+    process.stderr.write(`[undo_manager] suite 结果: ${JSON.stringify({ total: parsed.total, passed: parsed.passed, failed: parsed.failed, skipped: parsed.skipped })}\n`);
   });
 });
