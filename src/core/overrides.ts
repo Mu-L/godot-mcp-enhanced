@@ -14,11 +14,15 @@ import { isPathInAllowedRoots } from './path-utils.js';
 import { getLogger } from './logger.js';
 import { scanGdscriptSandbox } from '../gdscript-executor.js';
 
-/** overrides 注入的 autoload key 前缀(卸载时按前缀批量清理) */
-export const OVERRIDE_AUTOLOAD_PREFIX = 'autoload/MCPOVERRIDE_';
+/** overrides 注入的 autoload key 前缀(卸载时按前缀批量清理)。
+ *  G-5 (2026-08-14 批D实测发现): autoload 段键名即 Godot 节点名,旧版(≤0.23.x)误带
+ *  'autoload/' 前缀 → Godot 截断为同名 "autoload" 节点(与 MCPBridge 键冲突,override 未加载)。
+ *  写入键已去前缀;legacy key = LEGACY_KEY_PREFIX + 新 key(识别/迁移/清理旧项目遗留键)。 */
+export const OVERRIDE_AUTOLOAD_PREFIX = 'MCPOVERRIDE_';
+const LEGACY_KEY_PREFIX = 'autoload/';
 
 export interface OverrideEntry {
-  /** 写入 project.godot 的 autoload key(如 autoload/MCPOVERRIDE_debug_log) */
+  /** 写入 project.godot 的 autoload key(如 MCPOVERRIDE_debug_log) */
   autoloadKey: string;
   /** 拷贝到项目根的脚本文件名(如 mcpoverride_debug_log.gd) */
   destScriptName: string;
@@ -56,7 +60,7 @@ function assertProjectAllowed(projectRoot: string): void {
 
 /**
  * 从脚本路径派生 autoload key 与目标脚本名(基于文件 basename,去扩展名)。
- * 如 /path/to/debug_log.gd → key=autoload/MCPOVERRIDE_debug_log, dest=mcpoverride_debug_log.gd
+ * 如 /path/to/debug_log.gd → key=MCPOVERRIDE_debug_log, dest=mcpoverride_debug_log.gd
  */
 export function deriveOverrideEntry(sourceScriptPath: string, projectRoot: string): OverrideEntry {
   const stem = basename(sourceScriptPath, extname(sourceScriptPath));
@@ -92,11 +96,20 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
 
   const entry = deriveOverrideEntry(sourceScriptPath, projectRoot);
 
-  // 幂等:已注册则跳过(参考 game-bridge.ts:564 的 includes 检查范式)
+  // 幂等:新键已注册则跳过(G-5: 行首精确匹配,防短前缀误命中)。
+  // G-5 迁移:仅旧带前缀键存在 → 删旧行(下方插入逻辑写新行,旧项目自愈,
+  // 旧键在 Godot 侧截断为 "autoload" 节点与 MCPBridge 键冲突 → override 未加载)。
   let config = readFileSync(configPath, 'utf-8');
-  if (config.includes(entry.autoloadKey + '=')) {
+  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // autoload/MCPOVERRIDE_<stem>
+  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
+  if (hasNewKey) {
     getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
     return null;
+  }
+  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
+  if (hasLegacyKey) {
+    config = config.split('\n').filter(line => !line.startsWith(legacyKey + '=')).join('\n');
+    getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
   }
 
   // 2026-08-06 审查 P1 修复：autoload 脚本 _ready 在游戏启动时执行 = 任意代码执行面，
@@ -154,13 +167,17 @@ export function uninstallOverride(sourceScriptPath: string, projectRoot: string)
   }
 
   const entry = deriveOverrideEntry(sourceScriptPath, projectRoot);
+  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // G-5: 旧带前缀键 autoload/MCPOVERRIDE_<stem>
   const config = readFileSync(configPath, 'utf-8');
-  if (!config.includes(entry.autoloadKey + '=')) {
+  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
+  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
+  if (!hasNewKey && !hasLegacyKey) {
     return false;
   }
 
-  // 移除 autoload 行(参考 game-bridge.ts:601 filter 范式)
-  const lines = config.split('\n').filter(line => !line.startsWith(entry.autoloadKey + '='));
+  // 移除 autoload 行(G-5: 新键行 + 旧带前缀键行都清)
+  const lines = config.split('\n').filter(line =>
+    !line.startsWith(entry.autoloadKey + '=') && !line.startsWith(legacyKey + '='));
   const tmpPath = configPath + '.mcp-tmp';
   writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
   renameSync(tmpPath, configPath);
@@ -192,7 +209,9 @@ export function uninstallAllOverrides(projectRoot: string): number {
   const lines = config.split('\n');
   const removed: string[] = [];
   const kept = lines.filter(line => {
-    if (line.startsWith(OVERRIDE_AUTOLOAD_PREFIX)) {
+    // G-5: 新前缀 + 旧带前缀行都清(批量卸载兼容旧项目遗留键;autoload/MCPOVERRIDE_ 精确组合,
+    // 不能裸 startsWith('autoload/') — 那会误删 MCPBridge 等其它键)
+    if (line.startsWith(OVERRIDE_AUTOLOAD_PREFIX) || line.startsWith(LEGACY_KEY_PREFIX + OVERRIDE_AUTOLOAD_PREFIX)) {
       removed.push(line);
       return false;
     }

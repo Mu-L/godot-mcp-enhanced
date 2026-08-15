@@ -42,14 +42,14 @@ describe('P2-1 overrides.ts', () => {
   describe('deriveOverrideEntry', () => {
     it('derives autoload key and dest script name from source path', () => {
       const entry = deriveOverrideEntry('/some/path/debug_log.gd', '/project');
-      expect(entry.autoloadKey).toBe('autoload/MCPOVERRIDE_debug_log');
+      expect(entry.autoloadKey).toBe('MCPOVERRIDE_debug_log');
       expect(entry.destScriptName).toBe('mcpoverride_debug_log.gd');
       expect(entry.destScriptPath).toBe(join('/project', 'mcpoverride_debug_log.gd'));
     });
 
     it('sanitizes non-alphanumeric characters in stem', () => {
       const entry = deriveOverrideEntry('/path/my-debug hook.gd', '/project');
-      expect(entry.autoloadKey).toBe('autoload/MCPOVERRIDE_my_debug_hook');
+      expect(entry.autoloadKey).toBe('MCPOVERRIDE_my_debug_hook');
     });
   });
 
@@ -60,14 +60,15 @@ describe('P2-1 overrides.ts', () => {
 
       const entry = installOverride(srcScript, projectDir);
       expect(entry).not.toBeNull();
-      expect(entry!.autoloadKey).toBe('autoload/MCPOVERRIDE_log');
+      expect(entry!.autoloadKey).toBe('MCPOVERRIDE_log');
 
       // 脚本拷贝到项目根
       expect(existsSync(join(projectDir, 'mcpoverride_log.gd'))).toBe(true);
 
-      // project.godot 含 autoload 条目
+      // project.godot 含 autoload 条目(G-5: 键名无 autoload/ 前缀 — 键名即 Godot 节点名)
       const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
-      expect(config).toMatch(/autoload\/MCPOVERRIDE_log="\*res:\/\/mcpoverride_log\.gd"/);
+      expect(config).toMatch(/^MCPOVERRIDE_log="\*res:\/\/mcpoverride_log\.gd"$/m);
+      expect(config).not.toContain('autoload/MCPOVERRIDE_log');
     });
 
     it('is idempotent — second install returns null', () => {
@@ -87,7 +88,7 @@ describe('P2-1 overrides.ts', () => {
       installOverride(srcScript, projectDir);
       const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
       expect(config).toMatch(/\[autoload\]/);
-      expect(config).toMatch(/autoload\/MCPOVERRIDE_hook/);
+      expect(config).toMatch(/^MCPOVERRIDE_hook=/m);
     });
 
     it('appends to existing [autoload] section', () => {
@@ -186,8 +187,48 @@ describe('P2-1 overrides.ts', () => {
   });
 
   describe('OVERRIDE_AUTOLOAD_PREFIX constant', () => {
-    it('uses MCPOVERRIDE_ prefix for easy cleanup identification', () => {
-      expect(OVERRIDE_AUTOLOAD_PREFIX).toBe('autoload/MCPOVERRIDE_');
+    it('uses MCPOVERRIDE_ prefix (unprefixed — G-5: autoload 键名即 Godot 节点名)', () => {
+      expect(OVERRIDE_AUTOLOAD_PREFIX).toBe('MCPOVERRIDE_');
+    });
+  });
+
+  // ── G-5 (2026-08-14 批D实测发现): 旧带前缀键(autoload/MCPOVERRIDE_*)迁移与双键清理 ──
+  describe('G-5: legacy prefixed key migration & dual-key cleanup', () => {
+    it('installOverride 迁移旧带前缀键: 删旧行写新行(旧项目自愈)', () => {
+      // 预置旧版写入的带前缀键
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n[autoload]\nautoload/MCPOVERRIDE_log="*res://mcpoverride_log.gd"\n', 'utf-8');
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+
+      const entry = installOverride(srcScript, projectDir);
+      expect(entry).not.toBeNull();
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      expect(config).not.toContain('autoload/MCPOVERRIDE_log=');  // 旧行移除
+      expect(config).toMatch(/^MCPOVERRIDE_log="\*res:\/\/mcpoverride_log\.gd"$/m);  // 新行写入
+    });
+
+    it('uninstallOverride 清理旧带前缀键(未迁移的旧项目遗留)', () => {
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n[autoload]\nautoload/MCPOVERRIDE_log="*res://mcpoverride_log.gd"\n', 'utf-8');
+      writeFileSync(join(projectDir, 'mcpoverride_log.gd'), 'extends Node\n', 'utf-8');
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+
+      const removed = uninstallOverride(srcScript, projectDir);
+      expect(removed).toBe(true);
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      expect(config).not.toMatch(/MCPOVERRIDE_log/);
+      expect(existsSync(join(projectDir, 'mcpoverride_log.gd'))).toBe(false);
+    });
+
+    it('uninstallAllOverrides 清理旧带前缀行(批量,兼容遗留)', () => {
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n[autoload]\nautoload/MCPOVERRIDE_a="*res://mcpoverride_a.gd"\nMCPOVERRIDE_b="*res://mcpoverride_b.gd"\n', 'utf-8');
+      const count = uninstallAllOverrides(projectDir);
+      expect(count).toBe(2);
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      expect(config).not.toMatch(/MCPOVERRIDE_/);
     });
   });
 

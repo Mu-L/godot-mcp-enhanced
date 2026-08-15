@@ -17,7 +17,11 @@ import { getLogger } from '../core/logger.js';
 const BRIDGE_PORT = 9081;
 const BRIDGE_HOST = 'localhost';
 const BRIDGE_SCRIPT_NAME = 'mcp_bridge.gd';
-const AUTOLOAD_KEY = 'autoload/MCPBridge';
+// G-5 (2026-08-14 批D实测发现): autoload 段的键名就是 Godot 节点名,不得带 'autoload/' 前缀 —
+// 旧版(≤0.23.x)误写 'autoload/MCPBridge',Godot 截断为同名 "autoload" 节点(MCPBridge 与
+// MCPOVERRIDE_* 冲突 → override 未加载)。写入键已去前缀;LEGACY 常量仅用于识别/迁移旧键。
+const AUTOLOAD_KEY = 'MCPBridge';
+const AUTOLOAD_KEY_LEGACY = 'autoload/MCPBridge';
 const DEFAULT_TIMEOUT = 10000;
 
 /** Bridge 连不上 / 未正常工作(游戏未运行、未装 autoload、认证失败)。agent 自愈:启动游戏 / 确认安装。 */
@@ -235,7 +239,10 @@ async function _doConnect(timeout: number): Promise<Socket> {
   // (secret 文件存在但 autoload 被 git revert/checkout 删了)。
   if (_projectDir) {
     const autoloads = parseAutoloadNames(_projectDir);
-    if (autoloads.length > 0 && !autoloads.includes('MCPBridge')) {
+    // G-4 (批D实测发现): 旧版 install 写入带 'autoload/' 前缀的键 → parseAutoloadNames 返回
+    // 原始键名(带前缀),裸 includes('MCPBridge') 恒不匹配 → BRIDGE_NOT_CONNECTED 误报
+    // (疑致 e2e L2 suite 静默 skip)。去前缀比较,新旧两种写入形态都正确判定。
+    if (autoloads.length > 0 && !autoloads.some(name => name.replace(/^autoload\//, '') === AUTOLOAD_KEY)) {
       throw new BridgeNotConnectedError(
         `Bridge autoload 'MCPBridge' missing from ${_projectDir}/project.godot [autoload] section. ` +
         'The game may have started without the Bridge autoload. Run game_bridge_install or re-run the game.',
@@ -532,7 +539,7 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           port: { type: 'number', description: 'game_bridge_install: 桥接监听端口（当前忽略，始终 9081）', default: 9081 },
-          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 autoload/MCPOVERRIDE_<basename>）' },
+          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload）' },
           method: {
             type: 'string',
             description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
@@ -777,8 +784,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         let config = readFileSync(configPath, 'utf-8');
-        if (config.includes(AUTOLOAD_KEY)) {
+        // G-5: 幂等/迁移检查用行首精确匹配(键名短,裸 includes 会误命中注释等文本)。
+        // 新键存在 → 已注册跳过;仅旧带前缀键存在 → 迁移(删旧行写新行,旧项目自愈)。
+        const hasNewKey = new RegExp(`^${AUTOLOAD_KEY}\\s*=`,'m').test(config);
+        if (hasNewKey) {
           return textResult(`MCP Bridge autoload already registered. Script copied to ${destScript}.`);
+        }
+        const hasLegacyKey = new RegExp(`^${AUTOLOAD_KEY_LEGACY}\\s*=`,'m').test(config);
+        if (hasLegacyKey) {
+          config = config.split('\n').filter(line => !line.startsWith(AUTOLOAD_KEY_LEGACY + '=')).join('\n');
         }
 
         const autoloadEntry = `${AUTOLOAD_KEY}="*res://${BRIDGE_SCRIPT_NAME}"`;
@@ -810,11 +824,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         const config = readFileSync(configPath, 'utf-8');
-        if (!config.includes(AUTOLOAD_KEY)) {
+        // G-5: 新键与旧带前缀键任一存在即可卸载(双键兼容,旧行为只认旧长键)
+        const hasNewKey = new RegExp(`^${AUTOLOAD_KEY}\\s*=`,'m').test(config);
+        const hasLegacyKey = new RegExp(`^${AUTOLOAD_KEY_LEGACY}\\s*=`,'m').test(config);
+        if (!hasNewKey && !hasLegacyKey) {
           return textResult('MCP Bridge autoload not found in project.godot.');
         }
 
-        const lines = config.split('\n').filter(line => !line.startsWith(AUTOLOAD_KEY + '='));
+        // 双键清理:新键行 + 旧带前缀键行都移除
+        const lines = config.split('\n').filter(line =>
+          !line.startsWith(AUTOLOAD_KEY + '=') && !line.startsWith(AUTOLOAD_KEY_LEGACY + '='));
         const tmpPath = configPath + '.mcp-tmp';
         writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
         renameSync(tmpPath, configPath);
