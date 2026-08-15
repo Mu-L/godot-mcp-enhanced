@@ -3588,7 +3588,7 @@
           },
           "max_depth": {
             "type": "number",
-            "description": "最大搜索深度（默认 3）",
+            "description": "最大搜索深度（默认 3，钳制上限 10）",
             "default": 3
           },
           "extensions": {
@@ -3758,8 +3758,8 @@
       },
       "size": {
         "descBytes": 109,
-        "schemaBytes": 2836,
-        "totalBytes": 2945
+        "schemaBytes": 2854,
+        "totalBytes": 2963
       },
       "annotations": {
         "readOnlyHint": false,
