@@ -30,7 +30,7 @@
 | `action` | enum (9 项) | ✓ | 操作类型 |
 | `project_path` | string |  | Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录） |
 | `search_dir` | string |  | 搜索目录（list_projects） |
-| `max_depth` | number |  | 最大搜索深度（默认 3） |
+| `max_depth` | number |  | 最大搜索深度（默认 3，钳制上限 10） |
 | `extensions` | array |  | 按扩展名过滤（如 [".gd", ".tscn"]） |
 | `subdirectory` | string |  | 限定子目录 |
 | `project_name` | string |  | 项目名称（默认取文件夹名） |

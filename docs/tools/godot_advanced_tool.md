@@ -2,7 +2,7 @@
 
 > Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: "<name>", arguments: {...} }.
 
-Currently proxyable tools: test, game_design, verify_delivery, batch, audit
+Currently proxyable tools: test, game_design, verify_delivery, batch
 
 | 属性 | 值 |
 |------|-----|

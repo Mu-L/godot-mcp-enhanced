@@ -1159,7 +1159,7 @@
     {
       "name": "blender",
       "group": "blender",
-      "description": "Blender 程序化建模。action=execute_bpy：AI 写 bpy 片段，headless 跑，自动导 glb 到 res://。（⚠️ bpy 是全功能 Python，威胁面=宿主 RCE，高于 execute_gdscript 沙箱一个量级。仅约束 glb 导出落点，不约束 bpy 内部文件操作。本地单用户信任模型。）",
+      "description": "Blender 程序化建模。action=execute_bpy：AI 写 bpy 片段，headless 跑，自动导 glb 到 res://。（⚠️ bpy 是全功能 Python，威胁面=宿主 RCE，高于 execute_gdscript 沙箱一个量级。bpy 代码经沙箱扫描（已知危险 API 模式，清单不列举，防沙箱边界被侦察）+ 双 opt-in 旁路，对齐 execute_gdscript 哲学；glb 导出落点另有 resolveWithinRoot 约束。本地单用户信任模型。）",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1235,9 +1235,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 310,
+        "descBytes": 450,
         "schemaBytes": 567,
-        "totalBytes": 877
+        "totalBytes": 1017
       },
       "annotations": {
         "readOnlyHint": false,
