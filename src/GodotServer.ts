@@ -568,6 +568,13 @@ export class GodotServer {
     // P2: 整体 try/finally 兜底，finally 保证 server.close + 模块级引用清理必执行。
     // 各步骤虽多 best-effort，但 agentCtx.destroy()/server.close() 抛错会中断后续清理 →
     // 模块级引用残留（影响测试隔离与重启）。finally 用 serverClosed 标志防重复 close。
+    // G-2 (2026-08-14 审查 :65+:942③): 清理链逐项 try —— 单点抛错记 warn 不阻断后续清理
+    // 与 killProcess(原 editorMgr.close()/stateStore.flush 裸调,抛错则孤儿 Godot 无兜底杀)。
+    const safeStep = async (label: string, step: () => void | Promise<void>): Promise<void> => {
+      try { await step(); } catch (err) {
+        getLogger().warn('godot-mcp', `close step "${label}" failed (best effort): ${err instanceof Error ? err.message : err}`);
+      }
+    };
     let serverClosed = false;
     try {
       // P2-1: 自动卸载 overrides(graceful shutdown 时清理,防半装状态)。
@@ -575,13 +582,11 @@ export class GodotServer {
       // agent 须手动调 uninstall_override action。
       const editorProjectPath = this.editorMgr?.getProjectPath() ?? null;
       if (this.options.overrides && this.options.overrides.length > 0 && editorProjectPath) {
-        try {
+        await safeStep('auto-uninstall overrides', async () => {
           const { uninstallAllOverrides } = await import('./core/overrides.js');
           const n = uninstallAllOverrides(editorProjectPath);
           if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${editorProjectPath}`);
-        } catch (err) {
-          getLogger().warn('godot-mcp', `Override auto-uninstall failed (best effort): ${err instanceof Error ? err.message : err}`);
-        }
+        });
       }
       // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
       if (this.orphanScanTimer) {
@@ -608,15 +613,18 @@ export class GodotServer {
         this.selfInstanceId = null;
       }
       if (this.editorMgr) {
-        this.editorMgr.close();
+        const mgr = this.editorMgr;
         this.editorMgr = null;
+        await safeStep('editorMgr.close', () => mgr.close());
       }
       const proc = ps.getRunningProcess();
       if (proc && !proc.killed) {
-        await killProcess(proc);
-        ps.setProcessBusy(false);
-        ps.setRunningProcess(null);
-        log('Running Godot process killed');
+        await safeStep('killProcess(running Godot)', async () => {
+          await killProcess(proc);
+          ps.setProcessBusy(false);
+          ps.setRunningProcess(null);
+          log('Running Godot process killed');
+        });
       }
       // B-T4: 清理 in-flight short-running gdscript spawn（gdscript-executor 注册）。
       // 原 close 只 kill run_project 长进程,挂起脚本 + close → 孤儿无兜底。
@@ -629,13 +637,15 @@ export class GodotServer {
         } catch { /* best-effort: 已退出 / killPidTree 内部吞错 */ }
       }
       // Clean up guard cleanup timer and pending tokens
-      guard.cleanup();
+      await safeStep('guard.cleanup', () => guard.cleanup());
       // Stop health monitor heartbeat
-      this.dispatcher?.getHealthMonitor().stopHeartbeat();
-      // 状态持久化 — 刷盘并清理
+      await safeStep('healthMonitor.stopHeartbeat', () => this.dispatcher?.getHealthMonitor().stopHeartbeat());
+      // 状态持久化 — 刷盘并清理(flush 抛错不阻断 destroy 与后续 server.close)
       if (this.stateStore) {
-        await this.stateStore.flush();
-        this.stateStore.destroy();
+        const store = this.stateStore;
+        this.stateStore = null;
+        await safeStep('stateStore.flush', () => store.flush());
+        await safeStep('stateStore.destroy', () => store.destroy());
       }
       try { this.agentCtx.destroy(); } catch { /* best-effort: 不阻断 server.close + 引用清理 */ }
       await this.server.close();
@@ -664,6 +674,11 @@ export class GodotServer {
       setDynamicSender(null);
       setToolCallDelegate(null);
       setBridgeProjectDir(null);
+      // G-2 (:942③): 补漏两个模块级注入点 —— registerBridgePushHandler(:269 注册的
+      // push handler 闭包持已 close 旧 server,不注销则热重启后 push 事件错路由到死 server)
+      // 与 dynamicSchema.setFetcher(:229 注入的 fetcher 同样持旧 editorMgr 闭包)。
+      registerBridgePushHandler(null);
+      dynamicSchema.setFetcher(null);
       log('Server shut down');
     }
   }

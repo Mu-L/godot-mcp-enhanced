@@ -69,6 +69,7 @@ vi.mock('../src/core/EditorToolExecutor.js', () => ({
 vi.mock('../src/core/process-state.js', () => ({
   getRunningProcess: vi.fn().mockReturnValue(null),
   setRunningProcess: vi.fn(),
+  setProcessBusy: vi.fn(),
   getOutputBuffer: vi.fn().mockReturnValue([]),
   setOutputBuffer: vi.fn(),
   getProcessStartTime: vi.fn().mockReturnValue(0),
@@ -87,6 +88,9 @@ vi.mock('../src/core/process-state.js', () => ({
 // ─── Import SUT (after mocks) ────────────────────────────────────────────────
 import { GodotServer, clearGodotPathCache, getCachedGodotPath } from '../src/GodotServer.js';
 import { handleTool as instanceHandleTool, setInstanceManager, setInstanceRouter } from '../src/tools/instance-tools.js';
+import * as bridgeMod from '../src/tools/game-bridge.js';
+import { dynamicSchema } from '../src/core/dynamic-schema.js';
+import { getRunningProcess, killProcess } from '../src/core/process-state.js';
 import { EditorConnection } from '../src/core/EditorConnection.js';
 import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';
 
@@ -219,6 +223,51 @@ describe('GodotServer', () => {
       // 清理测试残留防泄漏
       setInstanceManager(null);
       setInstanceRouter(null);
+    });
+
+    // ── G-2 (2026-08-14 审查 :65 + :942③): close() 清理链补漏 + 逐项容错 ──────────
+    // 根因: close 只调 setBridgeProjectDir(null),漏 registerBridgePushHandler(null)(:269 注册的
+    // push handler 闭包持已 close 旧 server)与 dynamicSchema.setFetcher(null)(模块级注入点);
+    // 且 editorMgr.close()/stateStore.flush 等无逐项 try——单点抛错则后续 killProcess/server.close
+    // 全跳过(孤儿 Godot / server 半关)。
+    describe('G-2: close() 清理链补漏 + 逐项容错', () => {
+      it('close() 注销 bridge push handler 与 dynamicSchema fetcher(两注入点均 null)', async () => {
+        const registerSpy = vi.spyOn(bridgeMod, 'registerBridgePushHandler');
+        const fetcherSpy = vi.spyOn(dynamicSchema, 'setFetcher');
+        try {
+          const server = new GodotServer('/fake/ops.gd');  // 构造时注册 push handler + fetcher
+          await server.close();
+          // close 后两注入点最后一次调用必须是 null(闭包不持已 close 的旧 server)
+          const lastRegister = registerSpy.mock.calls[registerSpy.mock.calls.length - 1];
+          expect(lastRegister[0]).toBeNull();
+          const lastFetcher = fetcherSpy.mock.calls[fetcherSpy.mock.calls.length - 1];
+          expect(lastFetcher[0]).toBeNull();
+        } finally {
+          registerSpy.mockRestore();
+          fetcherSpy.mockRestore();
+        }
+      });
+
+      it('editorMgr.close() 抛错 → 后续 killProcess 仍执行(单点错不阻断清理链)', async () => {
+        vi.mocked(getRunningProcess).mockReturnValue({ killed: false, pid: 4321 });
+        const server = new GodotServer('/fake/ops.gd');
+        server.editorMgr = { close: () => { throw new Error('editor close boom'); }, getProjectPath: () => null };
+        await expect(server.close()).resolves.toBeUndefined();  // 整体不抛
+        expect(killProcess).toHaveBeenCalled();  // 早抛的 editorMgr 不阻断 killProcess(孤儿 Godot 兜底)
+        expect(mockServerClose).toHaveBeenCalled();  // server.close 仍执行
+      });
+
+      it('stateStore.flush 抛错 → 后续 agentCtx/server.close 仍执行', async () => {
+        const server = new GodotServer('/fake/ops.gd');
+        const store = {
+          flush: vi.fn().mockRejectedValue(new Error('flush boom')),
+          destroy: vi.fn(),
+        };
+        server.stateStore = store;
+        await expect(server.close()).resolves.toBeUndefined();
+        expect(store.destroy).toHaveBeenCalled();  // flush 抛错不阻断同段 destroy
+        expect(mockServerClose).toHaveBeenCalled();
+      });
     });
   });
 
