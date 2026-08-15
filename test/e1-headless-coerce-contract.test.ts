@@ -47,7 +47,7 @@ describe('E-1: headless 数学类型真转换(godot_operations.gd)', () => {
     expect(s.includes('coerced = converted'), '转换结果未回写 coerced').toBe(true);
   });
 
-  it('E1-d: 类型矩阵覆盖 10 种(Vector2/2i/3/3i/4/4i/Color/Plane/Quaternion/Rect2/2i)', () => {
+  it('E1-d: 类型矩阵覆盖 11 种(Vector2/2i/3/3i/4/4i/Color/Plane/Quaternion/Rect2/2i)', () => {
     const s = coerceFn();
     for (const t of ['TYPE_VECTOR2', 'TYPE_VECTOR2I', 'TYPE_VECTOR3', 'TYPE_VECTOR3I', 'TYPE_VECTOR4', 'TYPE_VECTOR4I', 'TYPE_COLOR', 'TYPE_PLANE', 'TYPE_QUATERNION', 'TYPE_RECT2', 'TYPE_RECT2I']) {
       expect(s.includes(t), `_coerce_math_value 缺 ${t} 分支`).toBe(true);

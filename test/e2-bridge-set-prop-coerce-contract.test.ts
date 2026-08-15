@@ -5,6 +5,11 @@ import { readFileSync } from 'node:fs';
 // 修复前:仅 _is_blocked_property + _is_safe_value 两道守卫后裸 node.set——拼错属性名 /
 // Array→Vector / Resource 传 String 均 no-op + success:true(三路中唯一无存在性校验无转换)。
 //
+// Fix round 1 (2026-08-15) 补两断言:
+// - E2-j: String 输入 → TYPE_OBJECT/数学类型拒绝(code -9,实测 node.set 静默 no-op 残余)。
+// - E2-k: prop_type==-1 且 prop in node 放行裸 set(static var 不在 get_property_list
+//   但 in 为 true 且 set 生效,一票否决是行为回归;拼错名 in=false 仍 -7)。
+//
 // ⚠️ 局限(对齐 g1-playtest-control-contract 范式的过渡手段):源码字符串断言验证
 // "修复模式落位"而非运行时行为。运行时行为由 bridge 实测覆盖(见 task-E-report.md)。
 
@@ -23,10 +28,10 @@ const getTypeFn = () => sliceBetween('func _get_property_type', '# E-2 (2026-08-
 const coerceFn = () => sliceBetween('func _coerce_math_value', '# E-2: 数学分量读取');
 
 describe('E-2: bridge set_node_property 存在性校验 + 数学 coerce(mcp_bridge.gd)', () => {
-  it('E2-a: 属性存在性校验(-1 → "Property not found" 报错,code -7)', () => {
+  it('E2-a: 属性存在性校验(-1 且不在 in → "Property not found" 报错,code -7)', () => {
     const s = cmdFn();
     expect(s.includes('var prop_type := _get_property_type(node, prop)'), '缺 _get_property_type 调用').toBe(true);
-    expect(s.includes('if prop_type == -1:'), '缺 -1 存在性判断').toBe(true);
+    expect(s.includes('if prop_type == -1 and not prop in node:'), '缺 -1 存在性判断(in 放行版)').toBe(true);
     expect(s.includes('Property not found: %s on %s'), '缺 Property not found 报错').toBe(true);
     expect(s.includes('"code": -7'), '缺 code -7').toBe(true);
   });
@@ -34,7 +39,7 @@ describe('E-2: bridge set_node_property 存在性校验 + 数学 coerce(mcp_brid
   it('E2-b: 存在性校验先于 node.set(防校验后置)', () => {
     const s = cmdFn();
     expect(
-      s.indexOf('if prop_type == -1:'),
+      s.indexOf('if prop_type == -1 and not prop in node:'),
       '存在性校验应先于 node.set'
     ).toBeLessThan(s.indexOf('node.set(prop, coerced)'));
   });
@@ -79,17 +84,39 @@ describe('E-2: bridge set_node_property 存在性校验 + 数学 coerce(mcp_brid
     expect(getTypeFn().includes('return -1'), '缺 return -1 语义').toBe(true);
   });
 
-  it('E2-i: 守卫顺序完整(blocked → 存在性 → safe_value → coerce → set)', () => {
+  it('E2-i: 守卫顺序完整(blocked → 存在性 → safe_value → String 拦截 → coerce → set)', () => {
     const s = cmdFn();
     const idxBlocked = s.indexOf('_is_blocked_property(prop)');
-    const idxExists = s.indexOf('if prop_type == -1:');
+    const idxExists = s.indexOf('if prop_type == -1 and not prop in node:');
     const idxSafe = s.indexOf('_is_safe_value(value)');
+    const idxString = s.indexOf('if value is String:');
     const idxCoerce = s.indexOf('_coerce_math_value(prop_type, value)');
     const idxSet = s.indexOf('node.set(prop, coerced)');
     expect(idxBlocked, 'blocked 守卫缺失').toBeGreaterThan(0);
     expect(idxExists, 'blocked 应先于存在性校验').toBeGreaterThan(idxBlocked);
     expect(idxSafe, '存在性校验应先于 safe_value').toBeGreaterThan(idxExists);
-    expect(idxCoerce, 'safe_value 应先于 coerce').toBeGreaterThan(idxSafe);
+    expect(idxString, 'safe_value 应先于 String 拦截').toBeGreaterThan(idxSafe);
+    expect(idxCoerce, 'String 拦截应先于 coerce').toBeGreaterThan(idxString);
     expect(idxSet, 'coerce 应先于 set').toBeGreaterThan(idxCoerce);
+  });
+
+  it('E2-j [fix1]: String 输入 → TYPE_OBJECT/数学类型拒绝(code -9,消灭静默 no-op 假成功)', () => {
+    const s = cmdFn();
+    expect(s.includes('if value is String:'), '缺 String 输入拦截').toBe(true);
+    expect(s.includes('prop_type == TYPE_OBJECT'), '缺 TYPE_OBJECT String 拒绝分支').toBe(true);
+    expect(s.includes('TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR, TYPE_PLANE, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I'), '缺数学类型拒绝集合(11 种)').toBe(true);
+    expect(s.includes('"code": -9'), '缺 code -9').toBe(true);
+    expect(s.includes('silent no-op'), '缺 silent no-op 说明(message 引导用户换路径/输入)').toBe(true);
+    // 拦截须在 Array/Dict coerce 分派前(先消灭 String 假成功,再走分量转换)
+    expect(s.indexOf('if value is String:'), 'String 拦截应先于 Array/Dict coerce 分派').toBeLessThan(s.indexOf('if value is Array or value is Dictionary:'));
+  });
+
+  it('E2-k [fix2]: prop_type==-1 且 prop in node 放行裸 set(无声明类型属性不误拒,拼错名仍 -7)', () => {
+    const s = cmdFn();
+    // in 放行式判断:-1 且不在 in 才拒(实测 static var 不在 get_property_list 但 in=true 且 set 生效)
+    expect(s.includes('if prop_type == -1 and not prop in node:'), '缺 in 放行式存在性判断').toBe(true);
+    expect(s.includes('Property not found: %s on %s'), '拼错名仍报 Property not found').toBe(true);
+    // 实测依据注释(防未来重构误删 in 守卫时丢失上下文)
+    expect(s.includes('static var'), '缺 static var 实测依据注释').toBe(true);
   });
 });

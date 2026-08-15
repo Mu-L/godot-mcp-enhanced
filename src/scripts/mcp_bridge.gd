@@ -1046,12 +1046,34 @@ func _cmd_set_node_property(params: Dictionary) -> Variant:
 	# no-op + success:true(三路 editor/headless/bridge 中唯一无存在性校验的,brief :100 P2)。
 	# 对齐 headless godot_operations.gd _set_property_with_coerce 的 "Property not found"
 	# 拒绝 + editor command_helpers.gd coerce_property_value 四层第 2 层。
+	# 批E-fix2 (2026-08-15): -1 不再一票否决——实测 Godot 4.6.3(DIAG6/7/9/11):
+	# script static var 不在 get_property_list 但 `prop in node` 为 true 且 instance set
+	# 生效;普通 script var(health 等)本就在 list 不受影响。`in` 是引擎存在性真值
+	# (拼错名 DIAG8 "healt" in node=false),故 -1 且 not in 才拒;在但无声明类型 → 放行
+	# 裸 set 保持旧行为(static var 是调试通道典型写入目标,一票否决是行为回归)。
+	# prop_type 未知 → 数学/Object 分派不适用;Array/Dict 输入仍走 coerce(-1 不匹配
+	# 任何分支 → null → -8 拒绝,标量透传由引擎 Variant 转换处理,DIAG15 String→int 生效)。
 	var prop_type := _get_property_type(node, prop)
-	if prop_type == -1:
+	if prop_type == -1 and not prop in node:
 		return {"error": {"code": -7, "message": "Property not found: %s on %s" % [prop, node.get_class()]}}
 	if not _is_safe_value(value):
 		var type_info: String = "null" if value == null else value.get_class()
 		return {"error": {"code": -3, "message": "Value type not allowed: %s" % type_info}}
+	# 批E-fix1 (2026-08-15): String 输入 → TYPE_OBJECT/数学类型属性拒绝(code -9)。
+	# 实测 Godot 4.6.3(DIAG12-14): node.set 数学属性传 "(1, 2)"/"garbage"、Resource 属性传
+	# "res://icon.svg" 均静默 no-op(position 仍 (0,0)/texture 不变)但流程返 success——
+	# 批E 残余假成功,bridge 是三路中唯一未拦截的。对齐:
+	# ① TYPE_OBJECT:headless/editor 对 plain String 报错、res:// String 走 load;bridge
+	#   不引入 load(资源路径防护是另两路的 DUPLICATE 副本,bridge 加需同步三份),统一
+	#   拒绝并引导走 editor/headless 路径。
+	# ② 数学类型:对齐 headless _has_components(String 不在分量类型白名单 → 拒绝),
+	#   改用 Array/Dict 分量输入。注:call_method args 侧 _coerce_bridge_single 对
+	#   Vector2/3 接受 String(显式构造器),与本处属性 set 的拒绝语义有意不同。
+	if value is String:
+		if prop_type == TYPE_OBJECT:
+			return {"error": {"code": -9, "message": "Property %s expects Resource: String via bridge set_node_property is a silent no-op, use editor/headless path for res:// loading" % prop}}
+		elif prop_type in [TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR, TYPE_PLANE, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I]:
+			return {"error": {"code": -9, "message": "Property %s expects math type: String input is a silent no-op, pass Array/Dict components (e.g. [x, y, z])" % prop}}
 	# E-2 (2026-08-14): 数学类型 coerce——JSON Array/Dict 输入经 node.set 是静默 no-op
 	# 但返 success(Godot 4.x verified,见 command_helpers.gd:93-94 注释)。仅 Array/Dict
 	# 输入走转换(null/标量/已是数学类型透传,保持 bridge 原行为);对齐 headless E-1 修复
@@ -1080,6 +1102,9 @@ func _get_property_type(obj: Object, key: String) -> int:
 #   源(editor 侧):   addons/godot_mcp_server/commands/command_helpers.gd coerce_value_for_property
 #   副本(headless):  src/scripts/godot_operations.gd _coerce_math_value
 #   副本(bridge 侧): 本文件 _coerce_math_value
+# 另:文件内第四份同族 _coerce_bridge_single(call_method args 侧,CMP-9-B)按 ClassDB 方法
+# 声明类型逐参数强转(Vector2/3 显式接受 String 构造),与本函数按属性声明类型的分派是
+# 不同输入面——同步维护属性 coerce 时勿混淆两份的 String 语义(属性 set 拒绝,args 接受)。
 # 对齐 godot_operations.gd _is_safe_value 的既有 DUPLICATE 做法(C-03 同步模式)。
 # 与 editor 源版差异(有意,与 headless 副本一致): 按属性声明类型 prop_type 分派而非
 # typeof(current);支持 Dict{x,y,z,w}/{r,g/b/a} 输入;补 Vector4i/Rect2/Rect2i 构造。
