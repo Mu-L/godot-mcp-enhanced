@@ -135,6 +135,14 @@ async function callToolReal(toolName: string, args: Record<string, unknown>): Pr
 let _mainSceneSnap: string;
 
 beforeAll(() => {
+  // 批 H / H-3 (2026-08-15): 清理上次运行的 .godot 缓存(imported/uid_cache/editor 状态),
+  // 对齐 e2e-p1-p5.test.ts:53 模式 —— 本地重复跑以 CI fresh-checkout 干净状态起步,
+  // 防陈旧 import 缓存假绿/假红(e2e-asset-tools/bridge-get-node-layout/p1-p5/
+  // phase1-discovery/resilience-editor 五文件均有同款清理,唯本文件漏)。
+  // e2e-project 是主测试项目;real-project 供 L1/L2 正路径(其 .godot 由
+  // E2E_EDITOR gate 的各 e2e 文件自清,此处一并清保证双 fixture 干净起步)。
+  rmSync(resolve(TEST_PROJECT, '.godot'), { recursive: true, force: true });
+  rmSync(resolve(REAL_PROJECT, '.godot'), { recursive: true, force: true });
   if (!_registered) {
     registerAllModules();
     _registered = true;
