@@ -97,7 +97,9 @@ jobs:
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
       - name: Run vitest (Godot available for skipIf tests)
         # P0-4：补 env GODOT_PATH，让 describe.skipIf(!hasGodot) 测试真跑（非静默 skip）
-        run: npx vitest run --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
+        # 2026-08-15: CI 2 核 runner 并发 spawn Godot 资源耗尽致 GD 类测试超时/输出丢失(flaky 58%)
+        # 历史失败——限 maxWorkers=2 串行化大部分 GD spawn(本地全量绿,CI 全绿为合并门禁)
+        run: npx vitest run --maxWorkers=2 --minWorkers=1 --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: Check gdscript（产出 report；blocking 经下游 score:gate，本步 exit 0 即使 errors>0）
