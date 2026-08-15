@@ -638,6 +638,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.29.0** | 2026-08-15 | **2026-08-14 六批次审查 findings 全量修复（P0×1 + P1×10 + P2/P3,43 commits,双波终审）**：P0 editor 重连链死修复（编辑器重启后自动恢复）+ 安全面（write_script 沙箱 4 旁路入口封堵/deny-list 拼写/load_skill 白名单/nonce symlink）+ audit 工具复活（生产 bug,0.28.3 特性此前不可见）+ playtest 六项（永久暂停/owner 互斥/paused 保存等）+ 属性写入 no-op 假成功三路对齐 + bridge 订阅断线恢复 + **⚠️ autoload 键名迁移（Breaking,旧项目重跑 game_bridge_install 自动迁移）**+ debug/undo GD 修复 + 测试债（debug e2e 首跑/GD 套件/dispatcher 审计 9 场景）+ 披露对齐。发版门禁全绿（verify_delivery 3/3 + e2e L2 真跑 75 passed）。 |
 | **v0.28.3** | 2026-08-13 | **战略批收尾（14 竞品路线图 G1/G3/G7）**：G3 操作级审计日志（audit.jsonl appendFile 原子追加,危险操作可追溯/回放）+ G1 deterministic playtest control 层（freeze/unfreeze/step_until 结构化条件,规避 RCE）+ G7 能力 profile（basic=9 组/advanced/full,**BREAKING**：默认 profile 从 full 改 basic,schema 79KB→~30KB 省 ~60% context）。路线图全完成（G2/G3/G1/G7/G8 ✅,G6 实测已有移除）。 |
 | **v0.28.2** | 2026-08-12 | **安全加固 + 威胁模型 + 可观测性 + 审查修复**：G2 trace_id + 结构化错误分类 + PII 护栏（速赢批）+ S-1/S-2 bpy-sandbox 双 opt-in + spawn 清单 + S-3~S-7 多实例 registry/editor-auth/http-server 加固 + G8 威胁模型文档（10 层防护实测声明）+ P0 animtree sub_action 死代码修复（F-6 CRITICAL）+ P1 data-import timeout 钳制（F-1/F-2）+ P2 工具层校验精确化（F-3~F-8）+ CMP-13 generate-all-modules + Tier1 structuredContent/prompt + Tier2 skills/tscn parser + Vision Routing 双 opt-in。 |
 | **v0.28.1** | 2026-08-11 | **安全加固批次 C + 测试质量**：批次 C 安全加固（deny-list/symlink/path/debug.evaluate RCE 多点）+ instance_registry 目录权限 Linux 0o700（P2-4）+ 弱断言精确化与接线守护批次（P1-3~P1-5/P2-1/P2-2）+ MULTI_INSTANCE 接入 godot-matrix（P1-2）+ 全批次第三方审查文档。 |

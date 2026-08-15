@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.29.0] - 2026-08-15
 
 ### ⚠️ Breaking / 迁移需知 — autoload 键名迁移(2026-08-14 批次,影响 bridge 安装)
 
@@ -38,8 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security — 同批次
 
-- **write_script 沙箱 3 个旁路入口封堵**:`quick_scene`/`create_files`/`apply_template` 三个写 `.gd` 入口裸 `writeFileSync` 绕过 `scanScriptSandboxOrThrow`(tscn 绑 ExtResource 后编辑器打开/run_project 即执行,与 write_script 同一威胁面);现统一接线落盘前扫描,危险 `.gd` 拒入 failed 不落盘(commit `7d967eb`)。
-- **`engine call_method` deny-list 拼写错误 + 内层检查**:deny-list 条目拼写错误致对应方法从未被挡;补 args 带内层方法名的间接调用检查(commit `b7aaf52`)。
+- **write_script 沙箱 3 个旁路入口封堵(SEC-P1-1)**:`quick_scene`/`create_files`/`apply_template` 三个写 `.gd` 入口裸 `writeFileSync` 绕过 `scanScriptSandboxOrThrow`(tscn 绑 ExtResource 后编辑器打开/run_project 即执行,与 write_script 同一威胁面);现统一接线落盘前扫描,危险 `.gd` 拒入 failed 不落盘(commit `7d967eb`)。
+- **`engine call_method` deny-list 拼写错误 + 内层检查(cmp-9 关联)**:deny-list 条目拼写错误致对应方法从未被挡;补 args 带内层方法名的间接调用检查,契约测试从 `godot-classes.json` 生成防拼写再固化(commit `b7aaf52`)。
 - **`load_skill` libraries 白名单 + API nonce 持久化防 symlink 覆写**:`load_skill` 的 `libraries` 参数可读白名单外路径,现限 ALLOWED_PROJECT_PATHS;多实例 API nonce 持久化时补 symlink 预检(commit `effb5fc`)。
 - **project create `godot_version` 注入面校验**:`create_project`/`apply_template` 的 `godot_version` 直接进 CI 生成物,现补格式校验(支持 `4.4.1-rc1` pre-release 形态)(commits `3b80e36`/`dd09899`)。
 
