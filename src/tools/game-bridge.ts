@@ -86,6 +86,71 @@ let _pushBuffer = '';
 // socket, causing each handler to see partial/mixed response data.
 let _sendLock: Promise<unknown> = Promise.resolve();
 
+// G-1 (2026-08-14 审查 :935 P1): 订阅登记表 — bridge 断线重连后自动重发 watch/monitor 订阅。
+// 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅状态)或 TS 侧
+// 请求超时销毁 socket → 重连后无机制重发 watch.start/monitor.start → push 事件从此静默消失、
+// watch_poll 返 not watching 无报错。登记成功订阅,_doConnect 成功后重发,恢复推送语义。
+interface BridgeSubscription {
+  method: 'watch.start' | 'monitor.start';
+  params: Record<string, unknown>;
+}
+let _subscriptions: BridgeSubscription[] = [];
+let _resendInFlight: Promise<void> | null = null;
+
+/** 登记订阅(同 method 仅保留最新一条 — GD 侧 per-peer 单例,重复 start 覆盖;登记表同步覆盖防重发重复订阅) */
+function _registerSubscription(method: 'watch.start' | 'monitor.start', params: Record<string, unknown>): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+  _subscriptions.push({ method, params: { ...params } });
+}
+
+/** 移除订阅登记(watch_stop/monitor_stop 成功或重发被游戏侧拒绝时) */
+function _removeSubscription(method: 'watch.start' | 'monitor.start'): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+}
+
+/** 重发登记表中的订阅。fire-and-forget: 经 _sendLock 排队(不与当前 in-flight 请求死锁),
+ *  单条失败仅 warn;游戏侧返回 error(节点已销毁等永久失败)时移除登记,防重连重试风暴。 */
+function _resendSubscriptions(): void {
+  if (_subscriptions.length === 0) return;
+  if (_resendInFlight) return;  // 重发自身触发的重连不再叠加
+  const pending = [..._subscriptions];
+  _resendInFlight = (async () => {
+    for (const sub of pending) {
+      try {
+        const resp = await sendToBridge(sub.method, sub.params, DEFAULT_TIMEOUT);
+        if (resp.error) {
+          getLogger().warn('bridge', `Resend ${sub.method} after reconnect rejected (${resp.error.code}): ${resp.error.message} — dropping subscription`);
+          _removeSubscription(sub.method);
+        }
+      } catch (err) {
+        getLogger().warn('bridge', `Resend ${sub.method} after reconnect failed: ${getErrorMessage(err)} — keeping subscription for next reconnect`);
+      }
+    }
+  })().finally(() => { _resendInFlight = null; });
+}
+
+// G-1: 30s ping keepalive — 连接空闲时定期发轻量请求,刷新游戏侧 idle 计时
+// (mcp_bridge.gd INACTIVITY_TIMEOUT=60s 无字节即断连),防长 idle 后订阅静默丢失。
+const KEEPALIVE_INTERVAL_MS = 30_000;
+let _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+function _startKeepalive(): void {
+  if (_keepaliveTimer) return;
+  _keepaliveTimer = setInterval(() => {
+    if (!_socket || !_socketAuthenticated || _socket.destroyed || !_socket.writable) return;
+    // 失败由 error/close 路径自愈(_invalidateSocket → 下次业务调用重连 + 重发订阅)
+    sendToBridge('ping', {}, 5000).catch(() => { /* best-effort: 断线自愈 */ });
+  }, KEEPALIVE_INTERVAL_MS);
+  _keepaliveTimer.unref?.();  // 不阻塞进程退出
+}
+
+function _stopKeepalive(): void {
+  if (_keepaliveTimer) {
+    clearInterval(_keepaliveTimer);
+    _keepaliveTimer = null;
+  }
+}
+
 /** Find the bridge secret file in project .godot dir. Throws if project dir not set. */
 function findBridgeSecretPath(): string {
   if (_cachedSecretPath) return _cachedSecretPath;
@@ -249,6 +314,10 @@ async function _doConnect(timeout: number): Promise<Socket> {
             // 新 socket(A 被 B 替换后,A.destroy() 的 close 异步触发,此时 _socket 已是 B,无守卫会 destroy B)。
             sock.on('close', () => { if (_socket === sock) _invalidateSocket(); });
             sock.on('error', () => { if (_socket === sock) _invalidateSocket(); });
+            // G-1: 连接成功 → 启动 keepalive(防 60s idle 断连) + 重发登记的订阅(恢复 push/轮询语义)。
+            // 重发经 _sendLock 排队(当前请求 settle 后执行),不与 in-flight 请求死锁。
+            _startKeepalive();
+            _resendSubscriptions();
             // 首次 Bridge 连接成功时自动在新终端启动 Dashboard TUI
             launchDashboardOnce();
             resolve(sock);
@@ -335,6 +404,9 @@ export function setBridgeProjectDir(projectDir: string | null): void {
   _cachedSecretPath = null;
   _cachedSecret = null;
   _connectionLock = null;
+  // G-1: 切项目 = 旧连接语义终结 — 清订阅登记(旧项目订阅对新项目无意义) + 停 keepalive
+  _subscriptions = [];
+  _stopKeepalive();
   _invalidateSocket();
 }
 
@@ -643,6 +715,12 @@ async function bridgeAction(method: string, params: Record<string, unknown>, ctx
   // (isError=true),否则 MCP 客户端误判成功吞掉错误。原 textResult 默认 isError=false。
   if (resp.error) {
     return errorResult(`Bridge error (${resp.error.code}): ${resp.error.message}`);
+  }
+  // G-1: 订阅登记表维护 — start 成功登记(重连后重发),stop 成功移除(不再重发)
+  if (method === 'watch.start' || method === 'monitor.start') {
+    _registerSubscription(method, params);
+  } else if (method === 'watch.stop' || method === 'monitor.stop') {
+    _removeSubscription(method === 'watch.stop' ? 'watch.start' : 'monitor.start');
   }
   return textResult(JSON.stringify(resp.result, null, 2));
 }
@@ -993,6 +1071,10 @@ export function resetBridgeState(): void {
   _cachedSecretAt = 0;
   _connectionLock = null;
   _sendLock = Promise.resolve();
+  // G-1: 订阅登记表 + keepalive timer 一并清(服务重启语义:旧订阅不复存在;timer 防测试隔离泄漏)
+  _subscriptions = [];
+  _resendInFlight = null;
+  _stopKeepalive();
 }
 
 // ─── Bridge readiness probe (M4) ────────────────────────────────────────────

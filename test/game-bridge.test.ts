@@ -619,6 +619,135 @@ describe('P1-3: bridge 连接状态机 characterization（change_scene 断连基
   });
 });
 
+// ── G-1 (2026-08-14 审查 :935 P1): 订阅断线恢复 — 重连后自动重发 watch/monitor ──
+// 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅)或 TS 侧
+// 请求超时销毁 socket → 重连后无人重发 watch.start/monitor.start → push 事件静默消失、
+// watch_poll 返 not watching 无报错。修复: 订阅登记表 + _doConnect 成功后自动重发 + 30s ping keepalive。
+describe('G-1: 订阅断线恢复(登记表 + 重连重发 + keepalive)', () => {
+  /** 记录型 mock socket:响应所有请求(auth id=0 / method id≥1),writes 记录 method 请求 */
+  function recordingBridgeSocket(): { sock: EventEmitter; writes: Array<{ id: number; method: string; params: Record<string, unknown> }> } {
+    const writes: Array<{ id: number; method: string; params: Record<string, unknown> }> = [];
+    const sock = new EventEmitter();
+    (sock as any).write = vi.fn((data: string) => {
+      let req: { id?: number; method?: string; params?: Record<string, unknown> };
+      try { req = JSON.parse(data); } catch { return; }
+      if (req.id === 0) {
+        queueMicrotask(() => sock.emit('data', Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n')));
+        return;
+      }
+      writes.push({ id: req.id!, method: req.method!, params: req.params ?? {} });
+      queueMicrotask(() => sock.emit('data', Buffer.from(JSON.stringify({ id: req.id, result: { watching: true, monitoring: true } }) + '\n')));
+    });
+    (sock as any).destroy = vi.fn();
+    (sock as any).writable = true;
+    return { sock, writes };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExists.mockReturnValue(true);
+    mockRead.mockReturnValue('test-secret');
+    setBridgeProjectDir('/__reset__');
+    setBridgeProjectDir('/p');
+  });
+
+  it('watch_start 成功 → 断连 → 重连后 watch.start 自动重发(参数保留)', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    // 1. 首连 + 订阅成功(登记进登记表)
+    const r1 = await handleTool('game', { action: 'watch_start', node_path: '/root/Player', signal_name: 'pressed' }, ctx);
+    expect(r1.isError).toBeFalsy();
+
+    // 2. 模拟 bridge 侧断连(close handler → _invalidateSocket)
+    current.sock.emit('close');
+
+    // 3. 重连(下次请求触发 _doConnect)
+    current = recordingBridgeSocket();
+    const r2 = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(r2.isError).toBeFalsy();
+
+    // 4. 重发的 watch.start 排队在业务请求之后(经 _sendLock),轮询等待其出现在新 socket 上
+    await vi.waitFor(() => {
+      const resent = current.writes.filter(w => w.method === 'watch.start');
+      expect(resent.length).toBe(1);  // 恰好一次(不重复订阅)
+      expect(resent[0].params).toMatchObject({ node_path: '/root/Player', signal_name: 'pressed' });
+    });
+  });
+
+  it('watch_stop 后断连重连,不再重发 watch.start', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    await handleTool('game', { action: 'watch_start', node_path: '/root/Player', signal_name: 'pressed' }, ctx);
+    await handleTool('game', { action: 'watch_stop' }, ctx);
+
+    current.sock.emit('close');
+    current = recordingBridgeSocket();
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+
+    // 等待潜在重发窗口(重发经微任务+锁排队,给足时间)
+    await new Promise(r => setTimeout(r, 100));
+    expect(current.writes.filter(w => w.method === 'watch.start')).toHaveLength(0);
+  });
+
+  it('monitor_start 成功 → 断连 → 重连后 monitor.start 自动重发', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    const r1 = await handleTool('game', { action: 'monitor_start', node_path: '/root/Player', properties: ['position'] }, ctx);
+    expect(r1.isError).toBeFalsy();
+
+    current.sock.emit('close');
+    current = recordingBridgeSocket();
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+
+    await vi.waitFor(() => {
+      const resent = current.writes.filter(w => w.method === 'monitor.start');
+      expect(resent.length).toBe(1);
+      expect(resent[0].params).toMatchObject({ node_path: '/root/Player', properties: ['position'] });
+    });
+  });
+
+  it('keepalive: 连接空闲 30s → 自动发轻量 ping 刷新游戏侧 idle 计时(防 60s 断连)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sock, writes } = recordingBridgeSocket();
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+
+      // 业务 ping 一次(建立连接 + 启动 keepalive timer)
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      const businessPings = writes.filter(w => w.method === 'ping').length;
+
+      // 空闲 30s → keepalive 触发一次轻量 ping
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(0);  // flush 重发/响应微任务链
+
+      expect(writes.filter(w => w.method === 'ping').length).toBe(businessPings + 1);
+      // 未断连:keepalive ping 成功 → 不应产生第二次连接
+      expect(mockCreate.mock.calls.length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // ── P3-2R (2026-08-12): setBridgeProjectDir in-flight warn 守护 ──────────────
 // 审查 P3-2R: setBridgeProjectDir :327-333 inflightDetected warn 是最小修复
 // (2026-08-06 加),彻底 per-project socket 是架构级 follow-up。本测试守护最小修复接线
