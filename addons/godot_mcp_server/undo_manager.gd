@@ -48,6 +48,19 @@ func _add_method(undo_redo: EditorUndoRedoManager, mode: String, target: Object,
 	if not is_instance_valid(target):
 		push_warning("undo_manager: invalid (freed/null) target for method '%s'" % method)
 		return
+	# I-3 (2026-08-14 审查,可疑项防御性修复——未复现): args 中已 freed 的 Object 参数
+	# 跳过注册整个 op。原 is_instance_valid 只查 target 不查 args 里的 Object;batch 孤儿
+	# free 与 add_do_reference 冲突时,回放期引擎调用带 freed 实参的方法 → SCRIPT ERROR
+	# 中断整个 action 回放(跳过单 op 不中断回放,降级为 Ctrl+Z 少撤一步)。
+	# ⚠️ 检测必须用 typeof(arg) == TYPE_OBJECT 而非 `arg is Object`——Godot 4.6.3 实测
+	# (headless probe,2026-08-15):对 freed 实例求值 `is` 本身即 SCRIPT ERROR
+	# "Left operand of 'is' is a previously freed instance";typeof 不求值实例,安全。
+	# 局限(如实声明): 此为**注册期**检查——args 在注册后、回放前被 free 仍会报错(引擎
+	# 内部回放路径,wrapper 层无法拦截);add_do/undo_reference 持 Node 引用仍是主防线。
+	for arg in args:
+		if typeof(arg) == TYPE_OBJECT and not is_instance_valid(arg):
+			push_warning("undo_manager: freed Object arg for method '%s' (mode=%s) — skipping op registration (defensive, I-3)" % [method, mode])
+			return
 	# EditorUndoRedoManager.add_do_method/add_undo_method 签名是 (Object, StringName, ...args)
 	# vararg，不接受 Callable（UndoRedo 风格 add_do_method(cb) 会静默不注册 do_method
 	# -> commit_action 执行空 do_ops -> add_child 从未调用 -> 节点不落地 bug）。
