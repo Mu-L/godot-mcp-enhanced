@@ -539,7 +539,7 @@ export function getToolDefinitions(): Tool[] {
           },
           params: {
             type: 'object',
-            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-60000,默认30000)}',
+            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}',
           },
           timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
@@ -603,6 +603,31 @@ export const PLAYTEST_METHODS = new Set([
 export const CONTROL_METHODS = new Set([
   'playtest.freeze', 'playtest.unfreeze', 'playtest.step_until',
 ]);
+
+/**
+ * G-3 (:942② + 批D移交): 计算 game_playtest 各 method 的 TS 侧请求 timeout(纯函数,无 IO)。
+ *
+ * step_until 的竞态根因: 原 `min(max(raw,30000),60000)` 与 GD 侧 idle 60s(mcp_bridge.gd
+ * INACTIVITY_TIMEOUT)同界 — wall_budget_ms=60000 时 TS 先到期销毁常驻 socket(响应丢失 +
+ * 订阅断线)。批 D 已把 GD 侧 wall_budget clamp 到 50s,TS 侧对齐:
+ * `wall_budget + 5s 余量`(默认 30000 → 35000;wall=60000 超界入参 → 65000 不再先到期),
+ * 并与用户显式 timeout 取 max(用户显式更长时尊重显式意图,不被 wall 公式压短)。
+ *
+ * 其余 method 保持原行为: step 走 max(raw,30000) cap 60000;非长跑 method 原样。
+ */
+export function computePlaytestTimeoutMs(method: string, wallBudgetMs: unknown, rawTimeoutMs: number): number {
+  const base = (method === 'playtest.step' || method === 'playtest.step_until')
+    ? Math.min(Math.max(rawTimeoutMs, 30000), 60000)
+    : Math.min(rawTimeoutMs, 60000);
+  if (method !== 'playtest.step_until') return base;
+  const n = Number(wallBudgetMs);
+  const wall = (wallBudgetMs === undefined || wallBudgetMs === null || !Number.isFinite(n))
+    ? 30000
+    : Math.max(0, Math.round(n));
+  // wall + 5s 余量,clamp 到 [1000,65000](65000 上界容纳 GD 侧超界入参 60000+5000)
+  const byBudget = clampTimeoutMs(wall + 5000, 1000, 65000, 35000);
+  return Math.max(byBudget, base);
+}
 
 /**
  * CRITICAL-3 fix: poll a Bridge wait condition until it holds or the budget
@@ -937,10 +962,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const params = (rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams))
           ? rawParams as Record<string, unknown>
           : {};
-        // step/step_until 走 coroutine 延迟响应,需要更长 timeout(N 帧推进 / 条件多帧才满足)
-        const isLongRunning = method === 'playtest.step' || method === 'playtest.step_until';
-        const rawTimeout = clampTimeoutMs(args.timeout);
-        const timeout = Math.min(isLongRunning ? Math.max(rawTimeout, 30000) : rawTimeout, 60000);
+        // step/step_until 走 coroutine 延迟响应,需要更长 timeout(N 帧推进 / 条件多帧才满足)。
+        // G-3: step_until 的 timeout 由 wall_budget + 5s 余量决定(防 TS 先于 GD idle 60s 到期销毁 socket)
+        const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, clampTimeoutMs(args.timeout));
         const response = await sendToBridge(method, params, timeout);
         if (response.error) {
           if (response.error.code === -32001 || response.error.code === -32002) {
