@@ -59,7 +59,7 @@ export async function handleCommitAction(
 ): Promise<ToolResult | null> {
   const p = requireProjectPath(args);
   const scenePath = normalizeUserProjectPath(args.scene_path as string);
-  resolveWithinRoot(p, scenePath);
+  const absPath = resolveWithinRoot(p, scenePath);
   const operations = args.operations as Array<Record<string, unknown>>;
   const save = args.save !== false;
   const stopOnError = args.stop_on_error !== false;
@@ -76,6 +76,15 @@ export async function handleCommitAction(
   const validationError = validateCommitOperations(operations);
   if (validationError) {
     return opsErrorResult('INVALID_PARAMS', validationError);
+  }
+
+  // F-1 (批 F, 2026-08-14): editor 场景写守卫——commit 走 headless spawn 写盘(不在 editor-method-map),
+  // 若该场景在 editor 打开, headless 直写磁盘会被 editor GUI save 覆盖回旧内存态,批量写入静默丢失。
+  // 调用方式对齐 index.ts edit_node(:385-388)同款;守卫在 acquireShortRunningSlot 之前,被拦截不占 slot。
+  // headless 模式 checkEditorSceneSave 未注入, 直接放行。
+  if (ctx.checkEditorSceneSave) {
+    const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+    if (sceneGuard.blocked) return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`);
   }
 
   // Generate GDScript
@@ -104,6 +113,12 @@ export async function handleCommitAction(
 
     // Parse COMMIT_RESULT from output
     const commitResult = parseCommitResult(result.raw_output || result.run_error || '');
+    // F-2 (批 F, 2026-08-14): 请求了保存但写盘失败(ENOSPC/EACCES 等 → saved:false)不再假成功——
+    // 顶层置 isError,防 AI 与 middleware 把写盘失败当成功。覆盖保存失败/stopOnError 中止/load 失败
+    // (三者 saved 均 false)。save=false 时 saved:false 是预期(未请求保存),不触发。
+    if (save && commitResult?.saved === false) {
+      return { content: [{ type: 'text', text: JSON.stringify(commitResult, null, 2) }], isError: true };
+    }
     return textResult(JSON.stringify(commitResult || {
       success: result.run_success,
       raw_output: result.raw_output,

@@ -228,6 +228,31 @@ describe('scene-commit: generateCommitScript', () => {
     expect(script).toContain('"saved": false');
   });
 
+  // F-2 (批 F, 2026-08-14): save=true 时 saveBlock 的顶层 success 不再硬编码 true。
+  // 原字面量 {"success": true, "saved": err == OK} 并存 → 磁盘满/权限失败(EACCES/ENOSPC)时
+  // AI 与 middleware 把写盘失败当成功(假成功)。修复后 success 绑定 err == OK。
+  it('F-2: save=true 时 COMMIT_RESULT success 绑定 err == OK,不再硬编码 true', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_set', node_path: 'Ground', coords: { x: 1, y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } }],
+      true,
+    );
+    expect(script).toContain('"success": err == OK');
+    expect(script).toContain('"saved": err == OK');
+    // 保存路径的 COMMIT_RESULT 不再含硬编码 success:true
+    expect(script).not.toContain('"success": true');
+  });
+
+  it('F-2: save=false 分支保持 success:true + saved:false（未请求保存,无保存失败可掩盖）', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_set', node_path: 'Ground', coords: { x: 1, y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } }],
+      false,
+    );
+    expect(script).toContain('"success": true');
+    expect(script).toContain('"saved": false');
+  });
+
   it('generates tileset_assign operation', () => {
     const script = generateCommitScript(
       'res://scenes/Level.tscn',

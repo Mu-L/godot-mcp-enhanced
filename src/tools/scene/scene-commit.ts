@@ -200,8 +200,12 @@ export function generateCommitScript(
   }
 
   const sp = gdEscape(scenePath);
+  // F-2 (批 F, 2026-08-14): save=true 分支顶层 success 绑定 err == OK——原硬编码 true 与
+  // saved:err==OK 并存,磁盘满/权限失败(EACCES/ENOSPC)时 COMMIT_RESULT 报成功(假成功),
+  // AI 与 middleware 把写盘失败当成功。save=false 分支无保存动作,success:true 是"无保存失败"
+  // 的预期语义,保持不变(handleCommitAction 仅在 save 时对 saved:false 置 isError)。
   const saveBlock = save
-    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": err == OK, "results": _results}))`
+    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": err == OK, "saved": err == OK, "results": _results}))`
     : `\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": false, "results": _results}))`;
 
   const fillHelper = hasFill
