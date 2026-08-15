@@ -1,7 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
-import { validatePath } from '../helpers.js';
+import { requireProjectPath } from '../helpers.js';
 import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from './shared.js';
 import { gdEscape } from './shared.js';
 
@@ -15,7 +15,6 @@ const VALID_ASSERTIONS = new Set(['node_exists', 'property_equals', 'signal_conn
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] test-framework module is absorbed into validation. Do not register directly.`);
   return [
@@ -62,7 +61,6 @@ export function getToolDefinitions(): Tool[] {
 
 // ─── Tool handler ───────────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 validation。仅保留供目标模块导入 handler。 */
 export async function handleTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
   if (name !== 'test') return null;
 
@@ -79,10 +77,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       return opsErrorResult('EDITOR_ONLY', `Action "${action}" requires Editor mode. Set GODOT_MCP_MODE=editor and install the Godot plugin.`);
     }
 
-    if (typeof args.project_path !== 'string' || !args.project_path) {
-      return opsErrorResult('INVALID_PARAMS', 'project_path is required and must be a string');
-    }
-    const projectPath = validatePath(args.project_path);
+    // SEC-P2-1 (2026-08-09 审查): 用 requireProjectPath 替代裸 validatePath + 手写 typeof 检查。
+    // validatePath=resolvePath 仅归一化路径零安全校验;requireProjectPath 内部已调 requireString
+    // (project_path 非空字符串检查) + isPathInAllowedRoots deny-by-default root 白名单
+    // (防 project_path 指向 ALLOWED_PROJECT_PATHS 外任意路径跑 GDScript 测试)。全局门
+    // ToolDispatcher.validatePathArgs 已兜底,此处为防御纵深(消除对全局门的隐式依赖)。
+    const projectPath = requireProjectPath(args);
     const godot = await ctx.findGodot();
 
     switch (action) {

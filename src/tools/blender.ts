@@ -36,7 +36,8 @@ export function getToolDefinitions(): Tool[] {
     name: 'blender',
     description: 'Blender 程序化建模。action=execute_bpy：AI 写 bpy 片段，headless 跑，自动导 glb 到 res://。'
       + '（⚠️ bpy 是全功能 Python，威胁面=宿主 RCE，高于 execute_gdscript 沙箱一个量级。'
-      + '仅约束 glb 导出落点，不约束 bpy 内部文件操作。本地单用户信任模型。）',
+      + 'bpy 代码经沙箱扫描（已知危险 API 模式，清单不列举，防沙箱边界被侦察）+ 双 opt-in 旁路，对齐 execute_gdscript 哲学；'
+      + 'glb 导出落点另有 resolveWithinRoot 约束。本地单用户信任模型。）',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -68,7 +69,8 @@ export async function handleTool(
   const timeout = validateTimeout(args.timeout, 5, 120, 60);
 
   // glb 导出落点校验：剥 res://（带/不带前缀都走通 normalizeUserProjectPath）→ 文件系统落点校验。
-  // ⚠️ 仅约束 godot-mcp 注入的 export filepath，不约束 bpy 代码内部 open()/os.remove()/os.system()。
+  // ⚠️ 此处仅校验 godot-mcp 注入的 export filepath；bpy 代码内部 open()/os.remove()/os.system() 等
+  // 危险 API 由下方 scanBpySandbox 沙箱扫描兜底（bpy-sandbox.ts，双 opt-in 旁路）。
   let fsExport: string;
   try {
     fsExport = resolveWithinRoot(projectPath, normalizeUserProjectPath(exportPathRaw));

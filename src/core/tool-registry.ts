@@ -164,7 +164,7 @@ export interface ToolGroupDef {
 
 /** Tool groups for fine-grained profile configuration. Count verified by test/tool-groups.test.js (number omitted here to avoid drift as groups are added). */
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
-  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help'], requires: [], protected: true },
+  core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help', 'audit'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
   bridge:     { description: 'Game Bridge', tools: ['game'], requires: ['bridge'] },
   animation:  { description: '动画系统', tools: ['animation', 'animtree', 'animation_track'], requires: [] },
@@ -197,11 +197,15 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   dynamic: { description: '动态工具（Godot 端注册但 MCP 侧未定义）', tools: ['godot_advanced_tool', 'godot_list_dynamic_routes'], requires: [] },
 };
 
-/** 6 preset profiles. Each maps to an array of group names. */
+/** 7 preset profiles. Each maps to an array of group names. */
 export const PROFILES: Record<string, string[]> = {
   full:        Object.keys(TOOL_GROUPS),
   // BREAKING CHANGE: lite now uses group-based expansion (matches current LITE_TOOLS content)
   lite:        ['core', 'bridge', 'animation', 'audio', 'signal', 'visual', 'code', 'test', 'profiler'],
+  // G7 (2026-08-13): basic = 默认 profile(BREAKING from full)。对齐 GoPeak compact 默认小暴露,
+  // 省 ~60% context(79KB→~30KB)。组清单 = lite(basic 语义名,lite 保留 --lite 兼容)。
+  // RCE action(execute_gdscript 等)经 action-gate 默认全 gate 兜底,需 GODOT_MCP_PRIVILEGED_GROUPS 解锁。
+  basic:       ['core', 'bridge', 'animation', 'audio', 'signal', 'visual', 'code', 'test', 'profiler'],
   minimal:     ['core'],
   slim:        ['core'],  // intentional alias of minimal - proxy tool is in core group,
   bridge_dev:  ['core', 'bridge', 'profiler', 'test', 'dynamic'],
@@ -258,6 +262,40 @@ export function setActiveGroups(groups: Set<string>): Set<string> {
 /** Get current active groups (read-only snapshot). */
 export function getActiveGroups(): ReadonlySet<string> {
   return activeGroups;
+}
+
+// ─── Dynamic tool registration (CMP-16-B live schema) ────────────────────────
+
+/** 动态注册的工具名集合(live schema 从 editor addon 拉取的工具)。
+ *  registerDynamicTools 注入,getDynamicToolNames 查询。
+ *  这些工具归入 'dynamic' 组(toolToGroup 映射),isToolAllowed 在 dynamic 组激活时放行。
+ *  不进静态 TOOL_GROUPS 字面量(check-tool-groups.mjs 正则扫不到,天然安全)。 */
+const dynamicToolNames = new Set<string>();
+
+/** 注册一批动态工具(live schema 从 editor 拉取后调用)。
+ *  完全替换之前的动态工具集(增量更新由调用方先 diff 再调)。
+ *  同时更新 toolToGroup 映射,让 isToolAllowed 放行。 */
+export function registerDynamicTools(names: string[]): void {
+  // 清除旧映射
+  for (const old of dynamicToolNames) {
+    toolToGroup.delete(old);
+  }
+  dynamicToolNames.clear();
+  // 注入新映射(归入 dynamic 组)
+  for (const name of names) {
+    dynamicToolNames.add(name);
+    toolToGroup.set(name, 'dynamic');
+  }
+}
+
+/** 获取当前动态注册的工具名集合(只读快照) */
+export function getDynamicToolNames(): readonly string[] {
+  return [...dynamicToolNames];
+}
+
+/** A1 (2026-08-11 审查): 判断某工具名是否动态注册(供 confirm/action-gate 反查静态 risk 用)。 */
+export function isDynamicToolName(name: string): boolean {
+  return dynamicToolNames.has(name);
 }
 
 /** Check if a tool is allowed under current active groups. */

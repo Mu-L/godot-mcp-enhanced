@@ -842,7 +842,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // （消除 env 全局状态与周期 orphan 扫描 tick 的竞态）。
     // detect: 三特征齐备（_spawnedGodotPids 集合 + options.fullSystemScan 显式门控 + optional 签名）；任一缺失即复发。
     detect: () => {
-      const f = readSrc('src/core/process-state.ts');
+      const f = readSrc('src/core/process-state.ts') + readSrc('src/core/orphan-cleanup.ts');
       const hasPidSet = /let _spawnedGodotPids\b/.test(f);
       const hasOptIn = /options\?\.\s*fullSystemScan\s*===\s*true/.test(f);
       const hasOptionalSig = /killOrphanGodotProcesses\(\s*projectDir\?:\s*string/.test(f);
@@ -880,8 +880,8 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // fix: handleEditorStall 入口 try { this.editorConn?.disconnect() } catch {} 清 zombie。
     // detect: handleEditorStall 函数体含 disconnect() 调用(切片从函数头到下一个 private 方法)。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
-      const start = f.indexOf('handleEditorStall(): void');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
+      const start = f.indexOf('handleStall(): void');
       if (start < 0) return 1;
       const nextPrivate = f.indexOf('\n  private ', start + 10);
       const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 800);
@@ -892,7 +892,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 链路 ~225s(5×30s+UI 恢复)。fix: ping 独立 5s 超时(request('ping', {}, { timeoutMs: 5000 })),
     // 半开降级缩到 ~85s(5×5s+连接周期)。detect: ping 调用带 timeoutMs 选项。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
       return /request\(\s*['"]ping['"][^)]*timeoutMs\s*:/.test(f) ? 0 : 1;
     } },
   { key: 'executor-do-not-retry-string-match', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
@@ -924,8 +924,8 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // fix: establishEditorConnection 成功路径末尾显式 hm.setState('connected') 即刻复位。
     // detect: establishEditorConnection 函数体含 setState('connected')。
     detect: () => {
-      const f = readSrc('src/GodotServer.ts');
-      const start = f.indexOf('private async establishEditorConnection');
+      const f = readSrc('src/core/EditorConnectionManager.ts');
+      const start = f.indexOf('private async establish');
       if (start < 0) return 1;
       const nextPrivate = f.indexOf('\n  private ', start + 10);
       const body = nextPrivate > 0 ? f.slice(start, nextPrivate) : f.slice(start, start + 3000);
@@ -1115,6 +1115,13 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // remove_track: 'destructive' = fixed（复发 read 标注→1）。
     detect: () => readSrc('src/tools/animation/animation-track.ts').includes("remove_track: 'destructive'") ? 0 : 1,
   },
+  // ─── 2026-08-10 P0-2 续 animtree 写操作确认门 ──
+  { key: 'animtree-write-confirmation', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    // P0-2 续: animtree 的 create/add_state/add_transition/set_blend/state_edit 原全标 'read' 绕确认门
+    // （零行为改变迁移决策遗留），对齐 scene add_node(write)。play 仍 read（运行时触发）。
+    // detect: animtree.ts 含 animtree_create: 'write' = fixed（复发 read 标注→1）。
+    detect: () => readSrc('src/tools/animtree.ts').includes("animtree_create: 'write'") ? 0 : 1,
+  },
   { key: 'bridge-take-screenshot-null-crash-swallow', status: 'fixed', severity: 'IMPORTANT', dimension: 'Reliability',
     // Bridge take_screenshot 的 get_viewport().get_texture().get_image() 链无 null guard:
     // get_image() 返回 null(窗口后台/viewport 未就绪/DummyRenderer)时 img.save_png() 触发 runtime error
@@ -1230,7 +1237,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     //       POSIX: grep -v -- '--editor'）。
     // detect: 两分支都含 --editor 排除条件（PowerShell -not + POSIX grep -v）。
     detect: () => {
-      const f = readSrc('src/core/process-state.ts');
+      const f = readSrc('src/core/orphan-cleanup.ts');
       const psBlock = f.match(/Where-Object \{[\s\S]*?CommandLine\.Contains[\s\S]*?\}/s);
       const shBlock = f.match(/pgrep -f godot[\s\S]*?grep -F/s);
       const psHasExclude = psBlock ? /-not.*\*--editor\*|--editor.*-not/i.test(psBlock[0]) : false;
@@ -1308,7 +1315,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // detect: 五特征齐备(_lastPingErrCode 字段 + catch 保留 err.code + onStateChange 分流 REQUEST_TIMEOUT
     //         + 非 REQUEST_TIMEOUT else 分支不调 handleEditorStall + addOnReconnectHandler 调 hm.reset())。
     detect: () => {
-      const src = readSrc('src/GodotServer.ts');
+      const src = readSrc('src/core/EditorConnectionManager.ts');
       // 1. 声明 _lastPingErrCode 字段
       const hasField = /private\s+_lastPingErrCode\s*:\s*string\s*\|\s*undefined/.test(src);
       // 2. pingFn catch 保留 err.code 到 _lastPingErrCode(非毯式 () => false)
@@ -1317,7 +1324,7 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const onStateIdx = src.indexOf('hm.onStateChange(');
       const onStateSlice = onStateIdx > 0 ? src.slice(onStateIdx, onStateIdx + 1500) : '';
       const hasRequestTimeoutBranch = /REQUEST_TIMEOUT/.test(onStateSlice);
-      const hasHandleStall = /this\.handleEditorStall\(\)/.test(onStateSlice);
+      const hasHandleStall = /this\.handleStall\(\)/.test(onStateSlice);
       // 4. 非 REQUEST_TIMEOUT 分支不调 handleEditorStall(含 else / letting / not degrading 语义)
       const hasElse = /\belse\b/.test(onStateSlice);
       const hasNoDegradeLog = /not degrading|letting|auto-reconnect/.test(onStateSlice);
@@ -1529,6 +1536,34 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const callCount = (f.match(/scanScriptSandboxOrThrow\(/g) ?? []).length;
       return hasHelper && callCount >= 4 ? 0 : 1;  // 1 定义 + ≥3 调用(实际 4 写入点 + 1 定义 = 5)
     } },
+  // SEC-P2-1 (2026-08-09): test-framework.ts 裸 validatePath 仅 resolve 零安全校验,
+  // 依赖全局门 ToolDispatcher.validatePathArgs 兜底。纵深加固:改 requireProjectPath
+  // (内部 requireString + isPathInAllowedRoots deny-by-default root 白名单)。
+  // detect: test-framework.ts 含 requireProjectPath( 调用 = 防线在(detect=0);裸 validatePath( 调用 = 复发(detect=1)。
+  // 注:import 行的 validatePath 不算(限定函数体内的调用)。
+  { key: 'test-framework-validatepath-no-root-check', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      const f = readSrc('src/tools/test-framework.ts');
+      const hasRequire = /requireProjectPath\s*\(/.test(f);
+      const hasBareValidatePath = /[^.]\bvalidatePath\s*\(/.test(f);  // 排除 import 行的 { validatePath }
+      return hasRequire && !hasBareValidatePath ? 0 : 1;
+    } },
+  // SEC-P2-2 (2026-08-09): GD 侧 secret 写不防 symlink(WriteAllText/FileAccess.open follow symlink
+  // 覆盖目标)。读方 editor-auth.ts lstatSync 已兜底,写方对称加固。
+  // detect: 两副本(mcp_bridge.gd + websocket_server.gd)都含 readlink + LinkType + "is a symlink"
+  // 三特征 = 防线在(detect=0);任一副本缺特征 = 复发(detect=1)。仿 instance-property-blocked-gd 多副本模式。
+  { key: 'gd-secret-write-no-symlink-guard', status: 'fixed', severity: 'IMPORTANT', dimension: 'Security',
+    detect: () => {
+      const files = ['src/scripts/mcp_bridge.gd', 'addons/godot_mcp_server/websocket_server.gd'];
+      for (const f of files) {
+        const src = readSrc(f);
+        const hasReadlink = /readlink/.test(src);
+        const hasLinkType = /LinkType/.test(src);
+        const hasSymlinkWarn = /is a symlink/.test(src);
+        if (!(hasReadlink && hasLinkType && hasSymlinkWarn)) return 1;  // 任一副本缺特征 = 复发
+      }
+      return 0;
+    } },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1612,7 +1647,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
     // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 58 }, // ...56→58: P3-6 game-bridge.ts 增 _pushMessageHandler + _pushBuffer(bridge push 模式常驻 data handler,同 _socket/_socketBuffer 既有连接状态模式); ...55→56: P1-3 logger.ts 增 _requestLogFn
+    baseline: 63 }, // ...60→63: G-1(2026-08-14) game-bridge.ts 增 _subscriptions/_resendInFlight/_keepaliveTimer(订阅登记表+重发锁+keepalive timer,断线恢复修复:935,同 _socket/_connectionLock 既有连接状态模式); ...58→60: A6(2026-08-14) instance-api-auth.ts 增 _noncesLoaded/_noncePersistWarned(nonce 持久化生命周期标志,同 _lastNonceCleanup 既有单模块状态模式); ...56→58: P3-6 game-bridge.ts 增 _pushMessageHandler + _pushBuffer(bridge push 模式常驻 data handler,同 _socket/_socketBuffer 既有连接状态模式); ...55→56: P1-3 logger.ts 增 _requestLogFn
     // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46；MCP Logging(Task 1 _mcpServer + _clientReady 注入 setter, 同 setMcpServer/_singletonWarned 既有模式) 46→48；MCP Progress(Task 1 b43ba4b _progressSender + _progressClientReady 注入 setter, 同 Logging 既有模式) 48→50；MCP Elicit(Task 1 _elicitServer 单值注入, 同 logger/progress server 注入模式但无 clientReady——elicitInput 是 request 非 notification) 50→51
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)

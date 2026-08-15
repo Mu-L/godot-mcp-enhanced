@@ -2,7 +2,7 @@
 // Generates a single GDScript that loads a scene, executes multiple operations,
 // optionally saves, and reports structured results via COMMIT_RESULT prefix.
 
-import { gdEscape } from '../shared/value-serializer.js';
+import { gdEscape, escapeForGdLiteral } from '../shared/value-serializer.js';
 import { BLOCKED_PROPS } from './helpers.js';
 
 export const COMMIT_OPERATIONS = [
@@ -21,12 +21,78 @@ export type CommitOp = typeof COMMIT_OPERATIONS[number];
 export function validateCommitOperations(operations: Array<Record<string, unknown>>): string | null {
   const validOps = new Set<string>(COMMIT_OPERATIONS);
   for (let i = 0; i < operations.length; i++) {
-    const opType = operations[i]?.op;
+    const op = operations[i];
+    const opType = op?.op;
     if (typeof opType !== 'string' || !validOps.has(opType)) {
       return `Op ${i}: invalid op "${String(opType)}". Valid: ${COMMIT_OPERATIONS.join(', ')}`;
     }
+    // F-5: 逐 op 校验数值/向量/字符串字段的运行时类型。原实现只校验 op 字段,
+    // 其余字段靠 TS 接口(编译时)+ as unknown as 强转,runtime 可被绕过;
+    // generateCommitScript 把 op.coords.x 等直接 ${} 插值进 GDScript,
+    // 字符串值可注入(二线 scanGdscriptSandbox 兜底,但纵深防御应在输入校验层先拦)。
+    const err = validateOpFields(i, opType, op ?? {});
+    if (err) return err;
   }
   return null;
+}
+
+// F-5: 运行时类型守卫
+function isNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+function isVec2(v: unknown): boolean {
+  return typeof v === 'object' && v !== null
+    && isNum((v as { x?: unknown }).x) && isNum((v as { y?: unknown }).y);
+}
+function isStr(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+/** F-5: 按 op 类型校验必填字段的运行时类型,堵 as unknown as 强转的注入面。 */
+function validateOpFields(idx: number, opType: string, op: Record<string, unknown>): string | null {
+  const at = `Op ${idx} (${opType})`;
+  const needStr = (key: string): string | null =>
+    !isStr(op[key]) ? `${at}: "${key}" must be a string` : null;
+  const needVec2 = (key: string): string | null =>
+    !isVec2(op[key]) ? `${at}: "${key}" must be {x:number, y:number}` : null;
+  const needNum = (key: string): string | null =>
+    !isNum(op[key]) ? `${at}: "${key}" must be a finite number` : null;
+  const optNum = (key: string): string | null =>
+    op[key] !== undefined && !isNum(op[key]) ? `${at}: optional "${key}" must be a finite number` : null;
+
+  switch (opType) {
+    case 'tile_set': {
+      return needStr('node_path') || needVec2('coords') || needNum('source_id')
+        || needVec2('atlas') || optNum('alternative_tile');
+    }
+    case 'tile_fill': {
+      const rg = op.region as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | undefined;
+      const regionValid = !!rg && isNum(rg.x) && isNum(rg.y) && isNum(rg.w) && isNum(rg.h);
+      if (!regionValid) return `${at}: "region" must be {x,y,w,h: number}`;
+      return needNum('source_id') || needVec2('atlas') || optNum('alternative_tile');
+    }
+    case 'tile_erase': {
+      return needStr('node_path') || needVec2('coords');
+    }
+    case 'tile_clear': {
+      return needStr('node_path');
+    }
+    case 'tileset_assign': {
+      return needStr('node_path') || needStr('tileset_path');
+    }
+    case 'node_property': {
+      return needStr('path') || needStr('property')
+        || (op.value === undefined ? `${at}: "value" is required` : null);
+    }
+    case 'node_add': {
+      // parent 可省略(generator 默认),但若提供必须是 string(防 gdEscape(undefined) 崩溃)
+      const parentErr = op.parent !== undefined && !isStr(op.parent)
+        ? `${at}: optional "parent" must be a string` : null;
+      return needStr('name') || needStr('type') || parentErr;
+    }
+    default:
+      return null;
+  }
 }
 
 interface TileSetOp {
@@ -134,8 +200,12 @@ export function generateCommitScript(
   }
 
   const sp = gdEscape(scenePath);
+  // F-2 (批 F, 2026-08-14): save=true 分支顶层 success 绑定 err == OK——原硬编码 true 与
+  // saved:err==OK 并存,磁盘满/权限失败(EACCES/ENOSPC)时 COMMIT_RESULT 报成功(假成功),
+  // AI 与 middleware 把写盘失败当成功。save=false 分支无保存动作,success:true 是"无保存失败"
+  // 的预期语义,保持不变(handleCommitAction 仅在 save 时对 saved:false 置 isError)。
   const saveBlock = save
-    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": err == OK, "results": _results}))`
+    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": err == OK, "saved": err == OK, "results": _results}))`
     : `\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": false, "results": _results}))`;
 
   const fillHelper = hasFill
@@ -298,8 +368,10 @@ ${errAction}
 function serializeGdValue(value: unknown): string {
   // I-03, C-01: Escape backslash, quote, newline for GDScript string safety
   // IMPORTANT-6 (review): 补 \r \t 转义,防控制字符破坏 .gd 字符串/被解析为行结束而注入新行。
-  // (% 不转义:GDScript 字符串字面量里 % 无特殊语义,仅 % 格式化操作时才特殊,转义反而破坏正常 % 字符)
-  if (typeof value === 'string') return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\u2028\u2029]/g, '\n').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;  // IMP-2: LS/PS → \n(与 gdEscape 同步)
+  // SEC-P2-6 (2026-08-10): string 分支转义委托 escapeForGdLiteral(与 gdEscape 共享 escapeGdStringCore,
+  //   消除两份独立实现的手动同步漂移——原 \r 处理 \r vs \n 已漂移)。
+  //   不转义 % 和 '(属性值字面量不参与 % 格式化,转义反而破坏正常 % 字符)。
+  if (typeof value === 'string') return `"${escapeForGdLiteral(value)}"`;
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '0';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (value === null || value === undefined) return 'null';

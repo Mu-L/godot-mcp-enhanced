@@ -26,6 +26,41 @@ func _get_ei() -> EditorInterface:
 		return null
 	return _plugin.get_editor_interface()
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"add_node": {
+			"description": "向场景树添加一个新节点(类型须在白名单)。",
+			"params": [
+				CommandHelpers.doc_param("node_type", "String", false, "节点类型须在 ALLOWED_NODE_TYPES 白名单默认 Node"),
+				CommandHelpers.doc_param("node_name", "String", false, "节点名须匹配 ^[A-Za-z0-9_]+$ 默认 NewNode"),
+				CommandHelpers.doc_param("parent_node_path", "String", false, "父节点路径空则挂场景根"),
+				CommandHelpers.doc_param("properties", "Dictionary", false, "节点属性键值表经 coerce_property_value"),
+			],
+		},
+		"remove_node": {
+			"description": "从场景树删除指定节点(不能删场景根)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "要删除的节点路径不能删场景根"),
+			],
+		},
+		"edit_node": {
+			"description": "批量修改节点属性(per-property undo)。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标节点路径"),
+				CommandHelpers.doc_param("properties", "Dictionary", true, "属性键值表须非空 per-property undo"),
+			],
+		},
+		"batch_add_nodes": {
+			"description": "批量添加节点(上限 100 个)。",
+			"params": [
+				CommandHelpers.doc_param("nodes", "Array", true, "节点定义数组上限 100 每元素含 node_type/node_name/parent_node_path/properties"),
+			],
+		},
+	}
+
+
 func handle_add_node(params: Dictionary, request_id: int) -> Dictionary:
 	var ei := _get_ei()
 	if ei == null: return {"error": {"code": -32000, "message": "EditorInterface not available"}}
@@ -278,12 +313,18 @@ func handle_batch_add_nodes(params: Dictionary, request_id: int) -> Dictionary:
 				op["target"].callv(op["method"], op["args"])
 
 	# 扫孤儿：commit 后任何未入树的 cls（add_child 失败的预 instantiate Node）立即 free 防 leak。
+	# B5 (2026-08-11 审查): 同轮统计真实入树数——原返回 added: validated.size() 是乐观陈述,
+	# C11 孤儿扫描 free 掉的 add_child 失败者也计入,极端场景(parent freed 致 add_child 失败)
+	# added > 实际入树数 = 假成功。added 改基于 is_inside_tree() 真实计数。
+	var added := 0
 	for v in validated:
 		var cls: Node = v["cls"]
 		if cls != null and is_instance_valid(cls) and not cls.is_inside_tree():
 			cls.free()
+		elif cls != null and is_instance_valid(cls):
+			added += 1
 
-	return {"result": {"added": validated.size(), "failed": failed}}
+	return {"result": {"added": added, "failed": failed}}
 
 
 func _is_allowed_node_type(node_type: String) -> bool:

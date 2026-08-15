@@ -1,8 +1,9 @@
 // A-02: TODO(v0.20.0) — Remove this file once all deprecated properties have been
 // fully removed from Godot and no longer need mapping. Until then, this file provides
 // backward-compatible property name translation for the docs tool and lint rules.
-// IMPORTANT-15 (review): 当前所有条目 removed:false(Godot 4.x 仍需向后兼容映射),
-// 文件不可删;仅更新目标版本 v0.18.0→v0.20.0。待 Godot 正式移除对应属性后清理。
+// IMPORTANT-15 (review): 部分条目 removed:true(Environment.physically_based_lights_enabled、
+// RigidBody3D.bounce/friction、CylinderMesh.radius,已在 Godot 4 移除,保留用于 docs 提示与
+// lint 映射);其余 removed:false(仍需向后兼容翻译)。待全部条目从 Godot 移除且无引用后清理。
 
 export interface DeprecatedProperty {
   removed: boolean;

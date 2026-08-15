@@ -1,7 +1,7 @@
 // Assertion infrastructure for dev_loop acceptance and delivery.ts assertions.
 
 import { gdEscape, normalizeIndentToTabs } from './value-serializer.js';
-import { SCENE_TREE_HEADER } from './gdscript-templates.js';
+import { SCENE_TREE_HEADER } from '../../core/shared/gdscript-templates.js';
 import { scanGdscriptSandbox } from '../../gdscript-executor.js';
 
 /** Shared assertion wrapper — called by both dev_loop.acceptance and delivery.ts assertions.

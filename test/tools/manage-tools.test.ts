@@ -53,7 +53,7 @@ vi.mock('../../src/core/process-state.js', () => ({
   getProjectDir: vi.fn().mockReturnValue(''),
   setProjectDir: vi.fn(),
 }));
-vi.mock('../../src/guard.js', () => ({
+vi.mock('../../src/core/guard.js', () => ({
   requiresConfirmation: vi.fn().mockReturnValue(false),
 }));
 

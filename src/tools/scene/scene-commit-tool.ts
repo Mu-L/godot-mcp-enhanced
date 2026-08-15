@@ -10,7 +10,6 @@ import { generateCommitScript, validateCommitOperations, type CommitOperation } 
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { opsErrorResult } from '../shared.js';
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] scene-commit-tool module is absorbed into scene. Do not register directly.`);
   return [{
@@ -60,7 +59,7 @@ export async function handleCommitAction(
 ): Promise<ToolResult | null> {
   const p = requireProjectPath(args);
   const scenePath = normalizeUserProjectPath(args.scene_path as string);
-  resolveWithinRoot(p, scenePath);
+  const absPath = resolveWithinRoot(p, scenePath);
   const operations = args.operations as Array<Record<string, unknown>>;
   const save = args.save !== false;
   const stopOnError = args.stop_on_error !== false;
@@ -77,6 +76,15 @@ export async function handleCommitAction(
   const validationError = validateCommitOperations(operations);
   if (validationError) {
     return opsErrorResult('INVALID_PARAMS', validationError);
+  }
+
+  // F-1 (批 F, 2026-08-14): editor 场景写守卫——commit 走 headless spawn 写盘(不在 editor-method-map),
+  // 若该场景在 editor 打开, headless 直写磁盘会被 editor GUI save 覆盖回旧内存态,批量写入静默丢失。
+  // 调用方式对齐 index.ts edit_node(:385-388)同款;守卫在 acquireShortRunningSlot 之前,被拦截不占 slot。
+  // headless 模式 checkEditorSceneSave 未注入, 直接放行。
+  if (ctx.checkEditorSceneSave) {
+    const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+    if (sceneGuard.blocked) return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`);
   }
 
   // Generate GDScript
@@ -105,6 +113,15 @@ export async function handleCommitAction(
 
     // Parse COMMIT_RESULT from output
     const commitResult = parseCommitResult(result.raw_output || result.run_error || '');
+    // F-2 (批 F, 2026-08-14; 批F fix 收口): 真失败(COMMIT_RESULT success:false)不再假成功——
+    // 顶层置 isError,防 AI 与 middleware 把失败当成功。单条件 success 驱动,统一覆盖三类真失败:
+    // 保存失败(ENOSPC/EACCES → err != OK → success:false)/stopOnError 中止(stopBlock success:false,
+    // 含 save=false 的中止——原 save && saved===false 条件把该 corner 误排除)/load 失败。
+    // save=false 正常完成的 saved:false 伴随 success:true,不触发;commitResult 为 null
+    // (GDScript 崩溃无 COMMIT_RESULT)时短路走 fallback,行为不变。
+    if (commitResult?.success === false) {
+      return { content: [{ type: 'text', text: JSON.stringify(commitResult, null, 2) }], isError: true };
+    }
     return textResult(JSON.stringify(commitResult || {
       success: result.run_success,
       raw_output: result.raw_output,
@@ -117,7 +134,6 @@ export async function handleCommitAction(
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext,
 ): Promise<ToolResult | null> {

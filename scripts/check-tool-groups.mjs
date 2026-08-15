@@ -4,75 +4,50 @@
 // 源于 CMP-4 第三方审查 B-1: engine/debug 工具在 module-loader 注册但不在 TOOL_GROUPS,
 // 致 isToolAllowed 恒 false 工具不可用(第三次重蹈 D1 asset/android 覆辙)。
 //
-// 检测逻辑:扫描 ALL_MODULES 的每个 TOOL_NAMES,断言都在 TOOL_GROUPS 的 tools 或
-// ALWAYS_ALLOWED 里。任一缺失 → exit 1 + 列出缺失工具。
+// C-1 (2026-08-14) 第 4 次复现后改造: 正则提取 TOOL_NAMES → require build 产物枚举。
+// 旧版靠正则扫各工具文件源码里的 `TOOL_NAMES = [...]`,工具不导出 TOOL_NAMES 即隐身
+// (audit.ts 即此盲区: 注册了 41 个工具但正则只扫到 40,exit 0 假绿)。
+// 新版直接 import build/core/module-loader.js + tool-registry.js,用运行时真实注册集
+// (registerAllModules → getAllToolDefinitions)对账 TOOL_GROUPS/ALWAYS_ALLOWED,
+// 不依赖任何源码文本模式,天然覆盖"不导出 TOOL_NAMES 的新工具"。
 //
-// 用法: node scripts/check-tool-groups.mjs
-// 退出码: 0=通过 / 1=有工具未归组
+// 检测逻辑: registerAllModules() 枚举全部工具定义,断言每个工具名都在 TOOL_GROUPS 的
+// 某组 tools 或 ALWAYS_ALLOWED 里。任一缺失 → exit 1 + 列出缺失工具。
+//
+// 用法: node scripts/check-tool-groups.mjs(需先 npm run build)
+// 退出码: 0=通过 / 1=有工具未归组(或 build 产物缺失/无法加载)
 
-import { readFileSync } from 'fs';
-
-// 从编译产物读(build/module-loader.js + build/core/tool-registry.js)
-// 避免源码 grep 的正则脆弱性,直接读 JS 运行时值
 const root = process.cwd();
 
-// 读 tool-registry.js 提取 TOOL_GROUPS + ALWAYS_ALLOWED
-const registrySrc = readFileSync(`${root}/build/core/tool-registry.js`, 'utf-8');
-
-// 提取 TOOL_GROUPS 里所有 tools 数组的工具名
-const toolGroupsMatch = registrySrc.match(/TOOL_GROUPS\s*=\s*\{([\s\S]*?)\n\}/);
-if (!toolGroupsMatch) {
-  console.error('[tool-groups] 无法从 tool-registry.js 提取 TOOL_GROUPS');
+// build 产物是 ESM(type:module),用 dynamic import 加载运行时真实值
+let registry, moduleLoader;
+try {
+  registry = await import(`file://${root.replaceAll('\\', '/')}/build/core/tool-registry.js`);
+  moduleLoader = await import(`file://${root.replaceAll('\\', '/')}/build/core/module-loader.js`);
+} catch (err) {
+  console.error(`[tool-groups] 无法加载 build 产物(build/core/{tool-registry,module-loader}.js): ${err instanceof Error ? err.message : String(err)}`);
+  console.error('  请先 npm run build');
   process.exit(1);
 }
-const groupBody = toolGroupsMatch[1];
+
+// 真实注册集:registerAllModules 注入全部 ToolModule 后枚举工具定义
+moduleLoader.registerAllModules();
+const registeredTools = registry.getAllToolDefinitions().map((t) => t.name);
+if (registeredTools.length === 0) {
+  console.error('[tool-groups] build 产物注册集为空——module-loader 未注册任何工具?');
+  process.exit(1);
+}
+
+// 运行时真实分组信息(非正则提取)
 const groupedTools = new Set();
-for (const m of groupBody.matchAll(/tools:\s*\[([^\]]*)\]/g)) {
-  for (const t of m[1].matchAll(/'([^']+)'/g)) {
-    groupedTools.add(t[1]);
-  }
+for (const def of Object.values(registry.TOOL_GROUPS)) {
+  for (const t of def.tools) groupedTools.add(t);
 }
+const alwaysAllowed = new Set(registry.ALWAYS_ALLOWED);
 
-// 提取 ALWAYS_ALLOWED
-const alwaysMatch = registrySrc.match(/ALWAYS_ALLOWED\s*=\s*new\s+Set\(\[([\s\S]*?)\]\)/);
-const alwaysAllowed = new Set();
-if (alwaysMatch) {
-  for (const t of alwaysMatch[1].matchAll(/'([^']+)'/g)) {
-    alwaysAllowed.add(t[1]);
-  }
-}
-
-// 读 module-loader.js 提取所有实际 import 的工具模块(注释掉的 import 不算)
-const loaderSrc = readFileSync(`${root}/build/core/module-loader.js`, 'utf-8');
-const allTools = new Set();
-// 只匹配非注释行的 import ... from '../tools/xxx'
-// module-loader.js 里注释掉的 import 是 // import * as xxx from ...（行首 //）
-for (const m of loaderSrc.matchAll(/^(?!\/\/)\s*import\s+\*\s+as\s+\w+\s+from\s+['"]\.\.\/tools\/([^'"]+?)['"]/gm)) {
-  const name = m[1].replace(/\.js$/, '');
-  try {
-    const toolSrc = readFileSync(`${root}/build/tools/${name}.js`, 'utf-8');
-    for (const tm of toolSrc.matchAll(/TOOL_NAMES\s*=\s*\[([^\]]*)\]/g)) {
-      for (const t of tm[1].matchAll(/'([^']+)'/g)) {
-        allTools.add(t[1]);
-      }
-    }
-  } catch { /* sub-dir module (e.g. tools/scene/index.js), read index.js */ }
-}
-// 也匹配子目录模块(tools/scene/index.js 等)
-for (const m of loaderSrc.matchAll(/^(?!\/\/)\s*import\s+\*\s+as\s+\w+\s+from\s+['"]\.\.\/tools\/([^'"]+?)\/index['"]/gm)) {
-  try {
-    const toolSrc = readFileSync(`${root}/build/tools/${m[1]}/index.js`, 'utf-8');
-    for (const tm of toolSrc.matchAll(/TOOL_NAMES\s*=\s*\[([^\]]*)\]/g)) {
-      for (const t of tm[1].matchAll(/'([^']+)'/g)) {
-        allTools.add(t[1]);
-      }
-    }
-  } catch { /* skip */ }
-}
-
-// 检测:每个 allTools 的工具必须在 groupedTools 或 alwaysAllowed 里
+// 检测:每个注册工具必须在 groupedTools 或 alwaysAllowed 里
 const orphan = [];
-for (const t of allTools) {
+for (const t of registeredTools) {
   if (!groupedTools.has(t) && !alwaysAllowed.has(t)) {
     orphan.push(t);
   }
@@ -84,8 +59,8 @@ if (orphan.length > 0) {
     console.error(`  ${t} — 不在 TOOL_GROUPS 任何组的 tools 数组里,也不在 ALWAYS_ALLOWED 里`);
   }
   console.error('  修复:在 src/core/tool-registry.ts TOOL_GROUPS 补组,或加入 ALWAYS_ALLOWED');
-  console.error('  根因:module-loader 注册了工具但忘记在 TOOL_GROUPS 登记(CMP-4 B-1 第三次复现)');
+  console.error('  根因:module-loader 注册了工具但忘记在 TOOL_GROUPS 登记(第 4 次复现:audit)');
   process.exit(1);
 }
 
-console.log(`[tool-groups] ✓ 全部 ${allTools.size} 个工具已归组(${groupedTools.size} grouped + ${alwaysAllowed.size} always-allowed)`);
+console.log(`[tool-groups] ✓ 全部 ${registeredTools.length} 个注册工具已归组(${groupedTools.size} grouped + ${alwaysAllowed.size} always-allowed,build 产物运行时枚举)`);

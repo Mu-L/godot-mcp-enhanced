@@ -164,7 +164,7 @@ const { ReconnectionManager } = await import('../build/core/reconnection-manager
 // ════════════════════════════════════════════════════════════════════════════════
 console.log('\n📋 Phase 4c: Middleware Pipeline（中间件管道）\n');
 
-const { executeMiddleware, createConnectionCheckMiddleware, createElicitationMiddleware } =
+const { executeMiddleware, createElicitationMiddleware } =
   await import('../build/core/middleware.js');
 
 // 测试 13: 空中间件
@@ -188,19 +188,6 @@ const { executeMiddleware, createConnectionCheckMiddleware, createElicitationMid
   });
   assert(!ran, '拒绝后工具不执行');
   assert(r.content[0].text === 'nope', '返回拒绝原因');
-}
-
-// 测试 15: Connection Check
-{
-  const mw = createConnectionCheckMiddleware(() => false, n => n === 'manage_tools');
-  const r1 = await executeMiddleware([mw], { toolName: 'manage_tools', args: {} }, async () => ({
-    content: [{ type: 'text', text: 'offline-ok' }],
-  }));
-  assert(r1.content[0].text === 'offline-ok', '离线工具通过');
-  const r2 = await executeMiddleware([mw], { toolName: 'run_project', args: {} }, async () => ({
-    content: [{ type: 'text', text: 'x' }],
-  }));
-  assert(r2.content[0].text.includes('DISCONNECTED'), '在线工具被拒');
 }
 
 // 测试 16: Elicitation 通过

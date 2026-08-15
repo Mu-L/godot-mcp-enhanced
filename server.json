@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.wgt19861219/godot-mcp-enhanced",
-  "description": "Enhanced Godot 4.5-4.7 MCP: headless+editor+bridge, secure GDScript sandbox, closed-loop AI dev. — 40 tools",
+  "description": "Enhanced Godot 4.5-4.7 MCP: headless+editor+bridge, secure GDScript sandbox, closed-loop AI dev. — 41 tools",
   "repository": {
     "url": "https://github.com/wgt19861219/godot-mcp-enhanced",
     "source": "github"
   },
-  "version": "0.26.0",
+  "version": "0.29.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "godot-mcp-enhanced",
-      "version": "0.26.0",
+      "version": "0.29.0",
       "transport": {
         "type": "stdio"
       },

@@ -23,6 +23,42 @@ func _has_path_traversal(p: String) -> bool:
 	return CommandHelpers.has_path_traversal(p)
 
 
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"open_scene": {
+			"description": "打开编辑器中的场景。",
+			"params": [
+				CommandHelpers.doc_param("scene_path", "String", true, "场景资源路径须 res:// 前缀且无 .. 遍历"),
+			],
+		},
+		"save_scene": {
+			"description": "保存当前场景,空路径则用场景已绑定的 scene_file_path。",
+			"params": [
+				CommandHelpers.doc_param("path", "String", false, "保存路径空则用场景已绑定 scene_file_path"),
+			],
+		},
+		"instance_scene": {
+			"description": "把 PackedScene 实例化并挂到当前场景树。",
+			"params": [
+				CommandHelpers.doc_param("scene_path", "String", true, "当前场景路径"),
+				CommandHelpers.doc_param("instance_path", "String", true, "要实例化的 PackedScene 资源路径须 res://"),
+				CommandHelpers.doc_param("parent_node_path", "String", false, "父节点路径空则挂根"),
+				CommandHelpers.doc_param("node_name", "String", false, "实例节点名空则保留原根名"),
+				CommandHelpers.doc_param("properties", "Dictionary", false, "实例属性键值经 coerce_property_value"),
+			],
+		},
+		"set_instance_property": {
+			"description": "修改已实例化节点的单个属性。",
+			"params": [
+				CommandHelpers.doc_param("node_path", "String", true, "目标 instance 节点路径不能是场景根"),
+				CommandHelpers.doc_param("property", "String", true, "属性名"),
+				CommandHelpers.doc_param("value", "JSON", true, "属性值经 coerce_property_value"),
+			],
+		},
+	}
+
+
 func handle_open_scene(params: Dictionary) -> Dictionary:
 	var path: String = params.get("scene_path", "")
 	if path.is_empty():

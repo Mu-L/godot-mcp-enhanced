@@ -10,6 +10,7 @@ import {
   isToolAllowed,
   getGroupForTool,
   getToolDefinition,
+  getAllToolDefinitions,
 } from '../../src/core/tool-registry.js';
 import { registerAllModules } from '../../src/core/module-loader.js';
 
@@ -153,5 +154,34 @@ describe('getToolDefinition', () => {
     expect(advanced?.name).toBe('godot_advanced_tool');
     // 未注册
     expect(getToolDefinition('nonexistent_tool_xyz')).toBeUndefined();
+  });
+});
+
+// C-1 (2026-08-14): 注册集不变量 — 防"module 注册了但 TOOL_GROUPS 漏加"(第 4 次同类:
+// audit 游离 TOOL_GROUPS 致 isToolAllowed 恒 false,客户端不可见死代码)。
+// registerAllModules 后枚举全部工具定义,逐工具断言 isToolAllowed === true。
+// 新增工具忘归组时此测试先红,防第 5 次同类守门盲区。
+describe('registration invariant: 注册集内工具全部 isToolAllowed', () => {
+  beforeEach(() => {
+    // 重置为 full profile(防 'activeGroups management' describe 残留的收窄状态污染)
+    setActiveGroups(new Set(Object.keys(TOOL_GROUPS)));
+  });
+
+  beforeAll(() => {
+    // 幂等:getToolDefinition describe 已调用过,此处保证独立可跑
+    registerAllModules();
+  });
+
+  it('registerAllModules 后每个工具定义 isToolAllowed === true(无游离工具)', () => {
+    const all = getAllToolDefinitions();
+    expect(all.length).toBeGreaterThan(0);
+    const orphans = all.map((t) => t.name).filter((n) => !isToolAllowed(n));
+    // 逐工具断言:失败信息列出全部 orphan(而非断言到第一个就停)
+    expect(orphans).toEqual([]);
+  });
+
+  it('audit 工具(本次回归对象)注册后 isToolAllowed === true', () => {
+    registerAllModules();
+    expect(isToolAllowed('audit')).toBe(true);
   });
 });

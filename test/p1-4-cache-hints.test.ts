@@ -16,7 +16,9 @@ describe('P1-4 SEP-2549 cacheHints + listChanged capabilities', () => {
       });
 
     it('resources.listChanged: true 已声明', () => {
-      expect(src).toMatch(/resources:\s*\{\s*listChanged:\s*true\s*\}/);
+      // K-1 (:942①): resources 对象追加 subscribe: true(push 订阅声明),
+      // 断言放宽为"listChanged: true 后跟逗号(有后续字段)或闭括号(无后续字段)"两种形态。
+      expect(src).toMatch(/resources:\s*\{\s*listChanged:\s*true\s*(?:,|\})/);
     });
 
     it('prompts.listChanged: true 已声明', () => {

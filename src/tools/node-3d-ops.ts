@@ -81,7 +81,6 @@ func _initialize():
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] node-3d-ops module is absorbed into scene. Do not register directly.`);
   return [
@@ -179,7 +178,6 @@ export async function handleCreate3dNode(
 
 // ─── Tool Handler ───────────────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 scene。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string, args: Record<string, unknown>, ctx: ToolContext
 ): Promise<ToolResult | null> {

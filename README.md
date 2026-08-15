@@ -4,7 +4,7 @@
 > 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:40 个 MCP 工具(merged,共 210 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
+工具层:41 个 MCP 工具(merged,共 210 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **40** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **41** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
@@ -74,6 +74,8 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 > **⚠️ 诚实披露 update-checker 外传点**:本仓库每次 MCP server 启动时,`src/core/update-checker.ts` 的 `fetch(REGISTRY_URL)` 会**被动 fetch** `https://registry.npmjs.org/godot-mcp-enhanced/latest`(24h 缓存)。此行为与遥测无关但涉及「数据离开本机」。**v0.25.7 起支持 `GODOT_MCP_UPDATE_CHECK=false`(或 `0`/`no`/`off`,大小写不敏感)关闭启动外传**;`self_update` check action 经 `force:true` 短路此门控,且 risk='read' 不经确认令牌,**AI 可自主调用触发外传**(IP/UA 泄漏 npmjs.org)。严格零外传需防火墙、`NO_PROXY=registry.npmjs.org` 或 readOnly 模式拒整工具。详见 [`docs/telemetry.md`](docs/telemetry.md#-诚实披露既有的非遥测外传点)。
 >
 > **代理环境变量**:update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 trustEnv）。企业代理环境下请求经代理；完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
+>
+> **⚠️ 诚实披露 vision-router 外传点**: `screenshot` analyze action 设 `vision_route=true` + `GODOT_MCP_VISION_KEY` 时，截图 base64+prompt 外传到 `https://api.groq.com`（groq 视觉模型）。**双重 opt-in 默认零外传**（不传 `vision_route` 或不设 key → fallback 本地 detail 分层，零外传）。可设 `GODOT_MCP_VISION_BASE_URL` 指向自建/ollama/国内中转避免外传到 groq。详见 [`docs/telemetry.md`](docs/telemetry.md)。
 
 ## Blender 建模（execute_bpy）安全模型
 
@@ -137,7 +139,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 ## 工具一览
 
-> 共 40 个 MCP 工具(merged tool definition,共 210 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+> 共 41 个 MCP 工具(merged tool definition,共 210 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
 >
 > **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:36**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:205**(matrix 的 risk 聚合 read 100+write 80+destructive 10+process 13)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
 
@@ -495,7 +497,7 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
-> ✅ 协议层实测通过（40 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+> ✅ 协议层实测通过（41 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
 
 #### ZCode（智谱 GLM-5.2 ADE）
 [ZCode](https://zcode.z.ai/) 原生支持 MCP。**设置 → MCP 服务器 → 新建**（stdio，`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`），或写入 `<项目根>/.zcode/config.json` / `.agents/mcp.json`。**关键**：ZCode 不读 `CLAUDE.md`，只读 workspace 根 `AGENTS.md`——运行 `setup_project_rules`（默认双写）生成 `AGENTS.md` 让 godot 规则生效。
@@ -531,6 +533,9 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
 | `DEBUG` | 启用详细日志 | `false` |
 | `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
+| `GODOT_MCP_PROFILE` | 工具 profile(basic/lite/minimal/full/bridge_dev/3d_dev 或逗号组名)。**默认 basic**(BREAKING from full;lite 9 组省 ~60% context,RCE action 经 action-gate 默认 gated)。回退全量:`GODOT_MCP_PROFILE=full` 或 `--profile=full` | `basic` |
+
+> **⚠️ BREAKING(G7)**:默认 profile 从 `full` 改 `basic`(对齐 GoPeak compact,省 AI context window)。升级后 tools/list 只暴露 basic(lite 9 组:core/bridge/animation/audio/signal/visual/code/test/profiler)。回退全量 41 工具:`GODOT_MCP_PROFILE=full`;或 AI 运行时 `manage_tools activate <groups>` 动态扩容(无需重启)。RCE action(execute_gdscript 等)始终经 action-gate gated,需 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 解锁。
 
 > **注意：** 项目路径有 30 秒缓存。切换项目后等待 30 秒或重启 MCP server 使新路径生效。
 
@@ -633,6 +638,12 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.29.0** | 2026-08-15 | **2026-08-14 六批次审查 findings 全量修复（P0×1 + P1×10 + P2/P3,43 commits,双波终审）**：P0 editor 重连链死修复（编辑器重启后自动恢复）+ 安全面（write_script 沙箱 4 旁路入口封堵/deny-list 拼写/load_skill 白名单/nonce symlink）+ audit 工具复活（生产 bug,0.28.3 特性此前不可见）+ playtest 六项（永久暂停/owner 互斥/paused 保存等）+ 属性写入 no-op 假成功三路对齐 + bridge 订阅断线恢复 + **⚠️ autoload 键名迁移（Breaking,旧项目重跑 game_bridge_install 自动迁移）**+ debug/undo GD 修复 + 测试债（debug e2e 首跑/GD 套件/dispatcher 审计 9 场景）+ 披露对齐。发版门禁全绿（verify_delivery 3/3 + e2e L2 真跑 75 passed）。 |
+| **v0.28.3** | 2026-08-13 | **战略批收尾（14 竞品路线图 G1/G3/G7）**：G3 操作级审计日志（audit.jsonl appendFile 原子追加,危险操作可追溯/回放）+ G1 deterministic playtest control 层（freeze/unfreeze/step_until 结构化条件,规避 RCE）+ G7 能力 profile（basic=9 组/advanced/full,**BREAKING**：默认 profile 从 full 改 basic,schema 79KB→~30KB 省 ~60% context）。路线图全完成（G2/G3/G1/G7/G8 ✅,G6 实测已有移除）。 |
+| **v0.28.2** | 2026-08-12 | **安全加固 + 威胁模型 + 可观测性 + 审查修复**：G2 trace_id + 结构化错误分类 + PII 护栏（速赢批）+ S-1/S-2 bpy-sandbox 双 opt-in + spawn 清单 + S-3~S-7 多实例 registry/editor-auth/http-server 加固 + G8 威胁模型文档（10 层防护实测声明）+ P0 animtree sub_action 死代码修复（F-6 CRITICAL）+ P1 data-import timeout 钳制（F-1/F-2）+ P2 工具层校验精确化（F-3~F-8）+ CMP-13 generate-all-modules + Tier1 structuredContent/prompt + Tier2 skills/tscn parser + Vision Routing 双 opt-in。 |
+| **v0.28.1** | 2026-08-11 | **安全加固批次 C + 测试质量**：批次 C 安全加固（deny-list/symlink/path/debug.evaluate RCE 多点）+ instance_registry 目录权限 Linux 0o700（P2-4）+ 弱断言精确化与接线守护批次（P1-3~P1-5/P2-1/P2-2）+ MULTI_INSTANCE 接入 godot-matrix（P1-2）+ 全批次第三方审查文档。 |
+| **v0.28.0** | 2026-08-09 | **CMP-14 debug Phase 2/3 + 后续批次**：debug 工具组从 3 action 扩到 10（完整交互式调试器：栈帧/变量/表达式求值/step 控制/继续/暂停/热重载）+ 新建 EditorDebuggerPlugin 子类（debugger_bridge）+ handle_debug_async 异步路由 + 自动打开脚本（修 Phase 1 限制）+ CMP-16-B advanced-proxy 真动态化 + CMP-16-C drift 映射表扩到全 64 method + CMP-9 confirm gate 守护测试。 |
+| **v0.27.0** | 2026-08-08 | **CMP-9 双通道通用方法调用 + CMP-16 live schema**（竞品 regiellis/godot-mcp-go 深度对标）：CMP-9-A editor `engine call_method`（场景树节点实例方法调用,did-you-mean + 类型强转 + deny-list 护城河）+ CMP-9-B bridge `_cmd_call_method` 放宽（env 扩展写方法 + did-you-mean + 类型强转）+ CMP-16-A GD param docs metadata（13 文件 57 method docs + `list_param_docs` 聚合）+ CMP-16-B TS live schema（`dynamic-schema.ts` 从 addon 拉 docs 构建 MCP 工具 + 缓存/降级/刷新 + `registerDynamicTools`）+ CMP-16-C drift 检测 CI（debug+engine 7 method 校验）。4749 测试。 |
 | **v0.26.0** | 2026-08-08 | **P1+P2 批次修复（18 项审查 finding 闭环）**：GD-R1~R10 GDScript 健壮性（nav status 同源/_ErrorCapture 复位重构/debug 注释/engine enum 补值+search 排序/错误诊断细化/export JSON 化/recording 路由清理）+ IPC-R1~R6 可靠性（env→显式参数/删无效 gap 检测/长操作暂停 TS 心跳/重连 stale 通知/baseline 排除离群点）+ SEC-P1-1 write/edit 沙箱扫描（对齐 execute_gdscript）+ CMP-7 editor instance discovery（addon registry + pid liveness）。三次第三方审查全通过。4667 测试。 |
 | **v0.25.11** | 2026-08-08 | **实时 ClassDB 内省**：新增 `engine` 工具组（editor-only），class_info/search/get_inheritance 走 editor 层直调 ClassDB。让 AI 发现运行中引擎的实际可用类/方法/属性（补静态 docs 的 4.7 快照缺口，含第三方 addon/自定义类/版本差异）。 |
 | **v0.25.10** | 2026-08-08 | **debug 组 Phase 1 断点管理**：新增 `debug` 工具组（editor-only），set/clear/list breakpoint 走 CodeEdit gutter（gutter 可见 + game 命中 + 跨 run 同步）。从无到有的交互式调试能力。留 Phase 2 step/resume/pause + 栈帧读取。 |

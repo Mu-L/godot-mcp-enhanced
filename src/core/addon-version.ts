@@ -5,6 +5,7 @@ import { readFileSync, existsSync, cpSync, rmSync, renameSync, mkdirSync } from 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { validateProjectRoot, isPathInAllowedRoots, safeRealPath } from './path-utils.js';
+import { PathError, InternalError } from './tool-errors.js';
 
 const ADDON_REL = ['addons', 'godot_mcp_server'] as const;
 // build/core/addon-version.js → 上两级包根 → addons/godot_mcp_server
@@ -14,13 +15,13 @@ const addonSource = join(dirname(fileURLToPath(import.meta.url)), '..', '..', ..
 /** 读目标项目 addon 版本。正则复刻 version-sync.mjs:57。 */
 export function readAddonVersion(projectPath: string): { version: string | null; installed: boolean } {
   if (!isPathInAllowedRoots(projectPath)) {
-    throw new Error('projectPath 不在 ALLOWED_PROJECT_PATHS（deny-by-default）');
+    throw new PathError('projectPath 不在 ALLOWED_PROJECT_PATHS（deny-by-default）');
   }
   const cfg = join(projectPath, ...ADDON_REL, 'plugin.cfg');
   // S1: 校验 cfg 真实路径在 allowlist 内——堵 addons/ 子段符号链接越界读（信息泄漏）。
   const realCfg = safeRealPath(cfg);
   if (!isPathInAllowedRoots(realCfg)) {
-    throw new Error(`readAddonVersion path escapes allowed roots: ${realCfg}`);
+    throw new PathError('readAddonVersion path escapes allowed roots');
   }
   if (!existsSync(realCfg)) return { version: null, installed: false };
   const m = readFileSync(realCfg, 'utf-8').match(/^version="([^"\r]*)"/m);
@@ -30,7 +31,7 @@ export function readAddonVersion(projectPath: string): { version: string | null;
 /** 包内 addon 源 cp 到目标项目。复刻 install-plugin.js:17-65 + 加门。 */
 export function updateAddon(projectPath: string): { dest: string; verifyOk: boolean } {
   if (!isPathInAllowedRoots(projectPath)) {
-    throw new Error('projectPath 不在 ALLOWED_PROJECT_PATHS（deny-by-default）');
+    throw new PathError('projectPath 不在 ALLOWED_PROJECT_PATHS（deny-by-default）');
   }
   const real = safeRealPath(validateProjectRoot(projectPath));  // project.godot 检查 + symlink 归一
   const dest = join(real, ...ADDON_REL);
@@ -38,7 +39,7 @@ export function updateAddon(projectPath: string): { dest: string; verifyOk: bool
   // safeRealPath 对不存在路径 walk-up 找存在祖先再 realpath（首装 dest 不存在安全）。
   const realDest = safeRealPath(dest);
   if (!isPathInAllowedRoots(realDest)) {
-    throw new Error(`updateAddon dest escapes allowed roots (symlink?): ${realDest}`);
+    throw new PathError('updateAddon dest escapes allowed roots');
   }
   // S3: 原子替换——staging 完整 cp + 校验 + 备份 + 平台 rename + 回滚。
   // 目标：cpSync 中途失败（断电/磁盘满/权限）不留下破损 addon（旧 dest 完整保留 + 无 staging 残留）。
@@ -57,7 +58,7 @@ export function updateAddon(projectPath: string): { dest: string; verifyOk: bool
   const stagingCfg = readFileSync(join(staging, 'plugin.cfg'), 'utf-8');
   if (!stagingCfg.includes('[plugin]') || !stagingCfg.includes('script="plugin.gd"')) {
     rmSync(staging, { recursive: true, force: true });
-    throw new Error('updateAddon staging verify failed (plugin.cfg missing/invalid)');
+    throw new InternalError('updateAddon staging verify failed (plugin.cfg missing/invalid)');
   }
   // 备份旧 dest（若存在）——dest.bak 用于 rename 失败时回滚
   let backup: string | null = null;

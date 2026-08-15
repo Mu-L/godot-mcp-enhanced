@@ -141,7 +141,7 @@ describe('editor fallback end-to-end (P0-1)', () => {
 
     // 降级断言（先例 godot-server.test.js:228-229）
     expect(server.connectionMode).toBe('headless');
-    expect(server.editorConn).toBeNull();
+    expect(server.editorMgr.conn).toBeNull();
   });
 
   // ── Path B: 半开心跳降级接线（onStateChange REQUEST_TIMEOUT → handleEditorStall）──
@@ -177,13 +177,13 @@ describe('editor fallback end-to-end (P0-1)', () => {
 
     // 模拟心跳检测到卡死：预置 err.code=REQUEST_TIMEOUT(TCP OPEN 主线程阻塞,ws 不 close)
     // + hm 进 'reconnecting' → onStateChange REQUEST_TIMEOUT 分支 → handleEditorStall
-    server._lastPingErrCode = 'REQUEST_TIMEOUT';
+    server.editorMgr._lastPingErrCode = 'REQUEST_TIMEOUT';
     hm.setState('reconnecting');
     // onStateChange listener 同步触发 handleEditorStall；flush 兜底异步 listener
     await new Promise((r) => setTimeout(r, 50));
 
     expect(server.connectionMode).toBe('headless');
-    expect(server.editorConn).toBeNull();
+    expect(server.editorMgr.conn).toBeNull();
   });
 
   // ── Path C: 编辑器下线不抢占自动重连（B-T5 核心修复点）─────────────────────
@@ -211,14 +211,14 @@ describe('editor fallback end-to-end (P0-1)', () => {
     expect(hm.getState()).toBe('connected');
 
     // 模拟编辑器下线:ws 已 close,ping 失败返 CONNECTION_LOST err.code;hm 进 reconnecting
-    server._lastPingErrCode = 'CONNECTION_LOST';
+    server.editorMgr._lastPingErrCode = 'CONNECTION_LOST';
     hm.setState('reconnecting');
     await new Promise((r) => setTimeout(r, 50));
 
     // 反向断言:不抢占自动重连——editorConn 保持非 null(reconnectEnabled 保持 true),
     // connectionMode 保持 'editor',等 EditorConnection scheduleReconnect 兜底恢复/耗尽降级
     expect(server.connectionMode).toBe('editor');
-    expect(server.editorConn).not.toBeNull();
+    expect(server.editorMgr.conn).not.toBeNull();
   });
 
   // ── Path D: 重连成功复位 hm（B-T5 状态机链关键节点）──────────────────────────
@@ -243,14 +243,14 @@ describe('editor fallback end-to-end (P0-1)', () => {
 
     const hm = server.dispatcher.getHealthMonitor();
     // 模拟 refused 后卡 reconnecting
-    server._lastPingErrCode = 'CONNECTION_LOST';
+    server.editorMgr._lastPingErrCode = 'CONNECTION_LOST';
     hm.setState('reconnecting');
     expect(hm.getState()).toBe('reconnecting');
 
     // 模拟 EditorConnection 自动重连成功:触发 addOnReconnectHandler → hm.reset()
     // 通过 reconnectHandlers Set(JS test 可访问 TS private 字段)调用所有注册的 handler,
     // 包括本任务接线的 hm.reset() handler 和 EditorToolExecutor 的 _reconnectHandler。
-    for (const h of server.editorConn.reconnectHandlers) {
+    for (const h of server.editorMgr.conn.reconnectHandlers) {
       try { h(); } catch { /* best-effort,同生产 fireReconnect 容错 */ }
     }
     // 兜底 flush

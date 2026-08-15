@@ -177,6 +177,27 @@ label_text = "Hello World"
     expect(props.find(p => p.name === 'label_text')?.value).toBe('Hello World');
   });
 
+  it('parses Vector2i / Vector3i / PackedInt32Array / Transform3D (Tier2-2)', () => {
+    const content = `[gd_scene load_steps=1 format=3]
+
+[node name="Grid" type="Node2D"]
+cell = Vector2i(1, 2)
+offset = Vector3i(1, 2, 3)
+tile_data = PackedInt32Array(1, 2, 3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5)
+`;
+    const result = parseTscn(content);
+    const props = result.nodes[0].properties;
+    expect(props.find(p => p.name === 'cell')?.value)
+      .toEqual({ __type: 'Vector2i', value: '1, 2' });
+    expect(props.find(p => p.name === 'offset')?.value)
+      .toEqual({ __type: 'Vector3i', value: '1, 2, 3' });
+    expect(props.find(p => p.name === 'tile_data')?.value)
+      .toEqual({ __type: 'PackedInt32Array', value: '1, 2, 3' });
+    expect(props.find(p => p.name === 'transform')?.value)
+      .toEqual({ __type: 'Transform3D', value: '1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5' });
+  });
+
   it('preserves slash in property name (theme_override_styles/panel)', () => {
     const content = `[gd_scene load_steps=1 format=3]
 

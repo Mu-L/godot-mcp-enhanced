@@ -75,6 +75,29 @@ describe('Level B: Scene Operations', () => {
       node_name: 'TestSprite',
     }, ctx);
     expect(isSuccessful(result)).toBeTruthy();
+    // Tier1-1: structuredContent 验证(成功路径,文本编辑落盘)
+    expect(result.structuredContent).toBeDefined();
+    expect(result.structuredContent.action).toBe('add_node');
+    expect(result.structuredContent.node_name).toBe('TestSprite');
+    expect(result.structuredContent.node_type).toBe('Sprite2D');
+    expect(result.structuredContent.parent).toBe('root');
+    expect(result.structuredContent.persisted).toBe(true);
+  });
+
+  // P1-3 (2026-08-11 审查): add_node 错误路径 — 场景文件不存在 → FILE_NOT_FOUND
+  // 注:重名/父节点无效/父不存在在 GD 侧(addNode 文本编辑不检测,spawn 路径 GD 侧检),
+  // mock 鸿沟切断(靠 godot-matrix e2e 验证),此处覆盖 TS 侧可达错误路径。
+  it('add_node 场景文件不存在 → FILE_NOT_FOUND(P1-3 TS 侧错误路径)', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'add_node',
+      scene_path: 'res://nonexistent.tscn',
+      node_type: 'Node',
+      node_name: 'X',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    const text = result.content[0].text;
+    expect(text).toMatch(/FILE_NOT_FOUND|not found/i);
   });
 
   // --- 用例 2: edit_node — 添加节点后修改位置 ---

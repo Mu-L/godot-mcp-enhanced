@@ -1,0 +1,65 @@
+# game
+
+> 游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。G1 control 层: playtest.freeze (冻结游戏循环,bridge 仍响应), playtest.unfreeze (解冻), playtest.step_until (条件满足/帧尽/wall 超时即停,结构化条件 {path,property,op,value}[] AND)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。
+
+| 属性 | 值 |
+|------|-----|
+| 所属层 | bridge |
+| 安全级别 | guarded |
+| 需要 Godot | 是 |
+| 需要编辑器 | 否 |
+| 只读 | 否 |
+| 长耗时 | 否 |
+
+## Actions
+
+- `game_bridge_install`
+- `game_bridge_uninstall`
+- `install_override`
+- `uninstall_override`
+- `game_query`
+- `game_write`
+- `game_input`
+- `game_wait`
+- `game_playtest`
+- `monitor_start`
+- `monitor_stop`
+- `monitor_poll`
+- `watch_start`
+- `watch_stop`
+- `watch_poll`
+- `find_ui_elements`
+- `click_button`
+
+## Parameters
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | enum (17 项) | ✓ | 操作类型 |
+| `project_path` | string |  | Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录） |
+| `port` | number |  | game_bridge_install: 桥接监听端口（当前忽略，始终 9081） |
+| `source_script_path` | string |  | install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload） |
+| `method` | string |  | game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression) |
+| `params` | object |  | 方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)} |
+| `timeout` | number |  | game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立） |
+| `interval_ms` | number |  | game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效 |
+| `node_path` | string |  | monitor_start: 要监控的节点路径（如 root/Player） |
+| `properties` | array |  | monitor_start: 要监控的属性名列表（如 ["position", "health"]） |
+| `interval_frames` | number |  | monitor_start: 采样间隔帧数（默认 10，最小 1，最大 300） |
+| `signal_name` | string |  | watch_start: 要监听的信号名（如 "pressed"、"health_changed"） |
+| `max_events` | number |  | watch_start: 最大记录事件数（默认 1000，最大 5000） |
+| `push` | boolean |  | P3-6 watch_start/monitor_start: 启用 push 模式（事件/采样产生时主动推送 MCP notification，无需 poll）。client 需订阅 resources/subscribe 才能收到 |
+| `pattern` | string |  | find_ui_elements: 名称/文字匹配模式（Godot match 语法） |
+| `type` | string |  | find_ui_elements: 按类型过滤（如 "Button"、"Label"） |
+| `visible_only` | boolean |  | find_ui_elements: 仅返回可见元素（默认 true） |
+| `limit` | number |  | find_ui_elements: 最大返回数（默认 200，上限 500） |
+| `text` | string |  | click_button: 按钮文字（和 path 二选一） |
+| `path` | string |  | click_button: 按钮节点路径（和 text 二选一） |
+| `godot_path` | string |  | 覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量） |
+
+## 风险分布
+
+读 11 / 写 4 / 进程 2
+
+---
+<!-- AUTO-GENERATED by scripts/gen-tool-docs.mjs from capability-matrix.json v0.28.3. DO NOT edit manually; re-run npm run gen:tool-docs after tool changes. -->

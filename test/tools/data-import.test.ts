@@ -383,6 +383,17 @@ describe('csv_to_resources timeout 可配 P2-1', () => {
     await handleTool('csv_to_resources', makeValidArgs({ timeout: 120 }), makeCtx());
     expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 120 }));
   });
+
+  // F-1: timeout=0/负数 不再瞬杀 Godot(validateTimeout 钳到 min=5)
+  it('传 timeout=0 → 钳制为 5(不再瞬杀 Godot 进程)', async () => {
+    await handleTool('csv_to_resources', makeValidArgs({ timeout: 0 }), makeCtx());
+    expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 5 }));
+  });
+
+  it('传 timeout=-10 → 钳制为 5', async () => {
+    await handleTool('csv_to_resources', makeValidArgs({ timeout: -10 }), makeCtx());
+    expect(executeGdscriptTrusted).toHaveBeenCalledWith(expect.objectContaining({ timeout: 5 }));
+  });
 });
 
 // ─── A1 (2026-07-23 安全): class_path 路径遍历 → RCE 防护 ──────────────────────

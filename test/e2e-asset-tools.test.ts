@@ -4,7 +4,14 @@
  * 验证 asset 工具(create/path/batch/undo/save + 11 shape)在真实 editor +
  * mcp-enhanced 插件 + command_handler 路由下的完整链路。
  *
- * ─── harness 设计(仿 e2e-full-tool-verification.test.ts 的 L2 editor 模式)───
+ * ─── harness 设计(自 spawn editor,2026-08-10 改造,项目待办 :177)───
+ *
+ * 原 harness 是「手工启动 editor 模式」(开发者须预启动 GUI editor + 加载插件 +
+ * 打开场景),weekly workflow 每个 vitest step 独立进程不共享 editor daemon,
+ * 直接接 CI 必失败(2026-08-09 C-测试批次审查 BLOCKING 发现)。现改为自 spawn
+ * harness(仿 e2e-testing-undo-manager.test.ts + e2e-resilience-editor.test.ts):
+ * beforeAll 内 spawn editor + 轮询 WS 9090 LISTEN 等就绪 + 读 secret + 建连接;
+ * afterAll kill editor。weekly workflow 可直接 xvfb-run 跑。
  *
  * 与 e2e-full 的 callTool(直调 mod.handleTool)不同,asset 写动作(create/path/
  * batch/undo/save)在 editor 模式由 ToolDispatcher 盲转到 GD command_handler,
@@ -15,29 +22,29 @@
  *
  * ─── 三层守卫(反假绿 IMPORTANT-9b)───
  *
- * 1. hasGodot    — GODOT_PATH 存在(虽不直接 spawn,但表明环境配置完整)
- * 2. hasProject  — real-project fixture 存在(编辑器要打开的项目)
- * 3. E2E_EDITOR  — opt-in:开发者已手工启动 GUI Godot 编辑器 + 加载 mcp-enhanced
- *                  插件 + 打开 real-project 的 3D 场景。CI 不可行(GUI),默认 skip。
+ * 1. hasGodot    — GODOT_PATH 存在(spawn editor 需要)
+ * 2. hasProject  — real-project fixture 存在(editor 要打开的项目 + 插件)
+ * 3. E2E_EDITOR  — opt-in(区分单元/集成测试;CI 经 weekly workflow 设此 flag)
  *
  * 未满足时 describe.skipIf 静默跳过 + stderr 告警,绝不假报 pass。
  *
  * ─── 运行方式 ───
  *
- * # 1. 手工启动 Godot 编辑器(开发者本机):
- * #    Godot_v4.6.3-stable_win64_console.exe --editor --path test/fixtures/real-project
- * #    (或 GUI 打开 Godot → 打开 test/fixtures/real-project → 启用 mcp-enhanced 插件
- * #     → 打开 scenes/3d/main_3d.tscn 作为活动场景)
- * # 2. 跑 E2E:
+ * # 开发者本机(自 spawn,无需手工启动 editor):
  *    cd D:/GitHub/godot-mcp-enhanced
  *    GODOT_PATH="D:/Godot/Godot_v4.6.3-stable_win64_console.exe" \
  *    E2E_EDITOR=1 \
  *    npx vitest run test/e2e-asset-tools.test.ts
+ *
+ * # CI(weekly editor-e2e.yml,xvfb-run 包裹):
+ * #   见 .github/workflows/editor-e2e.yml "E2E asset tools" step
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { spawn, type ChildProcess } from 'child_process';
+import net from 'net';
 
 import { registerAllModules } from '../src/core/module-loader.js';
 import { readEditorSecret } from '../src/core/editor-auth.js';
@@ -53,10 +60,13 @@ const GODOT_PATH = process.env.GODOT_PATH || '';
 const hasGodot = existsSync(GODOT_PATH);
 
 // real-project 靶子(mcp-enhanced 既有 fixture,无 autoload,含 3D 场景)
+// 自 spawn 模式需 plugin.cfg(spawn editor 要能加载 mcp-enhanced 插件)
 const REAL_PROJECT = resolve(__dirname, 'fixtures', 'real-project');
-const hasProject = existsSync(REAL_PROJECT) && existsSync(resolve(REAL_PROJECT, 'project.godot'));
+const hasProject = existsSync(REAL_PROJECT)
+  && existsSync(resolve(REAL_PROJECT, 'project.godot'))
+  && existsSync(resolve(REAL_PROJECT, 'addons', 'godot_mcp_server', 'plugin.cfg'));
 
-// editor opt-in(需 GUI 编辑器 + 插件已手工启动)
+// editor opt-in(自 spawn 模式:此 flag 启用后测试自行 spawn editor)
 const hasEditorFlag = !!process.env.E2E_EDITOR;
 
 // editor WS 端口(与 addons/godot_mcp_server/websocket_server.gd BASE_PORT 对齐)
@@ -68,22 +78,32 @@ const canRunE2E = hasGodot && hasProject && hasEditorFlag;
 if (!canRunE2E) {
   const reasons: string[] = [];
   if (!hasGodot) reasons.push(`GODOT_PATH 未设或不存在(当前: ${GODOT_PATH || '<空>'})`);
-  if (!hasProject) reasons.push(`real-project fixture 不存在: ${REAL_PROJECT}`);
-  if (!hasEditorFlag) reasons.push('E2E_EDITOR=1 未设(需手工启动 GUI 编辑器 + 加载 mcp-enhanced 插件)');
+  if (!hasProject) reasons.push(`real-project fixture 不完整(需 project.godot + addons/godot_mcp_server/plugin.cfg): ${REAL_PROJECT}`);
+  if (!hasEditorFlag) reasons.push('E2E_EDITOR=1 未设(自 spawn 模式:此 flag 启用后测试自行 spawn editor)');
   process.stderr.write(
     `[E2E-SKIP] asset E2E(editor)未启用。原因: ${reasons.join('; ')}\n` +
-    `  本测试需真实 Godot editor 运行(mcp-enhanced 插件 + WebSocket server 9090 + 打开场景),\n` +
-    `  CI 环境(GUI 不可用)默认跳过。开发者本机运行步骤:\n` +
-    `    1. 启动编辑器: Godot_v4.6.3-stable_win64_console.exe --editor --path "${REAL_PROJECT}"\n` +
-    `       (或在 Godot 项目管理器打开 real-project → 启用 mcp-enhanced 插件)\n` +
-    `    2. 打开一个 3D 场景作为活动场景(scenes/3d/main_3d.tscn)\n` +
-    `    3. GODOT_PATH="<godot.exe>" E2E_EDITOR=1 npx vitest run test/e2e-asset-tools.test.ts\n`,
+    `  本测试自 spawn Godot editor(mcp-enhanced 插件 + WebSocket server 9090),\n` +
+    `  需 GUI 环境(开发者本机或 CI xvfb-run)。运行方式:\n` +
+    `    GODOT_PATH="<godot.exe>" E2E_EDITOR=1 npx vitest run test/e2e-asset-tools.test.ts\n`,
   );
 }
 
-// ─── harness 装配 ────────────────────────────────────────────────────────────
+// ─── TCP probe WS 9090(自 spawn 就绪信号,仿 e2e-resilience-editor.test.ts:100)───
+function isPortOpen(port: number, host: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    sock.setTimeout(500);
+    sock.once('connect', () => { sock.destroy(); resolve(true); });
+    sock.once('error', () => { sock.destroy(); resolve(false); });
+    sock.once('timeout', () => { sock.destroy(); resolve(false); });
+    sock.connect(port, host);
+  });
+}
+
+// ─── harness 装配(自 spawn editor,仿 e2e-testing-undo-manager.test.ts:56)───
 let editorConn: EditorConnection | null = null;
 let editorExec: EditorToolExecutor | null = null;
+let editorProc: ChildProcess | null = null;
 let _registered = false;
 
 beforeAll(async () => {
@@ -98,12 +118,36 @@ beforeAll(async () => {
   }
   ps.resetState();
 
-  // 读 editor secret(插件启动时写到 {project}/.godot/mcp_editor.key)
+  // 自 spawn editor(非 detached 拿可 kill pid)+ 等 WS 9090 LISTEN 就绪
+  // PERSISTENT_SECRET=true 让 secret 文件不被重生(kill 重启后 conn 复用旧 secret)
+  editorProc = spawn(GODOT_PATH, ['--editor', '--path', REAL_PROJECT], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, GODOT_MCP_EDITOR_PERSISTENT_SECRET: 'true' },
+  });
+  editorProc.on('exit', (code, signal) => {
+    if (editorProc!.exitCode !== null && code !== 0) {
+      process.stderr.write(`[E2E-DIAG] editor 子进程退出 code=${code} signal=${signal}\n`);
+    }
+  });
+
+  // 轮询 WS 9090 LISTEN = plugin _ready 跑完（_ready secret → _start_server 监听）
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await isPortOpen(EDITOR_PORT, '127.0.0.1')) break;
+    // 子进程可能在 WS LISTEN 前就崩溃(端口冲突/插件编译失败)——提早失败
+    if (editorProc.exitCode !== null) {
+      throw new Error(`editor 启动后立即退出(exitCode=${editorProc.exitCode}),检查插件编译/端口占用`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (editorProc.exitCode !== null) throw new Error('editor 30s 内未就绪(进程已退出)');
+
+  // 读 editor secret(插件 _ready 写到 {project}/.godot/mcp_editor.key)
   const secret = readEditorSecret(REAL_PROJECT);
   if (!secret) {
     throw new Error(
       `[E2E] 未能从 ${join(REAL_PROJECT, '.godot', 'mcp_editor.key')} 读取 editor secret。` +
-      `请确认 GUI 编辑器已启动且 mcp-enhanced 插件已加载。`,
+      `editor 已自 spawn 且 WS 9090 LISTEN,但 secret 未生成(插件 _ready 异常?)。`,
     );
   }
 
@@ -121,7 +165,7 @@ beforeAll(async () => {
 
   // 确保 GeneratedAssets 目录存在(save 测试落盘需要)
   mkdirSync(join(REAL_PROJECT, 'GeneratedAssets'), { recursive: true });
-}, 30_000);
+}, 60_000);
 
 afterAll(async () => {
   if (editorExec) {
@@ -132,6 +176,11 @@ afterAll(async () => {
     try { editorConn.disconnect(); } catch { /* best effort */ }
     editorConn = null;
   }
+  // kill 自 spawn 的 editor(非 detached,pid 可控)
+  if (editorProc && editorProc.exitCode === null) {
+    try { editorProc.kill('SIGKILL'); } catch { /* best effort */ }
+  }
+  editorProc = null;
 });
 
 // ─── callTool helper(经 EditorToolExecutor 盲转到 GD command_handler)───

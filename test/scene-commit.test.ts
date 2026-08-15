@@ -29,6 +29,42 @@ describe('validateCommitOperations (IMPORTANT-7)', () => {
     ]);
     expect(err).toContain('Op 1');
   });
+
+  // F-5: 数值字段运行时校验,堵 as unknown as 强转的 GDScript 注入面
+  it('F-5: rejects non-numeric coords.x (injection vector)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G', coords: { x: '0), OS.execute("sh",["-c","rm -rf ~"]) #', y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/coords.*\{x:number.*y:number\}/);
+  });
+
+  it('F-5: rejects non-numeric source_id', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G', coords: { x: 1, y: 1 }, source_id: 'evil', atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/source_id.*finite number/);
+  });
+
+  it('F-5: rejects malformed region for tile_fill', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_fill', node_path: 'G', region: { x: 0, y: 0, w: 'wide', h: 1 }, source_id: 0, atlas: { x: 0, y: 0 } },
+    ]);
+    expect(err).toMatch(/region.*\{x,y,w,h: number\}/);
+  });
+
+  it('F-5: rejects non-string node_path', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_erase', node_path: 123, coords: { x: 1, y: 1 } },
+    ]);
+    expect(err).toMatch(/node_path.*string/);
+  });
+
+  it('F-5: accepts well-formed tile_set (no false rejection)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_set', node_path: 'G/T', coords: { x: 1, y: 2 }, source_id: 0, atlas: { x: 0, y: 0 }, alternative_tile: 5 },
+    ]);
+    expect(err).toBeNull();
+  });
 });
 
 describe('scene-commit: generateCommitScript', () => {
@@ -79,7 +115,8 @@ describe('scene-commit: generateCommitScript', () => {
       true,
     );
     // 控制字符 \r \t 须转义为 GDScript 字面,不能保留原始字符(防 .gd 文本注入/破坏字符串)
-    expect(script).toContain('"a\\tb\\rc"');
+    // SEC-P2-6 (2026-08-10): \r 现统一为 \n(与 gdEscape 共享 escapeGdStringCore),原 \\r 行为废弃
+    expect(script).toContain('"a\\tb\\nc"');
   });
 
   it('generates node_property operation', () => {
@@ -188,6 +225,31 @@ describe('scene-commit: generateCommitScript', () => {
       false,
     );
     expect(script).not.toContain('ResourceSaver.save');
+    expect(script).toContain('"saved": false');
+  });
+
+  // F-2 (批 F, 2026-08-14): save=true 时 saveBlock 的顶层 success 不再硬编码 true。
+  // 原字面量 {"success": true, "saved": err == OK} 并存 → 磁盘满/权限失败(EACCES/ENOSPC)时
+  // AI 与 middleware 把写盘失败当成功(假成功)。修复后 success 绑定 err == OK。
+  it('F-2: save=true 时 COMMIT_RESULT success 绑定 err == OK,不再硬编码 true', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_set', node_path: 'Ground', coords: { x: 1, y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } }],
+      true,
+    );
+    expect(script).toContain('"success": err == OK');
+    expect(script).toContain('"saved": err == OK');
+    // 保存路径的 COMMIT_RESULT 不再含硬编码 success:true
+    expect(script).not.toContain('"success": true');
+  });
+
+  it('F-2: save=false 分支保持 success:true + saved:false（未请求保存,无保存失败可掩盖）', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_set', node_path: 'Ground', coords: { x: 1, y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } }],
+      false,
+    );
+    expect(script).toContain('"success": true');
     expect(script).toContain('"saved": false');
   });
 
@@ -331,6 +393,35 @@ describe('serializeGdValue type inference', () => {
       true,
     );
     expect(script).toContain('.position = Vector3(5, 0, 10)');
+  });
+
+  // SEC-P2-6 (2026-08-10): string 属性值转义经 escapeForGdLiteral(与 gdEscape 共享 core)
+  it('preserves % in string property values (not escaped, no % formatting)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: '50% off' }],
+      true,
+    );
+    expect(script).toContain('"50% off"');
+    expect(script).not.toContain('%%');
+  });
+
+  it("preserves single quote in string property values", () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: "it's" }],
+      true,
+    );
+    expect(script).toContain("\"it's\"");
+  });
+
+  it('removes null bytes in string property values (shared with gdEscape)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'node_property', path: 'Label', property: 'text', value: 'before\0after' }],
+      true,
+    );
+    expect(script).toContain('"beforeafter"');
   });
 });
 

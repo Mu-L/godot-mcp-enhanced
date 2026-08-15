@@ -3,7 +3,9 @@ import type { EditorConnection } from './EditorConnection.js';
 import type { ToolResult } from '../types.js';
 import { resolveEditorMethod } from './editor-method-map.js';
 import type { HealthMonitor } from './health-monitor.js';
-import { opsErrorResult } from '../tools/shared.js';
+import { opsErrorResult } from './shared/errors.js';
+import { classifyError } from './tool-errors.js';
+import { getLogger } from './logger.js';
 
 export class EditorToolExecutor {
   private syncActive = false;
@@ -17,6 +19,10 @@ export class EditorToolExecutor {
   // 即时返 NOT_CONNECTED，跳过 30s conn.request 等待（串行 executeChain ×30s HOL 放大）。
   // 可选：未注入时不预检（向后兼容既有 new EditorToolExecutor(conn) 调用点）。
   private readonly healthMonitor?: HealthMonitor;
+  // P2-1R (2026-08-11 CMP-1 TOCTOU): 自动重连后 verifyEditorProject 校验期 gate。
+  // GodotServer 注入 () => this._editorVerifying;校验期 _executeInner 入口即时返
+  // VERIFICATION_IN_PROGRESS,防 editor 工具作用错误项目场景树(对齐 B-T3 HOL 预检范式)。
+  private readonly isVerifying?: () => boolean;
   // security P1#2: editor 工具串行化链(防并发 ws.send 致 undo 栈 LIFO 错乱)
   private executeChain: Promise<unknown> = Promise.resolve();
 
@@ -34,9 +40,10 @@ export class EditorToolExecutor {
     }
   };
 
-  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor) {
+  constructor(conn: EditorConnection, healthMonitor?: HealthMonitor, isVerifying?: () => boolean) {
     this.conn = conn;
     this.healthMonitor = healthMonitor;
+    this.isVerifying = isVerifying;
     this.conn.addOnDisconnectHandler(this._disconnectHandler);
     this.conn.addOnReconnectHandler(this._reconnectHandler);
   }
@@ -51,6 +58,11 @@ export class EditorToolExecutor {
     // security P1#2 fix: 串行化 editor 工具调用 - MCP SDK 异步并发派发多个 tools/call, 并发 ws.send 到达
     // GDScript 顺序不可靠, 致 undo 栈 LIFO 错乱(commit 顺序与逻辑依赖相反 -> undo 弹栈 target==null/undo 丢失).
     // Promise 链排队: 每个 execute 等前一个完成再发 request, 保证 commit_action 顺序确定.
+    //
+    // C-可靠性 (2026-08-09): 只读工具(get_scene_tree 等)也走此串行链,是有意决策非 bug。
+    // 评估过"只读走独立通道"但被否:editor 是单 WebSocket 连接,并发 ws.send 到 GDScript 主循环
+    // 的派发顺序仍不可靠(正是全串行的根因),只读独立通道需 GD 侧也支持并发派发 + 顺序保证,
+    // 工作量大且引入新并发风险,收益有限。知情接受串行(2026-07-29 可靠性审查 P2-⑥ 决策)。
     const run = this.executeChain.then(
       () => this._executeInner(toolName, args),
       () => this._executeInner(toolName, args),  // 前一个 reject 不阻塞下一个
@@ -70,6 +82,16 @@ export class EditorToolExecutor {
       return opsErrorResult(
         'NOT_CONNECTED',
         'Editor is reconnecting (half-open precheck). Retry shortly.',
+      );
+    }
+    // P2-1R: CMP-1 重连 TOCTOU 预检——自动重连后 verifyEditorProject 校验期(~5s RPC 超时)
+    // editorExecutor 已就绪 + connected=true,但项目可能不匹配(端口被另一项目 editor 接管)。
+    // 校验期即时返 VERIFICATION_IN_PROGRESS 跳过,防写操作作用错误场景树(对齐 B-T3 范式)。
+    // verifyEditorProject finally 复位 _editorVerifying,校验完恢复。
+    if (this.isVerifying?.()) {
+      return opsErrorResult(
+        'VERIFICATION_IN_PROGRESS',
+        'Editor is verifying project match after reconnect. Retry shortly.',
       );
     }
     try {
@@ -149,7 +171,15 @@ export class EditorToolExecutor {
           message.includes('JSON parse error')
         ));
 
-      const errorPayload: Record<string, unknown> = { error: message };
+      // PII 护栏(G2 收尾): 连接错误 message 是连接语义(Not connected 等,非 PII),客户端需识别;
+      // 非连接错误(GDScript 报错等)可能含绝对路径/项目名 = PII,用 classifyError 的 safeMessage。
+      const classified = classifyError(err);
+      const safeErrorText = isConnectionError ? message : classified.safeMessage;
+      if (!isConnectionError) {
+        // 完整 message 仅 log 到 server(诊断不丢),不外传 client
+        getLogger().debug('editor', `Editor tool error [${classified.category}/${classified.code}]: ${message}`);
+      }
+      const errorPayload: Record<string, unknown> = { error: safeErrorText };
       // I-12: 保留插件结构化 code/data（连接类错误除外——它们的 code 是本地连接语义非插件语义,
       // 暴露给客户端会被误解为插件 JSON-RPC code 触发错误处理逻辑）
       if (!isConnectionError && err instanceof Error && 'code' in err) {
@@ -254,9 +284,10 @@ export class EditorToolExecutor {
       };
     } catch (err) {
       this.conn.offNotification('scene_tree_changed', this.handleTreeChange);
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): message 可能含 GDScript 报错路径 = PII,用 safeMessage;完整文本 log 到 server
+      getLogger().debug('editor', `Editor tool error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        content: [{ type: 'text', text: JSON.stringify({ error: classifyError(err).safeMessage }) }],
         isError: true,
       };
     }
@@ -282,9 +313,10 @@ export class EditorToolExecutor {
       };
     } catch (err) {
       // 即使 request 失败（如已断连），仍然返回已缓冲的变更
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): warning 文本用 safeMessage,完整 message log 到 server
+      getLogger().debug('editor', `sync_stop error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ warning: message, buffered_changes: changes }) }],
+        content: [{ type: 'text', text: JSON.stringify({ warning: classifyError(err).safeMessage, buffered_changes: changes }) }],
       };
     }
   }
@@ -296,9 +328,10 @@ export class EditorToolExecutor {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      // PII 护栏(G2 收尾): message 可能含 GDScript 报错路径 = PII,用 safeMessage;完整文本 log 到 server
+      getLogger().debug('editor', `Editor tool error: ${err instanceof Error ? err.message : err}`);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        content: [{ type: 'text', text: JSON.stringify({ error: classifyError(err).safeMessage }) }],
         isError: true,
       };
     }

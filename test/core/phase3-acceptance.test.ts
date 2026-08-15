@@ -367,30 +367,39 @@ describe('godot_list_dynamic_routes integration', () => {
 
   it('category filter correctly narrows results', async () => {
     setActiveGroups(new Set(['core', 'dynamic']));
+    // 注册测试工具:一个 core 类(merged tool 无下划线)+ 一个自定义类
+    registerTools([
+      { name: 'test_scene_tool', readonly: false, long_running: false },
+      { name: 'godot_testcat_action', readonly: false, long_running: false },
+    ]);
 
-    // 过滤 "project" 类别
+    // 三级 discovery(Level 2b):category 返回该类的 lean 视图 {category, count, tools}
+    // 用 'testcat' category(godot_testcat_action 归此类)
     const result = await handleTool('godot_list_dynamic_routes', {
-      category: 'project',
+      category: 'testcat',
     }, mockCtx);
     const parsed = JSON.parse((result!.content[0] as any).text);
 
-    expect(parsed.success).toBe(true);
-    for (const name of parsed.registered) {
-      expect(name).toContain('project');
+    // lean 视图结构:{category, count, tools:[{name, brief, params?}]}
+    expect(parsed.category).toBe('testcat');
+    expect(typeof parsed.count).toBe('number');
+    expect(parsed.count).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(parsed.tools)).toBe(true);
+    // 该类所有工具名都含 'testcat'
+    for (const tool of parsed.tools) {
+      expect(tool.name).toContain('testcat');
     }
-    // 过滤后的数量 <= 总量
-    expect(parsed.total_registered).toBeLessThanOrEqual(parsed.total_registered + 1);
   });
 
-  it('category filter with non-matching category returns empty registered array', async () => {
+  it('category filter with non-matching category returns error', async () => {
+    // 三级 discovery:不存在的 category 返回 {error} 而非空数组
     const result = await handleTool('godot_list_dynamic_routes', {
       category: 'nonexistent_category_xyz',
     }, mockCtx);
     const parsed = JSON.parse((result!.content[0] as any).text);
 
-    expect(parsed.success).toBe(true);
-    expect(parsed.registered).toHaveLength(0);
-    expect(parsed.total_registered).toBe(0);
+    expect(parsed.error).toBeDefined();
+    expect(parsed.error).toContain('nonexistent_category_xyz');
   });
 
   it('returns hint text for discoverability', async () => {

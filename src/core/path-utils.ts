@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from './logger.js';
+import { PathError } from './tool-errors.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export const validatePath = resolvePath;
 export function validateProjectRoot(p: string): string {
   const resolved = resolvePath(p);
   if (!existsSync(join(resolved, 'project.godot'))) {
-    throw new Error(`Not a valid Godot project (no project.godot found): ${resolved}`);
+    throw new PathError('Not a valid Godot project (no project.godot found)');
   }
   return resolved;
 }
@@ -127,13 +128,15 @@ export function safeRealPath(p: string, base?: string): string {
     }
     let resolvedAncestor: string;
     try { resolvedAncestor = realpathSync(current); } catch (err) {
-      throw new Error(`Cannot resolve real path for "${current}" (component of "${p}"): ${err instanceof Error ? err.message : err}`, { cause: err });
+      // PII 护栏:err.message(可能含路径)只 log 到 server 端,不进 client 响应(safeMessage 是固定文本)。
+      getLogger().debug('path-utils', `realpath failed: ${err instanceof Error ? err.message : err}`);
+      throw new PathError('Cannot resolve real path during symlink resolution');
     }
     const resolved = trailing.length > 0 ? join(resolvedAncestor, ...trailing) : resolvedAncestor;
     if (base) {
       const rel = relative(base, resolved);
       if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-        throw new Error(`Path traversal detected in fallback resolution: ${p}`);
+        throw new PathError('Path traversal detected in fallback resolution');
       }
     }
     return resolved;
@@ -155,20 +158,20 @@ export function resolveWithinRoot(root: string, userPath: string): string {
   const base = safeRealPath(resolvePath(root));
 
   if (/^\\\\[^\\]/.test(userPath)) {
-    throw new Error(`Path traversal detected: ${userPath}`);
+    throw new PathError('Path traversal detected');
   }
 
   const leafName = userPath.replace(/\\/g, '/').split('/').pop() || '';
   const baseName = leafName.replace(/\.[^.]*$/, '');
   if (WINDOWS_DEVICE_RE.test(baseName)) {
-    throw new Error(`Path traversal detected: ${userPath}`);
+    throw new PathError('Path traversal detected');
   }
 
   let decoded: string;
   try {
     decoded = iterativeDecode(userPath);
   } catch {
-    throw new Error(`Path traversal detected: ${userPath}`);
+    throw new PathError('Path traversal detected');
   }
 
   const normalizedPath = decoded.replace(/\\/g, '/');
@@ -176,13 +179,13 @@ export function resolveWithinRoot(root: string, userPath: string): string {
   // 子串匹配会 over-block;第180行 realpath+relative 兜底仍保留作纵深防御
   const segments = normalizedPath.split('/');
   if (segments.some(s => s === '..')) {
-    throw new Error(`Path traversal detected: ${userPath}`);
+    throw new PathError('Path traversal detected');
   }
   const resolved = resolve(base, normalizedPath);
   const realResolved = safeRealPath(resolved, base);
   const rel = relative(base, realResolved);
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw new Error(`Path traversal detected: ${userPath}`);
+    throw new PathError('Path traversal detected');
   }
   return realResolved;
 }

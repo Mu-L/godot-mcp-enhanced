@@ -26,6 +26,11 @@ describe('action-gate (P0-3)', () => {
       expect(isActionGated('blender', 'execute_bpy')).toBe(true);
     });
 
+    it('gates debug.evaluate (P1 2026-08-11: 任意代码执行面对齐 execute_gdscript)', () => {
+      // debug.evaluate 发任意 GDScript expression 到游戏执行,与 execute_gdscript 等价 RCE 面
+      expect(isActionGated('debug', 'evaluate')).toBe(true);
+    });
+
     it('does NOT gate script.edit_script (over-blocking 验证)', () => {
       expect(isActionGated('script', 'edit_script')).toBe(false);
     });
@@ -53,6 +58,7 @@ describe('action-gate (P0-3)', () => {
     it('allows gated action when code-execution enabled', () => {
       expect(isActionAllowed('script', 'execute_gdscript', ['code-execution'])).toBe(true);
       expect(isActionAllowed('blender', 'execute_bpy', ['code-execution'])).toBe(true);
+      expect(isActionAllowed('debug', 'evaluate', ['code-execution'])).toBe(true);  // P1 2026-08-11
     });
   });
 

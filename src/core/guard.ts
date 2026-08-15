@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
-import { getActionRisk, getActionRisks } from './core/tool-registry.js';
+import { getActionRisk, getActionRisks } from './tool-registry.js';
+import { InternalError, RateLimitError } from './tool-errors.js';
 
 interface PendingToken {
   token: string;
@@ -69,7 +70,7 @@ export function requiresConfirmation(toolName: string, args?: Record<string, unk
 
 export function createPendingToken(toolName: string, args: Record<string, unknown>): string {
   // I-19: refuse token creation after shutdown — timer is stopped, token would never be cleaned
-  if (_shutdown) throw new Error('Token system has been shut down');
+    if (_shutdown) throw new InternalError('Token system has been shut down');
   ensureCleanupTimer();
   const now = Date.now();
   // A-05: Rate limit — prevent high-frequency token creation from evicting legitimate tokens
@@ -79,7 +80,7 @@ export function createPendingToken(toolName: string, args: Record<string, unknow
     _recentCreations = _recentCreations.slice(-TOKEN_RATE_LIMIT);
   }
   if (_recentCreations.length >= TOKEN_RATE_LIMIT) {
-    throw new Error(`Token creation rate limit exceeded (max ${TOKEN_RATE_LIMIT}/s). Please wait and retry.`);
+    throw new RateLimitError('Token creation rate limit exceeded, retry shortly');
   }
   _recentCreations.push(now);
   // 清理过期 token

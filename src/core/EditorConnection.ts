@@ -1,6 +1,7 @@
 // src/core/EditorConnection.ts
 import WebSocket from 'ws';
 import { getLogger } from './logger.js';
+import { ConnectionError, InternalError } from './tool-errors.js';
 import { getErrorMessage } from '../types.js';
 
 // I-01: Auth uses a dedicated id outside the normal requestId sequence to avoid conflicts.
@@ -50,6 +51,13 @@ export class EditorConnection {
 
   /** Guard against duplicate fireDisconnect() calls */
   private _disconnectFired = false;
+
+  /**
+   * A-3 (2026-08-14 finding :932): auth 失败(exhaustion)已 fire 标记。
+   * 去重:同一轮"auth 耗尽"只 fire 一次 reconnectExhausted handlers(对齐 I-04
+   * "exactly once" 不变量),下次成功连接时复位。
+   */
+  private _authExhaustedFired = false;
 
   /**
    * Backward-compatible setter: converts a direct assignment like
@@ -125,6 +133,21 @@ export class EditorConnection {
     }
   }
 
+  /**
+   * I-04/A-3: fire reconnectExhausted handlers。
+   * 2026-08-06 审查 P2：迭代前 Array.from 快照 + try/catch 容错（对齐 fireDisconnect/fireReconnect），
+   * 防第一个 handler 调 disconnect() 触发 reconnectExhaustedHandlers.clear() 致后续 handler 静默丢失。
+   */
+  private fireReconnectExhausted(): void {
+    for (const handler of Array.from(this.reconnectExhaustedHandlers)) {
+      try {
+        handler();
+      } catch (err) {
+        getLogger().warn('editor', `reconnectExhausted handler threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   private readonly host: string;
   private readonly shouldReconnect: boolean;
   private readonly reconnectBaseMs: number;
@@ -144,7 +167,7 @@ export class EditorConnection {
     this.host = options.host ?? '127.0.0.1';
     // Reject non-localhost hosts — WebSocket auth is plaintext (no TLS)
     if (this.host !== '127.0.0.1' && this.host !== 'localhost' && this.host !== '::1') {
-      throw new Error(`Editor WebSocket only supports localhost connections for security (got: ${this.host})`);
+        throw new InternalError('Editor WebSocket only supports localhost connections');
     }
     this.shouldReconnect = options.reconnect ?? true;
     this.reconnectEnabled = this.shouldReconnect;
@@ -227,6 +250,18 @@ export class EditorConnection {
             this.ws = null;
             ws.removeAllListeners();
             ws.terminate();
+            // A-3 (2026-08-14 finding :932, P0): auth 失败(如 editor 重启换 secret)同样意味着
+            // 本连接的自动重连链死亡 —— reconnectEnabled 已置 false,scheduleReconnect 入口
+            // 永远静默 return,原实现只在耗尽分支 fire exhaustion,此处不 fire 则上层
+            // (EditorConnectionManager.handleStall) 无降级路径 → conn 永不置 null →
+            // manage_tools(reconnect) 只会 ec.connect()(旧 secret)永远失败并累计
+            // authFailureCount,5 次后 5 分钟 lockout,只能重启 MCP 服务端。
+            // 此处 fire 后 handleStall 置 conn=null → rebuild()(重读 secret)路径可达。
+            // _authExhaustedFired 去重:同一轮"auth 耗尽"只 fire 一次(下次成功连接复位)。
+            if (!this._authExhaustedFired) {
+              this._authExhaustedFired = true;
+              this.fireReconnectExhausted();
+            }
             if (!settled) { settled = true; reject(authErr); }
             return;
           }
@@ -241,6 +276,16 @@ export class EditorConnection {
         }
         const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
+        // A-3: 成功连接复位 auth 耗尽去重标记(新一轮生命周期允许再次 fire)
+        this._authExhaustedFired = false;
+        // A-1 (2026-08-14 finding :937): connect 成功时清掉遗留的 backoff timer。
+        // backoff 挂起窗口内手动 connect 成功后,旧 timer 若不清,触发时会再跑一次 connect(),
+        // 而 connect 入口(:164-169)无条件 terminate 现有 ws → 弹跳健康连接,
+        // in-flight editor 工具请求全部丢失。
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         if (isReconnect) {
           this.fireReconnect();
         }
@@ -340,8 +385,8 @@ export class EditorConnection {
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.connected) {
-        // B4: 挂 err.code='NOT_CONNECTED' 供 Executor 分流(do_not_retry)
-        reject(Object.assign(new Error('Not connected'), { code: 'NOT_CONNECTED' }));
+        // B4: ConnectionError 自带 code='NOT_CONNECTED'(ToolError 字段)供 Executor 分流(do_not_retry)。
+        reject(new ConnectionError());
         return;
       }
       // Increment and wrap (ID 0 is reserved/skipped to avoid falsy confusion).
@@ -392,7 +437,7 @@ export class EditorConnection {
    * a full scene-tree refresh if any were lost.
    */
   notify(method: string, params: Record<string, unknown> = {}): void {
-    if (!this.ws || !this.connected) throw new Error('Not connected');
+    if (!this.ws || !this.connected) throw new ConnectionError();
     try {
       this.ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
     } catch (err) {
@@ -438,7 +483,7 @@ export class EditorConnection {
   private performAuth(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.editorSecret) {
-        reject(new Error('Cannot authenticate: not connected or no secret'));
+        reject(new ConnectionError('Cannot authenticate: not connected or no secret'));
         return;
       }
       let settled = false;
@@ -493,15 +538,7 @@ export class EditorConnection {
       // I-04: Fire dedicated exhaustion handlers instead of relying on fireDisconnect dedup.
       // This ensures consumers (e.g. GodotServer) always get notified when reconnect is exhausted,
       // regardless of whether fireDisconnect was already called by ws.on('close').
-      // 2026-08-06 审查 P2：迭代前 Array.from 快照 + try/catch 容错（对齐 fireDisconnect/fireReconnect），
-      // 防第一个 handler 调 disconnect() 触发 reconnectExhaustedHandlers.clear() 致后续 handler 静默丢失。
-      for (const handler of Array.from(this.reconnectExhaustedHandlers)) {
-        try {
-          handler();
-        } catch (err) {
-          getLogger().warn('editor', `reconnectExhausted handler threw: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      this.fireReconnectExhausted();
       return;
     }
     const base = Math.min(

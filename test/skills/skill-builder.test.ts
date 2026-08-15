@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL } from '../../src/skills/skill-builder.js';
+import { deriveSkillFromWorkflow, buildAllSkills, WORKFLOW_TO_SKILL, HANDWRITTEN_SKILLS } from '../../src/skills/skill-builder.js';
 import { DETAILED_RULE_TEMPLATES } from '../../src/tools/rule-templates.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,23 +55,73 @@ describe('skill-builder 派生逻辑', () => {
     expect(() => deriveSkillFromWorkflow('---\ndescription: "d"\n---\n\nno h2 here', 'x')).toThrow(); // 缺 ##
   });
 
-  it('buildAllSkills 返回 3 个 entry，frontmatter 合法', () => {
+  it('buildAllSkills 返回 6 个 entry（3 派生 + 3 手写），frontmatter 合法', () => {
     const skills = buildAllSkills();
-    expect(skills.size).toBe(3);
+    expect(skills.size).toBe(6);
     expect(skills.has('godot-mcp-bridge-e2e')).toBe(true);
     expect(skills.has('godot-mcp-verify-loop')).toBe(true);
     expect(skills.has('godot-mcp-safe-edit')).toBe(true);
+    // Tier2-1 手写 skill
+    expect(skills.has('godot-router')).toBe(true);
+    expect(skills.has('screenshot-verify')).toBe(true);
+    expect(skills.has('godot-tween-taste')).toBe(true);
     for (const [name, content] of skills) {
       expect(content.startsWith(`---\nname: ${name}\ndescription: "`)).toBe(true);
       expect(content).toContain('—— 当你');
-      expect(content).not.toContain('alwaysApply');
+    }
+  });
+});
+
+// Tier2-1: 手写 skill（路由器/原语/advisor，非派生）
+describe('手写 skill（Tier2-1）', () => {
+  it('HANDWRITTEN_SKILLS 含 3 个新 skill', () => {
+    expect(HANDWRITTEN_SKILLS.size).toBe(3);
+    expect(HANDWRITTEN_SKILLS.has('godot-router')).toBe(true);
+    expect(HANDWRITTEN_SKILLS.has('screenshot-verify')).toBe(true);
+    expect(HANDWRITTEN_SKILLS.has('godot-tween-taste')).toBe(true);
+  });
+
+  it('每个手写 skill frontmatter 合法（name + description + —— 当你 + H2 正文）', () => {
+    for (const [name, content] of HANDWRITTEN_SKILLS) {
+      expect(content.startsWith(`---\nname: ${name}\ndescription: "`)).toBe(true);
+      expect(content).toContain('—— 当你');
+      expect(content).toContain('\n## ');
+      expect(content).not.toMatch(/\n#\s+\S/);  // 无独立 H1
+    }
+  });
+
+  // I-1 (Tier2-1 审查): 校验手写 skill 正文里的 MCP 工具名引用真实存在。
+  // 防第二次踩 Tier1-2 error_analyzer→analyze_error 笔误的同款盲区。
+  it('手写 skill 正文 MCP 工具名引用真实存在（反引号 + 标识符 + 左括号）', () => {
+    // 已知 MCP 工具名(help.ts TOOL_NAMES 子集 + 常见 action 值)
+    const KNOWN_MCP_TOOLS = new Set([
+      'runtime_assert', 'screenshot', 'edit_script', 'read_scene', 'read_script',
+      'game', 'add_node', 'scene', 'script', 'take_screenshot',
+    ]);
+    // GDScript API（非 MCP 工具，白名单豁免）
+    const KNOWN_GDSCRIPT_API = new Set([
+      'create_tween', 'tween_property', 'set_trans', 'set_ease', 'parallel', 'connect',
+    ]);
+    // skill 名引用（路由器指向其他 skill）
+    const KNOWN_SKILL_REFS = new Set([
+      'godot-mcp-bridge-e2e', 'godot-mcp-safe-edit', 'godot-mcp-verify-loop',
+      'godot-tween-taste', 'screenshot-verify', 'godot-router',
+    ]);
+    const ALL_KNOWN = new Set([...KNOWN_MCP_TOOLS, ...KNOWN_GDSCRIPT_API, ...KNOWN_SKILL_REFS]);
+
+    for (const [, content] of HANDWRITTEN_SKILLS) {
+      // 匹配反引号包裹的标识符紧跟左括号：`tool( 或 `tool(action=
+      const refs = [...content.matchAll(/`([a-zA-Z][\w-]*)\(/g)].map(m => m[1]);
+      for (const ref of refs) {
+        expect(ALL_KNOWN.has(ref)).toBe(true);  // 每个引用都必须在已知集合里
+      }
     }
   });
 });
 
 // DRY 一致性（防忘记重跑 build:skills）：磁盘 SKILL.md == buildAllSkills() 派生结果
 describe('SKILL.md DRY 一致性（磁盘 == 派生）', () => {
-  it('3 个 SKILL.md 磁盘内容 == buildAllSkills() 派生结果（字符串严格相等）', () => {
+  it('6 个 SKILL.md 磁盘内容 == buildAllSkills() 结果（字符串严格相等）', () => {
     const skills = buildAllSkills();
     for (const [name, expected] of skills) {
       const diskPath = join(__dirname, '..', '..', '.claude', 'skills', name, 'SKILL.md');

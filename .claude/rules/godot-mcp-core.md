@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 40 个 MCP 工具（220 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 41 个 MCP 工具（230 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -49,7 +49,7 @@ godot-mcp-enhanced 提供 40 个 MCP 工具（220 个 action，权威数据见 d
   - 变量间接调用：通过 `call()` / `funcref()` 的非字面量参数绕过静态扫描
   - 注释中包含危险 API 名称会导致误报拦截（安全侧失败）
   - **适用场景**：本地单用户开发环境（信任调用者）。**不适用于多用户/远程/不可信输入场景**——后者需要容器/VM 隔离 + `GODOT_MCP_ALLOW_UNSAFE=false`
-  - **write_script/edit_script 也走沙箱扫描**：写入 .gd 前对内容调 `scanGdscriptSandbox`，发现 OS.execute/@tool 等危险模式则阻断（SANDBOX_VIOLATION），与 execute_gdscript 同威胁面对齐。双 opt-in 旁路（`UNRESTRICTED + DISABLE_SAFETY`）
+  - **write_script/edit_script 也走沙箱扫描**：写入 .gd 前对内容调 `scanGdscriptSandbox`，发现已知危险 API 模式（清单不列举防被侦察）则阻断（SANDBOX_VIOLATION），与 execute_gdscript 同威胁面对齐。双 opt-in 旁路（`UNRESTRICTED + DISABLE_SAFETY`）
 
 ### edit_script — 脚本编辑
 

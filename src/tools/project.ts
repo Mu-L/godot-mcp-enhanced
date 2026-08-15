@@ -20,6 +20,7 @@ import {
 } from './rules-manifest.js';
 import { validatePath, requireString, requireProjectPath, resolveWithinRoot, scanFiles, type GodotConfig } from '../helpers.js';
 import { getScaffoldFiles, PROJECT_TEMPLATES, handleTemplateAction } from './code-templates.js';
+import { scanScriptSandboxOrThrow } from './script.js';
 import { getLogger } from '../core/logger.js';
 import { projectWriteConfig, isAllowedConfigKey, validateConfigValue } from './project-config.js';
 
@@ -53,7 +54,7 @@ export function getToolDefinitions(): Tool[] {
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           search_dir: { type: 'string', description: '搜索目录（list_projects）', default: '.' },
-          max_depth: { type: 'number', description: '最大搜索深度（默认 3）', default: 3 },
+          max_depth: { type: 'number', description: '最大搜索深度（默认 3，钳制上限 10）', default: 3 },
           extensions: { type: 'array', items: { type: 'string' }, description: '按扩展名过滤（如 [".gd", ".tscn"]）' },
           subdirectory: { type: 'string', description: '限定子目录' },
           project_name: { type: 'string', description: '项目名称（默认取文件夹名）', default: '' },
@@ -96,7 +97,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   switch (action) {
     case 'list_projects': {
       const searchDir = validatePath(requireString(args, 'search_dir'));
-      const maxDepth = (args.max_depth as number) || 3;
+      // I-7 (2026-08-14 审查 P3): max_depth 钳制 ≤10——scan 逐层 readdirSync 递归,
+      // AI 传 999 会扫全盘(search_dir 上层目录时尤其)。默认 3,上限 10 覆盖合理项目布局。
+      // search_dir root 不做额外校验(用户定夺项:搜索语义天然跨目录)。
+      const maxDepth = Math.min((args.max_depth as number) || 3, 10);
       const projects: string[] = [];
 
       function scan(dir: string, depth: number): void {
@@ -170,7 +174,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const p = requireProjectPath(args);
       // godot_version 接入:features / hello 串 / CI 模板统一从此参数派生(消除 "4.6" 硬编码漂移)。
       // config_version=5 对所有 Godot 4.x 成立(4.7 仍为 5),不做投机性 bump。
-      const godotVersion = (args.godot_version as string) || '4.4';
+      // B-1 fix round 1 (2026-08-14): godot_version 直接拼接进 scripts/main.gd 与 CI
+      // YAML,是第 4 个 .gd 写入面(quick_scene/create_files/apply_template 之后) —
+      // 攻击输入如 `4.4")\n\tOS.execute("calc" # '` 可注入任意 GDScript。严格白名单校验。
+      const godotVersion = parseGodotVersionArg(args);
+      if (godotVersion === null) return invalidGodotVersionResult(args.godot_version);
       const projectName = (args.project_name as string) || basename(p);
       const renderer = (args.renderer as string) || 'forward_plus';
       const validRenderers = ['forward_plus', 'mobile', 'gl_compatibility'];
@@ -226,6 +234,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         "\tprint(\"Hello, Godot " + godotVersion + "!\")",
         '',
       ].join('\n');
+      // B-1 fix round 1: 全仓所有 .gd 落盘前必须过沙箱扫描(script.ts B-1 不变式)。
+      // godot_version 已过严格白名单,此处为纵深防御(防未来新参数再拼进 main.gd)。
+      const mainGdGuard = scanScriptSandboxOrThrow(mainGd, join(p, 'scripts', 'main.gd'));
+      if (mainGdGuard) return mainGdGuard;
       writeFileSync(join(p, 'scripts', 'main.gd'), mainGd, 'utf-8');
 
       // ── Template scaffold ──
@@ -239,6 +251,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const tmpl = PROJECT_TEMPLATES[templateName];
         for (const sf of scaffoldFiles) {
           const fullPath = join(p, sf.path.replace(/\//g, process.platform === 'win32' ? '\\' : '/'));
+          // B-1 fix round 1: projectName 是自由文本,被 getScaffoldFiles 拼进脚手架 .gd
+          // 注释(`# ${className} — ${projectName}`),含换行即变活代码 — 无法格式白名单,
+          // 落盘前过沙箱扫描(对齐 apply_template / batch create_files 范式)。
+          const sandboxGuard = scanScriptSandboxOrThrow(sf.content, fullPath);
+          if (sandboxGuard) return sandboxGuard;
           mkdirSync(fullPath.substring(0, fullPath.lastIndexOf(process.platform === 'win32' ? '\\' : '/')), { recursive: true });
           writeFileSync(fullPath, sf.content, 'utf-8');
         }
@@ -576,7 +593,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       // ── CI workflow ──
       if (args.ci === true) {
-        const godotVersion = (args.godot_version as string) || '4.4';
+        // B-1 fix round 1: godot_version 拼进 wget URL/文件名,注入面同 create_project
+        const godotVersion = parseGodotVersionArg(args);
+        if (godotVersion === null) return invalidGodotVersionResult(args.godot_version);
         const githubDir = join(p, '.github', 'workflows');
         const ciPath = join(githubDir, 'godot-ci.yml');
 
@@ -692,6 +711,33 @@ jobs:
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// B-1 fix round 1 (2026-08-14): godot_version 格式校验。
+// 威胁模型:该参数直接字符串拼接进 scripts/main.gd(print Hello 串,main.tscn 绑
+// ExtResource 后 run_project 即执行)与 CI workflow 的 wget URL/文件名 — 严格
+// X.Y / X.Y.Z 数字白名单,拒绝一切引号/换行/括号等注入载体。
+// Fix round 1 concern 1: 追加可选 pre-release 后缀 `-[A-Za-z0-9.]+`(Godot 官方
+// 命名如 4.4.1-rc1 / 4.4-beta2),救活 generateCiTemplate 的 includes('-') 分支;
+// 后缀字符集仅字母/数字/点,无引号/换行/括号等注入载体,注入面保持封闭。
+const GODOT_VERSION_RE = /^\d+\.\d+(\.\d+)?(-[A-Za-z0-9.]+)?$/;
+
+/** 解析并校验 args.godot_version。缺省返回 '4.4';非法格式返回 null(调用方 return
+ *  invalidGodotVersionResult)。非 string 类型(如 number)同样拒绝。 */
+function parseGodotVersionArg(args: Record<string, unknown>): string | null {
+  const raw = args.godot_version;
+  if (raw === undefined || raw === null || raw === '') return '4.4';
+  if (typeof raw !== 'string' || !GODOT_VERSION_RE.test(raw)) return null;
+  return raw;
+}
+
+/** godot_version 非法时的统一错误结果(create_project 与 setup_project_rules CI 共用)。 */
+function invalidGodotVersionResult(raw: unknown): ToolResult {
+  return opsErrorResult(
+    'INVALID_PARAMS',
+    `Invalid godot_version ${JSON.stringify(raw ?? null)}: must be "X.Y", "X.Y.Z" or "X.Y.Z-pre" pre-release format (e.g. 4.4, 4.7.1, 4.4.1-rc1; suffix charset: letters/digits/dots only). ` +
+    'The value is embedded into generated main.gd and CI workflow files, so only strict numeric formats are accepted.',
+  );
+}
 
 interface HookEntry { matcher: string; hooks: Array<{ type: string; command: string }> }
 interface SessionStartEntry { hooks: Array<{ type: string; command: string }> }

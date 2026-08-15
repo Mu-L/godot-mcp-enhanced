@@ -220,3 +220,32 @@ static func coerce_property_value(obj: Object, prop: String, val: Variant) -> Di
 static func _record_prop(do_ops: Array, undo_ops: Array, target: Object, prop: String, new_val) -> void:
 	undo_ops.append({"type": "property", "target": target, "property": prop, "value": target.get(prop)})
 	do_ops.append({"type": "property", "target": target, "property": prop, "value": new_val})
+
+
+# ─── CMP-16-A (2026-08-08): param docs metadata(对标竞品 regiellis base_command.gd doc_param) ────
+#
+# 每个 command module 实现 get_command_docs() -> Dictionary 返回 {method_name: {description, params}}。
+# command_handler.gd 的 list_param_docs 聚合所有 module 的 docs,供 TS 侧 live schema 构建拉取。
+# 用显式 metadata 而非 docstring 解析(GDScript 不能反射函数签名,docstring 解析脆弱)。
+
+## 构建单个 param 的 docs 条目。对标竞品 base_command.gd doc_param。
+## type 用 Godot 类型名(String/int/float/bool/Vector3/Array/Dictionary/NodePath/Object/JSON 等)。
+static func doc_param(pname: String, ptype: String, required: bool, desc: String) -> Dictionary:
+	return {"name": pname, "type": ptype, "required": required, "desc": desc}
+
+
+## Godot 类型名 → JSON schema type(对标竞品 jsonSchemaType)。
+## String/NodePath/Vector2/3/Color → "string"(以 literal 字符串传,addon 侧 coerce)。
+## JSON/未知/Variant/Object → ""(schema 省略 type,等价 any)。
+static func godot_type_to_schema_type(t: String) -> String:
+	match t:
+		"String", "NodePath", "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i", \
+		"Color", "Rect2", "Rect2i", "Plane", "Quaternion", "Basis", "Transform2D", "Transform3D":
+			return "string"
+		"int": return "integer"
+		"float": return "number"
+		"bool": return "boolean"
+		"Array": return "array"
+		"Dictionary", "Object": return "object"
+		_: return ""  # JSON/未知/Variant → 省略 type(any)
+

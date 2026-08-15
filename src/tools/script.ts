@@ -73,7 +73,10 @@ async function checkTextResourceGuard(ctx: ToolContext, path: string): Promise<T
  *
  * @returns opsErrorResult 若检测到危险模式且未旁路;null 表示通过(安全或已旁路)
  */
-function scanScriptSandboxOrThrow(content: string, filePath: string): ToolResult | null {
+// B-1 (2026-08-14): 导出供三个 .gd 写入旁路入口共用(quick_scene/batch create_files/
+// templates apply_template)。全仓所有写 .gd 落盘前必须过此扫描(SEC-P1-1 同一威胁面:
+// tscn 绑 ExtResource 后编辑器打开/run_project 即执行)。
+export function scanScriptSandboxOrThrow(content: string, filePath: string): ToolResult | null {
   // 只扫 .gd(C# 等不适用 scanGdscriptSandbox 的 GDScript 专用模式)
   if (!filePath.endsWith('.gd')) return null;
   // 双 opt-in 旁路(对齐 gdscript-executor.ts:1054-1055)
@@ -340,7 +343,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'script',
-      description: '脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。⚠️ write_script/edit_script 写入 .gd 前也走沙箱扫描（防 @tool 脚本编辑器加载即执行 + OS.execute 等危险模式;与 execute_gdscript 同威胁面）。测试: generate_test, create_test_scene。批量替换: project_replace。',
+      description: '脚本操作。读写: read_script, write_script。编辑: edit_script（行号/search_and_replace）。执行: execute_gdscript（⚠️ 沙箱仅防误操作，不可用于不可信输入。高安全场景请用 ALLOW_EXECUTE_GDSCRIPT=false 或容器隔离）。⚠️ write_script/edit_script 写入 .gd 前也走沙箱扫描（防 @tool 脚本加载即执行等已知危险 API 模式（清单不列举，防沙箱边界被侦察）;与 execute_gdscript 同威胁面）。测试: generate_test, create_test_scene。批量替换: project_replace。💡 execute_gdscript 最佳实践:分步执行、每步验证（把复杂逻辑拆成小块逐一跑,每步用 read_script/edit_script 迭代,避免一次性大脚本出错难定位）。',
       inputSchema: {
         type: 'object' as const,
         properties: {

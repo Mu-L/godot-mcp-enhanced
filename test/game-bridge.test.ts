@@ -8,12 +8,15 @@
 // → T-2/N-1 断言拿 undefined 而败。合并后同 fork 内仅一个 net mock,消除碰撞触发条件。
 // 本地 Windows 4.1.7/4.1.9 双版本 2852 全过(CI Linux 4.1.7 才败:平台敏感,版本无关)。
 //
-// 覆盖(全部断言逐字保留自两原文件,共 23 个):
+// 覆盖(socket 相关测试,本文件必须 vi.mock('net'),Linux CI 因 issue #15 平台 bug 被 --exclude):
 // - T-2 (2026-06-24 审查): bridge 返回 error 必须 isError=true,否则 MCP 客户端误判成功吞错
-//   (覆盖 bridgeAction :479 + game_query 内联 :596 两条 error 路径;守护 :625 errorResult 不被回退)
+//   (覆盖 bridgeAction + game_query 内联两条 error 路径;守护 errorResult 不被回退)
 // - N-1: sendToBridge once 监听器不泄漏
-// - T-1 / I-1 / I-2: game 节点路径 /root/ 前置校验 + wait_for_property property/value 校验
 // - isBridgeReady: 零接触探测(auth 成功 / secret 缺失 / auth 超时 / 进程 killed / isCancelled)
+// - P3-6 / P1-8 / P1-3(CS-1~CS-4): socket 竞态 / 废弃 socket 延迟 close / 连接状态机 characterization
+// - A4: symlink secret 权限收紧时序
+//
+// T-1 / I-1 / I-2(原 path/参数校验)已迁移至 game-bridge-validation.test.ts(纯函数,Linux CI 可跑)。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
@@ -44,7 +47,8 @@ vi.mock('child_process', async (importOriginal) => {
 });
 vi.mock('../src/dashboard/launcher.js', () => ({ launchDashboardOnce: vi.fn() }));
 
-import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState, registerBridgePushHandler } from '../src/tools/game-bridge.js';
+import { handleTool, setBridgeProjectDir, isBridgeReady, _testBridgeCacheState, registerBridgePushHandler, sendToBridge } from '../src/tools/game-bridge.js';
+import * as loggerMod from '../src/core/logger.js';
 
 // ===== helpers =====
 
@@ -316,6 +320,41 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
+  describe('P1-5: TCP 分片 — buffer 累积重组(game-bridge.ts:364 buffer += data)', () => {
+    // 2026-08-11 审查 P1-5:TCP 分片/半包/粘包零覆盖。生产 TCP 抖动产生分片,buffer 累积
+    // 逻辑(:364 buffer += data,:366 indexOf '\n' 按 \n 切行)回归致请求 hang 但测试全绿。
+    // 粘包(push + response 同 chunk)已由 P3-6(:277)覆盖;本块聚焦分片(单 JSON 拆多 chunk)。
+    it('response JSON 拆 3 chunk emit 仍正确 resolve(buffer 等末尾 \\n 才 parse)', async () => {
+      const authResp = JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n';
+      const sock = new EventEmitter();
+      (sock as any).write = vi.fn((data: string) => {
+        const req = JSON.parse(data);
+        if (req.id === 0) {
+          queueMicrotask(() => sock.emit('data', Buffer.from(authResp)));
+        } else {
+          // 分片:methodResp(动态 req.id,对齐 P3-6 范式)拆 3 chunk(前两片无 \n,末片含 \n)
+          const methodResp = JSON.stringify({ id: req.id, result: { ok: true } }) + '\n';
+          queueMicrotask(() => {
+            sock.emit('data', Buffer.from(methodResp.slice(0, 8)));
+            sock.emit('data', Buffer.from(methodResp.slice(8, 20)));
+            sock.emit('data', Buffer.from(methodResp.slice(20)));
+          });
+        }
+      });
+      (sock as any).destroy = vi.fn();
+      (sock as any).writable = true;
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+        queueMicrotask(() => { if (cb) cb(); });
+        return sock;
+      });
+
+      const ctx = { projectDir: '/p' } as any;
+      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      const text = (result?.content?.[0] as { text: string }).text;
+      expect(text).toMatch(/"ok":\s*true/);  // 分片重组后正确 resolve(非 hang/超时)
+    });
+  });
+
   describe('P1-8: 废弃 socket 的延迟 close/error 不破坏新 socket (invalidate race)', () => {
     // 复现报告 P1-8 真实 race: A 连上 _socket=A → B _doConnect 入口 _invalidateSocket() destroy A、_socket=null
     // → B 连上 _socket=B → A.destroy() 的 close **异步触发**(此时 _socket 已是 B)→ 持久 close handler 若无守卫
@@ -366,130 +405,9 @@ describe('game-bridge error & path validation', () => {
     });
   });
 
-  describe('T-1: game path /root/ 前置校验', () => {
-    it('game_write set_node_property path 非 /root/ → isError=true + 提示 /root/', async () => {
-      setupBridgeSocket('result');  // 修复前会走到 sendToBridge(避免 throw),修复后 path 校验提前 return
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_write', method: 'set_node_property',
-        params: { path: 'Player', property: 'position', value: { x: 1 } },
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('game_write path 合法(/root/Player) → 不因 path 报错', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_write', method: 'set_node_property',
-        params: { path: '/root/Player', property: 'position', value: { x: 1 } },
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('game_wait wait_for_node path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_node',
-        params: { path: 'Player' }, timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('game_query ping 无 path → 不校验(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
-
-  describe('I-1: bridgeAction 节点路径校验 (monitor/watch/click_button)', () => {
-    it('monitor_start node_path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'monitor_start', node_path: 'Player', properties: ['position'],
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('click_button path 非 /root/ → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'click_button', path: 'UI/Button',
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('/root/');
-    });
-
-    it('monitor_start node_path 合法(/root/Player) → 不因 path 报错', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'monitor_start', node_path: '/root/Player', properties: ['position'],
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('find_ui_elements pattern 无节点路径 → 不校验(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'find_ui_elements', type: 'Button', pattern: 'Start',
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-
-    it('click_button 仅 text(空 path) → 不因 path 校验报错(审查#3 回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', { action: 'click_button', text: 'Start' }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
-
-  describe('I-2: wait_for_property property/value 校验', () => {
-    it('wait_for_property 缺 property → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_property',
-        params: { path: '/root/Player' },  // 缺 property
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('property');
-    });
-
-    it('wait_for_property 缺 value → isError=true', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_property',
-        params: { path: '/root/Player', property: 'health' },  // 缺 value
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('value');
-    });
-
-    it('wait_for_node 不需 property(回归守护)', async () => {
-      setupBridgeSocket('result');
-      const ctx = { projectDir: '/p' } as any;
-      const result = await handleTool('game', {
-        action: 'game_wait', method: 'wait_for_node',
-        params: { path: '/root/Player' },
-        timeout: 100, interval_ms: 100,
-      }, ctx);
-      expect(result.isError).not.toBe(true);
-    });
-  });
+  // T-1 / I-1 / I-2(原 12 个 path/参数校验测试)已迁移至 game-bridge-validation.test.ts
+  // ——抽纯函数 validateBridgePath / validateWaitPropertyParams export,Linux CI 可直接跑(本文件被
+  // ci.yml:75 --exclude,Linux 零覆盖)。详见 game-bridge-validation.test.ts 头部缘起说明。
 
   describe('A4: symlink secret → 权限收紧(icacls/chmod)不得先于拒绝发生', () => {
     // readBridgeSecret 当前顺序 icacls/chmod(副作用) → lstatSync symlink 检查(拒绝)。
@@ -698,5 +616,166 @@ describe('P1-3: bridge 连接状态机 characterization（change_scene 断连基
     await Promise.all([p1, p2]);
     // 两个 method 请求都被 write（串行，但不丢）
     expect(writtenIds.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── G-1 (2026-08-14 审查 :935 P1): 订阅断线恢复 — 重连后自动重发 watch/monitor ──
+// 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅)或 TS 侧
+// 请求超时销毁 socket → 重连后无人重发 watch.start/monitor.start → push 事件静默消失、
+// watch_poll 返 not watching 无报错。修复: 订阅登记表 + _doConnect 成功后自动重发 + 30s ping keepalive。
+describe('G-1: 订阅断线恢复(登记表 + 重连重发 + keepalive)', () => {
+  /** 记录型 mock socket:响应所有请求(auth id=0 / method id≥1),writes 记录 method 请求 */
+  function recordingBridgeSocket(): { sock: EventEmitter; writes: Array<{ id: number; method: string; params: Record<string, unknown> }> } {
+    const writes: Array<{ id: number; method: string; params: Record<string, unknown> }> = [];
+    const sock = new EventEmitter();
+    (sock as any).write = vi.fn((data: string) => {
+      let req: { id?: number; method?: string; params?: Record<string, unknown> };
+      try { req = JSON.parse(data); } catch { return; }
+      if (req.id === 0) {
+        queueMicrotask(() => sock.emit('data', Buffer.from(JSON.stringify({ id: 0, result: { authenticated: true } }) + '\n')));
+        return;
+      }
+      writes.push({ id: req.id!, method: req.method!, params: req.params ?? {} });
+      queueMicrotask(() => sock.emit('data', Buffer.from(JSON.stringify({ id: req.id, result: { watching: true, monitoring: true } }) + '\n')));
+    });
+    (sock as any).destroy = vi.fn();
+    (sock as any).writable = true;
+    return { sock, writes };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExists.mockReturnValue(true);
+    mockRead.mockReturnValue('test-secret');
+    setBridgeProjectDir('/__reset__');
+    setBridgeProjectDir('/p');
+  });
+
+  it('watch_start 成功 → 断连 → 重连后 watch.start 自动重发(参数保留)', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    // 1. 首连 + 订阅成功(登记进登记表)
+    const r1 = await handleTool('game', { action: 'watch_start', node_path: '/root/Player', signal_name: 'pressed' }, ctx);
+    expect(r1.isError).toBeFalsy();
+
+    // 2. 模拟 bridge 侧断连(close handler → _invalidateSocket)
+    current.sock.emit('close');
+
+    // 3. 重连(下次请求触发 _doConnect)
+    current = recordingBridgeSocket();
+    const r2 = await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+    expect(r2.isError).toBeFalsy();
+
+    // 4. 重发的 watch.start 排队在业务请求之后(经 _sendLock),轮询等待其出现在新 socket 上
+    await vi.waitFor(() => {
+      const resent = current.writes.filter(w => w.method === 'watch.start');
+      expect(resent.length).toBe(1);  // 恰好一次(不重复订阅)
+      expect(resent[0].params).toMatchObject({ node_path: '/root/Player', signal_name: 'pressed' });
+    });
+  });
+
+  it('watch_stop 后断连重连,不再重发 watch.start', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    await handleTool('game', { action: 'watch_start', node_path: '/root/Player', signal_name: 'pressed' }, ctx);
+    await handleTool('game', { action: 'watch_stop' }, ctx);
+
+    current.sock.emit('close');
+    current = recordingBridgeSocket();
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+
+    // 等待潜在重发窗口(重发经微任务+锁排队,给足时间)
+    await new Promise(r => setTimeout(r, 100));
+    expect(current.writes.filter(w => w.method === 'watch.start')).toHaveLength(0);
+  });
+
+  it('monitor_start 成功 → 断连 → 重连后 monitor.start 自动重发', async () => {
+    let current = recordingBridgeSocket();
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+      queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+      return current.sock;
+    });
+    const ctx = { projectDir: '/p' } as any;
+
+    const r1 = await handleTool('game', { action: 'monitor_start', node_path: '/root/Player', properties: ['position'] }, ctx);
+    expect(r1.isError).toBeFalsy();
+
+    current.sock.emit('close');
+    current = recordingBridgeSocket();
+    await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+
+    await vi.waitFor(() => {
+      const resent = current.writes.filter(w => w.method === 'monitor.start');
+      expect(resent.length).toBe(1);
+      expect(resent[0].params).toMatchObject({ node_path: '/root/Player', properties: ['position'] });
+    });
+  });
+
+  it('keepalive: 连接空闲 30s → 自动发轻量 ping 刷新游戏侧 idle 计时(防 60s 断连)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sock, writes } = recordingBridgeSocket();
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+
+      // 业务 ping 一次(建立连接 + 启动 keepalive timer)
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      const businessPings = writes.filter(w => w.method === 'ping').length;
+
+      // 空闲 30s → keepalive 触发一次轻量 ping
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(0);  // flush 重发/响应微任务链
+
+      expect(writes.filter(w => w.method === 'ping').length).toBe(businessPings + 1);
+      // 未断连:keepalive ping 成功 → 不应产生第二次连接
+      expect(mockCreate.mock.calls.length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── P3-2R (2026-08-12): setBridgeProjectDir in-flight warn 守护 ──────────────
+// 审查 P3-2R: setBridgeProjectDir :327-333 inflightDetected warn 是最小修复
+// (2026-08-06 加),彻底 per-project socket 是架构级 follow-up。本测试守护最小修复接线
+// (防 :327-333 被删不红 = 接线零验证,wiring-zero-verification-test-gap 教训)。
+describe('P3-2R: setBridgeProjectDir in-flight warn 守护', () => {
+  it('in-flight sendToBridge 时 setBridgeProjectDir 调 warn(守护 :327-333 接线)', async () => {
+    const warnSpy = vi.fn();
+    const loggerSpy = vi.spyOn(loggerMod, 'getLogger').mockReturnValue({
+      info: vi.fn(), debug: vi.fn(), warn: warnSpy, error: vi.fn(), close: vi.fn(),
+    });
+
+    // mock socket(防 sendToBridge 真连失败;_sendLock 在 sendToBridge 入口 :422 就 pending)
+    const sock = new EventEmitter();
+    (sock as any).write = vi.fn();
+    (sock as any).destroy = vi.fn();
+    (sock as any).writable = true;
+    mockCreate.mockImplementation((_o: unknown, cb?: () => void) => { queueMicrotask(() => cb && cb()); return sock; });
+
+    // 发起 sendToBridge(不 await;同步部分 _sendLock = new Promise pending,run 未 settle)
+    const pending = sendToBridge('ping', {}, 100).catch(() => {});
+
+    // setBridgeProjectDir:_sendLock pending → :327 inflightDetected → :328-332 warn
+    setBridgeProjectDir('/p2');
+
+    // 断言 warn(删 :327-333 此测试红 = 接线守护生效)
+    expect(warnSpy).toHaveBeenCalledWith('bridge', expect.stringMatching(/in-flight/i));
+
+    loggerSpy.mockRestore();
+    await pending;
   });
 });

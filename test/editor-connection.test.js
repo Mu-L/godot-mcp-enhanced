@@ -401,6 +401,114 @@ describe('EditorConnection', () => {
     conn.disconnect();
   });
 
+  // A-1 (2026-08-14 finding :937): backoff 挂起期手动 connect 成功后必须清掉遗留 reconnectTimer。
+  // bug: scheduleReconnect 的 timer 回调(:516-526)不检查 connected——手动 connect 成功后 timer 照样
+  // 触发 connect(),而 connect 入口(:164-169)无条件 terminate 现有 ws → 弹跳健康连接,
+  // in-flight editor 工具请求全部丢失。修复:open 成功段(与 reconnectAttempt=0 同处)clearTimeout+置空。
+  it('A-1: manual connect success clears pending reconnectTimer (no healthy-connection bounce)', { timeout: 8_000 }, async () => {
+    let connectionCount = 0;
+    let latestWs = null;
+    wss.on('connection', (ws) => {
+      connectionCount++;
+      latestWs = ws;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: true,
+      reconnectInterval: 300,
+      maxReconnectInterval: 400,
+      secret: 'test-secret',
+    });
+
+    // 初始连接成功
+    await conn.connect();
+    expect(connectionCount).toBe(1);
+    expect(conn.connected).toBe(true);
+
+    // 模拟编辑器掉线 → client close handler → scheduleReconnect → reconnectTimer 挂起(300~700ms)
+    latestWs.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // backoff 窗口内手动 connect 成功(编辑器已恢复场景)
+    await conn.connect();
+    expect(connectionCount).toBe(2);
+    expect(conn.connected).toBe(true);
+
+    // 核心断言 1: 遗留 backoff timer 已被清(修复前非 null → timer 迟早触发第二次 connect)
+    expect(conn.reconnectTimer).toBe(null);
+
+    // 核心断言 2: 越过原 timer 触发时刻(300~700ms + 余量)后,无第三次 connect 弹跳健康连接
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(connectionCount).toBe(2);
+    expect(conn.connected).toBe(true);
+
+    conn.disconnect();
+  });
+
+  // A-3 (2026-08-14 finding :932, P0): secret 轮换后的 auth 失败必须 fire reconnectExhaustedHandlers。
+  // 场景: editor 重启(PERSISTENT_SECRET 默认 false,每次换 secret)→ ws close → scheduleReconnect →
+  // connect → performAuth 失败(旧 secret) → 原实现仅置 reconnectEnabled=false + authFailed,
+  // 不 fire exhaustion → Manager 的 handleStall 无触发路径 → conn 永不置 null →
+  // manage_tools(reconnect) 只走 ec.connect()(旧 secret)永远失败并累计 authFailureCount,
+  // 5 次后 5 分钟 lockout —— 重连链死,只能重启 MCP 服务端。
+  // 修复: auth 失败处同样 fire 专用 exhaustion handlers(_authExhaustedFired 去重,仅一次)。
+  it('A-3: auth failure after secret rotation fires reconnectExhausted (exactly once)', { timeout: 10_000 }, async () => {
+    let serverSecret = 'old-secret';
+    let connectionCount = 0;
+    wss.on('connection', (ws) => {
+      connectionCount++;
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.method === 'auth') {
+          if (msg.params.secret === serverSecret) {
+            ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+          } else {
+            ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Auth failed' } }));
+          }
+        } else {
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { status: 'ok' } }));
+        }
+      });
+    });
+
+    const conn = new EditorConnection({
+      port,
+      reconnect: true,
+      reconnectInterval: 50,
+      maxReconnectInterval: 100,
+      connectTimeout: 1000,
+      secret: 'old-secret',
+    });
+
+    let exhaustedCalls = 0;
+    conn.addOnReconnectExhaustedHandler(() => { exhaustedCalls++; });
+
+    // 初始连接成功(旧 secret 匹配)
+    await conn.connect();
+    expect(connectionCount).toBe(1);
+
+    // 模拟编辑器重启: secret 轮换 + 断开现有连接
+    serverSecret = 'new-secret';
+    for (const client of wss.clients) client.close();
+
+    // 自动重连链: close → scheduleReconnect(50~100ms) → connect → auth 失败 → fire
+    await new Promise((r) => setTimeout(r, 800));
+
+    // A-3 核心: auth 失败触发 reconnectExhausted 恰好 1 次
+    // (修复前 0 次 → Manager 无法降级,重连链死)
+    expect(exhaustedCalls).toBe(1);
+    // IMP-8 不变量保持: auth 失败后不再有新的连接尝试(1 初始 + 1 次 auth 失败尝试)
+    expect(connectionCount).toBe(2);
+    expect(conn.connected).toBe(false);
+
+    conn.disconnect();
+  });
+
   // P2-9（2026-07-31 补）：resetReconnectState() 直接单测。
   // EditorConnection.ts:543-550 全文唯一被 requestReconnect(:557) 间接调用，无直接单测。
   // 4 个行为分支：reconnectAttempt 归 0 / reconnectEnabled 重置到 shouldReconnect /

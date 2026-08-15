@@ -84,6 +84,11 @@ export function getToolDefinitions(): Tool[] {
           },
           parameter_name: { type: 'string', description: '参数名称' },
           value: { description: '参数值（float 用于 blends，{x,y} 用于 blend spaces）' },
+          sub_action: {
+            type: 'string',
+            enum: ['set_position', 'set_blend'],
+            description: 'animtree_state_edit 的子操作：set_position 设置状态位置(需 state_name + position)；set_blend 设置混合参数(需 parameter_name + value)',
+          },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
         },
         required: ['action'],
@@ -394,17 +399,19 @@ export async function handleTool(
 
       case 'animtree_state_edit': {
         const nodePath = normalizeNodePath(args.node_path as string);
-        const action = args.action as string;
-        if (!action) return opsErrorResult('INVALID_PARAMS', 'action is required');
+        // F-6 fix: 子操作从 sub_action 字段读取(原误读 args.action,而 args.action
+        // 此时必为 'animtree_state_edit' 致 set_position/set_blend 永远 false,整个 action 失效)。
+        const subAction = args.sub_action as string;
+        if (!subAction) return opsErrorResult('INVALID_PARAMS', 'sub_action is required (set_position or set_blend)');
 
-        if (action === 'set_position') {
+        if (subAction === 'set_position') {
           const stateName = args.state_name as string;
           const pos = args.position as { x?: number; y?: number } | undefined;
           if (!stateName || !pos || pos.x === undefined || pos.y === undefined) {
             return opsErrorResult('INVALID_PARAMS', 'state_name and position {x, y} required for set_position');
           }
           code = genStateSetPosition(nodePath, stateName, ensureNumber(pos.x, 'position.x'), ensureNumber(pos.y, 'position.y'));
-        } else if (action === 'set_blend') {
+        } else if (subAction === 'set_blend') {
           const paramName = args.parameter_name as string;
           const value = args.value;
           if (!paramName || value === undefined) {
@@ -421,7 +428,7 @@ export async function handleTool(
           }
           code = genStateSetBlend(nodePath, paramName, valueSrc);
         } else {
-          return opsErrorResult('INVALID_PARAMS', 'action must be "set_position" or "set_blend"');
+          return opsErrorResult('INVALID_PARAMS', 'sub_action must be "set_position" or "set_blend"');
         }
         break;
       }
@@ -448,15 +455,18 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
   animtree: {
     readonly: false,
     long_running: false,
-    // 该工具原不在 GUARDED 表中 → 所有 action 此前一律不确认 → 零行为改变要求全部标 'read'
-    // （任何非 read 都会收紧确认，超出本次迁移范围；见 spec §4.1）
+    // P0-2 续（2026-08-10）：create/add_state/add_transition/set_blend/state_edit 是写操作
+    // （create 挂场景树 add_child，其余改动画状态机结构/参数），对齐 scene add_node(write)
+    // + animation-ops 的非破坏性写操作标 write。原全标 'read' 绕确认门（零行为改变迁移决策）
+    // 是遗留 bug——写操作应确认。play 仍 read（运行时播放触发，对齐 animation-ops play=read）。
+    // risk-coverage GUARDED_KEYS 加 'animtree' 允许非 read。
     actionRisks: {
-      animtree_create: 'read',
-      animtree_add_state: 'read',
-      animtree_add_transition: 'read',
-      animtree_set_blend: 'read',
+      animtree_create: 'write',
+      animtree_add_state: 'write',
+      animtree_add_transition: 'write',
+      animtree_set_blend: 'write',
       animtree_play: 'read',
-      animtree_state_edit: 'read',
+      animtree_state_edit: 'write',
     },
   },
 };

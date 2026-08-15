@@ -118,13 +118,15 @@ describe('test-framework tools', () => {
   });
 
   it('handleTool for test assert with missing project_path', async () => {
+    // SEC-P2-1 (2026-08-09): 删手写 typeof 检查后,project_path 缺失由 requireProjectPath
+    // 内部 requireString 抛错,被外层 catch 包装成 INVALID_PATH(语义:路径参数不合法)。
     const result = await handleTool('test', {
       action: 'assert',
       assertion_type: 'node_exists',
     }, mockCtx);
     expect(result).not.toBeNull();
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('INVALID_PARAMS');
+    expect(result.content[0].text).toMatch(/INVALID_PATH|project_path/);
   });
 
   it('handleTool for test stress', async () => {
@@ -181,5 +183,59 @@ describe('test-framework tools', () => {
     expect(result).not.toBeNull();
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('EDITOR_ONLY');
+  });
+});
+
+// SEC-P2-1 (2026-08-09): test-framework 用 requireProjectPath 后,project_path 必须在
+// ALLOWED_PROJECT_PATHS 白名单内。test/setup.js 全局设 GODOT_MCP_UNRESTRICTED=true 让白名单
+// 恒 true,故须在独立 describe 显式清空 UNRESTRICTED 才能验证拒绝路径。
+// 模式参考 test/godot-finder.test.js:429-432(GODOT_MCP_ALLOWED_GODOT_PATHS describe)。
+describe('SEC-P2-1: test-framework requireProjectPath root enforcement', () => {
+  const mockCtx = { findGodot: vi.fn(async () => '/usr/bin/godot') };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // 显式清空 setup.js 的全局 UNRESTRICTED,否则 isPathInAllowedRoots 恒 true
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+    vi.stubEnv('ALLOWED_PROJECT_PATHS', '/allowed/root');
+    mockCtx.findGodot.mockResolvedValue('/usr/bin/godot');
+  });
+
+  afterEach(() => {
+    // 恢复全局 UNRESTRICTED,避免污染后续测试
+    vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
+    vi.stubEnv('ALLOWED_PROJECT_PATHS', '');
+  });
+
+  it('rejects project_path outside ALLOWED_PROJECT_PATHS', async () => {
+    const result = await handleTool('test', {
+      project_path: '/outside/allowlist/malicious-project',
+      action: 'assert',
+      assertion_type: 'node_exists',
+      path: 'root',
+    }, mockCtx);
+    expect(result).not.toBeNull();
+    expect(result.isError).toBe(true);
+    // requireProjectPath 抛错 → catch 包装成 INVALID_PATH,消息含 "not in ALLOWED_PROJECT_PATHS"
+    expect(result.content[0].text).toMatch(/INVALID_PATH|not in ALLOWED_PROJECT_PATHS/i);
+  });
+
+  it('allows project_path inside ALLOWED_PROJECT_PATHS', async () => {
+    const { executeGdscript } = await import('../src/gdscript-executor.js');
+    executeGdscript.mockResolvedValueOnce({
+      success: true, compile_success: true, compile_error: '',
+      errors: [], run_success: true, run_error: '',
+      outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+      raw_output: '', duration_ms: 50,
+    });
+    const result = await handleTool('test', {
+      project_path: '/allowed/root/my-project',
+      action: 'assert',
+      assertion_type: 'node_exists',
+      path: 'root',
+    }, mockCtx);
+    expect(result).not.toBeNull();
+    // 白名单内应放行(不因路径被拒)
+    expect(result.isError).toBeFalsy();
   });
 });

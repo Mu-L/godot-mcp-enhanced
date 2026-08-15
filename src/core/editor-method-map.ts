@@ -104,11 +104,21 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     manage: { method: 'test_manage' },
   },
   // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理(editor-only)
-  // method 名与 command_handler.gd handle() 分支一致。
+  // CMP-14 (2026-08-09): Phase 2/3 调试器集成(stack/inspect/evaluate/step/continue/pause/reload)
+  // method 名与 command_handler.gd handle()/handle_debug_async() 分支一致。
   debug: {
+    // Phase 1(同步,经 handle())
     set_breakpoint: { method: 'debug_set_breakpoint' },
     clear_breakpoint: { method: 'debug_clear_breakpoint' },
     list_breakpoints: { method: 'debug_list_breakpoints' },
+    // Phase 2/3(异步,经 handle_debug_async())
+    stack_trace: { method: 'debug_stack_trace' },
+    inspect_frame: { method: 'debug_inspect_frame' },
+    evaluate: { method: 'debug_evaluate' },
+    step: { method: 'debug_step' },
+    continue: { method: 'debug_continue' },
+    pause: { method: 'debug_pause' },
+    reload_scripts: { method: 'debug_reload_scripts' },
   },
   // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省(editor-only)
   // 走 editor 层直调 ClassDB(不经沙箱——ClassDB 在 gdscript-executor 被列为危险模式)。
@@ -116,6 +126,8 @@ const MAP: Record<string, Record<string, EditorMethodEntry>> = {
     class_info: { method: 'engine_class_info' },
     search: { method: 'engine_search' },
     get_inheritance: { method: 'engine_get_inheritance' },
+    // CMP-9-A (2026-08-08): call_method — 编辑器场景树节点实例方法调用(对标竞品 node.call)
+    call_method: { method: 'engine_call_method' },
   },
   // IMPORTANT(2026-07-13 协议断链): 下列族 editor 漏登记 → fallback toolName → -32601
   // → headless → GD 带 undo 分支成死代码,丢 editor 实时+undo。登记后 editor 模式走 GD 带 undo。

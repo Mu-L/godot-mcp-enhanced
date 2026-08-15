@@ -18,9 +18,18 @@ import { opsError } from './shared.js';
 import {
   isToolAllowed,
   getAllToolNames,
+  getAllToolDefinitions,
   getActiveGroups,
 } from '../core/tool-registry.js';
-import { toolNameToRoute } from '../core/dynamic-routes.js';
+import { toolNameToRoute, isUnknownRouteResult } from '../core/dynamic-routes.js';
+import { dynamicSchema } from '../core/dynamic-schema.js';
+import { compactStringify } from '../core/response-format.js';
+import {
+  buildSummary,
+  searchTools,
+  listCategory,
+  getToolSchema,
+} from '../core/tool-discovery.js';
 
 // ─── Delegate (set by ToolDispatcher to enable re-dispatch) ─────────────────
 
@@ -100,13 +109,25 @@ export function getToolDefinitions(): Tool[] {
     },
     {
       name: 'godot_list_dynamic_routes',
-      description: '查询 Godot 端已注册但 MCP 侧未定义的工具。需要 Godot 实例连接。',
+      description: '三级 lazy discovery:查询可用工具(静态注册 + 动态发现)。无参返回 category 计数;search 模糊匹配;category 查某类工具清单;tool 查单工具完整 schema。',
       inputSchema: {
         type: 'object' as const,
         properties: {
           category: {
             type: 'string',
-            description: '按类别过滤（可选）',
+            description: '类别名 → 返回该类工具清单(brief + 参数名,lean 视图)。配合 includeSchemas=true 可一次性返回完整 schema。',
+          },
+          search: {
+            type: 'string',
+            description: '关键词(空格分隔),全部命中才匹配;名字命中排名优先。上限 20 条,不带 schema。',
+          },
+          tool: {
+            type: 'string',
+            description: '工具名 → 返回单工具完整 schema(优先级最高,覆盖 search/category)。',
+          },
+          includeSchemas: {
+            type: 'boolean',
+            description: '配合 category 使用:一次性返回该类所有工具的完整 schema(体积大,慎用)。',
           },
         },
       },
@@ -123,7 +144,7 @@ export async function handleTool(
 ): Promise<ToolResult | null> {
   // Route: godot_list_dynamic_routes
   if (toolName === 'godot_list_dynamic_routes') {
-    return handleListDynamicRoutes(args);
+    return await handleListDynamicRoutes(args);
   }
 
   // Route: godot_advanced_tool
@@ -199,7 +220,18 @@ export async function handleTool(
   try {
     return await sender(route, toolArgs);
   } catch (err) {
-    return textResult(JSON.stringify(opsError('DYNAMIC_ROUTE_ERROR', getErrorMessage(err))));
+    // Phase 1(对标 unity tool-tiers.js:498-503):unknown-route 时附加 did-you-mean 建议,
+    // 区分"路由不存在"(工具名拼错,建议相近的)和"路由存在但执行失败"(不该建议)。
+    if (isUnknownRouteResult(err)) {
+      const suggestions = suggestTools(targetTool, getAllToolNames());
+      if (suggestions.length > 0) {
+        return textResult(compactStringify({
+          ...opsError('UNKNOWN_ROUTE', getErrorMessage(err)),
+          hint: `Did you mean: ${suggestions.join(', ')}?`,
+        }));
+      }
+    }
+    return textResult(compactStringify(opsError('DYNAMIC_ROUTE_ERROR', getErrorMessage(err))));
   }
 }
 
@@ -226,23 +258,82 @@ async function delegateCall(targetTool: string, args: Record<string, unknown>): 
 
 // ─── godot_list_dynamic_routes handler ──────────────────────────────────────
 
-/** Handle godot_list_dynamic_routes: list registered vs dynamic tools. */
-function handleListDynamicRoutes(args: Record<string, unknown>): ToolResult {
-  const allNames = getAllToolNames();
-  const category = args.category as string | undefined;
+/** Handle godot_list_dynamic_routes: 三级 lazy discovery(Phase 1,对标 unity tool-tiers.js)。
+ *
+ * 三级协议(优先级 tool > search > category > 无参):
+ *   Level 1  无参        → category 计数(summary)+ 向后兼容旧字段
+ *   Level 2a search=kw   → 模糊匹配 + 排序,上限 20(不带 schema)
+ *   Level 2b category=N  → 该类工具清单 + brief + 参数名(lean);includeSchemas=true 给完整
+ *   Level 3  tool=name   → 单工具完整 schema(找不到给 did-you-mean)
+ *
+ * 向后兼容:无参时保留旧字段(total_registered/registered/total_dynamic/dynamic/dynamic_*),
+ * 追加 categories/totalTools/hint,已有客户端/测试不断裂。
+ */
+async function handleListDynamicRoutes(args: Record<string, unknown>): Promise<ToolResult> {
+  let staticDefs = getAllToolDefinitions();
+  // Fallback:测试环境或模块未加载时 getAllToolDefinitions() 返空,
+  // 用 getAllToolNames() 构造最小定义(只有 name),保证三级 discovery 仍可用。
+  if (staticDefs.length === 0) {
+    staticDefs = getAllToolNames().map((name) => ({
+      name,
+      description: '',
+      inputSchema: { type: 'object' as const, properties: {} },
+    }));
+  }
+  // CMP-16-B: 拉真实动态工具(live schema,带缓存;editor 离线返空)
+  const dynamicDefs = await dynamicSchema.getDynamicTools();
+  const dynamicNames = new Set(dynamicDefs.map((t) => t.name));
+  const all = [...staticDefs, ...dynamicDefs];
 
-  const registered = allNames.filter(name => {
-    if (category && !name.includes(category)) return false;
-    return true;
-  });
+  // Level 3:tool=name → 单工具完整 schema(优先级最高)
+  if (typeof args.tool === 'string' && args.tool.length > 0) {
+    const schema = getToolSchema(args.tool, all);
+    if (schema) {
+      return textResult(compactStringify(schema));
+    }
+    // 找不到 → did-you-mean(复用现有 suggestTools)
+    const suggestions = suggestTools(args.tool, all.map((t) => t.name));
+    return textResult(compactStringify({
+      success: false,
+      error: `Unknown tool "${args.tool}".`,
+      error_code: 'UNKNOWN_TOOL',
+      ...(suggestions.length > 0 ? { hint: `Did you mean: ${suggestions.join(', ')}?` } : {}),
+    }));
+  }
 
-  return textResult(JSON.stringify({
+  // Level 2a:search=keywords → 模糊匹配 + 排序(上限 20)
+  if (typeof args.search === 'string' && args.search.length > 0) {
+    const result = searchTools(args.search, all, {
+      category: typeof args.category === 'string' ? args.category : undefined,
+      dynamicNames,
+    });
+    return textResult(compactStringify(result));
+  }
+
+  // Level 2b:category=name → 该类工具清单(lean 或 includeSchemas)
+  if (typeof args.category === 'string' && args.category.length > 0) {
+    const result = listCategory(
+      args.category,
+      all,
+      args.includeSchemas === true,
+    );
+    return textResult(compactStringify(result));
+  }
+
+  // Level 1:无参 → category 计数(summary)+ 向后兼容旧字段
+  const summary = buildSummary(staticDefs, dynamicDefs);
+  return textResult(compactStringify({
+    // ── 新字段(三级 discovery)──
+    ...summary,
+    // ── 向后兼容旧字段(已有客户端/测试依赖)──
     success: true,
-    total_registered: registered.length,
-    registered,
+    total_registered: staticDefs.length,
+    registered: staticDefs.map((t) => t.name),
+    total_dynamic: dynamicDefs.length,
+    dynamic: dynamicDefs.map((t) => t.name),
     dynamic_routing_enabled: getActiveGroups().has('dynamic'),
-    hint: 'Dynamic tools are discovered at runtime from the Godot instance. ' +
-      'Use godot_advanced_tool with tool_name starting with "godot_" to call dynamic tools.',
+    dynamic_source: 'editor addon list_param_docs (CMP-16-A/B live schema)',
+    hint: summary.hint + ' Static tools (registered) + dynamic tools (discovered at runtime). Use godot_advanced_tool with tool_name to call any tool.',
   }));
 }
 

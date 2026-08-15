@@ -30,6 +30,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 // (零进脚本字符串 = CRITICAL-1 注入根治)。4 参数(classPath/outputDir/filenameCol/csvTmpPath)
 // 经 gdEscape 转义后插值,防闭串注入。
 import { gdEscape, MARKER_RESULT } from './shared.js';
+import { validateTimeout } from './shared/validation.js';
 
 export interface ImportScriptOpts {
   classPath: string;
@@ -235,7 +236,7 @@ import { tmpdir } from 'os';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
-import { opsErrorResult } from './shared/errors.js';
+import { opsErrorResult } from '../core/shared/errors.js';
 import { resolveWithinRoot, normalizeUserProjectPath, requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted as executeGdscript } from '../gdscript-executor.js';
 
@@ -386,7 +387,7 @@ export async function handleTool(
       godotPath: godot,
       projectPath,
       code: script,
-      timeout: (args.timeout as number | undefined) ?? 60,
+      timeout: validateTimeout(args.timeout, 5, 300, 60),
       loadAutoloads: false,
     });
 

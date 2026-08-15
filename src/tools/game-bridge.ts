@@ -17,7 +17,11 @@ import { getLogger } from '../core/logger.js';
 const BRIDGE_PORT = 9081;
 const BRIDGE_HOST = 'localhost';
 const BRIDGE_SCRIPT_NAME = 'mcp_bridge.gd';
-const AUTOLOAD_KEY = 'autoload/MCPBridge';
+// G-5 (2026-08-14 批D实测发现): autoload 段的键名就是 Godot 节点名,不得带 'autoload/' 前缀 —
+// 旧版(≤0.23.x)误写 'autoload/MCPBridge',Godot 截断为同名 "autoload" 节点(MCPBridge 与
+// MCPOVERRIDE_* 冲突 → override 未加载)。写入键已去前缀;LEGACY 常量仅用于识别/迁移旧键。
+const AUTOLOAD_KEY = 'MCPBridge';
+const AUTOLOAD_KEY_LEGACY = 'autoload/MCPBridge';
 const DEFAULT_TIMEOUT = 10000;
 
 /** Bridge 连不上 / 未正常工作(游戏未运行、未装 autoload、认证失败)。agent 自愈:启动游戏 / 确认安装。 */
@@ -41,8 +45,9 @@ const ERROR_CODES = {
   BRIDGE_ERROR: 'BRIDGE_ERROR',
 } as const;
 
-/** Clamp a millisecond timeout value. Returns default on invalid/zero input. */
-function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
+/** Clamp a millisecond timeout value. Returns default on invalid/zero input.
+ *  Exported for pure-function unit tests (game-bridge-validation.test.ts)。 */
+export function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
   if (value === undefined || value === null) return def;
   const n = Number(value);
   if (!Number.isFinite(n)) return def;
@@ -85,6 +90,71 @@ let _pushBuffer = '';
 // socket, causing each handler to see partial/mixed response data.
 let _sendLock: Promise<unknown> = Promise.resolve();
 
+// G-1 (2026-08-14 审查 :935 P1): 订阅登记表 — bridge 断线重连后自动重发 watch/monitor 订阅。
+// 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅状态)或 TS 侧
+// 请求超时销毁 socket → 重连后无机制重发 watch.start/monitor.start → push 事件从此静默消失、
+// watch_poll 返 not watching 无报错。登记成功订阅,_doConnect 成功后重发,恢复推送语义。
+interface BridgeSubscription {
+  method: 'watch.start' | 'monitor.start';
+  params: Record<string, unknown>;
+}
+let _subscriptions: BridgeSubscription[] = [];
+let _resendInFlight: Promise<void> | null = null;
+
+/** 登记订阅(同 method 仅保留最新一条 — GD 侧 per-peer 单例,重复 start 覆盖;登记表同步覆盖防重发重复订阅) */
+function _registerSubscription(method: 'watch.start' | 'monitor.start', params: Record<string, unknown>): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+  _subscriptions.push({ method, params: { ...params } });
+}
+
+/** 移除订阅登记(watch_stop/monitor_stop 成功或重发被游戏侧拒绝时) */
+function _removeSubscription(method: 'watch.start' | 'monitor.start'): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+}
+
+/** 重发登记表中的订阅。fire-and-forget: 经 _sendLock 排队(不与当前 in-flight 请求死锁),
+ *  单条失败仅 warn;游戏侧返回 error(节点已销毁等永久失败)时移除登记,防重连重试风暴。 */
+function _resendSubscriptions(): void {
+  if (_subscriptions.length === 0) return;
+  if (_resendInFlight) return;  // 重发自身触发的重连不再叠加
+  const pending = [..._subscriptions];
+  _resendInFlight = (async () => {
+    for (const sub of pending) {
+      try {
+        const resp = await sendToBridge(sub.method, sub.params, DEFAULT_TIMEOUT);
+        if (resp.error) {
+          getLogger().warn('bridge', `Resend ${sub.method} after reconnect rejected (${resp.error.code}): ${resp.error.message} — dropping subscription`);
+          _removeSubscription(sub.method);
+        }
+      } catch (err) {
+        getLogger().warn('bridge', `Resend ${sub.method} after reconnect failed: ${getErrorMessage(err)} — keeping subscription for next reconnect`);
+      }
+    }
+  })().finally(() => { _resendInFlight = null; });
+}
+
+// G-1: 30s ping keepalive — 连接空闲时定期发轻量请求,刷新游戏侧 idle 计时
+// (mcp_bridge.gd INACTIVITY_TIMEOUT=60s 无字节即断连),防长 idle 后订阅静默丢失。
+const KEEPALIVE_INTERVAL_MS = 30_000;
+let _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+function _startKeepalive(): void {
+  if (_keepaliveTimer) return;
+  _keepaliveTimer = setInterval(() => {
+    if (!_socket || !_socketAuthenticated || _socket.destroyed || !_socket.writable) return;
+    // 失败由 error/close 路径自愈(_invalidateSocket → 下次业务调用重连 + 重发订阅)
+    sendToBridge('ping', {}, 5000).catch(() => { /* best-effort: 断线自愈 */ });
+  }, KEEPALIVE_INTERVAL_MS);
+  _keepaliveTimer.unref?.();  // 不阻塞进程退出
+}
+
+function _stopKeepalive(): void {
+  if (_keepaliveTimer) {
+    clearInterval(_keepaliveTimer);
+    _keepaliveTimer = null;
+  }
+}
+
 /** Find the bridge secret file in project .godot dir. Throws if project dir not set. */
 function findBridgeSecretPath(): string {
   if (_cachedSecretPath) return _cachedSecretPath;
@@ -107,13 +177,18 @@ function readBridgeSecret(): string | null {
       getLogger().error('security', `Bridge secret file ${secretPath} is a symlink — refusing to read.`);
       return null;
     }
-    // Tighten permissions: owner-only read
+    // Tighten permissions: owner-only
     if (process.platform === 'win32') {
       try {
         // C-ARC-01: Use os.userInfo().username (no env spoofing), strict regex (no backslash)
+        // K-4 (2026-08-15): :R → :M。三副本同步漏改——GD 侧 mcp_bridge.gd/websocket_server.gd
+        // 的 _restrict_secret_permissions 已从 :R 改 :M(R 是 anti-pattern: e2e 结束后清理删不掉
+        // R-only secret → beforeAll 清 .godot 报 EPERM → 后续 e2e L2 整 suite 静默 skip,本地复现),
+        // 本读路径每次 readBridgeSecret 都把 ACL 收紧回 R,把 GD 侧的 M 白改了。:M 与
+        // editor-auth.ts:32 / instance-api-auth 对齐(M=Read+Write+Delete,owner 可删,其他用户无 ACE)。
         const username = userInfo().username;
         if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
-          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:R`], { stdio: 'ignore' });
+          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:M`], { stdio: 'ignore' });
         }
       } catch (err) { getLogger().debug('bridge', `restrict Windows file permissions: ${err}`); }
     } else {
@@ -169,7 +244,10 @@ async function _doConnect(timeout: number): Promise<Socket> {
   // (secret 文件存在但 autoload 被 git revert/checkout 删了)。
   if (_projectDir) {
     const autoloads = parseAutoloadNames(_projectDir);
-    if (autoloads.length > 0 && !autoloads.includes('MCPBridge')) {
+    // G-4 (批D实测发现): 旧版 install 写入带 'autoload/' 前缀的键 → parseAutoloadNames 返回
+    // 原始键名(带前缀),裸 includes('MCPBridge') 恒不匹配 → BRIDGE_NOT_CONNECTED 误报
+    // (疑致 e2e L2 suite 静默 skip)。去前缀比较,新旧两种写入形态都正确判定。
+    if (autoloads.length > 0 && !autoloads.some(name => name.replace(/^autoload\//, '') === AUTOLOAD_KEY)) {
       throw new BridgeNotConnectedError(
         `Bridge autoload 'MCPBridge' missing from ${_projectDir}/project.godot [autoload] section. ` +
         'The game may have started without the Bridge autoload. Run game_bridge_install or re-run the game.',
@@ -248,6 +326,10 @@ async function _doConnect(timeout: number): Promise<Socket> {
             // 新 socket(A 被 B 替换后,A.destroy() 的 close 异步触发,此时 _socket 已是 B,无守卫会 destroy B)。
             sock.on('close', () => { if (_socket === sock) _invalidateSocket(); });
             sock.on('error', () => { if (_socket === sock) _invalidateSocket(); });
+            // G-1: 连接成功 → 启动 keepalive(防 60s idle 断连) + 重发登记的订阅(恢复 push/轮询语义)。
+            // 重发经 _sendLock 排队(当前请求 settle 后执行),不与 in-flight 请求死锁。
+            _startKeepalive();
+            _resendSubscriptions();
             // 首次 Bridge 连接成功时自动在新终端启动 Dashboard TUI
             launchDashboardOnce();
             resolve(sock);
@@ -318,7 +400,7 @@ function _ensureConnection(timeout: number): Promise<Socket> {
  * per-server 单项目，跨项目切换是异常用法，由调用方保证不并发）。彻底修复需引入 per-project
  * 锁 + per-project socket 状态，属架构级改造，超本轮 scope（留 follow-up）。
  */
-export function setBridgeProjectDir(projectDir: string): void {
+export function setBridgeProjectDir(projectDir: string | null): void {
   if (_projectDir === projectDir) return;
   // 检测 in-flight：_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
   // （_sendLock 在 sendToBridge:385-388 获取，.finally(resolveLock) 释放）
@@ -334,6 +416,9 @@ export function setBridgeProjectDir(projectDir: string): void {
   _cachedSecretPath = null;
   _cachedSecret = null;
   _connectionLock = null;
+  // G-1: 切项目 = 旧连接语义终结 — 清订阅登记(旧项目订阅对新项目无意义) + 停 keepalive
+  _subscriptions = [];
+  _stopKeepalive();
   _invalidateSocket();
 }
 
@@ -448,7 +533,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'game',
-      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
+      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。G1 control 层: playtest.freeze (冻结游戏循环,bridge 仍响应), playtest.unfreeze (解冻), playtest.step_until (条件满足/帧尽/wall 超时即停,结构化条件 {path,property,op,value}[] AND)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -459,14 +544,14 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           port: { type: 'number', description: 'game_bridge_install: 桥接监听端口（当前忽略，始终 9081）', default: 9081 },
-          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 autoload/MCPOVERRIDE_<basename>）' },
+          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload）' },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)',
+            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
           },
           params: {
             type: 'object',
-            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数',
+            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}',
           },
           timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
@@ -524,6 +609,37 @@ const WAIT_METHODS = new Set([
 export const PLAYTEST_METHODS = new Set([
   'playtest.seed', 'playtest.fixed_delta', 'playtest.snapshot', 'playtest.restore', 'playtest.step',
 ]);
+
+// G1 (2026-08-13) control-first satellite 层(附录 F.1):freeze/unfreeze/step_until
+// 与 determinism-first(PLAYTEST_METHODS)正交叠加。step_until 走同款 coroutine 延迟响应(条件多帧满足)。
+export const CONTROL_METHODS = new Set([
+  'playtest.freeze', 'playtest.unfreeze', 'playtest.step_until',
+]);
+
+/**
+ * G-3 (:942② + 批D移交): 计算 game_playtest 各 method 的 TS 侧请求 timeout(纯函数,无 IO)。
+ *
+ * step_until 的竞态根因: 原 `min(max(raw,30000),60000)` 与 GD 侧 idle 60s(mcp_bridge.gd
+ * INACTIVITY_TIMEOUT)同界 — wall_budget_ms=60000 时 TS 先到期销毁常驻 socket(响应丢失 +
+ * 订阅断线)。批 D 已把 GD 侧 wall_budget clamp 到 50s,TS 侧对齐:
+ * `wall_budget + 5s 余量`(默认 30000 → 35000;wall=60000 超界入参 → 65000 不再先到期),
+ * 并与用户显式 timeout 取 max(用户显式更长时尊重显式意图,不被 wall 公式压短)。
+ *
+ * 其余 method 保持原行为: step 走 max(raw,30000) cap 60000;非长跑 method 原样。
+ */
+export function computePlaytestTimeoutMs(method: string, wallBudgetMs: unknown, rawTimeoutMs: number): number {
+  const base = (method === 'playtest.step' || method === 'playtest.step_until')
+    ? Math.min(Math.max(rawTimeoutMs, 30000), 60000)
+    : Math.min(rawTimeoutMs, 60000);
+  if (method !== 'playtest.step_until') return base;
+  const n = Number(wallBudgetMs);
+  const wall = (wallBudgetMs === undefined || wallBudgetMs === null || !Number.isFinite(n))
+    ? 30000
+    : Math.max(0, Math.round(n));
+  // wall + 5s 余量,clamp 到 [1000,65000](65000 上界容纳 GD 侧超界入参 60000+5000)
+  const byBudget = clampTimeoutMs(wall + 5000, 1000, 65000, 35000);
+  return Math.max(byBudget, base);
+}
 
 /**
  * CRITICAL-3 fix: poll a Bridge wait condition until it holds or the budget
@@ -598,14 +714,29 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
 
 /** T-1 (2026-06-24 审查): game_write/wait/query 的 path 参数须 /root/ 绝对路径(文档 godot-mcp-bridge.md
  *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
- *  返回错误消息或 null(校验通过)。 */
-function validateBridgePath(params: Record<string, unknown>): string | null {
+ *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。 */
+export function validateBridgePath(params: Record<string, unknown>): string | null {
   // I-1 (审查反馈): 节点路径字段名混用——game_write/wait/query 用 path,monitor/watch 用 node_path,
   // click_button 用 path。统一检查两者。无节点路径的方法(ping/get_tree/find_ui_elements 的 pattern)不校验。
   for (const key of ['path', 'node_path'] as const) {
     const p = params[key];
     if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
       return `${key} must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed node paths; see godot-mcp-bridge.md.`;
+    }
+  }
+  return null;
+}
+
+/** I-2 (审查 follow-up): wait_for_property 需 property + value;wait_for_node 只需 path 不校验。
+ *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。
+ *  抽自 handleTool case 'game_wait' 内联逻辑(2026-08-09 待办 #3,恢复 Linux CI 覆盖)。 */
+export function validateWaitPropertyParams(method: string, params: Record<string, unknown>): string | null {
+  if (method === 'wait_for_property') {
+    if (typeof params.property !== 'string' || !params.property) {
+      return 'wait_for_property requires a non-empty "property" string in params';
+    }
+    if (params.value === undefined) {
+      return 'wait_for_property requires a "value" in params';
     }
   }
   return null;
@@ -621,6 +752,12 @@ async function bridgeAction(method: string, params: Record<string, unknown>, ctx
   // (isError=true),否则 MCP 客户端误判成功吞掉错误。原 textResult 默认 isError=false。
   if (resp.error) {
     return errorResult(`Bridge error (${resp.error.code}): ${resp.error.message}`);
+  }
+  // G-1: 订阅登记表维护 — start 成功登记(重连后重发),stop 成功移除(不再重发)
+  if (method === 'watch.start' || method === 'monitor.start') {
+    _registerSubscription(method, params);
+  } else if (method === 'watch.stop' || method === 'monitor.stop') {
+    _removeSubscription(method === 'watch.stop' ? 'watch.start' : 'monitor.start');
   }
   return textResult(JSON.stringify(resp.result, null, 2));
 }
@@ -652,8 +789,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         let config = readFileSync(configPath, 'utf-8');
-        if (config.includes(AUTOLOAD_KEY)) {
+        // G-5: 幂等/迁移检查用行首精确匹配(键名短,裸 includes 会误命中注释等文本)。
+        // 新键存在 → 已注册跳过;仅旧带前缀键存在 → 迁移(删旧行写新行,旧项目自愈)。
+        const hasNewKey = new RegExp(`^${AUTOLOAD_KEY}\\s*=`,'m').test(config);
+        if (hasNewKey) {
           return textResult(`MCP Bridge autoload already registered. Script copied to ${destScript}.`);
+        }
+        const hasLegacyKey = new RegExp(`^${AUTOLOAD_KEY_LEGACY}\\s*=`,'m').test(config);
+        if (hasLegacyKey) {
+          config = config.split('\n').filter(line => !line.startsWith(AUTOLOAD_KEY_LEGACY + '=')).join('\n');
         }
 
         const autoloadEntry = `${AUTOLOAD_KEY}="*res://${BRIDGE_SCRIPT_NAME}"`;
@@ -685,11 +829,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         const config = readFileSync(configPath, 'utf-8');
-        if (!config.includes(AUTOLOAD_KEY)) {
+        // G-5: 新键与旧带前缀键任一存在即可卸载(双键兼容,旧行为只认旧长键)
+        const hasNewKey = new RegExp(`^${AUTOLOAD_KEY}\\s*=`,'m').test(config);
+        const hasLegacyKey = new RegExp(`^${AUTOLOAD_KEY_LEGACY}\\s*=`,'m').test(config);
+        if (!hasNewKey && !hasLegacyKey) {
           return textResult('MCP Bridge autoload not found in project.godot.');
         }
 
-        const lines = config.split('\n').filter(line => !line.startsWith(AUTOLOAD_KEY + '='));
+        // 双键清理:新键行 + 旧带前缀键行都移除
+        const lines = config.split('\n').filter(line =>
+          !line.startsWith(AUTOLOAD_KEY + '=') && !line.startsWith(AUTOLOAD_KEY_LEGACY + '='));
         const tmpPath = configPath + '.mcp-tmp';
         writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
         renameSync(tmpPath, configPath);
@@ -805,16 +954,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
 
-        // I-2 (审查 follow-up): wait_for_property 还需 property + value(T-1 只校验 path)。
-        // wait_for_node 只需 path,不校验。
-        if (method === 'wait_for_property') {
-          if (typeof params.property !== 'string' || !params.property) {
-            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a non-empty "property" string in params');
-          }
-          if (params.value === undefined) {
-            return opsErrorResult('INVALID_PARAMS', 'wait_for_property requires a "value" in params');
-          }
-        }
+        // I-2: wait_for_property 还需 property + value;wait_for_node 不校验(纯函数抽离,见模块顶)。
+        const waitParamErr = validateWaitPropertyParams(method, params);
+        if (waitParamErr) return opsErrorResult('INVALID_PARAMS', waitParamErr);
 
         const result = await pollWaitCondition(
           method as 'wait_for_node' | 'wait_for_property',
@@ -837,17 +979,16 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       case 'game_playtest': {
         ensureProjectDir(ctx, args);
         const method = args.method as string;
-        if (!PLAYTEST_METHODS.has(method)) {
-          return textResult(`Error: Unknown playtest method "${method}". Supported: ${[...PLAYTEST_METHODS].join(', ')}`);
+        if (!PLAYTEST_METHODS.has(method) && !CONTROL_METHODS.has(method)) {
+          return textResult(`Error: Unknown playtest method "${method}". Supported: ${[...PLAYTEST_METHODS, ...CONTROL_METHODS].join(', ')}`);
         }
         const rawParams = args.params;
         const params = (rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams))
           ? rawParams as Record<string, unknown>
           : {};
-        // step 走 coroutine 延迟响应,需要更长 timeout(N 帧推进)
-        const isStep = method === 'playtest.step';
-        const rawTimeout = clampTimeoutMs(args.timeout);
-        const timeout = Math.min(isStep ? Math.max(rawTimeout, 10000) : rawTimeout, 60000);
+        // step/step_until 走 coroutine 延迟响应,需要更长 timeout(N 帧推进 / 条件多帧才满足)。
+        // G-3: step_until 的 timeout 由 wall_budget + 5s 余量决定(防 TS 先于 GD idle 60s 到期销毁 socket)
+        const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, clampTimeoutMs(args.timeout));
         const response = await sendToBridge(method, params, timeout);
         if (response.error) {
           if (response.error.code === -32001 || response.error.code === -32002) {
@@ -978,6 +1119,10 @@ export function resetBridgeState(): void {
   _cachedSecretAt = 0;
   _connectionLock = null;
   _sendLock = Promise.resolve();
+  // G-1: 订阅登记表 + keepalive timer 一并清(服务重启语义:旧订阅不复存在;timer 防测试隔离泄漏)
+  _subscriptions = [];
+  _resendInFlight = null;
+  _stopKeepalive();
 }
 
 // ─── Bridge readiness probe (M4) ────────────────────────────────────────────

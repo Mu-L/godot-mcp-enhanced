@@ -3,15 +3,16 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：40
-- securityLevel：danger-api 10 / guarded 17 / safe 13
-- risk：read 114 / write 82 / destructive 10 / process 14
-- L2 覆盖：covered 0 / partial 0 / none 40
-- token 预算：tools/list ≈ 75701B / ~18925 tokens（description 12354B / schema 63347B，schema 占 84%）
-- annotations：readOnly 11 / destructive 5 / idempotent 14
+- 工具总数：41
+- securityLevel：danger-api 11 / guarded 20 / safe 10
+- risk：read 113 / write 93 / destructive 10 / process 14
+- L2 覆盖：covered 0 / partial 0 / none 41
+- token 预算：tools/list ≈ 81409B / ~20352 tokens（description 13953B / schema 67456B，schema 占 83%）
+- annotations：readOnly 9 / destructive 5 / idempotent 12
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
 ## danger-api 工具（L2 安全回归优先）
+- `audit` (core)
 - `godot_get_context` (core)
 - `help` (core)
 - `manage_tools` (core)
@@ -30,6 +31,7 @@
 - `animtree` (animation)
 - `asset` (asset)
 - `audio` (audio)
+- `audit` (core)
 - `blender` (blender)
 - `cpp` (code)
 - `csv_to_resources` (unknown)
@@ -71,8 +73,8 @@
 - editor 侧：按工具命令精确路由（EDITOR_COMMAND_ROUTING，源 command_handler.gd handle() 路由表）
 
 ## token 预算 TOP 5
-- `game` (bridge): desc 909B / schema 4475B / total 5384B
+- `game` (bridge): desc 1117B / schema 5367B / total 6484B
 - `scene` (core): desc 277B / schema 4780B / total 5057B
 - `workflow` (profiler): desc 228B / schema 4224B / total 4452B
 - `ui` (ui): desc 647B / schema 3560B / total 4207B
-- `tilemap` (tilemap): desc 286B / schema 3228B / total 3514B
+- `script` (core): desc 739B / schema 2805B / total 3544B

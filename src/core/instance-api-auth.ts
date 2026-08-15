@@ -10,12 +10,12 @@
  * - HMAC 签名包含 instance.id + timestamp，防重放
  * - 仅限 localhost 通信 (127.0.0.1)
  *
- * I-6 状态（半成品功能，MULTI_INSTANCE 默认关闭）：
- * sendToInstance / dynamicSender 发送端完整且有测试（instance-router.test.ts /
- * phase2-acceptance.test.ts），但 HTTP /api/<tool> 接收端在本仓库未实现——TS server
- * 不启动 HTTP 服务端，mcp_bridge.gd 走 TCP JSON-RPC 不消费 HMAC 头。因此 verifyApiToken
- * （接收端验证逻辑）目前零生产调用，仅被 instance-api-auth.test.ts 覆盖。未来补接收端时，
- * 在 HTTP server 入口接线 verifyApiToken 即可。删除会破坏上述测试 + 丢失已验证逻辑，故保留并标注。
+ * I-6 状态（2026-08-10 行225 闭环，MULTI_INSTANCE 默认关闭）：
+ * sendToInstance / dynamicSenders 发送端完整且有测试（instance-router.test.ts /
+ * phase2-acceptance.test.ts）。接收端 HTTP /api/<tool> server 在 instance-http-server.ts
+ * 实现，GodotServer.initMultiInstance 启动时接线 verifyApiToken（HMAC 闭环）。
+ * verifyApiToken 现经 InstanceHttpServer.handleRequest 调用（入口验签），
+ * 仍由 instance-api-auth.test.ts 覆盖单元测试 + instance-http-server.test.ts 覆盖集成测试。
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, lstatSync, unlinkSync } from 'node:fs';
@@ -26,19 +26,53 @@ import { homedir, userInfo } from 'node:os';
 import { getLogger } from './logger.js';
 
 const API_SECRET_FILENAME = '.api-secret';
+const API_NONCES_FILENAME = '.api-nonces.json';
 const HMAC_ALGORITHM = 'sha256';
 const TOKEN_TTL_MS = 60_000; // 签名有效期 60 秒
+
+// A6 (2026-08-11 审查): 时钟偏移上界。原校验只查过去方向(Date.now() - timestamp > TTL),
+// 远未来 timestamp(now+1年)可通过过期检查,该 token 在真实时间追上前持续有效。
+// localhost 同机通信时钟偏移近零,5s 上界只容忍 NTP 抖动级别的正向漂移。
+const MAX_CLOCK_SKEW_MS = 5_000;
 
 // S-3: Nonce 防重放 — 记录最近使用的 nonce（TTL 内去重）
 const _usedNonces = new Map<string, number>();
 const NONCE_CLEANUP_INTERVAL = 120_000; // 每 2 分钟清理过期 nonce
 let _lastNonceCleanup = Date.now();
 
+// A6: nonce 持久化 — server 重启会清空内存 Map,60s TTL 重放窗口重新打开。
+// 近 TTL 的已用 nonce 落盘 ~/.godot-mcp/.api-nonces.json,启动时懒加载回内存。
+// 失败(磁盘/权限)降级内存-only,不阻断认证(纵深防御层,非可用性依赖)。
+let _noncesLoaded = false;
+let _noncePersistWarned = false;
+
 let _cachedSecret: string | null = null;
 
 /** 获取机器级注册目录 */
 function getRegistryDir(): string {
   return join(homedir(), '.godot-mcp');
+}
+
+/** B-4 (2026-08-14): 写前 symlink 预检 — .api-secret 与 .api-nonces.json 两处共用。
+ *  攻击者预置目标路径为 symlink,writeFileSync follow symlink 会覆盖被指向文件
+ *  (nonce 是固定格式 JSON,每次合法验签 _persistNonces 都会覆写)。对齐 :64-69
+ *  读侧预检模式(阶段4-3 Imp-9):lstatSync 不 follow;存在且 isSymbolicLink 则拒写
+ *  + error 告警返回 false;lstat 失败保守拒写。写入成功返回 true;写失败抛错由
+ *  调用方 try/catch 降级(两层调用方均有降级语义,认证不被磁盘问题阻断)。 */
+function safeWriteNoSymlink(path: string, data: string, opts: { mode?: number } = {}): boolean {
+  if (existsSync(path)) {
+    try {
+      if (lstatSync(path).isSymbolicLink()) {
+        getLogger().error('security', `Refusing to write ${path}: target is a symlink (possible pre-positioned overwrite attack). Skipping write.`);
+        return false;
+      }
+    } catch (statErr) {
+      getLogger().error('security', `lstat failed for ${path} — refusing write (conservative): ${statErr instanceof Error ? statErr.message : statErr}`);
+      return false;
+    }
+  }
+  writeFileSync(path, data, { encoding: 'utf-8', ...(opts.mode !== undefined ? { mode: opts.mode } : {}) });
+  return true;
 }
 
 /** 读取或创建共享 API secret */
@@ -75,10 +109,12 @@ export function getOrCreateApiSecret(): string {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(secretPath, secret, { encoding: 'utf-8', mode: 0o600 });
+    // B-4: 写前 symlink 预检(读侧 :68 unlink 后到此处写之间存在 TOCTOU 竞态窗口,
+    // 攻击者可重建 symlink;拒写时 secret 仅内存生效,降级不阻断认证)
+    const written = safeWriteNoSymlink(secretPath, secret, { mode: 0o600 });
 
     // Windows: 收紧 ACL — I-01 fix: 使用 os.userInfo().username + execFileSync 防止 ACL 注入
-    if (process.platform === 'win32') {
+    if (written && process.platform === 'win32') {
       try {
         const username = userInfo().username;
         if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
@@ -91,7 +127,11 @@ export function getOrCreateApiSecret(): string {
       }
     }
 
-    getLogger().info('instance-api-auth', `Generated new API secret at ${secretPath}`);
+    if (written) {
+      getLogger().info('instance-api-auth', `Generated new API secret at ${secretPath}`);
+    } else {
+      getLogger().warn('instance-api-auth', `API secret not persisted (${secretPath} is a symlink) — in-memory only until restart`);
+    }
   } catch (err) {
     getLogger().warn('instance-api-auth', `Failed to persist API secret: ${err instanceof Error ? err.message : err}`);
   }
@@ -131,9 +171,15 @@ export function verifyApiToken(instanceId: string, token: string): boolean {
   const timestamp = parseInt(timestampStr, 10);
   if (!Number.isFinite(timestamp)) return false;
 
-  // 检查时效性
+  // 检查时效性(过去方向:TTL 过期;未来方向:A6 时钟偏移上界)
   if (Date.now() - timestamp > TOKEN_TTL_MS) return false;
+  if (timestamp - Date.now() > MAX_CLOCK_SKEW_MS) return false;
 
+  // A6: 懒加载持久化的 nonce(重启防重放窗口)
+  if (!_noncesLoaded) {
+    _loadPersistedNonces();
+    _noncesLoaded = true;
+  }
   // S-3: Nonce 防重放检查(仅查重;记录推迟到 HMAC 验证通过后 — A-2,避免伪造 token 污染 nonce 池)
   const nonceKey = `${instanceId}:${nonce}`;
   if (_usedNonces.has(nonceKey)) return false; // 已使用的 nonce → 重放攻击
@@ -160,9 +206,65 @@ export function verifyApiToken(instanceId: string, token: string): boolean {
     if (mismatch !== 0) return false;
     // A-2: HMAC 验证通过后才记录 nonce,避免伪造 token 提前污染 nonce 池(否则伪造签名可占用合法 nonce)
     _usedNonces.set(nonceKey, Date.now());
+    _persistNonces();
     return true;
   } catch {
     return false;
+  }
+}
+
+// ─── A6: nonce 持久化(重启防重放窗口) ────────────────────────────────────────
+
+function _nonceStorePath(): string {
+  return join(getRegistryDir(), API_NONCES_FILENAME);
+}
+
+function _loadPersistedNonces(): void {
+  // 只回载仍在有效窗(TTL*2)内的条目,过期的留在盘上等下次写入时清掉
+  const cutoff = Date.now() - TOKEN_TTL_MS * 2;
+  try {
+    const path = _nonceStorePath();
+    if (!existsSync(path)) return;
+    // B-4 (2026-08-14): 读侧 symlink 预检(对齐 .api-secret :68 模式)——symlink 指向的
+    // "nonce 池"是攻击者可控输入,回载等于让攻击者伪造重放拒绝(DoS)或探测 nonce 状态。
+    // 命中则不读,降级内存-only。
+    if (lstatSync(path).isSymbolicLink()) {
+      getLogger().error('security', `Nonce store ${path} is a symlink — refusing to load (possible pre-positioned attack).`);
+      return;
+    }
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+    if (parsed == null || typeof parsed !== 'object') return;
+    for (const [key, ts] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof ts === 'number' && ts > cutoff) _usedNonces.set(key, ts);
+    }
+  } catch {
+    // 读失败(损坏/权限)降级内存-only——防重放退化为重启后窗口重开,不阻断认证
+    if (!_noncePersistWarned) {
+      getLogger().warn('instance-api-auth', 'Failed to load persisted nonces — replay protection degraded to memory-only until restart');
+      _noncePersistWarned = true;
+    }
+  }
+}
+
+function _persistNonces(): void {
+  try {
+    const path = _nonceStorePath();
+    const dir = getRegistryDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const out: Record<string, number> = {};
+    for (const [key, ts] of _usedNonces) out[key] = ts;
+    // B-4: 写前 symlink 预检(防 follow symlink 覆写任意文件);拒写降级内存-only
+    if (!safeWriteNoSymlink(path, JSON.stringify(out), { mode: 0o600 })) {
+      if (!_noncePersistWarned) {
+        getLogger().warn('instance-api-auth', 'Failed to persist nonces — replay protection degraded to memory-only until restart');
+        _noncePersistWarned = true;
+      }
+    }
+  } catch {
+    if (!_noncePersistWarned) {
+      getLogger().warn('instance-api-auth', 'Failed to persist nonces — replay protection degraded to memory-only until restart');
+      _noncePersistWarned = true;
+    }
   }
 }
 
@@ -178,4 +280,6 @@ export function buildAuthHeaders(instanceId: string): Record<string, string> {
 export function clearCachedSecret(): void {
   _cachedSecret = null;
   _usedNonces.clear();
+  // A6: 重置懒加载标记,下个 verify 重新从盘上加载(测试 beforeEach/afterEach rmSync MOCK_HOME 后状态干净)
+  _noncesLoaded = false;
 }

@@ -30,6 +30,51 @@ function makeMockConn(): MockConn {
   };
 }
 
+describe('EditorToolExecutor P2-1R CMP-1 TOCTOU verification gate', () => {
+  let mockConn: MockConn;
+
+  beforeEach(() => {
+    clearRegistry();
+    registerTools([{ name: 'nav', readonly: false, long_running: false }]);
+    mockConn = makeMockConn();
+  });
+
+  afterEach(() => {
+    clearRegistry();
+  });
+
+  it('isVerifying=true → VERIFICATION_IN_PROGRESS,不转发到 conn(拦截 TOCTOU 窗口期写操作)', async () => {
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      undefined,
+      () => true,
+    );
+    const result = await executor.execute('nav', { action: 'create_region' });
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('VERIFICATION_IN_PROGRESS');
+    expect(mockConn.request).not.toHaveBeenCalled();
+  });
+
+  it('isVerifying=false → 正常转发到 conn(校验完恢复)', async () => {
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+      undefined,
+      () => false,
+    );
+    await executor.execute('nav', { action: 'create_region' });
+    expect(mockConn.request).toHaveBeenCalled();
+  });
+
+  it('未传 isVerifying → 向后兼容(不预检,正常转发)', async () => {
+    const executor = new EditorToolExecutor(
+      mockConn as unknown as ConstructorParameters<typeof EditorToolExecutor>[0],
+    );
+    await executor.execute('nav', { action: 'create_region' });
+    expect(mockConn.request).toHaveBeenCalled();
+  });
+});
+
 describe('EditorToolExecutor nav bake operation (§7)', () => {
   let mockConn: MockConn;
   let executor: EditorToolExecutor;
@@ -231,7 +276,7 @@ describe('EditorToolExecutor HOL precheck (B-T3)', () => {
 
     const r = await executor.execute('add_node', { project_path: '/p', node_type: 'Node', node_name: 'X' });
 
-    expect(r.isError).toBeTruthy();
+    expect(r.isError).toBe(true);
     expect(JSON.stringify(r)).toMatch(/NOT_CONNECTED|reconnecting/i);
     // 反向断言：conn.request 未被调用（跳过 30s 等待）
     expect(mockConn.request).not.toHaveBeenCalled();

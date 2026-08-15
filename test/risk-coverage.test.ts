@@ -15,11 +15,13 @@ registerAllModules();
  * 副作用（建目录/多文件、改 project.godot、写 .claude/settings.json+CLAUDE.md+rules、注入 hook），
  * 已标 'write' 触发确认；纯查询 action 仍 'read'。 */
 const GUARDED_KEYS = new Set([
-  'scene', 'script', 'animation', 'animation_track', 'tilemap', 'game', 'material', 'particles',
+  'scene', 'script', 'animation', 'animation_track', 'animtree', 'tilemap', 'game', 'material', 'particles',
   'signal', 'nav', 'audio', 'ui', 'physics', 'runtime', 'android', 'workflow',
   'validation', 'manage_tools', 'project', 'cpp', 'csv_to_resources', 'asset',
   'blender',
   'self_update',  // update action 非 read（check=read / update=write）
+  'engine',  // CMP-9-A: call_method action 是 write(实例方法调用有副作用),其余 3 action 仍 read
+  'debug',   // CMP-14: step/continue/pause/reload_scripts 是 write(执行控制/热重载有副作用),Phase 1 断点 + Phase 2 读取仍 read
 ]);
 
 /** 从 inputSchema.action.enum 提取某工具全部 action 名 */

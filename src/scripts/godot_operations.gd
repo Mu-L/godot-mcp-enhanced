@@ -84,6 +84,79 @@ func _has_components(value: Variant, needed: int) -> bool:
 		return false
 	return false
 
+# E-1 (2026-08-14): MCP JSON Array/Dict 输入 → Godot 数学类型真转换(DUPLICATE 三副本之一)。
+# ⚠️ 三副本同步关系(改任一处须同步另外两处):
+#   源(editor 侧):   addons/godot_mcp_server/commands/command_helpers.gd coerce_value_for_property
+#   副本(headless):  本文件 _coerce_math_value
+#   副本(bridge 侧): src/scripts/mcp_bridge.gd _coerce_math_value
+# headless --script 是独立 script context 无法 import addons,对齐 mcp_bridge.gd
+# _is_safe_value 内联副本的做法(C-03 DUPLICATE 同步模式)。
+# 与 editor 源版差异(有意): 按属性声明类型 prop_type 分派而非 typeof(current)——调用方
+# 已从 get_property_list 取得声明类型;支持 Dict{x,y,z,w}/{r,g,b,a} 输入(对齐 _has_components);
+# 补 Vector4i/Rect2/Rect2i 构造。返回 null = Array/Dict 输入但分量缺失/为 null 无法构造。
+func _coerce_math_value(prop_type: int, value: Variant) -> Variant:
+	if not (value is Array or value is Dictionary):
+		return value  # 已是数学类型/标量等,透传交 node.set
+	var x: Variant = _math_comp(value, 0, "x")
+	var y: Variant = _math_comp(value, 1, "y")
+	var z: Variant = _math_comp(value, 2, "z")
+	var w: Variant = _math_comp(value, 3, "w")
+	var r: Variant = _math_comp(value, 0, "r")
+	var g: Variant = _math_comp(value, 1, "g")
+	var b: Variant = _math_comp(value, 2, "b")
+	var a: Variant = _math_comp(value, 3, "a")
+	if prop_type == TYPE_VECTOR2:
+		if x != null and y != null:
+			return Vector2(float(x), float(y))
+	elif prop_type == TYPE_VECTOR2I:
+		if x != null and y != null:
+			return Vector2i(int(x), int(y))
+	elif prop_type == TYPE_VECTOR3:
+		if x != null and y != null and z != null:
+			return Vector3(float(x), float(y), float(z))
+	elif prop_type == TYPE_VECTOR3I:
+		if x != null and y != null and z != null:
+			return Vector3i(int(x), int(y), int(z))
+	elif prop_type == TYPE_VECTOR4:
+		if x != null and y != null and z != null and w != null:
+			return Vector4(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_VECTOR4I:
+		if x != null and y != null and z != null and w != null:
+			return Vector4i(int(x), int(y), int(z), int(w))
+	elif prop_type == TYPE_COLOR:
+		# 先 r/g/b/a 键名,再 x/y/z/w(对齐 _has_components 两种键名都接受)
+		if r != null and g != null and b != null:
+			return Color(float(r), float(g), float(b), float(a) if a != null else 1.0)
+		if x != null and y != null and z != null:
+			return Color(float(x), float(y), float(z), float(w) if w != null else 1.0)
+	elif prop_type == TYPE_PLANE:
+		if x != null and y != null and z != null and w != null:
+			return Plane(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_QUATERNION:
+		if x != null and y != null and z != null and w != null:
+			return Quaternion(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2:
+		if x != null and y != null and z != null and w != null:
+			return Rect2(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2I:
+		if x != null and y != null and z != null and w != null:
+			return Rect2i(int(x), int(y), int(z), int(w))
+	return null
+
+# E-1: 数学分量读取——Array 按索引,Dict 按 key(x/y/z/w 或 r/g/b/a);越界/缺键/值为 null 返 null。
+# 返 null 时 _coerce_math_value 视为分量缺失,调用方报错拒绝(防 float(null) 运行时崩溃)。
+func _math_comp(value: Variant, index: int, key: String) -> Variant:
+	if value is Array:
+		var arr: Array = value
+		if index < arr.size() and arr[index] != null:
+			return arr[index]
+		return null
+	if value is Dictionary:
+		var dict: Dictionary = value
+		if dict.has(key) and dict[key] != null:
+			return dict[key]
+	return null
+
 func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
 	# 双保险：instance 即使漏加 _BLOCKED_PROPERTIES 也拒
 	# I-2: instance 可注入 ExtResource 实例化恶意场景 _ready，与 script 同级危险
@@ -107,22 +180,37 @@ func _set_property_with_coerce(node: Node, key: String, value: Variant) -> bool:
 			return false
 	# CMP-10 (2026-08-08): 数学类型分量校验——防 Vector2 属性传单值静默变 Vector2(0,0)。
 	# 对齐竞品 _has_components:检查传入值的分量数是否匹配属性期望的数学类型。
-	elif prop_type == TYPE_VECTOR2 or prop_type == TYPE_VECTOR2I:
-		if not _has_components(value, 2):
-			log_error("Property %s expects Vector2 (2 components), got: %s" % [key, value])
-			return false
+	# E-1 (2026-08-14): 校验通过后补真转换(_coerce_math_value)——原实现只校验不转换,
+	# coerced 仍是原 Array/Dict,node.set(Array→数学类型)是静默 no-op 但返 success
+	# (Godot 4.7 verified,见 command_helpers.gd:93-94 注释)。类型面扩至 Vector4/4i/
+	# Plane/Quaternion(对齐 editor coerce_value_for_property)。
+	var math_needed := 0
+	var math_label := ""
+	if prop_type == TYPE_VECTOR2 or prop_type == TYPE_VECTOR2I:
+		math_needed = 2
+		math_label = "Vector2 (2 components)"
 	elif prop_type == TYPE_VECTOR3 or prop_type == TYPE_VECTOR3I:
-		if not _has_components(value, 3):
-			log_error("Property %s expects Vector3 (3 components), got: %s" % [key, value])
-			return false
+		math_needed = 3
+		math_label = "Vector3 (3 components)"
 	elif prop_type == TYPE_COLOR:
-		if not _has_components(value, 3):  # Color 允许 3(r,g,b) 或 4(r,g,b,a)
-			log_error("Property %s expects Color (3-4 components), got: %s" % [key, value])
-			return false
+		math_needed = 3  # Color 允许 3(r,g,b) 或 4(r,g,b,a)
+		math_label = "Color (3-4 components)"
 	elif prop_type == TYPE_RECT2 or prop_type == TYPE_RECT2I:
-		if not _has_components(value, 4):
-			log_error("Property %s expects Rect2 (4 components), got: %s" % [key, value])
+		math_needed = 4
+		math_label = "Rect2 (4 components)"
+	elif prop_type == TYPE_VECTOR4 or prop_type == TYPE_VECTOR4I \
+			or prop_type == TYPE_PLANE or prop_type == TYPE_QUATERNION:
+		math_needed = 4
+		math_label = "4-component math type (Vector4/Plane/Quaternion)"
+	if math_needed > 0:
+		if not _has_components(value, math_needed):
+			log_error("Property %s expects %s, got: %s" % [key, math_label, value])
 			return false
+		var converted: Variant = _coerce_math_value(prop_type, value)
+		if converted == null:
+			log_error("Property %s: cannot coerce %s (missing/null component)" % [key, value])
+			return false
+		coerced = converted
 	node.set(key, coerced)
 	return true
 

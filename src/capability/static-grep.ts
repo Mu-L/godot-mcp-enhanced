@@ -135,14 +135,26 @@ export const EDITOR_COMMAND_ROUTING: Record<string, string> = {
   // CMP-1 (2026-08-08): editor 项目匹配检查——返回 ProjectSettings.globalize_path("res://")
   // handler 内联在 command_handler.gd handle()(不归属子 commands,复用 websocket_server.gd _get_project_dir 逻辑)
   editor_get_project_path: 'command_handler.gd',
+  // CMP-16-A (2026-08-08): param docs 聚合入口(内联在 command_handler.gd,对标竞品 engine.commands)
+  list_param_docs: 'command_handler.gd',
   // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
   debug_set_breakpoint: 'commands/debug_commands.gd',
   debug_clear_breakpoint: 'commands/debug_commands.gd',
   debug_list_breakpoints: 'commands/debug_commands.gd',
+  // CMP-14 (2026-08-09): debug Phase 2/3 调试器集成
+  debug_stack_trace: 'commands/debug_commands.gd',
+  debug_inspect_frame: 'commands/debug_commands.gd',
+  debug_evaluate: 'commands/debug_commands.gd',
+  debug_step: 'commands/debug_commands.gd',
+  debug_continue: 'commands/debug_commands.gd',
+  debug_pause: 'commands/debug_commands.gd',
+  debug_reload_scripts: 'commands/debug_commands.gd',
   // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
   engine_class_info: 'commands/engine_commands.gd',
   engine_search: 'commands/engine_commands.gd',
   engine_get_inheritance: 'commands/engine_commands.gd',
+  // CMP-9-A (2026-08-08): engine call_method — 编辑器场景树节点实例方法调用
+  engine_call_method: 'commands/engine_commands.gd',
 };
 
 /**

@@ -17,6 +17,7 @@ import { handleInstanceScene, handleSetInstanceProperty, handleDetachInstance } 
 import { mergeTscn, checkSceneHealth } from './scene-merge.js';
 import { handleCreate3dNode } from '../node-3d-ops.js';
 import { handleCommitAction } from './scene-commit-tool.js';
+import { scanScriptSandboxOrThrow } from '../script.js';
 import type { RiskLevel } from '../../core/tool-registry.js';
 
 export { mergeTscn, checkSceneHealth };
@@ -211,7 +212,18 @@ export async function handleTool(
           : '';
         return textResult(`⚠️ Blocked properties NOT written (security policy): ${result.blockedProps.join(', ')}.${hint}\n${result.message}`);
       }
-      return textResult(result.message);
+      // Tier1-1: 成功路径补 structuredContent,让 AI 无需正则解析文本即可拿结构化数据
+      return {
+        ...textResult(result.message),
+        structuredContent: {
+          action: 'add_node',
+          node_name: String(args.node_name),
+          node_type: String(args.node_type),
+          parent: String(args.parent_node_path || 'root'),
+          scene_path: sceneRelPath,
+          persisted: true,
+        },
+      };
     }
 
     case 'create_scene':
@@ -271,6 +283,12 @@ export async function handleTool(
       let tscnContent: string;
       if (scriptRelPath) { tscnContent = ['[gd_scene load_steps=2 format=3]', '', `[ext_resource type="Script" path="res://${scriptRelPath.replace(/\\/g, '/')}" id="1"]`, '', `[node name="${rootNodeName}" type="${rootNodeType}"]`, 'script = ExtResource("1")', ''].join('\n'); }
       else { tscnContent = ['[gd_scene format=3]', '', `[node name="${rootNodeName}" type="${rootNodeType}"]`, ''].join('\n'); }
+      // B-1 (SEC-P1-1): quick_scene scriptContent 写 .gd 前过沙箱扫描(此前裸 writeFileSync 绕过,
+      // tscn 绑 ExtResource → 编辑器打开/run_project 即执行)。仅在确实要写脚本时扫(已存在则内容不落盘)。
+      if (scriptRelPath && scriptContent && !existsSync(resolveWithinRoot(p, scriptRelPath))) {
+        const sandboxGuard = scanScriptSandboxOrThrow(scriptContent, resolveWithinRoot(p, scriptRelPath));
+        if (sandboxGuard) return sandboxGuard;
+      }
       try { ensureDir(sceneAbsPath); writeFileSync(sceneAbsPath, tscnContent, 'utf-8'); } catch (e: unknown) { return textResult(`Error writing scene: ${(e as Error).message}`); }
       if (scriptRelPath && scriptContent) { const scriptAbsPath = resolveWithinRoot(p, scriptRelPath); if (!existsSync(scriptAbsPath)) { try { ensureDir(scriptAbsPath); writeFileSync(scriptAbsPath, scriptContent, 'utf-8'); } catch (e: unknown) { return textResult(`Scene created but script write failed: ${(e as Error).message}`); } } }
       const parts = [`Created scene: ${sceneRelPath}`, `Root: ${rootNodeName} [${rootNodeType}]`];

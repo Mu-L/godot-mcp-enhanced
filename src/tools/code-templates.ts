@@ -5,6 +5,7 @@ import type { ToolResult } from '../types.js';
 import { textResult as okResult, errorResult } from '../types.js';
 import { validateProjectRoot, resolveWithinRoot, ensureDir } from '../helpers.js';
 import { getLogger } from '../core/logger.js';
+import { scanScriptSandboxOrThrow } from './script.js';
 
 // ─── Code Template Types ────────────────────────────────────────────────────
 
@@ -727,7 +728,6 @@ export function getAllTemplates(projectPath?: string): CodeTemplate[] {
 
 // ─── MCP Tool Definitions ───────────────────────────────────────────────────
 
-/** @deprecated v0.18.0 — 已合并到 project。仅保留供目标模块导入 handler。 */
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] code-templates module is absorbed into project. Do not register directly.`);
   return [
@@ -759,9 +759,11 @@ export function getToolDefinitions(): Tool[] {
   ];
 }
 
-export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean }> = {
-  templates: { readonly: true, long_running: false },
-};
+// B-1 (2026-08-14): 删除死标签 TOOL_META { templates: { readonly: true } }。
+// 'templates' 从未注册为独立工具(v0.18.0 起 code-templates 合并进 project 的
+// list_templates/apply_template action,risk 在 project.ts TOOL_META 声明:
+// apply_template: 'write')。保留 readonly:true 死标签的风险:若未来误把本模块
+// 直接注册,apply(写文件)会被错误标只读、绕过确认门。
 
 // ─── Exported handler for project module merge (v0.18.0) ────────────────────
 
@@ -781,7 +783,6 @@ export async function handleTemplateAction(
   return handleTool('templates', patchedArgs, ctx);
 }
 
-/** @deprecated v0.18.0 — 已合并到 project。仅保留供目标模块导入 handler。 */
 export async function handleTool(
   name: string, args: Record<string, unknown>, _ctx: unknown
 ): Promise<ToolResult | null> {
@@ -834,6 +835,11 @@ export async function handleTool(
 
     const code = template.generate(variables);
     const fullPath = resolveWithinRoot(projectPath, scriptPath);
+    // B-1 (SEC-P1-1): apply_template 渲染结果写 .gd 前过沙箱扫描(此前裸 writeFileSync 绕过;
+    // .mcp-templates/ 用户模板 validateUserTemplate 零内容审查,投毒模板可经此渲染写危险 .gd)。
+    // 非 .gd 目标路径 scanScriptSandboxOrThrow 直接放行不受影响。
+    const sandboxGuard = scanScriptSandboxOrThrow(code, fullPath);
+    if (sandboxGuard) return sandboxGuard;
     ensureDir(fullPath);
     writeFileSync(fullPath, code, 'utf-8');
 

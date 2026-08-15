@@ -20,7 +20,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 const TOOL_NAMES = ['engine'] as const;
 export { TOOL_NAMES };
 
-const ACTIONS = ['class_info', 'search', 'get_inheritance'] as const;
+const ACTIONS = ['class_info', 'search', 'get_inheritance', 'call_method'] as const;
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
 
@@ -29,10 +29,11 @@ export function getToolDefinitions(): Tool[] {
     {
       name: 'engine',
       description: [
-        '实时 ClassDB 内省（editor-only）：查询运行中引擎的实际可用类/方法/属性/信号/枚举。',
+        '实时 ClassDB 内省 + 节点方法调用（editor-only）：查询运行中引擎的实际可用类/方法/属性/信号/枚举，或调用编辑器场景树节点的实例方法。',
         'class_info: 查单个类的完整结构（属性/方法/信号/枚举/继承），默认 no_inherit=true 只看本类 own 成员。',
         'search: substring 匹配类名（返回 {name, parent} 列表，上限 100 条）。搜到类名后用 class_info 查具体成员。',
         'get_inheritance: 返回类的继承链（从本类到 Object）。',
+        'call_method: 调用编辑器场景树节点的实例方法（对标竞品 node.call）。参数 args 按方法声明类型自动强转（传 [1,2,3] 给 Vector3 参数会正确转换）。deny-list 默认挡危险方法（free/queue_free/set_script/call/emit_signal 等），env GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE 可追加（∪ 默认表，只能加不能减；显式空串=放开）。call 不可 undo（response 显式 undoable=false）。',
         '⚠️ 补 docs 工具的缺口：docs 是静态 4.7 快照（不含第三方 addon/自定义类/4.6/4.8 差异），engine 是运行中引擎的真实 ClassDB。',
         '⚠️ editor-only：headless 模式返回 EDITOR_ONLY（ClassDB 在沙箱里被拦，走 editor 层直调）。',
       ].join(' '),
@@ -42,7 +43,7 @@ export function getToolDefinitions(): Tool[] {
           action: {
             type: 'string',
             enum: [...ACTIONS],
-            description: 'Action type: class_info | search | get_inheritance',
+            description: 'Action type: class_info | search | get_inheritance | call_method',
           },
           class: {
             type: 'string',
@@ -55,6 +56,19 @@ export function getToolDefinitions(): Tool[] {
           no_inherit: {
             type: 'boolean',
             description: 'class_info: true=只看本类 own 成员（默认，翻继承链会淹没新 API）；false=含继承链合并',
+          },
+          node_path: {
+            type: 'string',
+            description: 'call_method: 目标节点路径（如 "root/Player"、"Player/Sprite2D"，相对编辑器场景树根）',
+          },
+          method: {
+            type: 'string',
+            description: 'call_method: 要调用的方法名（方法不存在时返回 did-you-mean 建议；deny-list 默认挡 free/queue_free/set_script/call 等危险方法）',
+          },
+          args: {
+            type: 'array',
+            description: 'call_method: 位置参数数组（按方法声明类型自动强转，如 [1,2,3] 给 Vector3 参数）。最多 8 个参数',
+            items: {},
           },
         },
         required: ['action'],
@@ -94,12 +108,14 @@ export const TOOL_META: Record<
   { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }
 > = {
   engine: {
-    readonly: true,
+    // CMP-9-A 后含 call_method(write),组级不再是纯只读。readOnlyHint 由 deriveMcpHints 按 actionRisks 派生。
+    readonly: false,
     long_running: false,
     actionRisks: {
       class_info: 'read',
       search: 'read',
       get_inheritance: 'read',
+      call_method: 'write',  // CMP-9-A: 方法可能有副作用(deny-list 挡高危,但剩余方法非 readonly)
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
 };

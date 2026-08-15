@@ -13,13 +13,14 @@ vi.mock('../src/core/file-scanner.js', () => ({
 }));
 
 describe('prompts', () => {
-  it('listPrompts returns 4 templates', () => {
+  it('listPrompts returns 5 templates', () => {
     const prompts = listPrompts();
-    expect(prompts).toHaveLength(4);
+    expect(prompts).toHaveLength(5);
     expect(prompts.map(p => p.name)).toContain('create_platformer');
     expect(prompts.map(p => p.name)).toContain('setup_player_controller');
     expect(prompts.map(p => p.name)).toContain('optimize_scene');
     expect(prompts.map(p => p.name)).toContain('debug_performance');
+    expect(prompts.map(p => p.name)).toContain('scene_editing_strategy');
   });
 
   it('getPrompt returns content with injected args', async () => {
@@ -45,17 +46,33 @@ describe('prompts', () => {
     const text = (result.messages[0].content as any).text;
     expect(text).toContain('Performance');
   });
+
+  it('scene_editing_strategy returns content with operation_type', async () => {
+    const result = await getPrompt('scene_editing_strategy', { operation_type: 'add_node' });
+    const text = (result.messages[0].content as any).text;
+    expect(text).toContain('add_node');
+    expect(text).toContain('能力发现');
+    expect(text).toContain('决策树');
+    expect(text).toContain('闭环验证');
+  });
+
+  it('scene_editing_strategy uses default when args empty', async () => {
+    const result = await getPrompt('scene_editing_strategy', {});
+    const text = (result.messages[0].content as any).text;
+    expect(text).toContain('通用');
+  });
 });
 
 describe('listPromptDefs', () => {
   it('returns all registered prompt defs', () => {
     const defs = listPromptDefs();
-    expect(defs.length).toBeGreaterThanOrEqual(4);
+    expect(defs.length).toBeGreaterThanOrEqual(5);
     const names = defs.map(d => d.name);
     expect(names).toContain('create_platformer');
     expect(names).toContain('setup_player_controller');
     expect(names).toContain('optimize_scene');
     expect(names).toContain('debug_performance');
+    expect(names).toContain('scene_editing_strategy');
   });
 
   it('each def has name and description', () => {
@@ -126,5 +143,16 @@ describe('prompt completion', () => {
     expect(r.completion.values).toHaveLength(100);
     expect(r.completion.total).toBe(150);  // total=all.length 非 truncated.length（SDK :5511）
     expect(r.completion.hasMore).toBe(true);
+  });
+
+  it('handleCompletion scene_editing_strategy operation_type → enum values', async () => {
+    const r = await handleCompletion(
+      { type: 'ref/prompt', name: 'scene_editing_strategy' },
+      { name: 'operation_type', value: '' },
+      undefined,
+    );
+    expect(r.completion.values).toEqual(['add_node', 'edit_node', 'remove_node', 'create_scene', 'read_scene']);
+    expect(r.completion.total).toBe(5);
+    expect(r.completion.hasMore).toBe(false);
   });
 });

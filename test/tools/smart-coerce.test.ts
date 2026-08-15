@@ -26,6 +26,20 @@ describe('smartCoerce', () => {
     it('should handle mixed case hex', () => {
       expect(smartCoerce('#AbCdEf')).toBe('Color(0.671, 0.804, 0.937, 1)');
     });
+
+    // F-8: 长度 5/7 的非法 hex 不应被静默误转(原 {3,8} 正则误放行)
+    it('F-8: should NOT convert 5-digit hex (invalid length)', () => {
+      expect(smartCoerce('#12345')).toBe('#12345');
+    });
+
+    it('F-8: should NOT convert 7-digit hex (invalid length)', () => {
+      expect(smartCoerce('#1234567')).toBe('#1234567');
+    });
+
+    it('F-8: should convert 4-digit #RGBA hex', () => {
+      const result = smartCoerce('#f00f');
+      expect(result).toBe('Color(1, 0, 0, 1)');
+    });
   });
 
   // ── Named colors ──

@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { getLogger } from './logger.js';
 import { buildSafeEnv } from '../helpers.js';
 import { safeRealPath } from './path-utils.js';
+import { InternalError } from './tool-errors.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -112,16 +113,18 @@ export async function validateGodotBinary(candidatePath: string): Promise<boolea
  */
 export async function detectGodotVersion(godotPath: string): Promise<string> {
   if (!isGodotPathAllowed(godotPath)) {
-    throw new Error(`godot path not in GODOT_MCP_ALLOWED_GODOT_PATHS: ${godotPath}`);
+    throw new InternalError('godot path not in GODOT_MCP_ALLOWED_GODOT_PATHS');
   }
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync(godotPath, ['--version'], { encoding: 'utf-8', timeout: 10000, env: buildSafeEnv() }));
   } catch (err) {
-    throw new Error(`godot --version failed: ${err instanceof Error ? err.message : err}`, { cause: err });
+    // PII 护栏:err.message(可能含路径)只 log 到 server 端,不进 client 响应。
+    getLogger().debug('godot-finder', `detectGodotVersion --version failed: ${err instanceof Error ? err.message : err}`);
+    throw new InternalError('godot --version failed');
   }
   const v = stdout.trim();
-  if (!isGodotVersionSignature(v)) throw new Error(`Invalid Godot version signature: ${v}`);
+  if (!isGodotVersionSignature(v)) throw new InternalError('Invalid Godot version signature');
   return v;
 }
 
@@ -369,9 +372,11 @@ export async function findGodot(projectPath?: string): Promise<string> {
     }
   }
 
-  throw new Error(
-    `Godot binary not found. Tried:\n${tried.map(t => `  - ${t}`).join('\n')}\nSet GODOT_PATH or add godot to PATH.`
-    + (projectPath ? `\nFor project-level config, create .godot/mcp-godot.json or add [godot_mcp] section to project.godot.` : ''),
+  throw new InternalError(
+    // projectPath 仅用于条件分支(是否加项目级配置提示),其值不进 safeMessage(PII-safe)。
+    projectPath
+      ? 'Godot binary not found. Set GODOT_PATH, or for project-level config create .godot/mcp-godot.json or add [godot_mcp] section to project.godot.'
+      : 'Godot binary not found. Set GODOT_PATH or add godot to PATH.',
   );
 }
 

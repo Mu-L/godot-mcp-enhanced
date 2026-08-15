@@ -26,6 +26,7 @@ const {
   mockIsToolAllowed,
   mockSetActiveGroups,
   mockValidateGodotBinary,
+  mockIsDynamicToolName,
 } = vi.hoisted(() => ({
   mockGetAllToolDefinitions: vi.fn<() => Tool[]>(),
   mockGetModuleForTool: vi.fn(),
@@ -42,6 +43,8 @@ const {
   mockIsToolAllowed: vi.fn().mockReturnValue(true),
   mockSetActiveGroups: vi.fn(),
   mockValidateGodotBinary: vi.fn().mockResolvedValue(true),
+  // A1 (2026-08-11): dispatcher 动态工具门反查依赖;默认 false(非动态),用例内按需 mockReturnValue
+  mockIsDynamicToolName: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../src/core/tool-registry.js', () => ({
@@ -52,13 +55,14 @@ vi.mock('../../src/core/tool-registry.js', () => ({
   LITE_TOOLS: mockLITE_TOOLS,
   MINIMAL_TOOLS: mockMINIMAL_TOOLS,
   isToolAllowed: mockIsToolAllowed,
+  isDynamicToolName: mockIsDynamicToolName,
   setActiveGroups: mockSetActiveGroups,
   resolveProfile: vi.fn().mockReturnValue(new Set()),
   skipProjectPath: vi.fn().mockReturnValue(false),
   tryLegacyMapping: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock('../../src/guard.js', () => ({
+vi.mock('../../src/core/guard.js', () => ({
   requiresConfirmation: mockRequiresConfirmation,
   createPendingToken: mockCreatePendingToken,
   consumeToken: mockConsumeToken,
@@ -77,8 +81,14 @@ vi.mock('../../src/core/path-utils.js', () => ({
 }));
 
 vi.mock('../../src/tools/shared.js', () => ({
-  opsErrorResult: vi.fn((code: string, msg: string) => ({
-    content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: msg, error_code: code, warnings: [] }) }],
+  opsErrorResult: vi.fn((code: string, msg: string, opts?: { suggestion?: string; retryable?: boolean; errorCategory?: string; traceId?: string }) => ({
+    content: [{ type: 'text' as const, text: JSON.stringify({
+      success: false, error: msg, error_code: code, warnings: [],
+      // G2 (2026-08-13): 透传结构化错误三元组(镜像 src/tools/shared/errors.ts opsError)
+      ...(opts?.retryable !== undefined ? { retryable: opts.retryable } : {}),
+      ...(opts?.errorCategory ? { error_category: opts.errorCategory } : {}),
+      ...(opts?.traceId ? { trace_id: opts.traceId } : {}),
+    }) }],
     isError: true,
   })),
   COMMON_ERROR_CODES: { INVALID_PARAMS: 'INVALID_PARAMS' },
@@ -683,6 +693,65 @@ describe('ToolDispatcher.handleCall', () => {
     (tryLegacyMapping as ReturnType<typeof vi.fn>).mockReturnValue(null);
   });
 
+  // ── A1 (2026-08-11 审查 P1): CMP-16-B 动态工具绕过 confirm/action-gate 双层门修复 ──
+  // 动态注册的平铺工具名(如 engine_call_method)不在静态 metaRegistry → guard 查不到 risk
+  // 永不确认、action-gate 永不命中。修复:经 METHOD_TO_TOOL 反查静态 (tool, action) 后判定。
+  it('A1: dynamic tool confirm gate resolves static (tool, action) via METHOD_TO_TOOL', async () => {
+    const guard = createMockGuard(false);
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'engine_call_method');
+    // requiresConfirmation 对反查后的 (engine, action=call_method) 返回 true(真实 registry 中该 action risk=write)
+    mockRequiresConfirmation.mockImplementation(
+      (guardName: string, guardArgs: { action?: string }) =>
+        guardName === 'engine' && guardArgs?.action === 'call_method',
+    );
+    mockCreatePendingToken.mockReturnValue('dyn-token-789');
+
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    const result = await dispatcher.handleCall({
+      params: { name: 'engine_call_method', arguments: { node_path: 'root/Player', method: 'set_position' } },
+    });
+
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.requires_confirmation).toBe(true);
+    expect(parsed.confirmation_token).toBe('dyn-token-789');
+    // A1 核心:guard 必须以反查后的 (engine, action=call_method) 判定,而非裸动态名(查不到 risk 即放行)
+    expect(mockRequiresConfirmation).toHaveBeenCalledWith('engine', expect.objectContaining({ action: 'call_method' }));
+    // createPendingToken 以原始动态名登记(confirm_and_execute 据此执行 editor 转发)
+    expect(mockCreatePendingToken).toHaveBeenCalledWith('engine_call_method', expect.objectContaining({ node_path: 'root/Player' }));
+    mockIsDynamicToolName.mockReturnValue(false);
+  });
+
+  it('A1: dynamic tool gated action (debug_evaluate → debug.evaluate) hits ACTION_GATED', async () => {
+    vi.stubEnv('GODOT_MCP_PRIVILEGED_GROUPS', '');  // 未设 privileged 组 → gated
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'debug_evaluate');
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: createMockGuard(false) });
+    const result = await dispatcher.handleCall({
+      params: { name: 'debug_evaluate', arguments: { expression: '1+1' } },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.error_code).toBe('ACTION_GATED');
+    // 修复前:isActionGated('debug_evaluate','') 永不命中 → 直接放行执行(gated action 绕过)
+    mockIsDynamicToolName.mockReturnValue(false);
+    vi.unstubAllEnvs();
+  });
+
+  it('A1: unmapped dynamic tool fails closed (confirmation required, risk unknown)', async () => {
+    mockIsDynamicToolName.mockImplementation((name: string) => name === 'future_unmapped_method');
+    mockRequiresConfirmation.mockReturnValue(false);  // guard 本身放行
+    mockCreatePendingToken.mockReturnValue('fail-closed-token');
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: createMockGuard(false) });
+    const result = await dispatcher.handleCall({
+      params: { name: 'future_unmapped_method', arguments: {} },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text);
+    // METHOD_TO_TOOL 未登记 → 风险未知 → fail-closed 要求确认(防 GD 新增 method 漏映射静默绕门)
+    expect(parsed.requires_confirmation).toBe(true);
+    mockIsDynamicToolName.mockReturnValue(false);
+  });
+
   // [T12] editor 模式 + executor 存在 → 转发
   it('forwards to editor executor in editor mode', async () => {
     const guard = createMockGuard(false);
@@ -902,15 +971,37 @@ describe('ToolDispatcher.handleCall', () => {
     expect(firstText).not.toContain('EDITOR_FALLBACK');
   });
 
-  // [T19] catch 异常 → 错误消息
-  it('catches exceptions and returns error message', async () => {
+  // [T19] catch 异常 → PII-safe 结构化错误(G2:不再外泄 err.message)
+  it('catches exceptions and returns PII-safe structured error (G2 trace+PII)', async () => {
     const guard = createMockGuard(false);
-    const mockModule = { handleTool: vi.fn().mockRejectedValue(new Error('boom')) };
+    const mockModule = { handleTool: vi.fn().mockRejectedValue(new Error('boom with /home/secret/path')) };
     mockGetModuleForTool.mockReturnValue(mockModule);
     const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
     const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('boom');
+    const parsed = JSON.parse(text);
+    // G2 (2026-08-13): PII 护栏 — 主 catch 用 classifyError(原生 Error 兜底 INTERNAL),
+    // 绝不读 err.message。'boom with /home/secret/path' 不进响应;safeMessage='Internal error'。
+    expect(parsed.error_code).toBe('INTERNAL');
+    expect(parsed.error_category).toBe('internal');
+    expect(parsed.retryable).toBe(false);
+    expect(parsed.error).toBe('Internal error');
+    expect(parsed.error).not.toContain('boom');        // err.message 不外泄
+    expect(parsed.error).not.toContain('secret');      // PII 路径不外泄
+    expect(parsed.trace_id).toMatch(/^[0-9a-f]{16}$/); // G2 trace_id 注入
+  });
+
+  // [G2-meta] 成功路径注入 _meta.trace_id + _meta.duration_ms(审查 I-2 补强:
+  //   healthSample after 经 middleware 链式赋值注入,缺测试则未来 middleware 顺序调整无法发现回归)
+  it('injects _meta.trace_id + duration_ms on success path (G2)', async () => {
+    const guard = createMockGuard(false);
+    const mockModule = { handleTool: vi.fn().mockResolvedValue({ content: [{ type: 'text' as const, text: '{"success":true,"data":{}}' }] }) };
+    mockGetModuleForTool.mockReturnValue(mockModule);
+    const dispatcher = createDispatcherForHandleCall({ readOnlyGuard: guard });
+    const result = await dispatcher.handleCall({ params: { name: 'scene', arguments: {} } });
+    const meta = (result as { _meta?: Record<string, unknown> })._meta;
+    expect(meta?.trace_id).toMatch(/^[0-9a-f]{16}$/);
+    expect(typeof meta?.duration_ms).toBe('number');
   });
 
   // ── validateCommonArgs 类型校验 ──────────────────────────────────────────
@@ -1808,6 +1899,129 @@ describe('executeToolCall profile enforcement (Task 3, A-RCE #3)', () => {
 // 接线点:buildMiddleware 的 healthSample.after(:387-396)。每次工具调用后,
 // record 被调(成功记 ctx.toolName+ok,失败记 +errorType/extractErrorMessage)。
 // 验证 getCallRecorder().getStats() 的 total/success/fail 在成功/失败 dispatch 后变化。
+
+// ── P0-2 (2026-08-11): ACTION_GATED dispatcher 接线集成测 ────────────────────
+// action-gate.test.ts 只覆盖纯函数(isActionGated/isActionAllowed/resolveEnabledGroups)。
+// 本块验证 ToolDispatcher.ts:273-275 的接线层:GODOT_MCP_PRIVILEGED_GROUPS 未设时
+// script.execute_gdscript 被 ACTION_GATED 拦截,设 code-execution 后放行到 handleTool。
+// 删掉 :273-275 不会让任何现有测试红 = 接线零验证(wiring-zero-verification-test-gap
+// 教训复发),本块补这个 gap。action-gate 是真实 import(非 mock),故为真集成测。
+describe('ToolDispatcher ACTION_GATED wiring (P0-2)', () => {
+  const origEnv = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+
+  afterEach(() => {
+    if (origEnv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origEnv;
+  });
+
+  it('blocks script.execute_gdscript when GODOT_MCP_PRIVILEGED_GROUPS unset (integration, not pure-fn)', async () => {
+    delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'script', arguments: { action: 'execute_gdscript', project_path: '/tmp', code: 'pass' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('ACTION_GATED');
+  });
+
+  it('allows script.execute_gdscript when GODOT_MCP_PRIVILEGED_GROUPS=code-execution', async () => {
+    process.env.GODOT_MCP_PRIVILEGED_GROUPS = 'code-execution';
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'script', arguments: { action: 'execute_gdscript', project_path: '/tmp', code: 'pass' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+    expect(result.isError).toBeFalsy();
+  });
+});
+
+// ── P2-2 (2026-08-11): 安全接线守护(isPathInAllowedRoots)────────────────────
+// 审查 P2-2:ToolDispatcher.ts:640 isPathInAllowedRoots 拦截零集成测(删 :640-641
+// 不会让任何测试红)。本块守护 project_path 路径校验接线(PATH_NOT_ALLOWED)。
+// validateGodotBinary(:672)接线测试标 follow-up(触发需 godotOverride 特定条件)。
+describe('ToolDispatcher isPathInAllowedRoots wiring (P2-2)', () => {
+  afterEach(() => {
+    mockIsPathInAllowedRoots.mockReturnValue(true);  // restore 默认(放行)
+  });
+
+  it('isPathInAllowedRoots=false → PATH_NOT_ALLOWED(守护接线,删 :640 此测试红)', async () => {
+    mockIsPathInAllowedRoots.mockReturnValue(false);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/etc/passwd', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('isPathInAllowedRoots=true → 放行(对照,防过度拦截)', async () => {
+    mockIsPathInAllowedRoots.mockReturnValue(true);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+  });
+});
+
+// ── P2-2 (2026-08-11): validateGodotBinary 接线守护 ────────────────────────
+// 审查 P2-2:ToolDispatcher.ts:672 validateGodotBinary 拦截零集成测
+// (删 :672-676 不会让任何测试红 = binary 校验接线零验证,防 godot_path 指向非 Godot)。
+describe('ToolDispatcher validateGodotBinary wiring (P2-2)', () => {
+  afterEach(() => {
+    mockValidateGodotBinary.mockResolvedValue(true);  // restore 默认(通过)
+  });
+
+  it('validateGodotBinary=false + godot_path → INVALID_PARAMS(守护接线,删 :672 此测试红)', async () => {
+    mockValidateGodotBinary.mockResolvedValue(false);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    const result = await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X', godot_path: '/fake/nonexistent-godot' } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(handleToolSpy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error_code).toBe('INVALID_PARAMS');
+    expect(JSON.stringify(parsed)).toMatch(/godot_path failed validation|not a valid Godot/i);
+  });
+
+  it('validateGodotBinary=true + godot_path → 放行(对照)', async () => {
+    mockValidateGodotBinary.mockResolvedValue(true);
+    const handleToolSpy = vi.fn().mockResolvedValue(mockToolResult);
+    mockGetModuleForTool.mockReturnValue({ handleTool: handleToolSpy });
+    const dispatcher = new ToolDispatcher(createOptions());
+
+    await dispatcher.handleCall({
+      params: { name: 'scene', arguments: { action: 'add_node', project_path: '/proj', scene_path: 'res://main.tscn', node_type: 'Node', node_name: 'X', godot_path: '/fake/valid-godot' } },
+    });
+
+    expect(handleToolSpy).toHaveBeenCalled();
+  });
+});
 
 describe('ToolDispatcher callRecorder wiring (Task 3)', () => {
   const successResult: ToolResult = {

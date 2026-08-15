@@ -34,7 +34,7 @@ describe('Editor mode integration', () => {
 
     const executor = new EditorToolExecutor(conn);
     const result = await executor.execute('add_node', { project_path: '/test', node_type: 'Sprite2D', node_name: 'Player' });
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
 
     const guard = new ReadOnlyGuard(true);
     expect(guard.check('add_node').blocked).toBe(true);

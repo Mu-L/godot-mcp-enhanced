@@ -40,7 +40,9 @@ describe('instance_scene tool definition', () => {
       scene_path: 'res://main.tscn',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('error') || result.content[0].text.includes('Error')).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('MISSING_PARAM');
+    expect(parsed.error).toContain('instance_path');
   });
 
   it('should reject self-referencing instance_path', async () => {
@@ -92,7 +94,9 @@ describe('set_instance_property tool definition', () => {
       scene_path: 'res://main.tscn',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('MISSING_PARAM') || result.content[0].text.includes('error')).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('MISSING_PARAM');
+    expect(parsed.error).toContain('node_path');
   });
 
   it('should reject blocked property names', async () => {
@@ -118,7 +122,9 @@ describe('set_instance_property tool definition', () => {
       value: 'test',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('INVALID_PARAM') || result.content[0].text.includes('Invalid property')).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('INVALID_PARAM');
+    expect(parsed.error).toContain('Invalid property name');
   });
 });
 
@@ -153,7 +159,9 @@ describe('detach_instance tool definition', () => {
       scene_path: 'res://main.tscn',
     }, { opsScript: '' });
     expect(result).toBeTruthy();
-    expect(result.content[0].text.includes('MISSING_PARAM') || result.content[0].text.includes('node_path')).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error_code).toBe('MISSING_PARAM');
+    expect(parsed.error).toContain('node_path');
   });
 });
 

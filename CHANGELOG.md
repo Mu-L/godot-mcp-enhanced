@@ -4,7 +4,188 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.29.0] - 2026-08-15
+
+### ⚠️ Breaking / 迁移需知 — autoload 键名迁移(2026-08-14 批次,影响 bridge 安装)
+
+- **autoload 键名去前缀,旧项目重跑 install 自动迁移**:≤0.28.3 的 `game_bridge_install` / `install_override` 在 `project.godot` 的 `[autoload]` 段写入**带 `autoload/` 前缀的坏键**(`autoload/MCPBridge`、`autoload/MCPOVERRIDE_<name>`)。autoload 段键名即 Godot autoload 节点名,`/` 前缀使多个键被 Godot 截断为同名 `autoload` 节点 → **`install_override` 注入的调试脚本不被加载(静默失效,批内实测复现)**;且 bridge 连接预检的裸字符串匹配对新旧形态判定不可靠 → `BRIDGE_NOT_CONNECTED` 误报。修复后:①写入侧键名无前缀(`MCPBridge` / `MCPOVERRIDE_<name>`);②**旧项目重跑 `game_bridge_install` 或 `install_override` 即自动迁移**(检测到旧键删旧写新);③`game_bridge_uninstall` / `uninstall_override` 双键清理;④读侧(连接预检)去前缀比较,新旧两种形态都正确判定——无需手动改 `project.godot`。
+
+### Fixed — 2026-08-14 open findings 分批修复(editor/连接链)
+
+- **P0 编辑器重启后重连恢复链死**:editor auth 失败被计入 reconnect exhaustion,但 exhaustion 事件从未 fire 降级回调 → 编辑器重启后 EditorConnectionManager 卡在不可用状态不自愈,须重启 MCP server。修复:auth 失败路径打通 exhaustion → 降级/恢复链(commit `c42c06c`)。
+- **P1 遗留重连 timer 弹跳 + 并发 rebuild 竞态**:重连成功后旧 backoff timer 未清,后续 tick 把好连接当失联再次断开重连(连接弹跳);并发 rebuild 去重,防迟到的竞争连接误清胜者(commit `7a11d2e`)。
+- **P3 debug 协程挂死 watchdog + WebSocket 握手超时回收槽位**:editor WS 协程中途 script error 时 reply 永不发出 → 客户端 30s 超时挂死;新增 watchdog 兜底发错误 reply。握手卡在 CONNECTING 的 peer 此前永久占用 MAX_PEERS 槽位,现握手超时回收(commit `cf8be32`)。
+- **P2 server close() 清理链补漏**:close() 补 `registerBridgePushHandler`/`dynamicSchema.setFetcher` 两个模块级注入点清理(原持已 close 旧 server 闭包,热重启后 push 事件/动态 schema 错路由到死 server),清理链逐项 try 容错(commit `2fe4eeb`)。
+
+### Fixed — 同批次(bridge / playtest 运行时)
+
+- **P1 订阅断线静默丢失永不恢复**:bridge TCP 断连(60s idle/游戏重启)后 watch/monitor 的 push 订阅静默消失,重连后事件不再推送且无任何报错。修复:连接时登记订阅表 + 重连成功自动重发登记 + 30s keepalive 防 idle 断连(commit `889a712`)。
+- **P2 playtest 永久暂停**:freeze 后若 step_until 请求在途,unfreeze 不清 pending 唤醒 → 游戏永久 paused 只能杀进程;现 unfreeze 清 pending。snapshot/restore 补 paused 状态保存-还原(`saved_valid` 守卫,不存在时还原为未暂停而非还原成假值)。`seed`/`fixed_delta` 补 owner 互斥(两 playtest 间锁状态不互斥可互相污染),`_playtest_active` 复位防悬挂(commits `72d8ffb`/`d323aea`/`fd82f64`/`be5bdb0`)。
+- **P2 `step_until` 超时竞态**:TS 侧超时与 GD 侧 `wall_budget` 不一致,TS 先超时返回时 GD 循环仍在跑;TS 超时对齐 `wall_budget+5s` 余量,`wall_budget` 钳制范围改 1000-50000ms(commits `8e6d598`/`be5bdb0`)。
+- **P2 headless + bridge 属性写入 no-op 假成功**:headless `edit_node` 数学类型属性(Vector2/3 等)传 Array/Dict 时静默不转换直接赋值失败却报成功,现补真实类型转换;bridge `set_node_property` 裸 `set` 对不存在属性/数学类型输入返回假成功,现补存在性校验(String 输入报错)+ 数学 coerce,plain var(未声明脚本属性)存在性放行(commits `7de9ed0`/`0bf53a0`/`71fb911`)。
+
+### Fixed — 同批次(scene / 工具行为)
+
+- **P1 `scene` commit 绕过编辑器写守卫 + 保存失败假成功**:commit 顶层 `success` 硬编码 true——编辑器场景只读未保存时照样"成功";现补 `checkEditorSceneSave` 守卫,保存失败如实报错,`isError` 条件改 success 驱动(覆盖 `stopOnError` 中止 corner)(commits `e590b64`/`7d40fc0`)。
+- **P2 `audit` 工具不可见(生产 bug)**:audit 工具未归入任何工具组 → `isToolAllowed` 恒 false,基本/完整 profile 下均不可调用;现归入 core 组(commit `4cdc0ef`)。
+- **P2 审计动态通道缺失**:CMP-16-B 动态注册工具经 `godot_advanced_tool` 代理调用时,审计中间件查不到静态 risk 表 → 危险操作不落审计日志;现接 A1 的 dynamic-risk-map 反查,补 9 场景集成测试 + wrapper 直接测试(commits `c11fd30`/`32b27ed`)。
+- **P2 debug `reload_scripts` 会话串台 + breakpoint 路径穿越**:reload 改 `resolve_session()` 单 session 语义(多 session 明确报错,不再发 A 读 B);`set_breakpoint`/`clear_breakpoint` 补 `..` 穿越校验(commit `f7d518b`)。
+- **P3 undo 回放 freed Object 防御**:undo action 注册期 args 中的已释放 Object(批孤儿扫描 free 后)`callv` 回放即 SCRIPT ERROR;注册期按 `typeof==TYPE_OBJECT and not is_instance_valid` 防御跳过(注意:`is` 对 freed 实例求值本身抛错,惯用法必须先 typeof)(commit `ef66213`)。
+- **P3 `list_projects` max_depth 钳制 ≤10**:深目录递归扫描无上界,现钳制;转发孤儿执行观察 log(commit `c402158`)。
+- **K-4 实测发现:TS 侧 bridge secret 读路径 ACL 收紧 `:R` 漏改 `:M`**:`readBridgeSecret()` 每次读 secret 用 icacls 收紧为 owner `:R`——GD 侧 `mcp_bridge.gd`/`websocket_server.gd` 的 `_restrict_secret_permissions` 已从 `:R` 改 `:M`(R 是 anti-pattern),但 TS 第三副本漏改,把 GD 写路径的 M 覆写回 R → R-only secret 删不掉(无 DELETE 权限)→ e2e L2 结束后清理失败 → 后续连续跑 e2e 整 suite 静默 skip(本地实测复现,两次干净跑 75 passed、第二次起 beforeAll EPERM 全 skip)。现对齐 `editor-auth.ts:32` 改 `:M`(本批次)。
+- **`test_run` editor 路径自 P2-12 起不可用**:GD `websocket_server` reply 构造用点访问读不存在的 `result` 键即 SCRIPT ERROR,`test_run`/`test_manage` 返回 `{"data":...}` 形态的 coroutine 在发 reply 前中断 → 客户端 30s 挂死;reply 改 `response.get("result", response.get("data"))`(commit `ffd6172`)。
+- **K-1 push 通知只发已订阅客户端**:`resources/subscribe` 此前为空 handler + push 事件无条件广播,违反 MCP 协议(notifications/resources/updated 应只发订阅者)且 capabilities 未声明 `subscribe: true`;现订阅记录(Set,重复订阅幂等)/unsubscribe 移除/push 仅发已订阅 `bridge://events` 客户端,与 watch_start/monitor_start 文档"client 需订阅 resources/subscribe"语义对齐(本批次)。
+
+### Security — 同批次
+
+- **write_script 沙箱 3 个旁路入口封堵(SEC-P1-1)**:`quick_scene`/`create_files`/`apply_template` 三个写 `.gd` 入口裸 `writeFileSync` 绕过 `scanScriptSandboxOrThrow`(tscn 绑 ExtResource 后编辑器打开/run_project 即执行,与 write_script 同一威胁面);现统一接线落盘前扫描,危险 `.gd` 拒入 failed 不落盘(commit `7d967eb`)。
+- **`engine call_method` deny-list 拼写错误 + 内层检查(cmp-9 关联)**:deny-list 条目拼写错误致对应方法从未被挡;补 args 带内层方法名的间接调用检查,契约测试从 `godot-classes.json` 生成防拼写再固化(commit `b7aaf52`)。
+- **`load_skill` libraries 白名单 + API nonce 持久化防 symlink 覆写**:`load_skill` 的 `libraries` 参数可读白名单外路径,现限 ALLOWED_PROJECT_PATHS;多实例 API nonce 持久化时补 symlink 预检(commit `effb5fc`)。
+- **project create `godot_version` 注入面校验**:`create_project`/`apply_template` 的 `godot_version` 直接进 CI 生成物,现补格式校验(支持 `4.4.1-rc1` pre-release 形态)(commits `3b80e36`/`dd09899`)。
+
+### Docs — 同批次
+
+- **telemetry 披露对齐实现**:`error_category` 字段表改为 T1 固定枚举(原文暗示自由文本与实现矛盾);vision 外传截图描述改为降采样后数据(PNG 最长边 1024px、超 1MB JPEG 拒传),对齐 `screenshot.ts` 实际行为(commit `9bc9aa5`)。
+- **blender 工具描述对齐自身沙箱**:`execute_bpy` 描述补"已知危险 API 模式扫描 + 双 opt-in 旁路",对齐 `bpy-sandbox.ts` 实际防护(此前描述低估)。
+
+### Tests — 同批次
+
+- **debug 子系统 e2e 首次真跑**:3 用例(breakpoint 命中/stack_trace/断点穿越校验),新增 `test_debug_driver.gd` 在 editor 主循环内代按"运行场景"驱动(实测踩坑:test_name 子串匹配陷阱/断点注释行陷阱/声明行无 opcode 不命中均记录于批 H 报告);发现并修复上述 `test_run` 挂死。
+- **`batch_add_nodes` editor 套件**:5 用例对齐 test_undo_manager 范式真跑绿,锁定 B5 `is_inside_tree()` 计数契约。
+- **undo_manager e2e 首次真跑**:修 action 键笔误与两处解析 bug(从未真跑过故从未暴露),commit `66b615e`;e2e-full 补 `.godot` 缓存清理对齐 p1-p5 模式(commit `1075ed7`)。
+- **K-1/K-2 行为锁定**:subscribe→push 仅达订阅者/未订阅不收/重复订阅幂等/unsubscribe 停发/close 清理 10 用例;真实 SDK 实测锁定"声明 logging capability 即自动注册内置 setLevel handler"(finding :942④ 前提不成立,详见 test/k-subscribe-setlevel.test.ts)。
+
+### Security — 2026-08-11 审查 open findings 批次(A1-A7)
+
+- **A1 [P1] 动态工具 confirm/action-gate 双绕过修复**:CMP-16-B 动态注册的平铺工具(`engine_call_method`/`debug_evaluate` 等)不在静态 metaRegistry → guard 查不到 risk 永不确认、action-gate 永不命中,等价静态调用(write 需确认)经动态通道绕过双层门。修复:`src/core/dynamic-risk-map.ts`(method→静态 (tool,action) 反查表)+ ToolDispatcher 两道门用反查结果判定;未映射动态方法 fail-closed 要求确认。双副本与 `check-command-docs-drift.mjs` 的 METHOD_TO_TOOL 经契约测试同步。
+- **A2 [P1] debug 异步请求 _states 串台修复**:editor WS packet 循环不串行化 coroutine,两个并发 evaluate/inspect_frame 竞争同一 `_states[session_id]`(eval_result 单槽被后发者重置/错消费)。修复:websocket_server debug 请求 in-flight 互斥(新请求立即拒绝,120s stale 自愈)。
+- **A4 [P2] debug session 归属错配修复**:`current_break()`(第一个 breaked)与 `active_sessions()[0]`(首个 session)可能指向不同 session,evaluate 发 A 读 B。修复:新增 `resolve_session()` 单 session 语义(多 session 明确报错),stack_trace/inspect_frame/evaluate 三件套统一接线。
+- **A5 [P2] bridge EXTRA_METHODS_BLOCKLIST 补间接调用入口**:补 `call_deferred`/`call_threadsafe`/`queue_delete`(可经 args 带内层被禁方法名绕顶层 BLOCKLIST)。
+- **A6 [P2] multi-instance HMAC token 加固**:补 timestamp future-skew 上界(5s,原远未来 token 在真实时间追上前持续有效)+ 已用 nonce 持久化 `~/.godot-mcp/.api-nonces.json`(原重启清内存,60s TTL 重放窗口重开;失败降级内存-only)。
+
+### Fixed — 同批次 GDScript 修复(B1-B5,行为契约测试 gd-open-findings-contract)
+
+- **B1 [P1] debugger_bridge 生命周期修复**:`EditorDebuggerPlugin` extends RefCounted,面板信号连接持有绑定 bridge 的 Callable(引用计数)——从不 disconnect 则 bridge 永不释放,插件 reload 后残留连接致新 bridge 重连同一持久化面板、调试器消息双重处理。修复:`_connect_tracked` 登记 + `dispose()` 断全部信号 + `_exit_tree` 接线(引用归零自动释放,不手动 free——check:gdscript 实测 RefCounted free() 报错,审查原始描述"需手动 free"有误)。
+- **B2 [P2] _capture/面板信号双重消费 vars 翻倍**:计数去重协议(capture 权威,面板回调发现自己序号 ≤ capture 已消费数时跳过;capture 不触发时面板兜底全量)。
+- **B3 [P2] instance_registry 多实例互删**:删除验 pid(原 B 退出删掉 A 的 registry 文件)+ tmp 文件 pid 后缀(原固定路径两实例交错损坏)。
+- **B4 [P2] bridge `_jsonify` 补 Object 分支**:非 Node/非 Resource Object 返 `{type, instance_id}`,对齐 editor 侧序列化(原 return val 原样,JSON.stringify 可能失败)。
+- **B5 [P2] `batch_add_nodes` added 假成功**:added 改基于 `is_inside_tree()` 真实计数(原 `validated.size()` 把 C11 孤儿扫描 free 掉的也计入)。
+
+### Changed
+
+- **A3 [P2] `GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE` 语义改追加**:env 非空 → env ∪ DEFAULT_CALL_DENYLIST(只能加不能减;原完全替换是 footgun,想多挡一个方法会丢全部默认防护)。显式空串 = 完全放开(逃生口保留)。
+
+### Tests
+
+- **C2 弱断言精确化收尾**:11 处 `includes().toBeTruthy()` → `toContain`(含 instance-scene 4 处 OR 模糊匹配改解析 `error_code` 精确断言)+ 3 处 `length>0` 拆分。
+- **C3 project-management 失败分支**:补 7 个 fs 级错误分支用例(缺 project.godot/非法 renderer/已存在项目/白名单外 key/UNKNOWN_ACTION;核实 project.ts 不调 executeGdscript,mockFailureResult 形态不适用)。
+- **C5 L2 CI 假接线修复**:`GODOT_MCP_E2E_L2=1` 在 ci.yml matrix 早已设置,但 e2e 内三个 L2 describe 的 skipIf 含 `process.env.CI` 永真短路(从未真跑)。去 CI gate + matrix E2E 步骤包 `xvfb-run`(L2 run_project 起游戏进程需显示);editor 韧性 weekly cron 改每日(回归窗口 7 天→1 天)。
+
+## [0.28.3] - 2026-08-13
+
+### Added — 战略批收尾（14 竞品路线图 G1/G3/G7 落地，详见 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)）
+- **G3 操作级审计日志**（借鉴 devtool）：danger-api 操作落 `audit.jsonl`（timestamp/operation/changedFiles/details），`appendFile` 原子追加修复 devtool read-modify-write 竞态（多实例并发安全）；confirm gate 真实审计修复（原 getActionRisk 耦合致令牌虚假 ok 绕过审计）。
+- **G1 deterministic playtest control 层**（借鉴 satellite）：`freeze`/`unfreeze`/`step_until` 三 action，结构化条件（frame/signal/property/state）规避 Expression RCE；process_mode=ALWAYS 保 bridge freeze 后不自停。
+- **G7 能力 profile 默认面**（借鉴 GoPeak）：basic（9 组：core/bridge/animation/audio/signal/visual/code/test/profiler）/ advanced / full 三 profile，复用现有 securityLevel 三层自动分 profile。**BREAKING**：默认 profile 从 full 改 basic（schema 79KB→~30KB，省 ~60% context window）；`GODOT_MCP_PROFILE=full` / `manage_tools` 可切回 full。
+
+## [0.28.2] - 2026-08-12
+
+### Security
+- **SEC-P2-1**: `test-framework.ts` 补 `requireProjectPath` root 白名单校验（原裸 `validatePath` 仅 resolve 零安全校验，依赖全局门兜底）。
+- **SEC-P2-2**: editor + bridge 两处 GD 侧 secret 写加 symlink 预检（Windows PowerShell `Test-Path`+`Get-Item LinkType`+`exit 3` 拒写；Linux/macOS `readlink` 检测。防预置 symlink follow 覆盖目标文件）。
+- **SEC-P1（披露）**: vision-router 外传截图 base64+prompt 到 groq（commit `6f068e8` 引入，双重 opt-in 门控默认零外传）。[docs/telemetry.md](docs/telemetry.md) 补「非 telemetry 外传点：Vision Router」段完整披露外传内容/门控/可控边界/endpoint 覆盖（`GODOT_MCP_VISION_BASE_URL`）。
+
+### Added
+- **Tier1-1 structuredContent**: `add_node`/`screenshot` 成功路径补 structuredContent（action/node_name/node_type + image_path/width/height/blank_warning）。
+- **Tier1-2 scene_editing_strategy prompt**: 三层 SOP prompt（能力发现 + 决策树 + 闭环验证），引导 LLM 正确调用工具。
+- **Tier1-3 execute_gdscript 引导**: script 工具 description 加分步执行最佳实践（每步验证，避免一次性大脚本出错难定位）。
+- **Tier2-1 skills**: 新增 3 个 godot skill（godot-router 路由器 / screenshot-verify 视觉验证 / godot-tween-taste Tween 审计）。
+- **Tier2-2 tscn parser**: 补 Vector2i/Vector3i/PackedInt32Array/Transform3D 四类型解析（原 fallback 字符串丢失）。
+- **CMP-13 generate-all-modules**: 构建期从 module-loader import 块自动生成 ALL_MODULES 数组（新增工具只需加 import 行）。
+- **Vision Routing**: `screenshot` analyze action 加 `vision_route` 参数，把截图路由到视觉模型（groq llama-4-scout）翻译成文字描述，让纯文本模型也能"看"截图。双重 opt-in 门控（`vision_route=true` + `GODOT_MCP_VISION_KEY`，默认零外传）。详见 [docs/telemetry.md](docs/telemetry.md) 诚实披露段。
+- **G2 trace_id + 结构化错误分类**（速赢批，借鉴 xulek，commit `20f9832`）：每响应附 `trace_id`（16hex 全链路）+ `duration_ms` + 结构化 `error_category`（7 类）+ `retryable`；PII 护栏（主 catch 类型映射，`err.message` 不直泄 client）。审查 SHIPPED WITH NITS（EditorToolExecutor catch→return 盲区 deferred，详见 [docs/reviews/](docs/reviews/)）。
+
+### Security（加固批次）
+- **S-1/S-2**: bpy-sandbox 双 opt-in 对齐（`GODOT_MCP_ALLOW_UNSAFE` + `execute_bpy` 显式门）+ spawn 清单补全（commit `53d80be`）。
+- **S-3~S-7**: 多实例 registry/editor-auth/http-server 加固（commit `6fe24b7`）。
+
+### Fixed
+- **P0（F-6 CRITICAL）**: `animtree_state_edit` sub_action 死代码修复（commit `eed26f2`）。
+- **P1（F-1/F-2）**: data-import timeout 钳制 + isErrorText 测试加固（commit `2ee8cc2`）。
+- **P2（F-3/F-4/F-5/F-7/F-8）**: 工具层校验精确化（commit `690838d`）。
+
+### Docs
+- **G8 威胁模型文档**（借鉴 satellite）：[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) 声明 10 层防护实测 + accident guard 边界（诚实区分 accident guard vs security boundary，commit `db44d43`）。
+- deprecated 注释纠偏 + 全功能审计文档（F-Nit / 2026-08-12 audit，commit `619ab6a`）。
+
+### Testing
+- **P2-6**: `waitForEditorSecret` 时序状态机 characterization（4 测试：超时返 null 不抛错 / 无跨调用缓存 secret 刷新读到新值 / 轮询 pickup 200ms / 空内容继续轮询）。
+- 新增 `check:changelog-sync` CI 检测（advisory）：`fix(security)`/`feat`/`BREAKING` commit 漏登 `[Unreleased]` 时 warn。
+
+## [0.28.1] - 2026-08-11
+
+### Security
+- **批次 C 安全加固**（commit `fdf04ec`）：deny-list / symlink / path / debug.evaluate RCE 多点加固。
+- **instance_registry 目录权限**（commit `6bb2755`）：Linux 收紧到 0o700（P2-4）。
+
+### Testing
+- 弱断言精确化 + 接线守护批次（P1-3~P1-5 / P2-1 / P2-2：cpp `stubEnv` 隔离 / game-bridge TCP 分片重组 / dispatcher `isPathInAllowedRoots` 接线守护 / scene `add_node` 错误路径 / `length>0` 与 `isError` 全局精确化）。
+
+### CI / Docs
+- ci: MULTI_INSTANCE 接入 godot-matrix 版本矩阵（P1-2）。
+- docs: 全批次第三方审查文档（SHIPPED WITH NITS，无 Blocking，commit `9b53dcb`）+ script 工具描述沙箱措辞 generic 化（P2-2，commit `17e22a3`，本 commit 引入 0.28.1 version bump）。
+
+## [0.28.0] - 2026-08-09
+
+### Added — CMP-14 debug Phase 2/3 + 后续批次(CMP-16-B/C advanced-proxy/drift 扩充 + CMP-9 confirm gate)
+
+**CMP-14 debug Phase 2/3**(debug 工具组从 3 action 扩到 10,完整交互式调试器):
+- **新建 EditorDebuggerPlugin 子类**(`debugger_bridge.gd`):hook 调试器信号,拿 EditorDebuggerSession,处理 stack_dump/stack_frame_vars/evaluation_return 消息
+- **Phase 2 栈帧/变量**:`stack_trace`(读调用栈+变量)/ `inspect_frame`(切帧+读变量)/ `evaluate`(断点上下文 REPL)
+- **Phase 3 执行控制**:`step`(into/over)/ `continue`(继续到下断点)/ `pause`(请求中断)— 走"按图标找按钮 emit pressed"(send_message("step") 需 thread id 设不了)
+- **热重载**:`reload_scripts`(指定脚本重载到运行中游戏)— 4 道安全守卫(playing/session/暂停态拒/MCP 自身保护)
+- **异步路由**:`handle_debug_async`(对标 handle_nav_async),websocket_server 按 debug_ 前缀分流(Phase 1 断点保持同步)
+- **自动打开脚本**:修 Phase 1 限制(`EditorInterface.edit_script`),set_breakpoint 不再要求脚本已激活
+- 对标竞品 regiellis/godot-mcp-go debug 组 + Godot-MCP-Native 调试能力
+
+**CMP-16-B advanced-proxy 改造**:`godot_list_dynamic_routes` 从"假动态"(只读本地)改真动态(调 dynamicSchema.getDynamicTools 拉 editor addon 命令),修复"文档过承诺"技术债
+
+**CMP-16-C drift 映射表扩充**:从 7 method(debug+engine)扩到全 64 method(57 + 7 新 debug),括号匹配版 extractTsSchemas + KNOWN_RENAMES/KNOWN_SCHEMA_SIMPLIFIED 豁免
+
+**CMP-9 confirm gate 二期**:engine call_method 的 confirm gate 通过 CMP-9-A actionRisks=write 自动生效,加守护测试防回退
+
+## [0.27.0] - 2026-08-08
+
+### Added — CMP-9 双通道通用方法调用 + CMP-16 live schema(竞品 regiellis/godot-mcp-go 深度对标)
+
+**CMP-9-A editor 通用方法调用**（`engine` 组新增 `call_method` action）：
+- 编辑器场景树节点实例方法调用(对标竞品 `node.call`)。AI 可调任意 ClassDB 暴露的实例方法,不必为每个方法写专用 wrapper。
+- 安全护城河:deny-list 默认挡危险方法(`free`/`queue_free`/`set_script`/`call`/`emit_signal` 等),env `GODOT_MCP_EDITOR_CALL_DENYLIST_OVERRIDE` 可定制。不照搬竞品"无过滤"缺陷。
+- args 按方法声明类型自动强转(传 `[1,2,3]` 给 Vector3 参数正确转换)。方法不存在时 did-you-mean 建议。response 显式 `undoable=false`。
+
+**CMP-9-B bridge 通道放宽**（`_cmd_call_method` 增强）：
+- 复用现有 `GODOT_MCP_BRIDGE_EXTRA_METHODS` env 扩展写/副作用方法(对标竞品 `runtime.call`)。向后兼容,不设 env 时行为不变。
+- 新增 did-you-mean + args 类型强转 + `undoable=false`。`EXTRA_METHODS_BLOCKLIST` 硬底线保留。
+
+**CMP-16-A GD param docs metadata**（13 个 command 文件）：
+- 每个 command module 实现 `get_command_docs()` 返回结构化 param docs(对标竞品 `base_command.gd doc_param`)。
+- `command_handler.gd` 新增 `list_param_docs` 聚合入口(对标竞品 `engine.commands {docs:true}`)。
+- `command_helpers.gd` 新增 `doc_param` helper + `godot_type_to_schema_type` 类型映射。
+- 共 57 个 method docs 覆盖全部对外 command。
+
+**CMP-16-B TS live schema 构建**（对标竞品 `serve.go fetchTypedTools + buildTypedTools`）：
+- 新增 `src/core/dynamic-schema.ts`:从 editor addon 拉 param docs 动态构建 MCP 工具。
+- 缓存 + editor 离线降级(返空,只留 `godot_advanced_tool` 兜底)。editor 重连时刷新(修竞品"只 fetch 一次"缺陷)。
+- 排序保证幂等 + 名字冲突保留先到 + 体积自限。
+- `tool-registry.ts` 新增 `registerDynamicTools` API(动态工具归入 `dynamic` 组,`isToolAllowed` 放行)。
+- `GodotServer.ts` tools/list handler merge 动态工具。
+
+**CMP-16-C drift 检测 CI**：
+- 新增 `scripts/check-command-docs-drift.mjs`:比对 GD param docs 与 TS inputSchema 参数一致性。
+- 一期覆盖 debug + engine 工具组(7 method),其余 50 method 标一期豁免(映射表后续扩充)。
+- 已接入 `npm run check:command-docs-drift` + CI。
+
+**CMP-13**:确认已以替代方案(`check:tool-groups` CI invariant 脚本)落地,标记完成。
 
 ## [0.26.0] - 2026-08-08
 
@@ -587,7 +768,7 @@ v0.19.0 发版后版本元数据漂移修复(npm v0.19.0 基于 tag 2a48d06,mani
 
 - **沙箱绕过组**(`gdscript-executor.ts`):拼接窗口 4→8(MAX_CONCAT_WINDOW)、补 `Engine/FileAccess/DirAccess/JavaScriptBridge` 索引访问拦截、`Expression.execute` 正则跨行(`[\s\S]{0,500}?` 防 ReDoS)、`ResourceLoader.load` 正则去贪婪、`detectAutoloadUsage` 改 stripLiterals 骨架扫描消除注释误触
 - **stripLiterals res:// 保留 + 三引号归一**:剥字符串内容时保留 `res://` 前缀(消除 `load("res://")` 误报回归);三引号开/闭引号归一为单个(让单 `"` 正则覆盖三引号,避免负向预查回溯陷阱)
-- **HMAC 启动警告**(`GodotServer.ts`):MULTI_INSTANCE 启用时警告 verifyApiToken 是发送端 only(零生产接线)
+- **HMAC 启动警告**(`GodotServer.ts`):MULTI_INSTANCE 启用时警告 verifyApiToken 是发送端 only(零生产接线)(注:0.28.x 起 MULTI_INSTANCE 接收端已落地 `verifyApiToken` 闭环——见 instance-http-server.ts 入口验签,本行描述仅反映 0.18.2 当时状态)
 - **rate limit 中间件**(`middleware.ts`):createRateLimitMiddleware(全局 60 次/秒软限防 AI 失控循环)
 - **scene-commit 转义 + 校验**:serializeGdValue 补 `\r`/`\t` 转义、validateCommitOperations 结构校验(替代 as unknown as 强转)
 - **P0 命令注入收敛**:`generate-doc-db.js` execSync → execFileSync 数组参数;`.cursor/mcp.json` 本地路径 example 化 + gitignore

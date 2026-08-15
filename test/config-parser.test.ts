@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfigValue, parseGodotConfig, parseMcpScriptOutput } from '../src/core/config-parser.js';
-import { MARKER_RESULT, MARKER_ERROR } from '../src/tools/shared/gdscript-templates.js';
+import { MARKER_RESULT, MARKER_ERROR } from '../src/core/shared/gdscript-templates.js';
 
 describe('parseConfigValue', () => {
   it('字符串去引号', () => {

@@ -42,6 +42,14 @@ jobs:
         # 防"module 注册了但 TOOL_GROUPS 漏加"→ isToolAllowed 恒 false → 工具发现层隐藏 + 执行层不可用。
         # 源于 CMP-4 第三方审查 B-1（engine/debug 第三次重蹈 D1 asset/android 覆辙）。读 build/ 产物，须在 build 后。
         run: npm run check:tool-groups
+      - name: Check modules sync（CMP-13：import 块 ↔ ALL_MODULES 数组同步）
+        # 校验 module-loader.ts 的 import 块与 ALL_MODULES 数组项数一致。
+        # 防新增工具加 import 后忘记跑 npm run generate:modules（数组漏项 → 工具不注册）。
+        run: npm run check:modules-sync
+      - name: Check command docs drift（CMP-16-C：GD param docs ↔ TS inputSchema 一致性）
+        # 校验 GD get_command_docs 声明的参数与 TS inputSchema 一致（防文档/代码漂移）。
+        # 一期覆盖 debug + engine 工具组，其余标记一期豁免（映射表后续批次扩充）。
+        run: npm run check:command-docs-drift
       - name: Check contract consistency（P1-6：跨工具契约一致性,参考 breakpoint contract_check）
         # 6 项校验:annotations 三 hint / danger-api+destructive 必 guarded / securityLevel-guarded 一致 /
         # offlineCapable-needsGodot 互斥 / description+inputSchema / riskDistribution 计数。
@@ -63,13 +71,22 @@ jobs:
         # it 内赋值但无 afterEach 还原的真 footgun）。advisory 让 CI 可见防止新增，不阻断现有。
         run: node scripts/check-env-isolation.mjs
         continue-on-error: true  # advisory：62 条历史 violation 待逐批迁移 stubEnv 后升 error
+      - name: Check changelog sync (治理：fix(security)/feat/BREAKING commit 漏登 [Unreleased] 检测，advisory)
+        # 检测最近版本日期后的 feat/fix(security|reliability|correctness)/BREAKING commit
+        # 是否登记在 CHANGELOG.md [Unreleased] 段。CHANGELOG 全手动无自动化，人肉易漏。
+        # advisory(warn-only)让 CI 可见漏登，不阻断。STRICT=1 升 error。
+        run: npm run check:changelog-sync
+        continue-on-error: true  # advisory：首版非阻断，团队习惯后考虑 STRICT
       # Linux 测试 gate:排除 game-bridge.test.ts。该文件 vi.mock('net')+vi.hoisted+queueMicrotask
       # 在 Linux 稳定失效(诊断步实测 issue #15:单文件 113/120/138 行同败 → 非全量隔离,vitest 配置无救)。
-      # 平台敏感(Linux 败/Windows 23/23 过),版本无关(4.1.7/4.1.9 双版本 Windows 全过)。
-      # 非生产/测试逻辑 bug。T-2 守护 + game-bridge.ts 覆盖率退本地(Windows game-bridge.test.ts 23/23)。
+      # 平台敏感(Linux 败/Windows 全过),版本无关(4.1.7/4.1.9 双版本 Windows 全过)。
+      # 非生产/测试逻辑 bug。T-2 守护 + game-bridge.ts 覆盖率退本地(Windows game-bridge.test.ts 全过)。
       # 详见 https://github.com/wgt19861219/godot-mcp-enhanced/issues/15
-      - run: npx vitest run --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
       - name: Install Godot 4.6.3 (M3c, job-isolated)
+        # P0-4（2026-08-10）：Godot 安装前置到 vitest 之前，让主 vitest 拿到 GODOT_PATH。
+        # 此前 vitest（:85）跑在安装前，GODOT_PATH 未设 → data-import-integration 等
+        # skipIf(!hasGodot) 测试被静默跳过 → 覆盖率是 mock 覆盖率（codecov 失真）。
+        # 前置后这些测试在 check job 也真跑，覆盖率从 mock 转真。代价 +30-60s 下载。
         run: |
           set -e
           curl -L --fail -o /tmp/godot.zip \
@@ -78,6 +95,13 @@ jobs:
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
           chmod +x /tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64
           echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.6.3-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Run vitest (Godot available for skipIf tests)
+        # P0-4：补 env GODOT_PATH，让 describe.skipIf(!hasGodot) 测试真跑（非静默 skip）
+        # 2026-08-15: CI 2 核 runner 并发 spawn Godot 资源耗尽致 GD 类测试超时/输出丢失(flaky 58%)
+        # 历史失败——限 maxWorkers=2 串行化大部分 GD spawn(本地全量绿,CI 全绿为合并门禁)
+        run: npx vitest run --maxWorkers=2 --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: Check gdscript（产出 report；blocking 经下游 score:gate，本步 exit 0 即使 errors>0）
         run: npm run check:gdscript
         env:
@@ -168,11 +192,19 @@ jobs:
       - name: Gate gdscript（errors/incomplete → fail；真 blocking 在此，非 check:gdscript 退出码）
         run: node -e "const r=require('./coverage/gdscript-report.json'); if(r.incomplete||r.errors>0){console.error('gdscript gate FAIL',JSON.stringify(r));process.exit(1)}"
       - name: E2E + GDScript unit (real Godot ${{ matrix.name }})
-        run: npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        # C5 (2026-08-14): 去 process.env.CI 硬短路后 L2 bridge/recording 套件真跑 —— 其中
+        # run_project 起 Godot 游戏进程(GUI 渲染),ubuntu runner 无显示,包 xvfb-run
+        # (对齐 editor-e2e.yml 范式;headless spawn 的文件在 xvfb 下行为不变)。
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
-          # 2026-08-06 审查测试-P2-4：启用 L2 bridge 字段级守护（headless spawn 游戏进程，不需 GUI editor）
+          # 2026-08-06 审查测试-P2-4：L2 bridge 字段级守护。
+          # C5 (2026-08-11 P1-2 收尾): 原 e2e-full 内三个 L2 describe skipIf 含 process.env.CI
+          # 永真短路,此 env 从未真启用它们(假接线)——skipIf 已去 CI gate,本 env 现在真生效。
           GODOT_MCP_E2E_L2: '1'
+          # P1-2 (2026-08-11): MULTI_INSTANCE 接入 matrix(L3 godot_list_instances/select/
+          # dynamic/advanced;headless 无 editor 实例注册,返空列表/error 文本,expectHasText 仍过)
+          GODOT_MCP_MULTI_INSTANCE: '1'
       - name: Upload e2e-report
         if: always()
         uses: actions/upload-artifact@v4

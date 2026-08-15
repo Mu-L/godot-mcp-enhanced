@@ -242,6 +242,9 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 			return _engine_commands.handle_search(params)
 		"engine_get_inheritance":
 			return _engine_commands.handle_get_inheritance(params)
+		# CMP-9-A (2026-08-08): call_method — 编辑器场景树节点实例方法调用(对标竞品 node.call)
+		"engine_call_method":
+			return _engine_commands.handle_call_method(params)
 		# Tools NOT routed here (headless-only via TS/GDScript executor):
 		#   animation (play/stop/seek/list_players) - runtime AnimationPlayer control
 		#   recording_save / recording_load - file I/O handled by TS side
@@ -274,8 +277,31 @@ func handle(method: String, params: Dictionary, request_id: int) -> Dictionary:
 		"editor_get_project_path":
 			var res_root: String = ProjectSettings.globalize_path("res://")
 			return {"result": {"project_path": res_root.rstrip("/")}}
+		# CMP-16-A (2026-08-08): 聚合所有 module 的 param docs,供 TS 侧 live schema 构建拉取。
+		# 对标竞品 regiellis engine.commands {docs:true}。遍历各 _xxx_commands 子节点调 get_command_docs 合并。
+		"list_param_docs":
+			return {"result": get_all_command_docs()}
 		_:
 			return {"error": {"code": -32601, "message": "Unknown method: %s" % method}}
+
+
+# CMP-16-A (2026-08-08): 聚合所有 command module 的 param docs。
+# 每个 module 实现 get_command_docs() -> Dictionary,返回 {method: {description, params}}。
+# 本函数遍历所有已注册 module 合并。module 无 get_command_docs(如 recording 死代码)则跳过。
+func get_all_command_docs() -> Dictionary:
+	var all_docs: Dictionary = {}
+	var modules: Array = [
+		_sync_commands, _scene_commands, _node_commands, _animation_commands,
+		_ui_commands, _asset_commands, _debug_commands, _engine_commands,
+		_test_commands, _export_commands, _particle_commands,
+		_nav_commands, _animtree_commands,
+	]
+	for mod in modules:
+		if mod != null and mod.has_method("get_command_docs"):
+			var mod_docs: Dictionary = mod.get_command_docs()
+			for method in mod_docs:
+				all_docs[method] = mod_docs[method]
+	return all_docs
 
 
 ## nav 专用 async 入口（A-lite：nav 走 coroutine，非 nav 走同步 handle）。
@@ -299,6 +325,22 @@ func handle_test_async(method: String, params: Dictionary, request_id: int) -> D
 		"test_run": return await _test_commands.handle_test_run_async(params, request_id)
 		_:
 			return {"error": {"code": -32601, "message": "Unknown test method: %s" % method}}
+
+
+# CMP-14 (2026-08-09): debug Phase 2/3 async 入口。
+# websocket_server 按 debug_ 前缀(排除 Phase 1 三个同步断点 method)分流到此。
+# Phase 2/3 栈帧/变量/step/reload 都是异步(信号驱动 + settle 轮询)。
+func handle_debug_async(method: String, params: Dictionary, request_id: int) -> Dictionary:
+	match method:
+		"debug_stack_trace":   return await _debug_commands.handle_stack_trace(params)
+		"debug_inspect_frame": return await _debug_commands.handle_inspect_frame(params)
+		"debug_evaluate":      return await _debug_commands.handle_evaluate(params)
+		"debug_step":          return await _debug_commands.handle_step(params)
+		"debug_continue":      return await _debug_commands.handle_continue(params)
+		"debug_pause":         return await _debug_commands.handle_pause(params)
+		"debug_reload_scripts": return await _debug_commands.handle_reload_scripts(params)
+		_:
+			return {"error": {"code": -32601, "message": "Unknown debug async method: %s" % method}}
 
 
 func send_notification(method: String, params: Dictionary) -> void:

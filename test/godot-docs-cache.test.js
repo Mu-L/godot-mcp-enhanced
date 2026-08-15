@@ -94,7 +94,7 @@ describe('godot-docs API cache', () => {
     // 重试应成功（因为上次失败没缓存）
     initDocs(apiPath);
     const results = searchClasses('TestClass');
-    expect(results.length > 0).toBeTruthy();
+    expect(results.length).toBeGreaterThan(0);
 
     rmSync(tmpDir, { recursive: true, force: true });
   });

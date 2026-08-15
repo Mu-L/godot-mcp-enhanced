@@ -17,6 +17,28 @@ func setup(handler: Node, plugin: EditorPlugin) -> void:
 	_command_handler = handler
 	_plugin = plugin
 
+
+# CMP-16-A (2026-08-08): param docs metadata。
+func get_command_docs() -> Dictionary:
+	return {
+		"editor_sync_start": {
+			"description": "启动场景树增量同步(推送场景树变更通知给 MCP 端)。无参数。",
+			"params": [],
+		},
+		"editor_sync_stop": {
+			"description": "停止场景树增量同步。无参数。",
+			"params": [],
+		},
+		"editor_get_scene_tree": {
+			"description": "返回当前编辑器场景树的完整结构(节点名/类型/路径/子节点)。无参数。",
+			"params": [],
+		},
+		"editor_get_scene_stats": {
+			"description": "返回场景统计(节点数/类型分布)。无参数。",
+			"params": [],
+		},
+	}
+
 # I-06: null-safe EditorInterface accessor
 # 4.7: EditorInterface 不再作为 Engine singleton 注册(Engine.get_singleton("EditorInterface") 返回 null),
 # 改用 EditorPlugin.get_editor_interface()(与 editor_guards.gd/export_commands.gd 一致)。

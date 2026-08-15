@@ -102,7 +102,7 @@ describe('GDScript Lint', () => {
       expect(r.errors.some(e => e.rule === 'L010')).toBeTruthy();
       const l010 = r.errors.find(e => e.rule === 'L010');
       expect(l010.suggestion).toContain('albedo');
-      expect(!l010.suggestion.includes('emission')).toBeTruthy();
+      expect(l010.suggestion).not.toContain('emission');
     });
     it('忽略: FogMaterial.albedo 正确', () => {
       expect(!lintGDScript('var fog := FogMaterial.new()\nfog.albedo = Color.RED').errors.some(e => e.rule === 'L010')).toBeTruthy();

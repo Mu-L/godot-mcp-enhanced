@@ -62,6 +62,18 @@ var _playtest_step_pending: Array = []  # [{peer: StreamPeerTCP, pid: int, id: V
 # 防多 peer 场景下 peer B 断开误清 peer A 的 physics 锁/snapshot。
 var _playtest_owner_pid: int = -1
 var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buffer_bytes 取用
+# G1 (2026-08-13) control-first satellite 层(附录 F.1):freeze/unfreeze/step_until
+# owner_pid 独占(仿 _playtest_owner_pid,防多 peer 误清);step_until 走延迟通道(同 __PLAYTEST_STEP__)
+var _control_frozen: bool = false
+var _control_owner_pid: int = -1
+var _control_step_until_pending: Array = []  # [{peer_id,pid,id,frames_remaining,wall_deadline_ms,conditions,_added_this_frame}]
+# 2026-08-14 审查 D-2 修复:freeze/开窗介入前保存游戏自身 paused 原值(游戏代码可能自己
+# paused=true,如暂停菜单/回合制),control 层退出(unfreeze/step_until 完成/owner 断线)
+# 时还原原值而非硬设 false。saved_valid 防重复 freeze 把维持中的 true 覆盖真实原值
+# (不变式:frozen=true -> saved_valid=true)。
+var _control_paused_saved: bool = false
+var _control_paused_saved_valid: bool = false
+var _pending_control_step_until_result: Dictionary = {}  # 临时:_handle_message 存,_process_buffer_bytes 取
 # CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
 # 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
 var _error_capture: _ErrorCapture = null
@@ -90,8 +102,16 @@ const ALLOWED_METHODS := [
 # set_script 加载任意脚本(=RCE)、queue_free/free 销毁节点、add_child/remove_child 改树结构、
 # call/callv 间接调用任意方法(绕白名单)、emit_signal 触发已连接回调、connect/disconnect 改信号拓扑。
 const EXTRA_METHODS_BLOCKLIST := [
-	"set_script", "set_owner", "queue_free", "free", "add_child", "remove_child",
+	"set_script", "set", "set_indexed", "set_owner", "queue_free", "free", "add_child", "remove_child",  # P2-2 (2026-08-11): set/set_indexed 对称(防 opt-in EXTRA_METHODS 后 node.set("script",...) 绕 set_script)
 	"call", "callv", "emit_signal", "connect", "disconnect",
+	# A5 (2026-08-11 审查): 间接调用入口与销毁对称——call_deferred/call_thread_safe 可在 args
+	# 里带被禁方法名(call_method(method="call_deferred", args=["set_script", ...])绕 BLOCKLIST,
+	# 它只查顶层 method 名看不见内层);queue_delete 对称 queue_free。
+	# B-2 (2026-08-14): 原写的无下划线拼写(callthreadsafe 连写)是拼写错误——Godot 4 真实
+	# 方法名 call_thread_safe(data/godot-classes.json 实证:定义于 Node),错误拼写永不命中。
+	# 补 propagate_call(子树递归调用入口)。拼写契约由
+	# test/denylist-godot-classes-contract.test.ts 守护。
+	"call_deferred", "call_thread_safe", "propagate_call", "queue_delete",
 ]
 
 # ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -103,6 +123,9 @@ func _ready() -> void:
 	# CMP-2 (2026-08-08): 注册 runtime error 捕获(在 _start_server 前,确保任何启动错误也被捕)。
 	_error_capture = _ErrorCapture.new()
 	OS.add_logger(_error_capture)
+	# G1 (2026-08-13): PROCESS_MODE_ALWAYS — freeze 设 tree.paused=true 后 bridge _process 必须继续,
+	# 否则 TCP 死锁(附录 F.1 BLOCKING)。注意 BLOCKED_PROPERTIES 禁远程 set process_mode,本地 _ready 设不冲突。
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	# Headless 也启动 Bridge: run_project 跑 headless 游戏需 Bridge 通信(DisplayServer=headless)。
 	# --headless --script 场景若端口被占, _start_server 的 listen() 失败会安全跳过(warning+return)。
 	_start_server()
@@ -123,6 +146,12 @@ func _process(_delta: float) -> void:
 		return
 
 	# Accept new connections (Godot 4.6 renamed accept() to take_connection())
+	# I-5 (2026-08-14 审查 P3) 评估结论:editor websocket_server.gd 的 STATE_CONNECTING
+	# 握手超时在此**不需要**——本 bridge 的 peer 是 StreamPeerTCP(TCPServer.take_connection
+	# 返回的入站连接,accept 时即 STATUS_CONNECTED,不存在 CONNECTING 中间态);
+	# "连上不作为"的 peer 由下方 INACTIVITY_TIMEOUT=60s idle 断连兜底(accept 时即记
+	# _peer_last_activity),发非 auth 数据的 peer 首条消息即被断(_process_buffer_bytes
+	# 未认证分支 disconnect_from_host)——槽位占用均有界,无永久占坑路径。
 	var peer: StreamPeerTCP = _server_take_connection()
 	if peer != null:
 		if _peers.size() >= MAX_PEERS:
@@ -225,6 +254,80 @@ func _process(_delta: float) -> void:
 				}
 			})
 			target_peer.put_data((step_result + "\n").to_utf8_buffer())
+
+	# ─── G1 (2026-08-13) control-first: freeze 维持 + step_until 轮询 ──
+	# freeze 维持:每帧重设 paused(防游戏代码 WHEN_PAUSED 解 pause)。step_until 时 _control_frozen=false
+	# (临时解开,让游戏跑),此块自然跳过;step_until 完成 refreeze 后恢复 _control_frozen=true。
+	if _control_frozen:
+		get_tree().paused = true
+	# step_until 轮询:每帧递减 frames_remaining + 求值 conditions[](AND 全满足即停)
+	if _control_step_until_pending.size() > 0:
+		var su_completed: Array = []
+		var now_ms := Time.get_ticks_msec()
+		for su_idx in range(_control_step_until_pending.size()):
+			var su_entry: Dictionary = _control_step_until_pending[su_idx]
+			if bool(su_entry.get("_added_this_frame", false)):
+				su_entry["_added_this_frame"] = false
+				continue
+			su_entry["frames_remaining"] = int(su_entry["frames_remaining"]) - 1
+			var cond_error := ""
+			var all_met := true
+			var conds: Array = su_entry["conditions"]
+			for cond in conds:
+				var cdict: Dictionary = cond
+				var node_path := str(cdict["path"])
+				var n := get_node_or_null(node_path)
+				if n == null or not is_instance_valid(n):
+					cond_error = "node not found/freed: %s" % node_path
+					all_met = false
+					break
+				var prop := str(cdict["property"])
+				if not (prop in n):
+					cond_error = "property not found: %s.%s" % [node_path, prop]
+					all_met = false
+					break
+				var nget: Variant = n.get(prop)
+				if not _compare_values(nget, str(cdict["op"]), cdict["value"]):
+					all_met = false
+			if cond_error != "" or all_met or int(su_entry["frames_remaining"]) <= 0 or now_ms > int(su_entry["wall_deadline_ms"]):
+				if cond_error != "":
+					su_entry["_error"] = cond_error
+				su_entry["_met"] = all_met and cond_error == ""
+				su_completed.append(su_idx)
+		su_completed.reverse()
+		for su_idx in su_completed:
+			var su_entry: Dictionary = _control_step_until_pending[su_idx]
+			_control_step_until_pending.remove_at(su_idx)
+			# refreeze:若 step_until 前 frozen,完成时恢复 freeze
+			if bool(su_entry.get("refreeze", false)):
+				_control_frozen = true
+				get_tree().paused = true  # freeze 维持(游戏原值仍由 _control_paused_saved 持有,unfreeze 时还原)
+			elif _control_step_until_pending.is_empty() and not _control_frozen:
+				# 2026-08-14 审查 D-2 修复:最后一个开窗 entry 完成且无冻结,游戏回归自身
+				# paused 原值(而非硬设 false)。pending 非空/冻结中不还原(后续 entry 仍需
+				# 开窗推进,或由 freeze 维持、unfreeze/断线还原点统一处理)。
+				get_tree().paused = _control_paused_saved
+				_control_paused_saved = false
+				_control_paused_saved_valid = false
+			var peer_id: int = int(su_entry["peer_id"])
+			var target_peer: StreamPeerTCP = null
+			for p in _peers:
+				if p.get_instance_id() == peer_id:
+					target_peer = p
+					break
+			if target_peer == null:
+				continue
+			var su_result := JSON.stringify({
+				"id": su_entry["id"],
+				"result": {
+					"success": true,
+					"predicate_met": bool(su_entry.get("_met", false)),
+					"frames_elapsed": int(su_entry["max_frames"]) - int(su_entry["frames_remaining"]),
+					"wall_exceeded": now_ms > int(su_entry["wall_deadline_ms"]),
+					"error": str(su_entry.get("_error", "")),
+				}
+			})
+			target_peer.put_data((su_result + "\n").to_utf8_buffer())
 
 	# ─── Property monitor sampling (C-07: per-peer) ─────────────────────────
 	var dead_monitors: Array = []
@@ -380,6 +483,9 @@ func _write_secret_to_file(path: String) -> bool:
 	# (非致命但误导)。改用 PowerShell WriteAllText 直接写绕开;secret 经环境变量传递(见 I-3)。
 	# 配合 _restrict_secret_permissions 用 USERNAME:M(Modify)+ inheritance:r,PowerShell 能覆盖 M key。
 	# Linux/macOS 的 FileAccess.close 不走 atomic,直接用。
+	# SEC-P2-2 (2026-08-09 审查): 写前 symlink 预检。攻击者预置 secret 文件为 symlink 指向任意
+	# 文件,WriteAllText/FileAccess.open 均 follow symlink 覆盖目标。读方 game-bridge.ts 已有
+	# lstatSync 兜底,此处写方对称加固。与 addons/godot_mcp_server/websocket_server.gd DUPLICATE 同步。
 	var write_ok := false
 	if OS.get_name() == "Windows":
 		OS.set_environment("_MCP_SECRET_TMP", _secret)
@@ -388,14 +494,26 @@ func _write_secret_to_file(path: String) -> bool:
 		# 单引号字符串(项目目录名含 ' 即可逃逸注入)。env 值不解析为命令语法,注入消失。
 		# F-2(2026-07-04 审查): OS.execute 去 blocking=false,ec 为真实 exit code(原 non-blocking 返回
 		# fork 启动状态,write_ok=(ec==OK) 乐观判断可能误报成功)。与 websocket_server.gd 同步。
-		var ps_args := PackedStringArray(["-NoProfile", "-Command", "[IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
+		# SEC-P2-2: exit 3 = symlink 拒写(WriteAllText 不执行);Test-Path 守 Get-Item 防首次生成不存在时抛错。
+		var ps_args := PackedStringArray(["-NoProfile", "-Command", "if (Test-Path $env:_MCP_SECRET_PATH) { if ((Get-Item -LiteralPath $env:_MCP_SECRET_PATH -Force).LinkType) { exit 3 } }; [IO.File]::WriteAllText($env:_MCP_SECRET_PATH, $env:_MCP_SECRET_TMP)"])
 		var ec := OS.execute("powershell", ps_args, [])
 		OS.unset_environment("_MCP_SECRET_TMP")
 		OS.unset_environment("_MCP_SECRET_PATH")
+		if ec == 3:
+			# symlink 命中:不 fallback FileAccess(同样 follow symlink),返 false 让调用方处理
+			push_warning("[MCP Bridge] %s is a symlink — refusing to write bridge secret" % path)
+			return false
 		write_ok = (ec == OK)
 		if not write_ok:
 			push_warning("[MCP Bridge] PowerShell write failed (exit %d), fallback to FileAccess" % ec)
 	else:
+		# SEC-P2-2: readlink 成功(exit 0)= 是 symlink;失败(非零)= 普通文件或不存在。
+		# GD 无原生 symlink 检测 API(FileAccess/DirAccess 均无 LinkType 等价),借 readlink。
+		if FileAccess.file_exists(path):
+			var rl_ec := OS.execute("readlink", PackedStringArray([path]), [])
+			if rl_ec == OK:
+				push_warning("[MCP Bridge] %s is a symlink — refusing to write bridge secret" % path)
+				return false
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		if f:
 			f.store_string(_secret)
@@ -588,6 +706,21 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				"frames_remaining": frames,
 				"_added_this_frame": true,  # I-2 修复:本帧不递减,下一帧才开始计帧
 			})
+		elif response.begins_with("__PLAYTEST_CONTROL_STEP_UNTIL__"):
+			# G1: 从临时变量取 step_until 完整 params 存 pending(_process 轮询 conditions)
+			var su_payload: Dictionary = _pending_control_step_until_result
+			_pending_control_step_until_result = {}
+			_control_step_until_pending.append({
+				"peer_id": peer.get_instance_id(),
+				"pid": pid,
+				"id": _last_step_request_id,
+				"frames_remaining": int(su_payload["max_frames"]),
+				"max_frames": int(su_payload["max_frames"]),
+				"wall_deadline_ms": Time.get_ticks_msec() + int(su_payload["wall_budget_ms"]),
+				"conditions": su_payload["conditions"],
+				"refreeze": bool(su_payload.get("refreeze", false)),
+				"_added_this_frame": true,
+			})
 		else:
 			peer.put_data((response + "\n").to_utf8_buffer())
 	_peer_buffers[key] = raw
@@ -679,11 +812,18 @@ func _handle_message(raw: String, pid: int) -> String:
 		"playtest.fixed_delta":
 			result = _cmd_playtest_fixed_delta(params, pid)
 		"playtest.snapshot":
-			result = _cmd_playtest_snapshot(params)
+			result = _cmd_playtest_snapshot(params, pid)
 		"playtest.restore":
-			result = _cmd_playtest_restore(params)
+			result = _cmd_playtest_restore(params, pid)
 		"playtest.step":
 			result = _cmd_playtest_step(params)
+		# G1 (2026-08-13) control-first satellite 层(附录 F.1)
+		"playtest.freeze":
+			result = _cmd_control_freeze(params, pid)
+		"playtest.unfreeze":
+			result = _cmd_control_unfreeze(params, pid)
+		"playtest.step_until":
+			result = _cmd_control_step_until(params, pid)
 		_:
 			error = {"code": -32601, "message": "Method not found: %s. 若为新增 method（如 get_node_layout），项目根 mcp_bridge.gd 可能版本过旧，请重新 game_bridge_install 或同步上游 src/scripts/mcp_bridge.gd。" % method}
 
@@ -696,6 +836,11 @@ func _handle_message(raw: String, pid: int) -> String:
 	if error.is_empty() and result is Dictionary and result.has("__playtest_step__"):
 		_last_step_request_id = id
 		return "__PLAYTEST_STEP__%d__" % int(result["frames"])
+	# G1: step_until 同款哨兵(延迟通道)。完整 result 存临时变量,_process_buffer_bytes 取用存 pending。
+	if error.is_empty() and result is Dictionary and result.has("__playtest_control_step_until__"):
+		_last_step_request_id = id
+		_pending_control_step_until_result = result
+		return "__PLAYTEST_CONTROL_STEP_UNTIL__"
 	if error.is_empty():
 		return JSON.stringify({"id": id, "result": result})
 	else:
@@ -903,11 +1048,135 @@ func _cmd_set_node_property(params: Dictionary) -> Variant:
 		return {"error": {"code": -1, "message": "Node not found: %s" % path}}
 	if _is_blocked_property(prop):
 		return {"error": {"code": -2, "message": "Blocked property: %s" % prop}}
+	# E-2 (2026-08-14): 属性存在性校验——原实现两道守卫后裸 node.set,拼错属性名是
+	# no-op + success:true(三路 editor/headless/bridge 中唯一无存在性校验的,brief :100 P2)。
+	# 对齐 headless godot_operations.gd _set_property_with_coerce 的 "Property not found"
+	# 拒绝 + editor command_helpers.gd coerce_property_value 四层第 2 层。
+	# 批E-fix2 (2026-08-15): -1 不再一票否决——实测 Godot 4.6.3(DIAG6/7/9/11):
+	# script static var 不在 get_property_list 但 `prop in node` 为 true 且 instance set
+	# 生效;普通 script var(health 等)本就在 list 不受影响。`in` 是引擎存在性真值
+	# (拼错名 DIAG8 "healt" in node=false),故 -1 且 not in 才拒;在但无声明类型 → 放行
+	# 裸 set 保持旧行为(static var 是调试通道典型写入目标,一票否决是行为回归)。
+	# prop_type 未知 → 数学/Object 分派不适用;Array/Dict 输入仍走 coerce(-1 不匹配
+	# 任何分支 → null → -8 拒绝,标量透传由引擎 Variant 转换处理,DIAG15 String→int 生效)。
+	var prop_type := _get_property_type(node, prop)
+	if prop_type == -1 and not prop in node:
+		return {"error": {"code": -7, "message": "Property not found: %s on %s" % [prop, node.get_class()]}}
 	if not _is_safe_value(value):
 		var type_info: String = "null" if value == null else value.get_class()
 		return {"error": {"code": -3, "message": "Value type not allowed: %s" % type_info}}
-	node.set(prop, value)
+	# 批E-fix1 (2026-08-15): String 输入 → TYPE_OBJECT/数学类型属性拒绝(code -9)。
+	# 实测 Godot 4.6.3(DIAG12-14): node.set 数学属性传 "(1, 2)"/"garbage"、Resource 属性传
+	# "res://icon.svg" 均静默 no-op(position 仍 (0,0)/texture 不变)但流程返 success——
+	# 批E 残余假成功,bridge 是三路中唯一未拦截的。对齐:
+	# ① TYPE_OBJECT:headless/editor 对 plain String 报错、res:// String 走 load;bridge
+	#   不引入 load(资源路径防护是另两路的 DUPLICATE 副本,bridge 加需同步三份),统一
+	#   拒绝并引导走 editor/headless 路径。
+	# ② 数学类型:对齐 headless _has_components(String 不在分量类型白名单 → 拒绝),
+	#   改用 Array/Dict 分量输入。注:call_method args 侧 _coerce_bridge_single 对
+	#   Vector2/3 接受 String(显式构造器),与本处属性 set 的拒绝语义有意不同。
+	if value is String:
+		if prop_type == TYPE_OBJECT:
+			return {"error": {"code": -9, "message": "Property %s expects Resource: String via bridge set_node_property is a silent no-op, use editor/headless path for res:// loading" % prop}}
+		elif prop_type in [TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR, TYPE_PLANE, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I]:
+			return {"error": {"code": -9, "message": "Property %s expects math type: String input is a silent no-op, pass Array/Dict components (e.g. [x, y, z])" % prop}}
+	# E-2 (2026-08-14): 数学类型 coerce——JSON Array/Dict 输入经 node.set 是静默 no-op
+	# 但返 success(Godot 4.x verified,见 command_helpers.gd:93-94 注释)。仅 Array/Dict
+	# 输入走转换(null/标量/已是数学类型透传,保持 bridge 原行为);对齐 headless E-1 修复
+	# + editor coerce_value_for_property,消灭三路行为撕裂。
+	var coerced: Variant = value
+	if value is Array or value is Dictionary:
+		coerced = _coerce_math_value(prop_type, value)
+		if coerced == null:
+			return {"error": {"code": -8, "message": "Property %s: cannot coerce %s (missing/null component)" % [prop, value]}}
+	node.set(prop, coerced)
 	return {"success": true, "node": path, "property": prop}
+
+
+# E-2 (2026-08-14): 查属性声明类型(get_property_list)。存在性校验(-1=不存在)+
+# _coerce_math_value 分派共用。DUPLICATE 副本:对齐 headless godot_operations.gd
+# _get_property_type(独立 runtime script,同步维护;bridge autoload 无法 import 同款)。
+func _get_property_type(obj: Object, key: String) -> int:
+	for p in obj.get_property_list():
+		if String(p.get("name", "")) == key:
+			return int(p.get("type", TYPE_NIL))
+	return -1
+
+
+# E-2 (2026-08-14): MCP JSON Array/Dict 输入 → Godot 数学类型真转换(DUPLICATE 三副本之一)。
+# ⚠️ 三副本同步关系(改任一处须同步另外两处):
+#   源(editor 侧):   addons/godot_mcp_server/commands/command_helpers.gd coerce_value_for_property
+#   副本(headless):  src/scripts/godot_operations.gd _coerce_math_value
+#   副本(bridge 侧): 本文件 _coerce_math_value
+# 另:文件内第四份同族 _coerce_bridge_single(call_method args 侧,CMP-9-B)按 ClassDB 方法
+# 声明类型逐参数强转(Vector2/3 显式接受 String 构造),与本函数按属性声明类型的分派是
+# 不同输入面——同步维护属性 coerce 时勿混淆两份的 String 语义(属性 set 拒绝,args 接受)。
+# 对齐 godot_operations.gd _is_safe_value 的既有 DUPLICATE 做法(C-03 同步模式)。
+# 与 editor 源版差异(有意,与 headless 副本一致): 按属性声明类型 prop_type 分派而非
+# typeof(current);支持 Dict{x,y,z,w}/{r,g/b/a} 输入;补 Vector4i/Rect2/Rect2i 构造。
+# 返回 null = Array/Dict 输入但分量缺失/为 null 无法构造(调用方报错拒绝)。
+func _coerce_math_value(prop_type: int, value: Variant) -> Variant:
+	if not (value is Array or value is Dictionary):
+		return value  # 已是数学类型/标量等,透传交 node.set
+	var x: Variant = _math_comp(value, 0, "x")
+	var y: Variant = _math_comp(value, 1, "y")
+	var z: Variant = _math_comp(value, 2, "z")
+	var w: Variant = _math_comp(value, 3, "w")
+	var r: Variant = _math_comp(value, 0, "r")
+	var g: Variant = _math_comp(value, 1, "g")
+	var b: Variant = _math_comp(value, 2, "b")
+	var a: Variant = _math_comp(value, 3, "a")
+	if prop_type == TYPE_VECTOR2:
+		if x != null and y != null:
+			return Vector2(float(x), float(y))
+	elif prop_type == TYPE_VECTOR2I:
+		if x != null and y != null:
+			return Vector2i(int(x), int(y))
+	elif prop_type == TYPE_VECTOR3:
+		if x != null and y != null and z != null:
+			return Vector3(float(x), float(y), float(z))
+	elif prop_type == TYPE_VECTOR3I:
+		if x != null and y != null and z != null:
+			return Vector3i(int(x), int(y), int(z))
+	elif prop_type == TYPE_VECTOR4:
+		if x != null and y != null and z != null and w != null:
+			return Vector4(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_VECTOR4I:
+		if x != null and y != null and z != null and w != null:
+			return Vector4i(int(x), int(y), int(z), int(w))
+	elif prop_type == TYPE_COLOR:
+		# 先 r/g/b/a 键名,再 x/y/z/w(对齐 headless _has_components 两种键名都接受)
+		if r != null and g != null and b != null:
+			return Color(float(r), float(g), float(b), float(a) if a != null else 1.0)
+		if x != null and y != null and z != null:
+			return Color(float(x), float(y), float(z), float(w) if w != null else 1.0)
+	elif prop_type == TYPE_PLANE:
+		if x != null and y != null and z != null and w != null:
+			return Plane(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_QUATERNION:
+		if x != null and y != null and z != null and w != null:
+			return Quaternion(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2:
+		if x != null and y != null and z != null and w != null:
+			return Rect2(float(x), float(y), float(z), float(w))
+	elif prop_type == TYPE_RECT2I:
+		if x != null and y != null and z != null and w != null:
+			return Rect2i(int(x), int(y), int(z), int(w))
+	return null
+
+
+# E-2: 数学分量读取——Array 按索引,Dict 按 key(x/y/z/w 或 r/g/b/a);越界/缺键/值为 null 返 null。
+func _math_comp(value: Variant, index: int, key: String) -> Variant:
+	if value is Array:
+		var arr: Array = value
+		if index < arr.size() and arr[index] != null:
+			return arr[index]
+		return null
+	if value is Dictionary:
+		var dict: Dictionary = value
+		if dict.has(key) and dict[key] != null:
+			return dict[key]
+	return null
 
 
 func _cmd_call_method(params: Dictionary) -> Variant:
@@ -922,6 +1191,8 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	# S5 (2026-06-23): env GODOT_MCP_BRIDGE_EXTRA_METHODS 扩展白名单(opt-in,默认只读安全)。
 	# ALLOWED_METHODS 设计为只读(get/has_*/get_meta 等),防 call_method 任意执行;信任环境
 	# 可显式加方法(如 emit_signal)用此 env。注意 emit_signal 会触发已连接的任意回调,慎用。
+	# CMP-9-B (2026-08-08): 同一 env 也覆盖写/副作用方法(take_damage/add_velocity 等),
+	# 对标竞品 runtime.call。EXTRA_METHODS_BLOCKLIST 仍是不可覆盖硬底线。
 	var _extra_env := OS.get_environment("GODOT_MCP_BRIDGE_EXTRA_METHODS")
 	var _extra_ok := false
 	if _extra_env != "":
@@ -931,18 +1202,33 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 				break
 	# P1-6: EXTRA_METHODS 即使显式列出,危险方法仍拒绝(防 env 误设致 RCE/运行时结构破坏)
 	if _extra_ok and method in EXTRA_METHODS_BLOCKLIST:
-		return {"error": {"code": -6, "message": "Method blocked even with GODOT_MCP_BRIDGE_EXTRA_METHODS (dangerous, changes runtime structure): %s" % method}}
+		# B-2 (2026-08-14): 内层检查——间接调用入口(args[0]=内层方法名)命中 BLOCKLIST 时,
+		# 若 args[0] 也是 BLOCKLIST 方法(如 call_thread_safe + set_script),拒绝信息一并标注
+		# 内外两层(纵深防御 + 诊断增强)。仅 BLOCKLIST 命中分支内检查,正常方法不受影响。
+		var _inner_note := ""
+		if args.size() > 0 and args[0] is String and args[0] in EXTRA_METHODS_BLOCKLIST:
+			_inner_note = " Inner method '%s' is also blocked." % args[0]
+		return {"error": {"code": -6, "message": "Method blocked even with GODOT_MCP_BRIDGE_EXTRA_METHODS (dangerous, changes runtime structure): %s%s" % [method, _inner_note]}}
 	if not method in ALLOWED_METHODS and not _extra_ok:
 		return {"error": {"code": -2, "message": "Method not allowed: %s (set env GODOT_MCP_BRIDGE_EXTRA_METHODS to allow)" % method}}
 	if not node.has_method(method):
-		return {"error": {"code": -3, "message": "Method not found: %s" % method}}
+		# CMP-9-B: did-you-mean(对标竞品 + editor call_method 一致体验),降 AI 重试成本
+		var _suggestion := _suggest_bridge_method(node, method)
+		var _hint := "Allowed methods: see ALLOWED_METHODS or set GODOT_MCP_BRIDGE_EXTRA_METHODS."
+		if _suggestion != "":
+			_hint = "Did you mean '%s'? %s" % [_suggestion, _hint]
+		return {"error": {"code": -3, "message": "Method not found: %s. %s" % [method, _hint]}}
 	if args.size() > 8:
 		return {"error": {"code": -4, "message": "Too many arguments (max 8)"}}
 	if method == "get" and args.size() > 0 and args[0] is String:
 		if _is_blocked_property(args[0]):
 			return {"error": {"code": -5, "message": "Blocked property via get(): %s" % args[0]}}
-	var result: Variant = node.callv(method, args)
-	return {"result": _jsonify(result)}
+	# CMP-9-B: args 类型强转(对标竞品 coerce_call_args + editor call_method 一致)。
+	# 按 ClassDB method 声明类型强转,防 Vector3 传单值/Array 静默变零值(Godot callv 不自动转)。
+	var _coerced := _coerce_bridge_args(node, method, args)
+	var result: Variant = node.callv(method, _coerced)
+	# CMP-9-B: undoable=false 显式声明(call 不可 undo,对标竞品 + editor call_method 一致)
+	return {"result": _jsonify(result), "undoable": false}
 
 
 func _jsonify(val: Variant) -> Variant:
@@ -968,7 +1254,100 @@ func _jsonify(val: Variant) -> Variant:
 		return {"type": val.get_class(), "path": val.resource_path if val.resource_path else ""}
 	if val is Node:
 		return str(val.get_path())
+	if val is Object:
+		# B4 (2026-08-11 审查): 非 Node/非 Resource 的 Object(InputEvent/RegExMatch 等)对齐
+		# editor 侧 engine_commands.gd _serialize_return_value 的 Object 分支,返 {type, instance_id}。
+		# 原 return val 原样——JSON.stringify 对裸 Object 可能失败或返不可读 str(),
+		# bridge/editor 两通道返回结构不一致,AI 跨通道比对踩坑。
+		return {"type": val.get_class(), "instance_id": val.get_instance_id()}
 	return val
+
+
+# CMP-9-B (2026-08-08): did-you-mean — 方法不存在时给最接近建议(对标竞品 + editor call_method 一致)。
+# String.similarity > 0.6 取最高分。限制扫 node.get_method_list()(已在 line 937 has_method 检查后调用)。
+func _suggest_bridge_method(node: Node, target: String) -> String:
+	var best := ""
+	var best_score := 0.6
+	for m in node.get_method_list():
+		if m is Dictionary and m.has("name"):
+			var name_: String = m["name"]
+			var score: float = target.similarity(name_)
+			if score > best_score:
+				best_score = score
+				best = name_
+	return best
+
+
+# CMP-9-B (2026-08-08): args 类型强转(对标竞品 coerce_call_args + editor call_method 一致)。
+# 按 ClassDB method 声明类型强转,防 Vector3 传 Array [1,2,3] 或 String "(1,2,3)" 静默变零值。
+# 取不到 method info(动态方法)→ 不强转透传(Godot callv 自己处理)。
+func _coerce_bridge_args(node: Node, method: String, raw_args: Array) -> Array:
+	var methods: Array = node.get_method_list()
+	var method_info: Dictionary = {}
+	for m in methods:
+		if m is Dictionary and m.get("name", "") == method:
+			method_info = m
+			break
+	if method_info.is_empty() or not method_info.has("args"):
+		return raw_args
+	var declared_args: Array = method_info["args"]
+	var coerced: Array = []
+	for i in range(raw_args.size()):
+		var raw: Variant = raw_args[i]
+		if i < declared_args.size() and declared_args[i] is Dictionary:
+			var declared_type: int = int(declared_args[i].get("type", TYPE_NIL))
+			coerced.append(_coerce_bridge_single(raw, declared_type))
+		else:
+			coerced.append(raw)
+	return coerced
+
+
+# CMP-9-B: 单个参数强转(与 editor engine_commands.gd _coerce_single_arg 同款逻辑)。
+func _coerce_bridge_single(raw: Variant, declared_type: int) -> Variant:
+	match declared_type:
+		TYPE_VECTOR2:
+			if raw is Array and raw.size() >= 2:
+				return Vector2(float(raw[0]), float(raw[1]))
+			if raw is String:
+				return Vector2(raw)
+		TYPE_VECTOR2I:
+			if raw is Array and raw.size() >= 2:
+				return Vector2i(int(raw[0]), int(raw[1]))
+		TYPE_VECTOR3:
+			if raw is Array and raw.size() >= 3:
+				return Vector3(float(raw[0]), float(raw[1]), float(raw[2]))
+			if raw is String:
+				return Vector3(raw)
+		TYPE_VECTOR3I:
+			if raw is Array and raw.size() >= 3:
+				return Vector3i(int(raw[0]), int(raw[1]), int(raw[2]))
+		TYPE_VECTOR4:
+			if raw is Array and raw.size() >= 4:
+				return Vector4(float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+		TYPE_COLOR:
+			if raw is Array and raw.size() >= 3:
+				var a: float = float(raw[3]) if raw.size() > 3 else 1.0
+				return Color(float(raw[0]), float(raw[1]), float(raw[2]), a)
+		TYPE_BOOL:
+			if raw is String:
+				return raw.to_lower() == "true"
+			if raw is float or raw is int:
+				return bool(raw)
+		TYPE_INT:
+			if raw is String:
+				return int(raw)
+			if raw is float:
+				return int(raw)
+		TYPE_FLOAT:
+			if raw is String:
+				return float(raw)
+			if raw is int:
+				return float(raw)
+		TYPE_STRING:
+			return str(raw)
+		TYPE_NODE_PATH:
+			return NodePath(str(raw))
+	return raw
 
 
 # ─── Shared tree traversal ──────────────────────────────────────────────────
@@ -1571,13 +1950,26 @@ func _cleanup_peer_state(pid: int) -> void:
 			Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
 			Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
 			_playtest_fixed_delta_saved.clear()
-			_playtest_active = false
 		# 2026-08-07 审查 P1 修复：snapshot 同属 playtest 全局状态，peer 断开必须同步 clear。
 		# 否则：(1) _playtest_snapshot（可达 50000 节点×N 属性，数十 MB）永久驻留内存（泄漏）；
 		# (2) 后续新 peer 调 playtest.restore 误读到这份陈旧快照，场景已变 → 节点状态损坏。
 		if not _playtest_snapshot.is_empty():
 			_playtest_snapshot.clear()
+		# 2026-08-14 审查 D-4 修复：_playtest_active 复位移出 fixed_delta 分支（与 snapshot.clear
+		# 同级）——seed-only/snapshot-only 周期同样要复位。残留 true 会令 _input 跳过录制，
+		# recording.start 表面成功但录不到任何事件（静默失效）。
+		_playtest_active = false
 		_playtest_owner_pid = -1
+	# G1 (2026-08-13) control-first:持有者断开时还原 freeze(防游戏永久暂停)+ 清 step_until pending
+	if pid == _control_owner_pid:
+		_control_frozen = false
+		_control_owner_pid = -1
+		# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值(freeze/开窗介入前保存),
+		# 而非硬设 false——覆盖 step_until 开窗中(owner 持有但非 frozen)断线的场景。
+		get_tree().paused = _control_paused_saved
+		_control_paused_saved = false
+		_control_paused_saved_valid = false
+		_control_step_until_pending.clear()
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
 		var i: int = _playtest_step_pending.size() - 1
@@ -1715,6 +2107,10 @@ func _cmd_click_button(params: Dictionary) -> Variant:
 # ④ 不保 RigidBody 物理速度(靠 seed+fixed_delta 重放) ⑤ monitor samples 不在 snapshot 范围
 
 func _cmd_playtest_seed(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：owner 互斥（对齐 freeze :2076-2078）——其他 peer 已持有
+	# playtest 时拒绝，防 peer B 静默抢占 owner 覆盖全局 RNG 破坏 peer A 的确定性重放。
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	var seed_value: int = int(params.get("seed", 0))
 	seed(seed_value)  # @GlobalScope.seed,影响全局 randi/randf
 	_playtest_active = true
@@ -1723,6 +2119,9 @@ func _cmd_playtest_seed(params: Dictionary, pid: int) -> Variant:
 	return {"success": true, "seed": seed_value, "note": "global RNG seeded (per-instance RandomNumberGenerator unaffected)"}
 
 func _cmd_playtest_fixed_delta(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：owner 互斥（同 _cmd_playtest_seed，防抢占 physics 锁）
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	var hz: int = int(params.get("hz", 60))
 	if hz < 1 or hz > 1000:
 		return {"error": {"code": -1, "message": "hz must be 1-1000, got %d" % hz}}
@@ -1744,7 +2143,12 @@ func _cmd_playtest_fixed_delta(params: Dictionary, pid: int) -> Variant:
 
 const PLAYTEST_SNAPSHOT_HARD_STOP: int = 50000  # 对齐 _cmd_get_scene_stats 上限，防大场景 OOM/栈溢
 
-func _cmd_playtest_snapshot(params: Dictionary) -> Variant:
+func _cmd_playtest_snapshot(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：snapshot-only peer 也登记 owner（首个 playtest 操作者语义）。
+	# 此前 snapshot 不登记 → snapshot-only peer 断线走不到 `pid == _playtest_owner_pid`
+	# 清理分支 → 数十 MB 快照永久驻留 + 陈旧快照被新 peer restore 写坏场景。
+	if _playtest_owner_pid == -1:
+		_playtest_owner_pid = pid
 	# 复用 _cmd_get_node_properties 序列化器:遍历场景树,每个节点存 {properties, parent}
 	_playtest_snapshot.clear()
 	var root := get_tree().root
@@ -1778,7 +2182,11 @@ func _collect_node_snapshot(node: Node, parent_path: String) -> void:
 	for child in node.get_children():
 		_collect_node_snapshot(child, path)
 
-func _cmd_playtest_restore(params: Dictionary) -> Variant:
+func _cmd_playtest_restore(params: Dictionary, pid: int) -> Variant:
+	# 2026-08-14 审查 D-3 修复：restore 受 owner 互斥约束（全局快照属 owner，防任意 peer
+	# 抢先 restore 把他人快照写进场景）。
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	if _playtest_snapshot.is_empty():
 		return {"error": {"code": -1, "message": "No snapshot saved. Call playtest_snapshot first."}}
 	var restored: int = 0
@@ -1819,9 +2227,16 @@ func _cmd_playtest_restore(params: Dictionary) -> Variant:
 		Engine.max_physics_steps_per_frame = int(_playtest_fixed_delta_saved["max_physics_steps_per_frame"])
 		Engine.physics_jitter_fix = float(_playtest_fixed_delta_saved["physics_jitter_fix"])
 		_playtest_fixed_delta_saved.clear()
+	# 2026-08-14 审查 D-4 修复：restore 完成 = playtest 周期结束，复位 _playtest_active。
+	# 此前 seed→restore 后残留 true → _input 持续跳过录制 → recording.start 静默失效。
+	_playtest_active = false
 	return {"success": true, "restored": restored, "skipped_freed": skipped_freed}
 
 func _cmd_playtest_step(params: Dictionary) -> Dictionary:
+	# 2026-08-14 审查 D-6 修复：frozen 守卫——冻结中 step 的帧递减不感知 paused，
+	# 游戏未推进却返 success（假成功）。入口明确报错，引导先 unfreeze。
+	if _control_frozen:
+		return {"error": {"code": -1, "message": "game is frozen; unfreeze before stepping"}}
 	# step 走延迟响应:_handle_message 返回哨兵字符串,_process_buffer_bytes 存 pending,
 	# _process 每帧递减 frames_remaining(I-2 修复:加入帧不递减,下一帧起计),到 0 时 push 响应。
 	# 非真 await physics_frame coroutine(bridge TCP 同步模型不支持),而是 _process 计数器轮询,
@@ -1830,6 +2245,139 @@ func _cmd_playtest_step(params: Dictionary) -> Dictionary:
 	if frames < 1 or frames > 60:
 		return {"error": {"code": -1, "message": "frames must be 1-60, got %d" % frames}}
 	return {"__playtest_step__": true, "frames": frames}
+
+
+# ─── G1 (2026-08-13) control-first satellite 层(附录 F.1)─────────────────
+# freeze/unfreeze/step_until:借鉴 satellite mcp_game_bridge.gd,叠加到 enhanced determinism-first。
+# process_mode=PROCESS_MODE_ALWAYS(_ready 设)保证 freeze 时 bridge _process 继续。
+# step_until 用结构化条件 {path,property,op,value}[](AND),不引入 Expression(规避白名单绕过 + RCE)。
+const _CONTROL_MAX_FRAMES := 600  # step_until 帧上限(~10s@60fps)
+const _CONTROL_DEFAULT_WALL_BUDGET_MS := 30000  # wall 兜底(防 time_scale=0/暂停饿死)
+const _CONTROL_ALLOWED_OPS := ["==", "!=", "<", ">", "<=", ">="]
+
+func _cmd_control_freeze(params: Dictionary, pid: int) -> Dictionary:
+	# owner 独占:已有其他 owner 持有 → 拒(防多 peer 冲突)
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	_control_owner_pid = pid
+	# 2026-08-14 审查 D-2 修复:freeze 前保存游戏自身 paused 原值(在置 true 之前)。
+	# saved_valid 防"冻结中重复 freeze"把维持中的 true 覆盖真实原值。
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
+	_control_frozen = true
+	get_tree().paused = true  # freeze:每帧 _process 重设(防游戏代码解 pause)
+	return {"success": true, "frozen": true}
+
+func _cmd_control_unfreeze(params: Dictionary, pid: int) -> Dictionary:
+	# 仅 owner 可 unfreeze(防 peer B 误清 peer A 的 freeze)
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	_control_frozen = false
+	_control_owner_pid = -1
+	# 2026-08-14 审查 D-1 (P1) 修复:unfreeze 即放弃控制,必须清 step_until pending。
+	# 否则残留 pending 完成时会 refreeze(重新置 frozen+paused)而 owner 已=-1,
+	# 游戏永久暂停无人能解(owner 断线路径 _cleanup_peer_state 已有 clear,此路径
+	# 此前漏了,两路径不对称)。
+	_control_step_until_pending.clear()
+	# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值,而非硬设 false
+	# (防游戏暂停菜单/回合制自身暂停状态被清——菜单开着但游戏在跑)。
+	# Nit-A (2026-08-14 审查补修):仅 saved_valid 时才还原 paused——(a) 从未 freeze
+	# (owner=-1 放行)直接 unfreeze;(b) 非 refreeze step_until 完成已清 S/V 后 owner
+	# 空转持有期间游戏自行 paused。两种边缘下无有效原值,无条件还原会把游戏自暂停
+	# 清成过期的 false。S/V 清除不受守卫影响(无论是否还原都要清)。
+	if _control_paused_saved_valid:
+		get_tree().paused = _control_paused_saved
+	_control_paused_saved = false
+	_control_paused_saved_valid = false
+	return {"success": true, "frozen": false}
+
+func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
+	# owner 独占
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	var conditions: Variant = params.get("conditions", [])
+	if not (conditions is Array) or conditions.size() == 0:
+		return {"error": {"code": -1, "message": "conditions must be a non-empty array of {path,property,op,value}"}}
+	# 校验每个 condition(结构化,不引入 Expression)
+	var validated: Array = []
+	for cond in conditions:
+		if not (cond is Dictionary):
+			return {"error": {"code": -1, "message": "each condition must be an object {path,property,op,value}"}}
+		var cdict: Dictionary = cond
+		if not (cdict.has("path") and cdict.has("property") and cdict.has("op") and cdict.has("value")):
+			return {"error": {"code": -1, "message": "condition missing required key (path/property/op/value)"}}
+		var op := str(cdict["op"])
+		if not _CONTROL_ALLOWED_OPS.has(op):
+			return {"error": {"code": -1, "message": "op must be one of %s, got %s" % [str(_CONTROL_ALLOWED_OPS), op]}}
+		if not _is_safe_value(cdict["value"]):
+			return {"error": {"code": -1, "message": "condition value failed _is_safe_value (几何/标量/PackedArray only)"}}
+		validated.append(cdict)
+	var max_frames: int = int(params.get("max_frames", _CONTROL_MAX_FRAMES))
+	if max_frames < 1 or max_frames > _CONTROL_MAX_FRAMES:
+		return {"error": {"code": -1, "message": "max_frames must be 1-%d, got %d" % [_CONTROL_MAX_FRAMES, max_frames]}}
+	var wall_budget_ms: int = int(params.get("wall_budget_ms", _CONTROL_DEFAULT_WALL_BUDGET_MS))
+	# 2026-08-14 审查 D-5 修复：上限压 50s（clamp）。等待期 bridge 无字节往来，60s 会被
+	# 同文件 INACTIVITY_TIMEOUT=60.0 idle 断连切断（响应丢失+状态突变），压到 50s 留 10s 余量。
+	wall_budget_ms = clampi(wall_budget_ms, 1000, 50000)
+	# step_until:临时解 pause 开窗让游戏跑(若原 frozen,记 refreeze 完成时恢复)。
+	# _process 每帧求值 conditions,满足/帧尽/wall 超时 → push 响应 + (若 refreeze)re-freeze。
+	var refreeze: bool = _control_frozen
+	_control_owner_pid = pid
+	# 2026-08-14 审查 D-2 修复:开窗前若无有效保存则记录当前 paused(refreeze 周期已由
+	# freeze 保存;非 refreeze 周期此处保存的即游戏自身原值),供完成/断线还原点恢复。
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
+	_control_frozen = false  # 临时解:让 _process 不维持 paused,游戏跑
+	get_tree().paused = false  # 开窗
+	return {"__playtest_control_step_until__": true, "conditions": validated, "max_frames": max_frames, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze}
+
+# 结构化条件求值:actual op target(标量/String/Vector,不引入 Expression)
+func _compare_values(actual: Variant, op: String, target: Variant) -> bool:
+	if actual is float or actual is int:
+		var a: float = float(actual)
+		var t: float = float(target)
+		match op:
+			"==": return is_equal_approx(a, t)
+			"!=": return not is_equal_approx(a, t)
+			"<": return a < t
+			">": return a > t
+			"<=": return a <= t
+			">=": return a >= t
+	if actual is String or actual is bool:
+		match op:
+			"==": return str(actual) == str(target)
+			"!=": return str(actual) != str(target)
+			"<": return str(actual) < str(target)
+			">": return str(actual) > str(target)
+			"<=": return str(actual) <= str(target)
+			">=": return str(actual) >= str(target)
+	if actual is Vector2 or actual is Vector3:
+		# N-1 修复(审查):Vector 属性 value 必须是标量(按 length 比)或 Vector,否则 return false
+		# (防 Array/Dict value 经 float() 静默转 0.0 致条件永不满足、静默耗尽帧/wall)
+		if not (target is int or target is float or target is Vector2 or target is Vector3):
+			return false
+		var len_a: float = 0.0
+		var len_t: float = 0.0
+		if actual is Vector2:
+			len_a = (actual as Vector2).length()
+			len_t = float(target) if not (target is Vector2) else (target as Vector2).length()
+		else:
+			len_a = (actual as Vector3).length()
+			len_t = float(target) if not (target is Vector3) else (target as Vector3).length()
+		match op:
+			"==": return is_equal_approx(len_a, len_t)
+			"!=": return not is_equal_approx(len_a, len_t)
+			"<": return len_a < len_t
+			">": return len_a > len_t
+			"<=": return len_a <= len_t
+			">=": return len_a >= len_t
+	# 其他类型(Color/Rect 等):仅 == / !=(str 比较)
+	match op:
+		"==": return str(actual) == str(target)
+		"!=": return str(actual) != str(target)
+		_: return false  # 不支持 < > 等于非标量/Vector
 
 
 func _input(event: InputEvent) -> void:

@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, sanitizeResPath, validateIdentifier } from './shared.js';
+import { normalizeNodePath, gdEscape, escapeForGdLiteral, sanitizeResPath, validateIdentifier } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import { BLOCKED_PROPS } from './scene/helpers.js';  // IMP-1 (2026-06-26 review): 复用 scene BLOCKED_PROPS 防 set_params 改危险属性(未来抽 shared)
 
@@ -192,7 +192,9 @@ export function parseMaterialParam(value: unknown, forShader = false): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string') {
     if (forShader && value.startsWith('res://')) return `load("${gdEscape(value)}")`;
-    return `"${gdEscape(value)}"`;
+    // F-7: 材质字符串值嵌入字面量后经 mat.set() 传递,不参与 % 格式化。
+    // 用 escapeForGdLiteral(不双写 %),原 gdEscape 会把 % → %% 致含 % 的值损坏。
+    return `"${escapeForGdLiteral(value)}"`;
   }
   if (Array.isArray(value)) {
     const len = value.length;
@@ -435,7 +437,9 @@ func _initialize():
 export function genShaderWriteScript(
   nodePath: string, materialIndex: number, code: string
 ): string {
-  const jsonCode = gdEscape(JSON.stringify(code));
+  // F-7: shader code 经 JSON.stringify → 字面量 → JSON.parse_string 往返,不参与 % 格式化。
+  // 用 escapeForGdLiteral(不双写 %),原 gdEscape 会把 shader 中的 % 损坏为 %%。
+  const jsonCode = escapeForGdLiteral(JSON.stringify(code));
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
@@ -529,7 +533,7 @@ func _initialize():
 \t\t_mcp_output("error", "Failed to open file for writing: ${gdEscape(filePath)}")
 \t\t_mcp_done()
 \t\treturn
-\tf.store_string("${gdEscape(code)}")
+\tf.store_string("${escapeForGdLiteral(code)}")
 \tf.close()
 \t_mcp_output("shader_saved", {"file_path": "${gdEscape(filePath)}"})
 \t_mcp_done()
@@ -544,7 +548,9 @@ export function genShaderApplyTemplateScript(
     throw new Error(`Invalid template: ${templateName}`);
   }
   const code = template.code;
-  const jsonCode = gdEscape(JSON.stringify(code));
+  // F-7: shader code 经 JSON.stringify → 字面量 → JSON.parse_string 往返,不参与 % 格式化。
+  // 用 escapeForGdLiteral(不双写 %),原 gdEscape 会把 shader 中的 % 损坏为 %%。
+  const jsonCode = escapeForGdLiteral(JSON.stringify(code));
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()

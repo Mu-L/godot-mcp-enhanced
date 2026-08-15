@@ -10,6 +10,10 @@ vi.mock('../src/gdscript-executor.js', () => ({
     parsed: null,
     logLines: raw.split('\n').map((l) => l.trim()).filter(Boolean),
   })),
+  // B-1 fix round 1 (2026-08-14): create_project 落盘 main.gd/脚手架 .gd 前过
+  // scanScriptSandboxOrThrow(→ scanGdscriptSandbox);本文件用例均为合法生成内容,
+  // mock 返回空警告(放行)以保持 happy-path 语义。
+  scanGdscriptSandbox: vi.fn(() => []),
 }));
 
 // Mock batchValidateScripts so validate_scripts doesn't spawn Godot
@@ -61,7 +65,7 @@ describe('Level B: Project management', () => {
     const result = await callProject('create_project', {
       project_path: newDir,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     expect(existsSync(join(newDir, 'project.godot'))).toBeTruthy();
   });
 
@@ -70,7 +74,7 @@ describe('Level B: Project management', () => {
     const result = await callProject('read_project_config', {
       project_path: dirRef.path,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     const appSection = parsed.application || parsed['application'];
@@ -83,7 +87,7 @@ describe('Level B: Project management', () => {
     const result = await callValidation('validate_project', {
       project_path: dirRef.path,
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.valid !== false).toBeTruthy();
@@ -95,11 +99,11 @@ describe('Level B: Project management', () => {
       project_path: dirRef.path,
       extensions: ['.gd'],
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
     const files = parsed.files || [];
-    expect(files.length > 0).toBeTruthy();
+    expect(files.length).toBeGreaterThan(0);
     for (const f of files) {
       expect(f.endsWith('.gd')).toBeTruthy();
     }
@@ -113,8 +117,68 @@ describe('Level B: Project management', () => {
       project_path: dirRef.path,
       scripts: [],
     }, ctx);
-    expect(!result.isError).toBeTruthy();
+    expect(result.isError).not.toBe(true);
     const parsed = JSON.parse(result.content[0].text);
     expect(typeof parsed.validated === 'number').toBeTruthy();
+  });
+
+  // ── C3 (2026-08-11 审查 P2-2): 失败分支覆盖 ────────────────────────────────
+  // 原文件 5 个 it 全 happy-path。核实:project.ts/validation.ts 均【不】调用
+  // executeGdscript(顶层 executor mock 对本文件实为死重),mockFailureResult 的
+  // compile/run/sandbox/binary 形态不适用;真实缺口是 fs 级错误分支零覆盖,如下补齐。
+  describe('C3: failure branches', () => {
+    it('read_project_config on dir without project.godot returns not-found text', async () => {
+      const emptyDir = join(dirRef.path, 'empty-sub');
+      const result = await callProject('read_project_config', { project_path: emptyDir }, ctx);
+      expect(result.content[0].text).toContain('No project.godot found');
+    });
+
+    it('get_project_info on dir without project.godot returns not-found text', async () => {
+      const emptyDir = join(dirRef.path, 'empty-sub2');
+      const result = await callProject('get_project_info', { project_path: emptyDir }, ctx);
+      expect(result.content[0].text).toContain('No project.godot found');
+    });
+
+    it('create_project with invalid renderer returns error text', async () => {
+      const newDir = join(dirRef.path, 'bad-renderer');
+      const result = await callProject('create_project', {
+        project_path: newDir,
+        renderer: 'vulkan_extreme',
+      }, ctx);
+      expect(result.content[0].text).toContain('Invalid renderer');
+      expect(existsSync(join(newDir, 'project.godot'))).toBe(false);  // 失败即不落盘
+    });
+
+    it('create_project on existing project returns error text', async () => {
+      // dirRef.path 本身是 MINIMAL_PROJECT(含 project.godot)
+      const result = await callProject('create_project', { project_path: dirRef.path }, ctx);
+      expect(result.content[0].text).toContain('project.godot already exists');
+    });
+
+    it('write_config without project.godot returns error text', async () => {
+      const emptyDir = join(dirRef.path, 'empty-sub3');
+      const result = await callProject('write_config', {
+        project_path: emptyDir,
+        key: 'application/config/name',
+        value: 'X',
+      }, ctx);
+      expect(result.content[0].text).toContain('No project.godot found');
+    });
+
+    it('write_config with non-whitelisted key returns whitelist error', async () => {
+      const result = await callProject('write_config', {
+        project_path: dirRef.path,
+        key: 'physics/3d/some/random/secret_key',
+        value: '1',
+      }, ctx);
+      expect(result.content[0].text).toContain('not in the allowed whitelist');
+    });
+
+    it('unknown action returns UNKNOWN_ACTION opsError', async () => {
+      const result = await callProject('definitely_not_an_action', { project_path: dirRef.path }, ctx);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.error_code).toBe('UNKNOWN_ACTION');
+      expect(result.isError).toBe(true);
+    });
   });
 });
