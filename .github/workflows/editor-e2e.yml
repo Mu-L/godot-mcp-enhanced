@@ -96,6 +96,19 @@ jobs:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           E2E_EDITOR: '1'
 
+      # 批 H / H-1 (2026-08-15)：debug 子系统 10 action 的 editor 真进程 e2e。
+      # 此前 debug Phase 2/3 只有源码字符串断言（cmp-14-debug-phase2 /
+      # gd-open-findings-contract），A2 _debug_in_flight 互斥守卫零运行时验证。
+      # 覆盖：断点链路(set→play→stack_trace→inspect_frame→evaluate→continue) +
+      # A2 并发互斥(-32000 in-flight 拒) + Phase 1 list/clear。
+      # Xvfb 可跑：断点目标场景无窗口依赖（Node + _process 循环脚本），游戏进程
+      # 由 editor spawn 挂在 Xvfb display 上。
+      - name: E2E debug tools (breakpoint chain + A2 mutex + Phase 1 manage)
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-debug-tools.test.ts --reporter=json --outputFile=coverage/editor-e2e-debug.json
+        env:
+          GODOT_PATH: ${{ env.GODOT_PATH }}
+          E2E_EDITOR: '1'
+
       # P1-1 (2026-08-11 审查): e2e-phase1-discovery 加进 weekly(消除死代码,原任何 CI 都不执行)
       - name: E2E phase1 discovery (三级 discovery + dynamic 工具集成)
         run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-phase1-discovery.test.ts --reporter=json --outputFile=coverage/editor-e2e-phase1.json

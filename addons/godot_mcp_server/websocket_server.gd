@@ -423,7 +423,12 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 	if response.has("error"):
 		reply["error"] = response.error
 	else:
-		reply["result"] = response.result
+		# batch-H fix (2026-08-15): test_run/test_manage 返回 {"data": ...} 而非 {"result": ...},
+		# 原 `response.result` 点访问不存在的键 = SCRIPT ERROR "Invalid access to property or key"
+		# → coroutine 在 reply 发送前中断 → 客户端 30s 超时挂死(test_run editor 路径自 P2-12
+		# phase 2 起不可用,因 e2e-testing-undo-manager 的 action 名笔误从未被 e2e 真跑暴露)。
+		# 兼容两种形状:显式 result 优先,data 键(test_commands)reshape 进 result。
+		reply["result"] = response.get("result", response.get("data"))
 	# security P1#3 fix: peer.send_text 对 >1MB 消息返回 ERR_INVALID_DATA, 检查返回值
 	# 失败时 reply 本身发不出, 改发精简 error(远小于 1MB), 让客户端收到明确 -32010 而非 30s 超时
 	var _reply_str := JSON.stringify(reply)
