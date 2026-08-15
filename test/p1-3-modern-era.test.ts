@@ -32,15 +32,17 @@ describe('P1-3 SEP-2575 opt-in modern era 双时代', () => {
     });
   });
 
-  describe('Roots 双时代兼容(legacy 兜底 + modern 降级)', () => {
-    it('oninitialized 回调保留(legacy 客户端仍走 Roots 拉取)', () => {
+  describe('Roots 双时代兼容 → D 批（v0.30）退役', () => {
+    it('oninitialized 回调保留（承载 logger/progress client-ready，与 Roots 无关）', () => {
       // modern 客户端不触发 oninitialized,但 legacy 客户端仍需要
       expect(src).toMatch(/this\.server\.oninitialized\s*=/);
     });
 
-    it('initRootsIntegration 有 modern era 降级注释', () => {
-      // 文档说明 modern era 的 Roots 降级行为(oninitialized 不触发 → env baseline)
-      expect(src).toMatch(/P1-3.*SEP-2575.*modern era.*降级/);
+    it('Roots API 已退役（源码无 listRoots/动态授权引用）', () => {
+      // 2026-07-28 规范废弃 Roots;legacy roots 客户端统一回落 ALLOWED_PROJECT_PATHS env。
+      // 详见 docs/protocol-debt-2026-07-28.md 与 test/core/godot-server-oninitialized.test.ts
+      expect(src).not.toMatch(/listRoots/);
+      expect(src).not.toMatch(/setAllowedRootsFromClient/);
     });
   });
 });

@@ -5,7 +5,6 @@
  */
 
 import { isAbsolute, resolve, relative, sep, basename, dirname, normalize } from 'path';
-import { fileURLToPath } from 'node:url';
 import { existsSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from './logger.js';
@@ -199,44 +198,13 @@ export function normalizeUserProjectPath(input: string): string {
   return trimmed;
 }
 
-// 动态 Roots 授权源（client 经 MCP Roots 协议注入，GodotServer.oninitialized 调用）。
-// null = 未注入 → getAllowedProjectPaths() 回落 env。
-//
-// 命中 DEFECT.module-level-mutable-state(open, ADVISORY) 形态（test/regression/defects.ts:483，
-// detect = countMatchesInDir('src', /^let _/gm, /\.ts$/)）。同步单线程访问无真实竞态，
-// 参照 src/core/call-recorder.ts:30 注释块先例（CallRecorder._instance 单例同模式，已标注）。
-let _dynamicRoots: string[] | null = null;
-
-/**
- * 注入 client Roots 授权源。非空 → 整体替换 env；null/空 → 清空回落 env。
- * 注入期只按 URI scheme 过滤（file://，见 parseFileRootUris），不过滤路径存在性——
- * 存在性延迟到 isPathInAllowedRoots 的 safeRealPath（与 env 分支对齐，兼容"待创建新项目"）。
- */
-export function setAllowedRootsFromClient(roots: string[] | null): void {
-  _dynamicRoots = roots && roots.length > 0 ? roots : null;
-}
-
-/** 查询是否处于 client Roots 注入态（区别于 env 非空）。GodotServer re-fetch 决策用。 */
-export function hasDynamicRoots(): boolean {
-  return _dynamicRoots !== null;
-}
-
-/**
- * 解析 MCP Roots 的 URI 为本地路径。只接受 file:// scheme，跳过非法 URI。
- * 不过滤路径存在性（与 env 注入期一致，存在性交 check 期 safeRealPath）。
- */
-export function parseFileRootUris(roots: Array<{ uri: string }>): string[] {
-  const out: string[] = [];
-  for (const r of roots) {
-    if (typeof r?.uri !== 'string' || !r.uri.startsWith('file://')) continue;
-    try { out.push(fileURLToPath(r.uri)); } catch { /* 非法 URI 跳过 */ }
-  }
-  return out;
-}
+// D 批（v0.30）：MCP Roots 动态授权源已退役。
+// 2026-07-28 规范正式废弃 Roots（12 个月窗口），SDK 官方迁移路径是 configuration
+// （即 ALLOWED_PROJECT_PATHS env）。此前 modern era 下 listRoots 本就抛错回落 env，
+// 退役后 legacy roots 客户端也统一走 env——语义更一致。详见 docs/protocol-debt-2026-07-28.md。
 
 export function getAllowedProjectPaths(): string[] {
-  if (_dynamicRoots !== null) return _dynamicRoots;  // 动态 Roots 优先（整体替换 env）
-  const env = process.env.ALLOWED_PROJECT_PATHS;     // 兜底（不支持 Roots 的客户端）
+  const env = process.env.ALLOWED_PROJECT_PATHS;     // 唯一授权源（deny-by-default，见 isPathInAllowedRoots）
   if (!env) return [];
   return env.split(';').filter(Boolean).map(p => resolvePath(p));
 }

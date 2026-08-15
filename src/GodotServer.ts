@@ -51,7 +51,6 @@ import { getLogger, setLoggerServer, setLoggerClientReady } from './core/logger.
 import { setProgressSender, setProgressClientReady } from './core/progress.js';
 import { setElicitServer } from './core/elicit.js';
 import { resolveProjectPath } from './core/path-utils.js';
-import { setAllowedRootsFromClient, hasDynamicRoots, parseFileRootUris } from './core/path-utils.js';
 import { AgentContextManager } from './core/agent-context.js';
 import { FileStateStore } from './core/state-store.js';
 
@@ -307,65 +306,14 @@ export class GodotServer {
 
     // Phase 2b: Multi-instance initialization moved to initMultiInstance() (async fs)
 
-    // 批 P0: MCP Roots 动态授权集成（oninitialized + list_changed）
-    this.initRootsIntegration();
-  }
-
-  /**
-   * MCP Roots 动态授权集成（批 P0）。
-   * oninitialized 检测 client 能力 → listRoots 拉取 → parseFileRootUris 解析 → setAllowedRootsFromClient 注入。
-   * list_changed 热更新。initial 失败 fail-to-env-baseline；re-fetch 失败 + 已有 roots 保留旧（不静默切作用域）。
-   * SDK oninitialized: () => void（非 Promise），async 赋值后 SDK 不 await——首次 fetch 完成前工具调用走 env baseline（fail-safe 朝收紧方向）。
-   *
-   * P1-3 (SEP-2575): modern era(2026-07-28)降级行为:
-   * - oninitialized 不触发(modern 无 initialize 握手)→ Roots 走 env baseline(ALLOWED_PROJECT_PATHS)
-   * - listRoots() 在 modern era 抛错(_assertPushApiInServedEra)→ 被 try/catch 兜底,降级 env baseline
-   * - getClientCapabilities() 在 modern era 是 per-request 快照(非连接级)→ oninitialized 不触发故不影响
-   * - notifications/roots/list_changed 移除(modern 用 subscriptions/listen)→ legacy 客户端仍工作
-   * 这是预期降级:modern era 的无状态特性与 enhanced 的"连接级安全白名单"语义有根本张力。
-   * 用户通过 ALLOWED_PROJECT_PATHS 环境变量配置 modern era 的路径白名单。
-   */
-  private async initRootsIntegration(): Promise<void> {
-    const applyRoots = async (isRefetch: boolean): Promise<void> => {
-      try {
-        const resp = await this.server.listRoots();
-        const valid = parseFileRootUris(resp.roots ?? []);
-        if (valid.length > 0) {
-          setAllowedRootsFromClient(valid);
-          getLogger().info('security', `Authorized ${valid.length} root(s) from MCP client`);
-        } else {
-          if (isRefetch && hasDynamicRoots()) {
-            getLogger().warn('security', 'Roots re-fetch returned empty/invalid — keeping previous roots');
-          } else {
-            setAllowedRootsFromClient(null);
-            getLogger().info('security', 'No valid client roots — using ALLOWED_PROJECT_PATHS baseline');
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (isRefetch && hasDynamicRoots()) {
-          getLogger().warn('security', `Roots re-fetch failed — keeping previous roots: ${msg}`);
-        } else {
-          setAllowedRootsFromClient(null);
-          getLogger().warn('security', `Initial roots fetch failed — using env baseline: ${msg}`);
-        }
-      }
-    };
-
-    this.server.oninitialized = async () => {
+    // D 批（v0.30）：MCP Roots 动态授权已退役（2026-07-28 规范正式废弃 Roots，
+    // 12 个月窗口；SDK 的 roots 拉取在 modern era 直接抛错，legacy 侧官方迁移路径是
+    // configuration 即 ALLOWED_PROJECT_PATHS env——与 modern era 实际行为一致）。
+    // oninitialized 保留：承载 logger/progress 的 client-ready 信号（与 Roots 无关）。
+    this.server.oninitialized = () => {
       setLoggerClientReady(true);
       setProgressClientReady(true);
-      const caps = this.server.getClientCapabilities();
-      if (caps?.roots) {
-        await applyRoots(false);
-      } else {
-        getLogger().info('security', 'Client does not support MCP Roots — using ALLOWED_PROJECT_PATHS baseline');
-      }
     };
-
-    this.server.setNotificationHandler('notifications/roots/list_changed', async () => {
-      await applyRoots(true);
-    });
   }
 
   /** Phase 2b: Multi-instance initialization (async fs — C-02).
@@ -692,7 +640,6 @@ export class GodotServer {
       setProgressSender(null);
       setProgressClientReady(false);
       setElicitServer(null);
-      setAllowedRootsFromClient(null);  // 批 P0: 回落 env，干净关闭 + 测试隔离
       // 架构修复 P0-2: 补齐 tools 侧模块级引用清理(close 原本漏清这 5 个,
       // 致 instance-tools/advanced-proxy/game-bridge 持有上一 server 闭包 → 测试隔离泄漏 / 热重启残留)
       setInstanceManager(null);
