@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### ⚠️ Breaking / 迁移需知 — autoload 键名迁移(2026-08-14 批次,影响 bridge 安装)
+
+- **autoload 键名去前缀,旧项目重跑 install 自动迁移**:≤0.28.3 的 `game_bridge_install` / `install_override` 在 `project.godot` 的 `[autoload]` 段写入**带 `autoload/` 前缀的坏键**(`autoload/MCPBridge`、`autoload/MCPOVERRIDE_<name>`)。autoload 段键名即 Godot autoload 节点名,`/` 前缀使多个键被 Godot 截断为同名 `autoload` 节点 → **`install_override` 注入的调试脚本不被加载(静默失效,批内实测复现)**;且 bridge 连接预检的裸字符串匹配对新旧形态判定不可靠 → `BRIDGE_NOT_CONNECTED` 误报。修复后:①写入侧键名无前缀(`MCPBridge` / `MCPOVERRIDE_<name>`);②**旧项目重跑 `game_bridge_install` 或 `install_override` 即自动迁移**(检测到旧键删旧写新);③`game_bridge_uninstall` / `uninstall_override` 双键清理;④读侧(连接预检)去前缀比较,新旧两种形态都正确判定——无需手动改 `project.godot`。
+
+### Fixed — 2026-08-14 open findings 分批修复(editor/连接链)
+
+- **P0 编辑器重启后重连恢复链死**:editor auth 失败被计入 reconnect exhaustion,但 exhaustion 事件从未 fire 降级回调 → 编辑器重启后 EditorConnectionManager 卡在不可用状态不自愈,须重启 MCP server。修复:auth 失败路径打通 exhaustion → 降级/恢复链(commit `c42c06c`)。
+- **P1 遗留重连 timer 弹跳 + 并发 rebuild 竞态**:重连成功后旧 backoff timer 未清,后续 tick 把好连接当失联再次断开重连(连接弹跳);并发 rebuild 去重,防迟到的竞争连接误清胜者(commit `7a11d2e`)。
+- **P3 debug 协程挂死 watchdog + WebSocket 握手超时回收槽位**:editor WS 协程中途 script error 时 reply 永不发出 → 客户端 30s 超时挂死;新增 watchdog 兜底发错误 reply。握手卡在 CONNECTING 的 peer 此前永久占用 MAX_PEERS 槽位,现握手超时回收(commit `cf8be32`)。
+- **P2 server close() 清理链补漏**:close() 补 `registerBridgePushHandler`/`dynamicSchema.setFetcher` 两个模块级注入点清理(原持已 close 旧 server 闭包,热重启后 push 事件/动态 schema 错路由到死 server),清理链逐项 try 容错(commit `2fe4eeb`)。
+
+### Fixed — 同批次(bridge / playtest 运行时)
+
+- **P1 订阅断线静默丢失永不恢复**:bridge TCP 断连(60s idle/游戏重启)后 watch/monitor 的 push 订阅静默消失,重连后事件不再推送且无任何报错。修复:连接时登记订阅表 + 重连成功自动重发登记 + 30s keepalive 防 idle 断连(commit `889a712`)。
+- **P2 playtest 永久暂停**:freeze 后若 step_until 请求在途,unfreeze 不清 pending 唤醒 → 游戏永久 paused 只能杀进程;现 unfreeze 清 pending。snapshot/restore 补 paused 状态保存-还原(`saved_valid` 守卫,不存在时还原为未暂停而非还原成假值)。`seed`/`fixed_delta` 补 owner 互斥(两 playtest 间锁状态不互斥可互相污染),`_playtest_active` 复位防悬挂(commits `72d8ffb`/`d323aea`/`fd82f64`/`be5bdb0`)。
+- **P2 `step_until` 超时竞态**:TS 侧超时与 GD 侧 `wall_budget` 不一致,TS 先超时返回时 GD 循环仍在跑;TS 超时对齐 `wall_budget+5s` 余量,`wall_budget` 钳制范围改 1000-50000ms(commits `8e6d598`/`be5bdb0`)。
+- **P2 headless + bridge 属性写入 no-op 假成功**:headless `edit_node` 数学类型属性(Vector2/3 等)传 Array/Dict 时静默不转换直接赋值失败却报成功,现补真实类型转换;bridge `set_node_property` 裸 `set` 对不存在属性/数学类型输入返回假成功,现补存在性校验(String 输入报错)+ 数学 coerce,plain var(未声明脚本属性)存在性放行(commits `7de9ed0`/`0bf53a0`/`71fb911`)。
+
+### Fixed — 同批次(scene / 工具行为)
+
+- **P1 `scene` commit 绕过编辑器写守卫 + 保存失败假成功**:commit 顶层 `success` 硬编码 true——编辑器场景只读未保存时照样"成功";现补 `checkEditorSceneSave` 守卫,保存失败如实报错,`isError` 条件改 success 驱动(覆盖 `stopOnError` 中止 corner)(commits `e590b64`/`7d40fc0`)。
+- **P2 `audit` 工具不可见(生产 bug)**:audit 工具未归入任何工具组 → `isToolAllowed` 恒 false,基本/完整 profile 下均不可调用;现归入 core 组(commit `4cdc0ef`)。
+- **P2 审计动态通道缺失**:CMP-16-B 动态注册工具经 `godot_advanced_tool` 代理调用时,审计中间件查不到静态 risk 表 → 危险操作不落审计日志;现接 A1 的 dynamic-risk-map 反查,补 9 场景集成测试 + wrapper 直接测试(commits `c11fd30`/`32b27ed`)。
+- **P2 debug `reload_scripts` 会话串台 + breakpoint 路径穿越**:reload 改 `resolve_session()` 单 session 语义(多 session 明确报错,不再发 A 读 B);`set_breakpoint`/`clear_breakpoint` 补 `..` 穿越校验(commit `f7d518b`)。
+- **P3 undo 回放 freed Object 防御**:undo action 注册期 args 中的已释放 Object(批孤儿扫描 free 后)`callv` 回放即 SCRIPT ERROR;注册期按 `typeof==TYPE_OBJECT and not is_instance_valid` 防御跳过(注意:`is` 对 freed 实例求值本身抛错,惯用法必须先 typeof)(commit `ef66213`)。
+- **P3 `list_projects` max_depth 钳制 ≤10**:深目录递归扫描无上界,现钳制;转发孤儿执行观察 log(commit `c402158`)。
+- **K-4 实测发现:TS 侧 bridge secret 读路径 ACL 收紧 `:R` 漏改 `:M`**:`readBridgeSecret()` 每次读 secret 用 icacls 收紧为 owner `:R`——GD 侧 `mcp_bridge.gd`/`websocket_server.gd` 的 `_restrict_secret_permissions` 已从 `:R` 改 `:M`(R 是 anti-pattern),但 TS 第三副本漏改,把 GD 写路径的 M 覆写回 R → R-only secret 删不掉(无 DELETE 权限)→ e2e L2 结束后清理失败 → 后续连续跑 e2e 整 suite 静默 skip(本地实测复现,两次干净跑 75 passed、第二次起 beforeAll EPERM 全 skip)。现对齐 `editor-auth.ts:32` 改 `:M`(本批次)。
+- **`test_run` editor 路径自 P2-12 起不可用**:GD `websocket_server` reply 构造用点访问读不存在的 `result` 键即 SCRIPT ERROR,`test_run`/`test_manage` 返回 `{"data":...}` 形态的 coroutine 在发 reply 前中断 → 客户端 30s 挂死;reply 改 `response.get("result", response.get("data"))`(commit `ffd6172`)。
+- **K-1 push 通知只发已订阅客户端**:`resources/subscribe` 此前为空 handler + push 事件无条件广播,违反 MCP 协议(notifications/resources/updated 应只发订阅者)且 capabilities 未声明 `subscribe: true`;现订阅记录(Set,重复订阅幂等)/unsubscribe 移除/push 仅发已订阅 `bridge://events` 客户端,与 watch_start/monitor_start 文档"client 需订阅 resources/subscribe"语义对齐(本批次)。
+
+### Security — 同批次
+
+- **write_script 沙箱 3 个旁路入口封堵**:`quick_scene`/`create_files`/`apply_template` 三个写 `.gd` 入口裸 `writeFileSync` 绕过 `scanScriptSandboxOrThrow`(tscn 绑 ExtResource 后编辑器打开/run_project 即执行,与 write_script 同一威胁面);现统一接线落盘前扫描,危险 `.gd` 拒入 failed 不落盘(commit `7d967eb`)。
+- **`engine call_method` deny-list 拼写错误 + 内层检查**:deny-list 条目拼写错误致对应方法从未被挡;补 args 带内层方法名的间接调用检查(commit `b7aaf52`)。
+- **`load_skill` libraries 白名单 + API nonce 持久化防 symlink 覆写**:`load_skill` 的 `libraries` 参数可读白名单外路径,现限 ALLOWED_PROJECT_PATHS;多实例 API nonce 持久化时补 symlink 预检(commit `effb5fc`)。
+- **project create `godot_version` 注入面校验**:`create_project`/`apply_template` 的 `godot_version` 直接进 CI 生成物,现补格式校验(支持 `4.4.1-rc1` pre-release 形态)(commits `3b80e36`/`dd09899`)。
+
+### Docs — 同批次
+
+- **telemetry 披露对齐实现**:`error_category` 字段表改为 T1 固定枚举(原文暗示自由文本与实现矛盾);vision 外传截图描述改为降采样后数据(PNG 最长边 1024px、超 1MB JPEG 拒传),对齐 `screenshot.ts` 实际行为(commit `9bc9aa5`)。
+- **blender 工具描述对齐自身沙箱**:`execute_bpy` 描述补"已知危险 API 模式扫描 + 双 opt-in 旁路",对齐 `bpy-sandbox.ts` 实际防护(此前描述低估)。
+
+### Tests — 同批次
+
+- **debug 子系统 e2e 首次真跑**:3 用例(breakpoint 命中/stack_trace/断点穿越校验),新增 `test_debug_driver.gd` 在 editor 主循环内代按"运行场景"驱动(实测踩坑:test_name 子串匹配陷阱/断点注释行陷阱/声明行无 opcode 不命中均记录于批 H 报告);发现并修复上述 `test_run` 挂死。
+- **`batch_add_nodes` editor 套件**:5 用例对齐 test_undo_manager 范式真跑绿,锁定 B5 `is_inside_tree()` 计数契约。
+- **undo_manager e2e 首次真跑**:修 action 键笔误与两处解析 bug(从未真跑过故从未暴露),commit `66b615e`;e2e-full 补 `.godot` 缓存清理对齐 p1-p5 模式(commit `1075ed7`)。
+- **K-1/K-2 行为锁定**:subscribe→push 仅达订阅者/未订阅不收/重复订阅幂等/unsubscribe 停发/close 清理 10 用例;真实 SDK 实测锁定"声明 logging capability 即自动注册内置 setLevel handler"(finding :942④ 前提不成立,详见 test/k-subscribe-setlevel.test.ts)。
+
 ### Security — 2026-08-11 审查 open findings 批次(A1-A7)
 
 - **A1 [P1] 动态工具 confirm/action-gate 双绕过修复**:CMP-16-B 动态注册的平铺工具(`engine_call_method`/`debug_evaluate` 等)不在静态 metaRegistry → guard 查不到 risk 永不确认、action-gate 永不命中,等价静态调用(write 需确认)经动态通道绕过双层门。修复:`src/core/dynamic-risk-map.ts`(method→静态 (tool,action) 反查表)+ ToolDispatcher 两道门用反查结果判定;未映射动态方法 fail-closed 要求确认。双副本与 `check-command-docs-drift.mjs` 的 METHOD_TO_TOOL 经契约测试同步。
