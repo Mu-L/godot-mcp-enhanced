@@ -287,10 +287,10 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
    > ⚠️ 教训（2026-08-01 P2-12 缩进排查）：`validate_scripts` 的"触发 Godot 完整编译"描述是**误导**——它逐文件解析，不等于项目级完整编译。commit `195eabc` 的 animation_commands else 缩进 bug 经 validate_scripts 0 error 漏网，直到 editor 实测才暴露。`check:gdscript` 才是真"完整编译"。详见 memory `Godot MCP verification blind spot`。
 
-### 改动 `.claude/rules/` 后（⚠️ 高频踩坑，CI 盲区）
+### 改动 `.claude/rules/` 后（⚠️ 高频踩坑）
 
-7. 凡 commit 改动 `.claude/rules/godot-mcp-*.md`，**必须同步** `src/tools/rule-templates.ts` 对应段（独立副本约束，见「独立副本同步约束」段）。CI（`scripts/check-rules-version-bump.mjs`）**不校验内容一致性**，drift 静默放过。
-   - 核查命令：`grep <新增关键词> src/tools/rule-templates.ts`（应为 ≥1 命中）
+7. 凡 commit 改动 `.claude/rules/godot-mcp-*.md`，**必须同步** `src/tools/rule-templates.ts` 对应段（独立副本约束，见「独立副本同步约束」段）。CI 以 `STRICT=1 npm run check:rules-sync`（`scripts/check-rules-content-sync.mjs`，2026-08-16 起阻断模式）机械校验内容一致性（归一化仅抹版本行）；历史 drift 已于 2026-08-16 清零。
+   - 核查命令：`STRICT=1 npm run check:rules-sync`（本地预验，需先 `npm run build`）
    - 改了 `rule-templates.ts` 后须 `npm version patch --no-git-tag-version`（否则 `check-rules-version-bump.mjs:92-96` 会拦）+ `npm run build`。
    - 此规则源于 2026-07-27 get_node_layout PR 教训（前序 final review 漏抓此 drift，第三方审查才发现，详见 memory `independent-copy-sync-ci-blindspot`）。
 
@@ -378,7 +378,7 @@ server 按场景分工三层,自动检测互不冲突:
 1. `.claude/rules/` 下的实际文件(本仓库 Claude Code 自用)
 2. `src/tools/rule-templates.ts` 的模板内容(分发到目标项目)
 
-CI 脚本 `scripts/check-rules-version-bump.mjs` 会在模板变更时强制要求 `package.json` 版本 bump,但不校验内容一致性——内容同步靠人工。
+CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要求 `package.json` 版本 bump;`check-rules-content-sync.mjs` 以 STRICT 模式(2026-08-16 起,`ci.yml` 传 `STRICT=1`)校验双副本内容一致性——归一化仅抹版本行与换行符,其余逐字比对,drift 阻断合并。
 
 ### 生成代码边界
 

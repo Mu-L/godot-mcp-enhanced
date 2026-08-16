@@ -62,9 +62,8 @@ jobs:
         run: npm run check:test-quality
       - name: Check protocol versions (2026-08-07 批次4 P2：SDK vs GodotServer.ts 快照一致性)
         run: npm run check:protocol-versions
-      - name: Check rules content sync (2026-08-07 批次4 P2：advisory 模式，历史 drift 不阻断)
-        run: npm run check:rules-sync
-        continue-on-error: true  # advisory：历史 drift 待统一同步后改 STRICT=1 阻断
+      - name: Check rules content sync (2026-08-16 原型翻译层遗留③：历史 drift 已清零，启用 STRICT 阻断)
+        run: STRICT=1 npm run check:rules-sync
       - name: Check env isolation (2026-08-08 测试-P1-C：安全测试 env 隔离 footgun 守护，advisory)
         # 扫描 test/ 下直接赋值危险 env（绕过 vi.stubEnv）的 footgun。当前 62 条多为「保存 orig →
         # 设值 → afterEach 还原」正确模式，warn-only 可视化。升 error 前需实现作用域分析（只报

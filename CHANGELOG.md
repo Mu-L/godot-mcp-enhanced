@@ -157,6 +157,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 原型翻译层迭代小修批(2026-08-16 实施审查遗留 ①②⑤)
+
+- **显式 `type:'Panel'` 无 bg 行为翻转无提示**:HTML div 默认透明而 Godot 默认 Panel 主题灰底 stylebox,渲染行为翻转(灰底可见)此前静默——翻译器补 declaration warning(建议补 bg 匹配原型或去掉 type 走推断透明壳),正负测试锁定。
+- **`ui_import_prototype` 根级 diff 限制提示假阳性**:`parent_path` 尾斜杠变体(`root/`/`/root/`)与 `/root` 语义等价,字符串全等比较会多弹 warning——改归一化判定(去尾斜杠);场景根名(如 `/Main`)仍保守提示(原点对齐理论差异仍在)。
+- **token budget totalSum warn 基线校准**:实测 86412B 超旧线 80KB 达 5.5%,按"覆盖率阈值持续超 4% 应上调"惯例上调至 90KB,消除长期恒 warn 噪声;error 120KB 硬线与单工具 desc warn(有意义的瘦身提醒)不动。
+
+### Changed — 双副本内容一致性 STRICT 门禁(遗留 ③)
+
+- **`.claude/rules/` ↔ `rule-templates.ts` 历史 drift 全量清零 + CI 启用 STRICT**:8/9 文件存在双向内容 drift(core 模板缺 13 行陷阱知识/bridge 模板缺 monitor/watch/UI 发现/manage_tools 四节与 10 条陷阱且示例节点路径用相对形态[GD 侧 `get_node_or_null` 从 autoload 解析,相对路径必失败]/recording 模板字段 `timestamp_ms`+`x,y` 与 GD 权威产物 `time_offset`+`position` 不符且缺自动命名语义/editor 双向缺段/workflow 三件套 rules 侧缺 frontmatter)。逐处仲裁权威侧(GD 实现/工具真实行为)双向合并。
+- **校验脚本升级**:`check-rules-content-sync.mjs` 归一化收紧(旧版全 semver 抹平会掩盖 Godot 4.x 真实差异+压缩空白使 diff 粒度退化;新版仅抹版本行锚定 `godot-mcp-enhanced` 前缀+换行归一)+ 双向对账(文件↔模板键)+ 行级差异定位;`ci.yml` 传 `STRICT=1` 阻断(去掉 `continue-on-error` 假接线)。
+
 ### Fixed — CI Linux 平台债(2026-08-15 run#122 三 job 全红根因修复)
 
 - **check job 4 文件 23 用例稳定超时/输出丢失**:CI 的 vitest 步骤跑在 `check:gdscript` 之前,而 gdscript-check fixture 的 `src/scripts/`+`addons/` 是被 .gitignore 的运行时拷贝产物 → CI checkout 后 fixture 是空壳,Godot `load()` 得 null → SCRIPT ERROR → `extends SceneTree` 脚本 `_init` 中断、`quit()` 不执行 → headless 进程无限挂 → vitest 10s 超时(本地 Windows 绿是因开发机留有旧拷贝残留,属环境假绿)。修复:`check-gdscript.ts` 抽出 `syncCheckProjectFixture()` 导出函数,vitest 新增 `globalSetup`(`test/global-setup.ts`)在所有测试 worker 启动前填充 fixture——本地/CI 任意 vitest 入口统一就绪,ci.yml 零改动。

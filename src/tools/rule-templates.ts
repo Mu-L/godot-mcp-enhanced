@@ -129,6 +129,19 @@ Headless 模式下场景截图可能完全空白——headless 进程默认用 *
 - **运行时操作误认为持久化**：运行时工具的修改在 headless 进程退出后丢失。
 - **load_autoloads 性能开销**：仅在需要 Autoload 单例时开启，否则启动时间增加 3-5 倍。
 - **Bridge 密钥过期**：Bridge 密钥有 5 分钟 TTL 缓存，长时间未操作后首次调用可能稍慢。
+- **Headless 截图空白（2D/3D）**：Headless 用 RendererDummy 无渲染后端，2D CanvasItem 与 3D mesh 均不渲染像素。使用 Bridge take_screenshot（GPU viewport）或手动/GUI 截图替代。
+- **run_and_verify 可能残留进程**：headless 模式下交互式场景（不自动退出）可能残留 Godot 进程。如果后续 \`run_project\` 报 "another Godot process is running"，先调用 \`stop_project\` 清理残留进程。
+- **orphan 扫描会话隔离（多会话安全，v0.x+）**：\`stop_project\` 的 orphan 清理**默认只清本会话 \`run_project\` 启动过、脱离管理且仍存活的 Godot 进程**（按 PID 集合，非全系统扫描）。多个并发会话操作同一项目时，互不误杀对方的编辑器/游戏进程。\`launch_editor\` 启动的编辑器**不纳入** orphan 清理（detached，用户有意长期运行，永不被自动杀）。崩溃恢复场景（MCP server 重启后内存 PID 集合丢失）：设环境变量 \`GODOT_MCP_FULL_SYSTEM_SCAN=true\` 后调 \`stop_project\`，恢复 V-01 全系统扫描兜底（按项目目录匹配，会清所有匹配的 Godot，慎用）。**此 opt-in 非缺陷，是多会话安全的有意设计（B9）**。
+- **load_autoloads=true 片段模式差异**：\`load_autoloads=true\` 时片段包装为 \`extends Node\`（非 \`extends SceneTree\`），\`get_root()\` 不可用。需要手写 \`extends SceneTree\` 完整类模式来访问 SceneTree API。
+- **load_autoloads autoload 层级**：\`load_autoloads=true\` 时 autoload 节点不直接挂在 \`get_root()\` 下，而是通过 autoload 系统加载。使用 \`Engine.get_main_loop().get_root().get_node("autoload/Xxx")\` 访问。
+- **remove_node 路径格式**：使用 \`父名#子名\` 格式（如 \`Main#ValidationLabel\`），而非 \`/\` 分隔路径。先用 \`query_scene_tree\` 确认节点名。
+- **ui_build_layout 必须传 scene_path**：不传 \`scene_path\` 会报错 "Failed to load scene"。所有 \`ui_build_layout\` 调用必须包含 \`scene_path\` 参数。
+- **screenshot analyze 返回格式**：\`screenshot(action=analyze)\` 返回图片 base64 数据（非文字描述），需配合 \`image_path\` 参数指定本地 PNG/JPG 文件路径。它不会自动对截图做 AI 文字分析，而是将图片数据返回给调用方做视觉检查。
+- **findGodot 缓存 + env 固化（M3, v0.18.x+）**：\`findGodot\` 首次解析后缓存（\`_pathCache\`），且 Node 进程 env 启动时固化。改 \`GODOT_PATH\` 环境变量后**需重启 MCP 服务端**才生效（env 进程级 + 缓存双固化；若新 env 未注入则 fallback PATH 上的 godot）。项目级覆盖用 \`.godot/mcp-godot.json\` 的 \`godot_path\` 或 project.godot \`[godot_mcp]\` 段（优先于 env，且每项目独立缓存）。
+- **ALLOWED_PROJECT_PATHS 不热重载（M5, v0.18.x+）**：项目路径白名单从 \`process.env.ALLOWED_PROJECT_PATHS\` 读取（分号分隔），Node 进程 env 启动时由父进程注入并固化。改 settings.json 的 env 配置后**需重启 MCP 服务端（或宿主 Claude Code）**才生效——改完仍报 \`PATH_NOT_ALLOWED\` 多半是未重启。临时绕过：\`GODOT_MCP_UNRESTRICTED=true\`（仅本地开发）。
+- **add_node 无节点级冲突检测（吸收自 ai-kit enhanced-boundaries #5）**：\`batch_add_nodes\` 后再单独 \`add_node\` 加同名子节点不会报错，可能产生重复节点（尤其同父路径，Godot 加载时拒绝）。add 前先 \`query_scene_tree\` 查目标父下是否已有同名节点，走"query → 条件 add"模式。实现层（\`src/tscn/tscn-editor-add.ts\` \`_addNodeInner\`）无同级重名扫描；defects.md \`addnode-no-duplicate-check\`（OPEN）跟踪实现层修复。
+- **validate_scripts vs run_and_verify 可能不一致（吸收自 enhanced-boundaries #4）**：validate_scripts 跑 headless 验证器脚本（捕跨文件编译依赖），但不等于实跑场景（运行时动态行为/场景加载）。关键验证结论（如"脚本通过"）用 validate_scripts + run_and_verify 交叉确认，不一致时以 run_and_verify 实跑为准。
+- **load_skill 召回的是参考代码（吸收自 enhanced-boundaries #12）**：\`load_skill\` 检索第三方 skill 库（GodotPrompter / gd-agentic 等）召回的 scripts 是教学示例，非生产代码（可能含硬编码密钥 / null 崩溃 / 未验证模式）。复制到生产项目前必须人工审。
 `,
 
   'godot-mcp-bridge.md': `---
@@ -136,7 +149,7 @@ description: "game bridge game_query game_input game_write game_wait game_bridge
 alwaysApply: false
 ---
 
-> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}
 
 ## 概述与架构
 
@@ -194,6 +207,43 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | \`wait_for_node\` | 等待节点出现（path） |
 | \`wait_for_property\` | 等待属性值变化（path + property + value） |
 
+### 监控 — monitor_start/stop/poll
+
+| action | 说明 |
+|--------|------|
+| \`monitor_start\` | 开始属性采样（node_path + properties + interval_frames） |
+| \`monitor_stop\` | 停止采样，返回完整时间线 |
+| \`monitor_poll\` | 获取当前采样数据（不停止） |
+
+### 信号监听 — watch_start/stop/poll
+
+| action | 说明 |
+|--------|------|
+| \`watch_start\` | 监听信号事件（node_path + signal_name + max_events） |
+| \`watch_stop\` | 停止监听，返回事件列表 |
+| \`watch_poll\` | 获取已记录事件（不停止） |
+
+### UI 发现 — find_ui_elements / click_button
+
+| action | 说明 |
+|--------|------|
+| \`find_ui_elements\` | 查找可见 Control 节点（pattern / type / visible_only / limit） |
+| \`click_button\` | 点击按钮（text 或 path） |
+
+### 工具组管理 — manage_tools
+
+| action | 说明 |
+|--------|------|
+| \`list_groups\` | 列出所有工具组及其启用/停用状态 |
+| \`activate\` | 启用指定工具组（按名称） |
+| \`deactivate\` | 停用指定工具组（按名称） |
+| \`sync\` | 返回各工具组的 \`requires\` 连接状态（editor/bridge/headless） |
+| \`reconnect\` | 触发 EditorConnection 重新连接（bridge 无持久连接，no-op） |
+
+**行为说明**：
+- \`reconnect\` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
+- \`sync\` 返回结构：\`{ groups: [{ name, requires, status }, ...], editor: { installed, connected, state }, bridge: { note } }\`。其中 **status**:editor 组 = \`connected\`/\`disconnected\`(基于 editor 连接);bridge 组 = \`probe-required\`(用 \`game_query(method=ping)\` 探测);无 requires 组(core/animation/ui 等)= \`n/a\`。**editor.state**:连上时用 healthMonitor(工具调用健康),未连报 \`disconnected\`,未启动报 \`null\`。**editor.installed** = editorConn 是否注入(launch_editor 后 true)。
+
 ## 使用指南
 
 ### 安装流程
@@ -246,16 +296,52 @@ game_query(method="find_nodes", params={ "pattern": "Player" })
 \`\`\`
 game_input(method="send_mouse_click", params={ "x": 640, "y": 360, "button": "left", "pressed": true })
 game_input(method="send_mouse_click", params={ "x": 640, "y": 360, "button": "left", "pressed": false })
-game_wait(method="wait_for_node", params={ "path": "root/CanvasLayer/Dialog" })
-game_query(method="get_node_properties", params={ "path": "root/CanvasLayer/Dialog", "properties": ["visible"] })
+game_wait(method="wait_for_node", params={ "path": "/root/CanvasLayer/Dialog" })
+game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/Dialog", "properties": ["visible"] })
 // → { visible: true }
 \`\`\`
 
 ### 修改运行时状态
 
 \`\`\`
-game_write(method="set_node_property", params={ "path": "root/Player", "property": "position", "value": { "x": 10, "y": 0, "z": 5 } })
-game_write(method="call_method", params={ "path": "root/Player", "method": "take_damage", "args": [25] })
+game_write(method="set_node_property", params={ "path": "/root/Player", "property": "position", "value": { "x": 10, "y": 0, "z": 5 } })
+game_write(method="call_method", params={ "path": "/root/Player", "method": "take_damage", "args": [25] })
+\`\`\`
+
+### 属性监控
+
+\`\`\`
+game(action="monitor_start", node_path="root/Player", properties=["position", "health"], interval_frames=5)
+// → { monitoring: true, node_path: "root/Player", properties: [...], interval_frames: 5 }
+
+game(action="monitor_poll")
+// → { monitoring: true, samples: [{frame: 100, time: 1.667, values: {position: {x:10,y:0}}}], sample_count: 1 }
+
+game(action="monitor_stop")
+// → { monitoring: false, samples: [...], sample_count: 30, duration_seconds: 2.5 }
+\`\`\`
+
+### 信号监听
+
+\`\`\`
+game(action="watch_start", node_path="root/Button", signal_name="pressed", max_events=100)
+// → { watching: true, node_path: "root/Button", signal_name: "pressed", max_events: 100 }
+
+game(action="watch_poll")
+// → { watching: true, events: [{frame: 150, time: 2.5, args: []}], event_count: 1 }
+
+game(action="watch_stop")
+// → { watching: false, events: [...], event_count: 5, duration_seconds: 8.2 }
+\`\`\`
+
+### UI 元素发现
+
+\`\`\`
+game(action="find_ui_elements", type="Button", visible_only=true)
+// → { elements: [{path: "root/Menu/StartBtn", type: "Button", text: "Start", ...}], count: 3 }
+
+game(action="click_button", text="Start")
+// → { clicked: true, button_path: "root/Menu/StartBtn", button_text: "Start" }
 \`\`\`
 
 ### 错误：Bridge 未连接
@@ -273,9 +359,21 @@ game_query(method="ping")
 - **Bridge 未安装**：调用 game_query/input/write/wait 前必须先 game_bridge_install。安装是一次性的（写入 project.godot autoload）。
 - **游戏未运行**：Bridge autoload 只在游戏运行时监听。编辑器模式（编辑场景）不会启动 Bridge。
 - **密钥文件权限**：Windows 上可能需要 icacls 权限。Linux/macOS 上自动 chmod 0600。
+- **密钥权限循环**：Bridge 首次运行后将密钥文件权限收紧为只读（Windows: \`(R)\` only），导致后续启动时无法重写密钥而中止（"Failed to write secret — aborting Bridge startup"）。**解决**：手动恢复写入权限 \`icacls ".godot/mcp_bridge_9081.secret" /grant "%USERNAME%:(W)"\`，或删除密钥文件让 Bridge 重新生成。**S4 治本（v0.18.x+）**：设置环境变量 \`GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true\`，Bridge 复用现有 secret 文件（不重生、不收紧、\`_exit_tree\` 不删除），彻底打破权限循环并与 MCP 端 5min TTL 缓存保持同步。仅本地测试用（安全降级，生产保持默认 false）。
+- **节点路径必须用绝对路径**：\`game_write\`、\`game_wait\` 等的 \`path\` 参数必须以 \`/root/\` 开头（如 \`/root/Main/Player\`），不接受 \`root/Main/Player\` 格式。\`game_query(method="get_tree")\` 返回的路径可用于参考。
 - **与录制系统**：recording_start 依赖 Bridge 连接。确保 Bridge 可用后再录制。
 - **端口 9081 冲突**：如果端口被占用，需要手动修改 autoload 脚本中的端口配置。
 - **密钥缓存**：5 分钟 TTL 后首次调用会重新读取密钥文件，可能有短暂延迟。
+- **monitor 最大属性数**：单次监控最多 20 个属性（MONITOR_MAX_PROPERTIES），超出会报错。
+- **monitor 自动停止**：采样达到 500 条（_monitor_max_samples）后自动停止。
+- **watch Lambda 适配器**：信号回调使用 0-4 参数的匹配 Callable，超过 4 参数的信号只记录前 4 个。
+- **watch 自动断开**：事件达到 max_events 后自动断开信号连接并停止。
+- **find_ui_elements 最大返回**：默认 200，上限 500 条结果。
+- **click_button**：通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件。
+- **call_method 白名单只读（S5, v0.18.x+）**：\`ALLOWED_METHODS\` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。\`emit_signal\`/\`_on_*\` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 \`GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx\` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 \`set_node_property\` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。注：\`_cmd_call_method\` 仍有 \`args.size() > 8\` 拒绝限制（>8 参数的调用/emit_signal 会失败）。
+- **call_method CMP-9-B 增强（v0.27.0+）**：(1) args 按方法声明类型自动强转（传 \`[1,2,3]\` 给 Vector3 参数正确转换，Godot callv 不自动转，防静默零值）；(2) 方法不存在时返回 did-you-mean 建议（\`String.similarity\` > 0.6 取最高分）；(3) response 含 \`undoable: false\`（call 不可 undo，对标竞品）；(4) \`EXTRA_METHODS_BLOCKLIST\`（free/queue_free/set_script/call/callv/emit_signal/connect/disconnect 等）是不可覆盖硬底线（即使 env 列出也拒，防 RCE/运行时结构破坏）。向后兼容：不设 env 时行为完全不变。
+- **send_key 已支持 physical_keycode（S6, v0.18.x+）**：\`_cmd_send_key\` 同时设 \`keycode\` + \`physical_keycode\`，触发用物理键码映射的 input action（Godot 4 推荐 physical_keycode 映射）。早期版本只设 keycode，physical 映射项目（如 \`ui_right\` 用 physical）不触发。
+- **多用户环境不安全**：Bridge 使用 TCP 绑定 127.0.0.1 + 共享密钥认证。在单用户本地开发环境下足够安全，但在多用户共享系统（如远程开发服务器）上，localhost 通信可被同一机器上的其他用户嗅探。如需多用户隔离，考虑使用 Unix Domain Socket（仅文件权限控制访问）。
 `,
 
   'godot-mcp-editor.md': `---
@@ -373,6 +471,11 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **launch_editor 崩溃恢复（2026-08-07 审查 P2 文档化）**：launch_editor 是 fire-and-forget（detached + unref），不跟踪编辑器生命周期。编辑器崩溃后：① WS 断开 → EditorConnection 自动重连（20 次指数退避）；② 重连耗尽 → reconnectExhausted handler → handleEditorStall 降级 headless（用户可用 headless 工作）；③ 非 PERSISTENT_SECRET 模式下崩溃即删 secret，rebuildEditorConnection 需 secret 文件 → rebuild 失败需手动重新 launch_editor 或重启 MCP server。**用户预期管理**：系统不会自动重启崩溃的编辑器，需手动 launch_editor 或重启 server。心跳降级走 B-T5 分流（REQUEST_TIMEOUT 主线程卡死 → 降级；NOT_CONNECTED/CONNECTION_LOST 下线 → 让自动重连兜底不降级）。
 - **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
+- **editor 插件 4.7 Vector 类兼容**：早期记忆称 4.7 编译失败（Vector.from_string 等 4.6 API 移除），但 master 已迁移（Vector→\`_count_number_components\`，\`Color.from_string\` 4.7 保留），headless 工具 4.7 正常。**但 \`godot --check-only <file>\` 是假绿**：该用法只打 banner 不触发编译（4.7+4.6.2 实测），2026-06-26 据此称"6 文件全编译通过"不可信。addon 全量编译验证应用 \`godot --headless --import --path test/fixtures/gdscript-check\`（启用 plugin + 建全局类 class_name 缓存）。
+- **原生类虚函数禁 super()（2026-07-04 修复 654b162 回归）**：\`super()\`（无方法名）对 Godot 原生类（EditorPlugin/Node/VBoxContainer）虚函数（\`_ready\`/\`_process\`/\`_enter_tree\`/\`_exit_tree\`，**含 \`_init\`**）一律是 **Parse Error**："Cannot call the parent class' virtual function ... hasn't been defined"，**4.6.2+ 均报（非 4.7 特有）**。调父类实现用 \`super._method()\`（带方法名）显式形式。IMP-4 "虚函数首行调 super" **仅适用 extends 自定义基类**（见 CHANGELOG \`mcp_bridge.gd\` 移除 super 先例 + \`docs/review-followup-2026-06-18.md:93\`）。654b162（v0.19.0）误加 6 处 super() 致 addon 加载失败/9090 不监听；2026-07-04 移除（plugin/websocket_server/status_panel），4.7+4.6.2 \`--import\` 实测全量编译通过。
+- **editor 模式 WebSocket 端口 9090-9094（非 13100）**：\`addons/godot_mcp_server/websocket_server.gd:3\` \`BASE_PORT=9090\`。\`editor_get_scene_tree\` 返回 \`EDITOR_NOT_CONNECTED\` 通常是**端口/key/未就绪**问题（非编译）：需 \`mcp_editor.key\` icacls 权限 + 等 editor GUI 就绪（插件 WebSocket 监听 9090）+ MCP 端连对端口。详见 [[godot-editor-plugin-e2e-verification]]。
+- **editor 路由操作活动场景（2026-07-20）**：\`add_node\`/\`edit_node\`/\`batch_add_nodes\`/\`remove_node\` 的 editor 路由（editor-method-map 登记后 editor 连接时走 \`handle_*\`）操作**编辑器活动场景**（\`ei.get_edited_scene_root()\`），\`scene_path\` 参数仅 headless 生效。editor 模式操作非活动场景须先 \`open_scene\` 切换活动场景。editor/headless 语义差异：headless 按 scene_path 加载磁盘场景改盘，editor 改内存活动场景（不落盘，须 save_scene 持久化）。
+- **headless 改盘 + editor 开同场景→Ctrl+S 覆盖（2026-07-20）**：headless 改盘后，**若编辑器开着同一场景**，编辑器内存的旧版本 Ctrl+S 会覆盖 MCP 改动——须 Project→Reload 场景（或 File→Close Scene）后再操作。\`checkEditorSceneSave\` 守卫只防 MCP→editor 脏方向；反向（editor→MCP，用户手动 Ctrl+S）是引擎行为，MCP 端不可控。headless 改盘后建议关闭编辑器内该场景或 Reload。
 - **editor 固定 secret（S4-editor）**：设环境变量 \`GODOT_MCP_EDITOR_PERSISTENT_SECRET=true\`，editor plugin 复用现有 \`mcp_editor.key\`（不重生、不收紧 ACL、\`_exit_tree\` 不删除），彻底消除 \`_ready\` 覆盖写需求及 MCP 端 TTL 缓存同步窗口。仅本地测试用（安全降级——secret 固定不再轮换，生产保持默认 false）。对称 bridge \`GODOT_MCP_BRIDGE_PERSISTENT_SECRET\`（见 godot-mcp-bridge.md「密钥权限循环」）。
 - **mcp_editor.key 多实例互删（2026-07-23 修复）**：editor 启动写 \`{project}/.godot/mcp_editor.key\`，\`_exit_tree\` 默认删除。多个 editor 实例（或禁用→启用插件）共享同一路径时，**历史版本任一实例退出会误删仍存活实例的 key**（现象：editor 日志称 \`Auth secret written\` 但文件找不到；存活实例内存 \`_secret\` 仍有效、9090 仍 LISTEN，TS 端 TTL 缓存 5min 过期后重连连不上）。**已修复**：\`websocket_server.gd:_delete_secret_file\` 删前 \`FileAccess.get_file_as_string\` 校验 \`on_disk == _secret\`，只清自己生成的 key（读失败也不删，安全侧）。仍遇此问题（旧 addon 副本/未重启 editor）：设 \`GODOT_MCP_EDITOR_PERSISTENT_SECRET=true\` 重启 editor（见上条 S4-editor）。
 `,
@@ -645,7 +748,7 @@ description: "recording recording_start recording_stop recording_save recording_
 alwaysApply: false
 ---
 
-> 适用于 godot-mcp-enhanced {{MCP_VERSION}}+
+> 适用于 godot-mcp-enhanced {{MCP_VERSION}}
 
 ## 概述与架构
 
@@ -689,18 +792,18 @@ alwaysApply: false
   "version": 1,
   "duration_ms": 5420,
   "events": [
-    { "type": "key", "keycode": 87, "pressed": true, "timestamp_ms": 120 },
-    { "type": "mouse_click", "x": 640, "y": 360, "button": 1, "pressed": true, "timestamp_ms": 2300 },
-    { "type": "key", "keycode": 87, "pressed": false, "timestamp_ms": 4100 }
+    { "type": "key", "keycode": 87, "pressed": true, "time_offset": 120 },
+    { "type": "mouse_click", "position": [640, 360], "button": 1, "pressed": true, "time_offset": 2300 },
+    { "type": "key", "keycode": 87, "pressed": false, "time_offset": 4100 }
   ]
 }
 \`\`\`
 
 ### 文件命名与安全
 
-- **自动命名**：\`recording_YYYYMMDD_HHmmss.json\`（如 \`recording_20260527_143022.json\`）
-- **强制格式**：文件名必须匹配 \`recording_*.json\`，否则报 \`INVALID_FILE_NAME\`
-- **路径遍历防护**：文件名禁止包含 \`/\`、\`\\\\\`、\`..\`
+- **始终自动命名**：recording_save 忽略传入的 \`file_name\` 参数，始终生成 \`recording_YYYYMMDD_HHmmss.json\` 格式的时间戳文件名
+- **强制格式**：\`file_name\` 参数必须匹配 \`recording_*.json\`，否则报 \`INVALID_FILE_NAME\`（但实际保存仍用自动命名）
+- **路径遍历防护**：文件名禁止包含 \`/\`、\`\\\`、\`..\`
 
 ## 调用示例
 
@@ -719,15 +822,17 @@ game_input(method="send_mouse_click", params={ "x": 320, "y": 240, "button": "le
 recording_stop(project_path="D:/game")
 // → { events_json: "{\\"version\\":1,\\"duration_ms\\":1200,\\"events\\":[...]}" }
 
-// 4. 保存到文件
+// 4. 保存到文件（注意：始终自动命名，忽略传入的 file_name）
 recording_save(project_path="D:/game", file_name="recording_test_login.json", events_json="<从 stop 获取>")
-// → { status: "ok", path: "res://recordings/recording_test_login.json" }
+// → { success: true, data: { saved: { file_name: "recording_20260607_220255.json", path: "res://recordings/recording_20260607_220255.json" } } }
 
-// 5. 后续加载并回放
-recording_load(project_path="D:/game", file_name="recording_test_login.json")
+// 5. 后续加载并回放（注意：recording_load 可能被沙箱拦截，推荐直接用 events_json）
+// 方式 A：通过文件加载（可能被沙箱拦截）
+recording_load(project_path="D:/game", file_name="recording_20260607_220255.json")
 // → { events_json: "..." }
 
-recording_play(project_path="D:/game", events_json="<从 load 获取>", speed=1.0)
+// 方式 B（推荐）：直接用 recording_stop 返回的 events_json，跳过文件加载
+recording_play(project_path="D:/game", events_json="<从 stop 直接获取>", speed=1.0)
 // → { status: "ok", events_played: 5 }
 \`\`\`
 
@@ -737,8 +842,8 @@ recording_play(project_path="D:/game", events_json="<从 load 获取>", speed=1.
 // 录制一次操作，后续自动回放 + 验证
 recording_load(project_path="D:/game", file_name="recording_open_menu.json")
 recording_play(project_path="D:/game", events_json="<loaded>", speed=2.0)
-game_wait(method="wait_for_node", params={ "path": "root/CanvasLayer/OptionsMenu" })
-game_query(method="get_node_properties", params={ "path": "root/CanvasLayer/OptionsMenu", "properties": ["visible"] })
+game_wait(method="wait_for_node", params={ "path": "/root/CanvasLayer/OptionsMenu" })
+game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/OptionsMenu", "properties": ["visible"] })
 // → { visible: true } — 测试通过
 \`\`\`
 
@@ -759,6 +864,8 @@ recording_start(project_path="D:/game")
 - **回放时序**：speed > 1.0 会加速回放，但可能因游戏帧率跟不上导致事件丢失。建议 E2E 测试使用 speed=1.0。
 - **录制文件存储在项目内**：\`res://recordings/\` 下的文件会随项目版本控制。敏感录制应在 .gitignore 中排除。
 - **事件类型有限**：仅捕获键盘（key）和鼠标（mouse_click）事件。触摸、手柄等不适用。
+- **recording_load 沙箱限制**：\`recording_load\` 需要文件读取，可能被 GDScript 沙箱拦截（"Sandbox violation: File access"）。推荐直接将 \`recording_stop\` 返回的 \`events_json\` 传给 \`recording_play\`，跳过文件加载。
+- **recording_play 需要 Bridge 连接**：回放通过 Bridge 逐条发送事件（send_key/send_mouse_click），不支持 headless 模式。不支持的按键（如功能键 F1-F12）会被跳过并记录到 errors 中。
 `,
 
   'godot-mcp-engine-quirks.md': `---
