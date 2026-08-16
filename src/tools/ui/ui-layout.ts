@@ -2,6 +2,8 @@
 
 import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
 import { CONTROL_TYPES, ANCHOR_PRESETS } from './types.js';
+import { solveAnchors, CONTAINER_CONTROL_TYPES } from './anchor-solver.js';
+import type { Rect } from './anchor-solver.js';
 import { BLOCKED_PROPS } from '../scene/helpers.js';
 import type { FlexLayout, FlexChild, UiNodeSpec } from './types.js';
 
@@ -117,6 +119,31 @@ func _initialize():
 
 const MAX_NESTING_DEPTH = 10;
 
+/** 节点会以 Container 形态落地的判定:声明了 flex layout,或类型本身就是容器(B-3)。 */
+function isContainerSpec(spec: UiNodeSpec): boolean {
+  return spec.layout !== undefined || CONTAINER_CONTROL_TYPES.includes(spec.type);
+}
+
+/** rect(绝对几何,相对父左上角)→ 显式 anchors+offsets 赋值块。
+ * 不用 set_anchors_preset(它不重置 offsets,引擎陷阱,spec §3.2)。
+ * ⚠️ 本块必须拼在 add_child 之后:get_parent() 挂树后才有效,
+ * 父为 Container 的守卫才能真实判定并跳过(B-3:容器会强制重排子 Control)。 */
+function genRectLines(rect: Rect, viewport: { w: number; h: number }, indent: string): string {
+  const a = solveAnchors(viewport, rect);
+  return `
+${indent}if node.get_parent() != null and node.get_parent() is Container:
+${indent}\tpass # parent is Container: rect skipped (would be re-arranged)
+${indent}else:
+${indent}\tnode.anchor_left = ${a.anchor_left}
+${indent}\tnode.anchor_right = ${a.anchor_right}
+${indent}\tnode.anchor_top = ${a.anchor_top}
+${indent}\tnode.anchor_bottom = ${a.anchor_bottom}
+${indent}\tnode.offset_left = ${a.offset_left}
+${indent}\tnode.offset_right = ${a.offset_right}
+${indent}\tnode.offset_top = ${a.offset_top}
+${indent}\tnode.offset_bottom = ${a.offset_bottom}`;
+}
+
 const VALID_DIRECTIONS = ['row', 'column', 'row-reverse', 'column-reverse', 'grid'] as const;
 const VALID_JUSTIFY = ['flex-start', 'center', 'flex-end', 'space-between', 'space-around', 'space-evenly'] as const;
 const VALID_ALIGN = ['stretch', 'flex-start', 'center', 'flex-end'] as const;
@@ -182,8 +209,11 @@ function validateFlexLayout(layout: FlexLayout, warnings: string[]): void {
   if (layout.row_gap !== undefined && layout.wrap !== 'wrap') {
     warnings.push('layout.row_gap is ignored when wrap is not "wrap"');
   }
-  if (layout.justify !== undefined && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify)) {
-    warnings.push(`layout.justify "${layout.justify}" is approximated (no exact Godot equivalent)`);
+  // I1: wrap/grid 下 justify 根本不生效(见 genFlexContainerProps 的 ignored warning),
+  // 此处不再宣称"经注入 spacer 实现"——两条 warning 语义矛盾。
+  if (layout.justify !== undefined && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify)
+    && layout.wrap !== 'wrap' && layout.direction !== 'grid') {
+    warnings.push(`layout.justify "${layout.justify}" is implemented via injected spacer nodes`);
   }
 }
 
@@ -264,15 +294,10 @@ function genFlexContainerProps(layout: FlexLayout, indent: string, warnings: str
   if (layout.justify) {
     if (isWrap) {
       warnings.push('layout.justify is ignored when wrap is "wrap" (FlowContainer has no alignment)');
+    } else if (['space-between', 'space-around', 'space-evenly'].includes(layout.justify)) {
+      warnings.push(`layout.justify "${layout.justify}" is implemented by injecting _spacer_N Control nodes (BoxContainer has no space-* alignment)`);
     } else {
-      const justifyMap: Record<string, number> = {
-        'flex-start': 0,
-        'center': 1,
-        'flex-end': 2,
-        'space-between': 0,
-        'space-around': 1,
-        'space-evenly': 1,
-      };
+      const justifyMap: Record<string, number> = { 'flex-start': 0, 'center': 1, 'flex-end': 2 };
       const alignment = justifyMap[layout.justify];
       if (alignment !== undefined) {
         lines += `\n${indent}node.alignment = ${alignment}`;
@@ -307,6 +332,56 @@ function genFlexContainerProps(layout: FlexLayout, indent: string, warnings: str
   }
 
   return lines;
+}
+
+// space-* justify 无法用 BoxContainer alignment 表达,改为注入 SIZE_EXPAND spacer 实现。
+// CSS 语义:between = 元素间 N-1 个等距;evenly = N+1 个等距(含首尾);around = 2N 个半距。
+// (spec §3.3,审查 B-2:around 必须是 2N 个 0.5,不能用 N+1 个 —— N≥2 时配比不等)
+export type SequenceItem = { kind: 'spacer'; ratio: number } | { kind: 'child'; spec: UiNodeSpec };
+
+function interleaveSpacers(justify: string, children: UiNodeSpec[]): SequenceItem[] {
+  const asChildren = (): SequenceItem[] => children.map(c => ({ kind: 'child' as const, spec: c }));
+  if (children.length === 0) return [];
+  if (justify === 'space-between') {
+    const out: SequenceItem[] = [];
+    children.forEach((c, i) => {
+      if (i > 0) out.push({ kind: 'spacer', ratio: 1 });
+      out.push({ kind: 'child', spec: c });
+    });
+    return out;
+  }
+  if (justify === 'space-evenly') {
+    const out: SequenceItem[] = [];
+    for (const c of children) {
+      out.push({ kind: 'spacer', ratio: 1 });
+      out.push({ kind: 'child', spec: c });
+    }
+    out.push({ kind: 'spacer', ratio: 1 });
+    return out;
+  }
+  if (justify === 'space-around') {
+    // B-2: 必须是 2N 个 0.5(每个 child 前后各一个),不能用 N+1 个 —— N≥2 时配比不等。
+    // 相邻两个 0.5 spacer 拼出元素间距(2x),边缘单个 0.5 为边距(x),即 around 的"边距=间距之半"。
+    const out: SequenceItem[] = [];
+    for (const c of children) {
+      out.push({ kind: 'spacer', ratio: 0.5 });
+      out.push({ kind: 'child', spec: c });
+      out.push({ kind: 'spacer', ratio: 0.5 });
+    }
+    return out;
+  }
+  return asChildren();
+}
+
+export function genSpacerLines(name: string, ratio: number, isRow: boolean, indent: string, ownerVar: string, parentVar: string): string {
+  const flag = isRow ? 'size_flags_horizontal' : 'size_flags_vertical';
+  return `${indent}node = ClassDB.instantiate("Control")
+${indent}node.name = "${gdEscape(name)}"
+${indent}node.${flag} = Control.SIZE_EXPAND
+${indent}node.size_flags_stretch_ratio = ${ratio}
+${indent}node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+${indent}${parentVar}.add_child(node)
+${indent}node.owner = ${ownerVar}`;
 }
 
 function applyAlignSelf(align: string, isRow: boolean, indent: string, warnings?: string[]): string {
@@ -353,11 +428,30 @@ function genFlexChildLines(flex: FlexChild, isRow: boolean, indent: string, warn
   return lines;
 }
 
-function uiNodeToGd(spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string, warnings: string[] = [], nextId: () => number = () => 0): string {
+function uiNodeToGd(
+  spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string,
+  warnings: string[] = [], nextId: () => number = () => 0,
+  viewport: { w: number; h: number } = { w: 1280, h: 720 },
+  parentIsContainer: boolean = false,
+  parentSize?: { w: number; h: number },
+): string {
   if (spec.layout) {
-    return uiNodeToGdWithLayout(spec, parentVar, ownerVar, indent, warnings, nextId);
+    return uiNodeToGdWithLayout(spec, parentVar, ownerVar, indent, warnings, nextId, viewport);
   }
-  const anchorLine = spec.anchor_preset
+  // C1: rect 按父尺寸求解——parentSize 为当前节点 rect 的求解基准:
+  //   根节点由调用方显式传 viewport;父带 rect 的子节点传父 rect.w/h;
+  //   父无 rect(非根)时降级 viewport 并告警(结果可能不准)。
+  //   容器父走 parentIsContainer 路径(rect 运行时跳过,已有 skipped warning),不再叠加本告警。
+  if (spec.rect && !parentSize && !parentIsContainer) {
+    warnings.push(`node "${spec.name}" has rect but its parent's size is unknown — solved against viewport, result may be inaccurate`);
+  }
+  const solveBase = parentSize ?? viewport;
+  // rect(绝对几何)优先于 anchor_preset;父为 Container 时静态提示(运行时另有跳过守卫,B-3)
+  if (spec.rect && parentIsContainer) {
+    warnings.push(`node "${spec.name}" has rect but parent is a Container — rect will be skipped at runtime (containers re-arrange children)`);
+  }
+  const rectLines = spec.rect ? genRectLines(spec.rect, solveBase, indent) : '';
+  const anchorLine = spec.anchor_preset && !spec.rect
     ? `\n${indent}node.set_anchors_preset(${ANCHOR_PRESETS[spec.anchor_preset]})`
     : '';
   const propLines = spec.properties && Object.keys(spec.properties).length > 0
@@ -384,19 +478,28 @@ ${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
     const savedIdx = nextId();
     const savedVar = `_saved_${savedIdx}`;
     lines += `\n${indent}var ${savedVar} = node`;
+    // C1: 子 rect 的求解基准 = 本节点 rect.w/h(无 rect 时 undefined → 子侧降级 viewport)
+    const childParentSize = spec.rect ? { w: spec.rect.w, h: spec.rect.h } : undefined;
     for (const child of spec.children) {
-      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId);
+      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, isContainerSpec(spec), childParentSize);
     }
     lines += `\n${indent}node = ${savedVar}`;
   }
 
   lines += `\n${indent}${parentVar}.add_child(node)
 ${indent}node.owner = ${ownerVar}`;
+  // rect 赋值必须在 add_child 之后执行:get_parent() 此时才有效,
+  // Container 守卫才能真实判定并跳过(否则守卫恒走 else,名存实亡)
+  lines += rectLines;
 
   return lines;
 }
 
-function uiNodeToGdWithLayout(spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string, warnings: string[], nextId: () => number): string {
+function uiNodeToGdWithLayout(
+  spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string,
+  warnings: string[], nextId: () => number,
+  viewport: { w: number; h: number } = { w: 1280, h: 720 },
+): string {
   const layout = spec.layout!;
   const { containerType, isReverse, isWrap, isGrid } = resolveFlexContainer(layout);
   const isRow = layout.direction === 'row' || layout.direction === 'row-reverse';
@@ -455,17 +558,27 @@ ${indent}${marginWrapperVar}.set_anchors_preset(${preset})`;
   lines += `\n${indent}var ${savedVar} = node`;
 
   let children = spec.children ?? [];
-  if (isReverse) {
-    children = [...children].reverse();
-  }
+  if (isReverse) children = [...children].reverse();
 
-  for (const child of children) {
-    lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId);
+  const justifyNeedsSpacers = !isWrap && !isGrid && layout.justify !== undefined
+    && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify);
+  if (justifyNeedsSpacers && children.some(c => c.flex?.grow !== undefined && c.flex.grow > 0)) {
+    warnings.push('justify space-* combined with child flex.grow: spacers and grow children share the free space, distribution will not match CSS semantics');
+  }
+  const seq: SequenceItem[] = justifyNeedsSpacers ? interleaveSpacers(layout.justify!, children) : children.map(c => ({ kind: 'child' as const, spec: c }));
+
+  let spacerIdx = 0;
+  for (const item of seq) {
+    if (item.kind === 'spacer') {
+      lines += '\n' + genSpacerLines(`_spacer_${spacerIdx++}`, item.ratio, isRow, indent, ownerVar, savedVar);
+      continue;
+    }
+    const child = item.spec;
+    lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, true);
 
     if (layout.align && (!child.flex || !child.flex.align_self || child.flex.align_self === 'auto')) {
       lines += applyAlignSelf(layout.align, isRow, indent, warnings);
     }
-
     if (child.flex) {
       lines += genFlexChildLines(child.flex, isRow, indent, warnings);
     }
@@ -491,13 +604,18 @@ export function genUiBuildLayoutScript(
   scenePath: string,
   parentPath: string,
   tree: UiNodeSpec,
+  viewport?: { w: number; h: number },
+  persist: boolean = false,
 ): string {
   const warnings: string[] = [];
   validateUiNodeSpec(tree, 1, warnings);
 
   let _idCounter = 0;
   const nextId = () => _idCounter++;
-  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId);
+  // C1: 根节点 rect 的父(parent_path 指向的节点)尺寸静态未知 → 以 viewport 为基准求解
+  // (默认 1280x720,可通过参数覆盖);树内子节点则按各自父的 rect.w/h 求解(见 uiNodeToGd)。
+  const baseViewport = viewport ?? { w: 1280, h: 720 };
+  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId, baseViewport, false, baseViewport);
 
   const warningLines = warnings.length > 0
     ? `\n\t_mcp_output("warnings", ${JSON.stringify(warnings.map(w => {
@@ -505,6 +623,34 @@ export function genUiBuildLayoutScript(
       const field = dot > 0 ? w.substring(0, dot) : 'layout';
       return { field, message: w };
     }))})`
+    : '';
+
+  // persist=true:build 完成后原子写落盘(pack → tmp → rename,失败清理,同 scene-commit F-2 模式)。
+  // 注意 warningLines 为空时不自带前导换行,故本块以 \n 开头保证与 buildBlock 行分隔。
+  // owner 归一(实测 2026-08-16):build 时子节点先挂父、父后挂树,游离期设 owner 被引擎
+  // 拒绝(Invalid owner. Owner must be an ancestor)→ 子节点 owner=null → pack 丢弃整棵子树。
+  // pack 前全树已挂、祖先链成立,统一 set_owner 为场景根(编辑器保存语义)。
+  const persistBlock = persist
+    ? `\n\t# --- persist(原子写:pack → tmp → rename,同 scene-commit F-2 模式) ---
+\tfor n in _mcp_scene_instance.find_children("*", "Node", true, false):
+\t\tif n.get_owner() != _mcp_scene_instance:
+\t\t\tn.set_owner(_mcp_scene_instance)
+\tvar packed = PackedScene.new()
+\tpacked.pack(_mcp_scene_instance)
+\tvar _full := "${gdEscape(scenePath)}"
+\tvar _ext := _full.get_extension()
+\tvar _tmp := _full + ".tmp." + _ext
+\tif FileAccess.file_exists(_tmp):
+\t\tDirAccess.remove_absolute(_tmp)
+\tvar err := ResourceSaver.save(packed, _tmp)
+\tif err != OK:
+\t\tDirAccess.remove_absolute(_tmp)
+\telse:
+\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)
+\t\tif _ren != OK:
+\t\t\tDirAccess.remove_absolute(_tmp)
+\t\t\terr = _ren
+\t_mcp_output("persist", {"saved": err == OK})`
     : '';
 
   const rootType = tree.layout ? resolveFlexContainer(tree.layout).containerType : tree.type;
@@ -521,7 +667,7 @@ func _initialize():
 \t\treturn
 \tvar parent = root
 \tvar node: Node
-${buildBlock}${warningLines}
+${buildBlock}${warningLines}${persistBlock}
 \t_mcp_output("layout_built", {"parent": "${gdEscape(parentPath)}", "root_type": "${gdEscape(rootType)}", "root_name": "${gdEscape(tree.name)}"})
 \t_mcp_done()
 `;

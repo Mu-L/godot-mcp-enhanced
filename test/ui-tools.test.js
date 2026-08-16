@@ -19,10 +19,10 @@ import {
 // ─── Actions (via schema) ─────────────────────────────────────────────────
 
 describe('UI actions (via tool schema)', () => {
-  it('action enum contains exactly 10 entries', () => {
+  it('action enum contains exactly 11 entries', () => {
     const defs = getToolDefinitions();
     const actionEnum = defs[0].inputSchema.properties.action.enum;
-    expect(actionEnum.length).toBe(10);
+    expect(actionEnum.length).toBe(11);
   });
   it('includes ui_create_control', () => {
     const defs = getToolDefinitions();
@@ -603,12 +603,13 @@ describe('getToolDefinitions', () => {
     expect(def.inputSchema).toBeTruthy();
     expect(def.inputSchema.required).toContain('action');
   });
-  it('action enum contains all 10 ACTIONS', () => {
+  it('action enum contains all 11 ACTIONS', () => {
     const defs = getToolDefinitions();
     const actionEnum = defs[0].inputSchema.properties.action.enum;
-    expect(actionEnum.length).toBe(10);
+    expect(actionEnum.length).toBe(11);
     expect(actionEnum).toContain('ui_create_control');
     expect(actionEnum).toContain('ui_build_layout');
+    expect(actionEnum).toContain('ui_measure_layout');
     expect(actionEnum).toContain('theme_create');
     expect(actionEnum).toContain('theme_set_property');
   });
@@ -768,11 +769,11 @@ describe('Flex Layout: justify', () => {
     expect(script).toContain('node.alignment = 2');
   });
 
-  it('justify: space-between -> approximated with warning', () => {
+  it('justify: space-between -> injected spacer nodes with warning', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'space-between' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script).toContain('node.alignment = 0');
-    expect(script).toContain('approximated');
+    expect(script.includes('node.alignment = 0')).toBeFalsy(); // 旧近似(space-between→BEGIN)已移除
+    expect(script).toContain('injected spacer nodes');
   });
 });
 

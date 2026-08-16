@@ -2,6 +2,7 @@
 
 import { gdEscape, valueToGd } from '../shared.js';
 import { BLOCKED_PROPS } from '../scene/helpers.js';
+import type { Rect } from './anchor-solver.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export const ACTIONS = [
   'ui_container_add',
   'ui_draw_recipe',
   'ui_build_layout',
+  'ui_measure_layout',
   'theme_create',
   'theme_set_property',
 ] as const;
@@ -91,6 +93,7 @@ export type UiNodeSpec = {
   name: string;
   properties?: Record<string, unknown>;
   anchor_preset?: string;
+  rect?: Rect;
   layout?: FlexLayout;
   flex?: FlexChild;
   children?: UiNodeSpec[];

@@ -13,6 +13,9 @@ import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScr
 import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } from './ui-layout.js';
 import { genUiSetThemeScript, genThemeCreateScript, genThemeSetPropertyScript } from './ui-theme.js';
 import { genUiDrawRecipeScript } from './ui-draw.js';
+import { genUiMeasureScript } from './ui-measure.js';
+import { flattenTargets, diffLayout, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
+import type { MeasuredNode } from './layout-diff.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
@@ -149,6 +152,8 @@ export function getToolDefinitions(): Tool[] {
               required: ['kind'],
             },
           },
+          max_depth: { type: 'number', description: 'ui_measure_layout: 最大遍历深度(默认 16,上限 64)' },
+          expect_tree: { type: 'object', description: 'ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界', additionalProperties: true },
           parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径' },
           tree: {
             type: 'object',
@@ -197,6 +202,12 @@ export function getToolDefinitions(): Tool[] {
             required: ['type', 'name'],
           },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+          viewport: {
+            type: 'object',
+            description: 'ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何)',
+            properties: { w: { type: 'number', description: '宽(px)' }, h: { type: 'number', description: '高(px)' } },
+          },
+          persist: { type: 'boolean', description: 'ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）' },
         },
         required: ['action'],
       },
@@ -396,8 +407,20 @@ export async function handleTool(
         if (!tree || typeof tree !== 'object') {
           return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'tree is required and must be an object');
         }
+        const persist = args.persist === true;
+        // C1: viewport 参数——根节点 rect 的求解基准;非正数(含缺项/NaN)→ INVALID_PARAMS
+        let viewport: { w: number; h: number } | undefined;
+        if (args.viewport !== undefined) {
+          const vp = args.viewport as { w?: unknown; h?: unknown };
+          const w = typeof vp.w === 'number' ? vp.w : NaN;
+          const h = typeof vp.h === 'number' ? vp.h : NaN;
+          if (!(w > 0) || !(h > 0)) {
+            return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'viewport must be an object {w, h} with positive numbers');
+          }
+          viewport = { w, h };
+        }
         try {
-          script = genUiBuildLayoutScript(scenePath, parentPath, tree);
+          script = genUiBuildLayoutScript(scenePath, parentPath, tree, viewport, persist);
         } catch (err) {
           const msg = getErrorMessage(err);
           if (msg.includes('INVALID_CONTROL_TYPE')) {
@@ -406,11 +429,22 @@ export async function handleTool(
           if (msg.includes('INVALID_ANCHOR_PRESET')) {
             return opsErrorResult(ERROR_CODES.INVALID_ANCHOR_PRESET, msg);
           }
-          if (msg.includes('name is required') || msg.includes('Maximum nesting')) {
+          if (msg.includes('name is required') || msg.includes('Maximum nesting') || msg.includes('INVALID_PARAMS')) {
             return opsErrorResult(ERROR_CODES.INVALID_PARAMS, msg);
           }
           return opsErrorResult(ERROR_CODES.SCRIPT_EXEC_FAILED, msg);
         }
+        break;
+      }
+      case 'ui_measure_layout': {
+        const scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
+        const nodePathRaw = args.node_path as string | undefined;
+        const maxDepth = typeof args.max_depth === 'number' ? args.max_depth : 16;
+        const expectTree = args.expect_tree as UiNodeSpec | undefined;
+        if (expectTree && (typeof expectTree !== 'object' || !expectTree.name)) {
+          return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'expect_tree must be a tree object with name');
+        }
+        script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth);
         break;
       }
       default:
@@ -433,8 +467,42 @@ export async function handleTool(
       return ERROR_CODES.SCRIPT_EXEC_FAILED;
     };
 
-    const r = parseGdscriptResult(result, [], errorMapper);
-    return UI_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, action) : r;
+    let r = parseGdscriptResult(result, [], errorMapper);
+    // Task 4: expect_tree 注入——measure 成功输出后,把逐节点 diff/重叠/越界问题清单
+    // 并回 data.layout_verify(Pascal verify_scene 模式,数字驱动收敛)。
+    if (action === 'ui_measure_layout' && (args.expect_tree as UiNodeSpec | undefined)) {
+      const expectTree = args.expect_tree as UiNodeSpec;
+      try {
+        const parsed = JSON.parse((r.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
+          success?: boolean;
+          data?: { measure?: { nodes?: MeasuredNode[]; viewport?: { w: number; h: number } } };
+          warnings?: string[];
+        };
+        // 仅成功结果注入:错误/异常输出保持原样,diff 缺失由 AI 视为未验证
+        if (parsed.success === true) {
+          const measure = parsed.data?.measure;
+          const measured = measure?.nodes ?? [];
+          const targets = flattenTargets(expectTree);
+          const wrapped = {
+            targets,
+            diff: diffLayout(measured, targets, 2),
+            overlaps: detectOverlaps(measured),
+            out_of_bounds: detectOutOfBounds(measured),
+            // C1: 根级 rect 的参照系(measure 输出的 root Window 尺寸),供消费方核对
+            viewport: measure?.viewport,
+          };
+          const merged = { ...parsed, data: { ...parsed.data, layout_verify: wrapped } };
+          r = { ...r, content: [{ type: 'text', text: JSON.stringify(merged) }] };
+        }
+      } catch {
+        // measure 输出异常时保持原样返回,diff 缺失由 AI 视为未验证
+      }
+    }
+    // persist=true 的 ui_build_layout 已原子写落盘,不再 append "headless 退出即丢" 提示;其余照旧。
+    if (UI_PERSIST_ACTIONS.has(action) && !(action === 'ui_build_layout' && args.persist === true)) {
+      return appendRuntimePersistWarning(r, action);
+    }
+    return r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);
@@ -451,7 +519,8 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
     actionRisks: {
       ui_get_layout: 'read', ui_create_control: 'write', ui_set_layout: 'write',
       ui_anchor_preset: 'write', ui_set_theme: 'write', ui_container_add: 'write',
-      ui_draw_recipe: 'write', ui_build_layout: 'write', theme_create: 'write', theme_set_property: 'write',
+      ui_draw_recipe: 'write', ui_build_layout: 'write', ui_measure_layout: 'read',
+      theme_create: 'write', theme_set_property: 'write',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
 };

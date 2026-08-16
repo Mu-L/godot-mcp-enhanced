@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.3] - 2026-08-16
+
+> UI 布局保真 final-review 修复波（合并前唯一修复批次）。
+
+### Fixed
+
+- **嵌套 rect 坐标系修正（C1）**：子节点 rect 此前恒以 viewport(默认 1280x720)求解，嵌套时双双重错位——现按**父尺寸**求解：根节点相对 `viewport` 参数，子节点相对父节点 `rect.w/h`；父未声明 rect（非根、非容器）时降级 viewport 并发 warning（`parent's size is unknown`）。集成测试以真实 Godot 验收：`Panel(rect 100,50,600,400)` 内 `Button(rect 50,30,120,48)` 落地 global=(150,80)、anchors=50/600（相对父尺寸，非视口）。
+- **layout_verify.diff 基准修正（C1）**：diff 由"target(父相对) vs measured(global) 直接相减"改为**父相对坐标比较**（子 global − 父 global，与 target 同构；根级 target 以视口原点为参照；父不在测量集时 delta 为 NaN）——嵌套 rect 的 Δ 数值从此真实反映偏差。
+- **wrap/grid + space-\* 双 warning 矛盾消除（I1）**：`wrap: "wrap"` 或 `direction: "grid"` 时不再推 "implemented via injected spacer nodes"（与 "ignored when wrap/grid" 语义矛盾），仅保留后者。
+
+### Added
+
+- `ui_build_layout` 顶层 `viewport: {w, h}` 参数：根节点 rect 的求解基准（默认 1280x720，非正数报 INVALID_PARAMS）。
+- `ui_measure_layout` 输出新增 `viewport`（项目声明视口尺寸，取 `root.content_scale_size`——headless `--script` 下 Window.size/get_visible_rect 不反映 project 设置，实测 100x100/2496，不可用）与 `stalled` 标志（5 帧上限内未达 2 帧稳定快照时 true）。
+- `layout_verify` 透传 `viewport` 字段（根级 rect 参照系上下文）。
+
+### Docs
+
+- `.claude/rules/godot-mcp-ui.md` 与 `src/tools/rule-templates.ts` UI 模板段双副本同步：rect 小节改写为真实父相对语义（含 viewport 参数、容器自身 rect 仅作对照目标）、justify space-\* 小节补 wrap/grid 不注入说明、布局收敛闭环小节改父相对坐标语义（归一化 diff 核对逐字一致）。
+
+## [0.30.2] - 2026-08-16
+
+> UI 布局保真批次（spec v0.31 主菜，`docs/superpowers/specs/2026-08-16-ui-layout-fidelity-design.md`）：rect 绝对几何 + 整树测量 + 期望树 diff 收敛闭环 + persist 持久化。
+
+### Added
+
+- **`ui_measure_layout`**：headless 整树 computed rect 测量（等布局稳定后输出；`node_path` 可选，省略则从场景根整树测；`max_depth` 默认 16 上限 64）。支持 `expect_tree`（同 `ui_build_layout` tree，含 rect）→ `data.layout_verify`：`targets`/`diff`（逐节点 Δ，容差默认 2px）/`overlaps`（兄弟重叠）/`out_of_bounds`（溢出父边界）。
+- **`ui_build_layout` rect 绝对几何 + 锚点求解**：节点支持 `rect: {x,y,w,h}`（相对父左上角），反解为显式四值 anchors+offsets（snap 0/0.5/1，比例兜底；不用 set_anchors_preset——引擎陷阱 preset 不重置 offsets）；优先于 `anchor_preset`；父为 Container 时 TS warning + 运行时跳过（容器强制重排子节点）。
+- **`ui_build_layout` persist 原子写**：`persist=true`（默认 false）在 build 完成后原子写 .tscn（pack → tmp → rename，失败清理，同 scene-commit F-2 模式）。
+- **布局收敛闭环用法**：`ui_build_layout(tree 含 rect)` → `ui_measure_layout(expect_tree=同一棵 tree，不带 node_path)` → 按 diff Δ 修 tree 循环至全绿 → `persist=true` 落盘。
+
+### Fixed
+
+- justify `space-between/space-around/space-evenly` 由近似映射改为 `_spacer_N` spacer 注入真实现（原映射语义丢失；与子节点 `flex.grow` 并存时给出"瓜分剩余空间、分配语义不同于 CSS"的 warning）。
+
+### Docs
+
+- `.claude/rules/godot-mcp-ui.md` 与 `src/tools/rule-templates.ts` UI 模板段双副本同步：工具清单补 `ui_measure_layout` 行、新增 rect/justify/布局收敛闭环三小节、description 关键词补 `ui_measure_layout`/`测量`/`rect`（修复 Task 3 审查 Minor：关键词列表未含 measure）。
+
 ## [0.30.0] - 2026-08-15
 
 > 方向拍板（2026-08-15 竞品调研，见 `docs/research/2026-08-15-新版本方向竞品调研.md`）：B AI QA + C 理解层 + D 协议债；A（Asset Store/HTTP transport/dock）因 Asset Store 提交通道问题搁置。零 GDScript 改动（纯 TS 侧批次）。
