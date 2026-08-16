@@ -176,6 +176,22 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     // 只两次 executor(build+measure),geometry_path 未触发额外执行
     expect(execMock).toHaveBeenCalledTimes(2);
   });
+
+  it('measure 阶段失败:错误信息附 "build 已持久化,可重跑 ui_measure_layout" 提示', async () => {
+    execMock.mockReset();
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{ key: 'error', value: 'Parent not found: /root' }] }));
+    const result = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: GEO,
+    }, createCtx());
+    expect(result!.isError).toBe(true);
+    const errObj = JSON.parse(textOf(result));
+    expect(errObj.error).toContain('Parent not found');
+    expect(errObj.error).toContain('build 已持久化,可重跑 ui_measure_layout');
+    // 错误码映射保持(uiErrorMapper: 'not found' → NODE_NOT_FOUND),JSON 结构不被提示破坏
+    expect(errObj.error_code).toBe('NODE_NOT_FOUND');
+  });
 });
 
 // ─── geometry_path 文件读入 + res:// 剥离 ───────────────────────────────────

@@ -630,7 +630,20 @@ async function handleUiImportPrototype(
     godotPath: godot, projectPath, code: measureScript, timeout: 30, loadAutoloads,
   });
   const measureParsed = parseGdscriptResult(measureResult, [], uiErrorMapper);
-  if (measureParsed.isError) return measureParsed;
+  if (measureParsed.isError) {
+    // B-1 契约下 build 固定 persist=true 已落盘——measure 阶段失败时场景仍在磁盘,
+    // 提示 AI 无需重新 import,可单独重跑 ui_measure_layout 补测量(Task 2 遗留改进)。
+    const el = measureParsed.content?.[0];
+    if (el?.type === 'text') {
+      try {
+        const errObj = JSON.parse(el.text) as { error?: unknown };
+        if (typeof errObj.error === 'string') {
+          return { ...measureParsed, content: [{ type: 'text', text: JSON.stringify({ ...errObj, error: `${errObj.error}(build 已持久化,可重跑 ui_measure_layout)` }) }] };
+        }
+      } catch { /* 非 JSON 错误文本保持原样 */ }
+    }
+    return measureParsed;
+  }
 
   // ③ 组装返回(content[0].text 解析模式,同 expect_tree 注入段;输出异常保持原样,
   // diff 缺失由 AI 视为未验证)。

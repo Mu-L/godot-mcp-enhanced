@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.4] - 2026-08-16
+
+> prototype-import Task 3 集成验收 + Task 2 遗留修复波。
+
+### Added
+
+- `ui_import_prototype` 集成验收（真跑 Godot，GODOT_PATH gated）：RTS HUD fixture（23 节点，chrome-devtools 实测 DOM 产出，`test/fixtures/prototype-geometry/rts-hud.json`）经 `geometry_path` 一次调用 → 22/23 节点 layout_verify 全绿 + `verify_coverage` + `persist saved:true` + 独立重载 measure 验证落盘 `.tscn`；mini-flow（3 按钮 space-between）→ 覆盖率语义（targets < total）+ HBox 通道 + 重载间距实测 96px±2；`../` 逃逸集成层负向。实测一次调用（build+measure 两次 spawn）约 5.7-5.9s。
+- **引擎校准数据**：Godot 4.7 默认主题 ProgressBar 最小高度 27px（fixture HpBar rect.h=16 被顶到 27，dh=+11，且与下方 HpText 产生 5px 兄弟重叠）——集成测试把该例外锁死在实测数值上（漂移即红）；与 Button 默认主题高 8px 同类的主题硬约束，非翻译器 bug。
+
+### Fixed
+
+- Task 2 遗留：`ui_import_prototype` measure 阶段失败的错误信息附 `(build 已持久化,可重跑 ui_measure_layout)`——B-1 契约下 build 固定持久化，AI 无需重新 import 即可补测量。
+- Task 2 遗留 drift：`ui_import_prototype` 新增 action 后 `rule-templates.ts` / `.claude/rules/godot-mcp-core.md` 手写 action 数未同步（236 → 237，check-tool-count 红），本批随版本 bump 0.30.4 修复。
+
 ## [0.30.3] - 2026-08-16
 
 > UI 布局保真 final-review 修复波（合并前唯一修复批次）。
