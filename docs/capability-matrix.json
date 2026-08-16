@@ -1,5 +1,5 @@
 {
-  "version": "0.30.2",
+  "version": "0.30.3",
   "tools": [
     {
       "name": "analysis",
@@ -5726,6 +5726,20 @@
             "type": "boolean",
             "description": "是否加载 Autoload 上下文（默认 true）"
           },
+          "viewport": {
+            "type": "object",
+            "description": "ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何)",
+            "properties": {
+              "w": {
+                "type": "number",
+                "description": "宽(px)"
+              },
+              "h": {
+                "type": "number",
+                "description": "高(px)"
+              }
+            }
+          },
           "persist": {
             "type": "boolean",
             "description": "ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）"
@@ -5759,6 +5773,7 @@
         "expect_tree",
         "parent_path",
         "load_autoloads",
+        "viewport",
         "persist"
       ],
       "readonly": false,
@@ -5794,8 +5809,8 @@
       },
       "size": {
         "descBytes": 712,
-        "schemaBytes": 3996,
-        "totalBytes": 4708
+        "schemaBytes": 4303,
+        "totalBytes": 5015
       },
       "annotations": {
         "readOnlyHint": false,
