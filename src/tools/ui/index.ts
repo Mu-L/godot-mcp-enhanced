@@ -13,6 +13,7 @@ import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScr
 import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } from './ui-layout.js';
 import { genUiSetThemeScript, genThemeCreateScript, genThemeSetPropertyScript } from './ui-theme.js';
 import { genUiDrawRecipeScript } from './ui-draw.js';
+import { genUiMeasureScript } from './ui-measure.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
@@ -149,6 +150,7 @@ export function getToolDefinitions(): Tool[] {
               required: ['kind'],
             },
           },
+          max_depth: { type: 'number', description: 'ui_measure_layout: 最大遍历深度(默认 16,上限 64)' },
           parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径' },
           tree: {
             type: 'object',
@@ -413,6 +415,13 @@ export async function handleTool(
         }
         break;
       }
+      case 'ui_measure_layout': {
+        const scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
+        const nodePathRaw = args.node_path as string | undefined;
+        const maxDepth = typeof args.max_depth === 'number' ? args.max_depth : 16;
+        script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth);
+        break;
+      }
       default:
         return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
@@ -451,7 +460,8 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
     actionRisks: {
       ui_get_layout: 'read', ui_create_control: 'write', ui_set_layout: 'write',
       ui_anchor_preset: 'write', ui_set_theme: 'write', ui_container_add: 'write',
-      ui_draw_recipe: 'write', ui_build_layout: 'write', theme_create: 'write', theme_set_property: 'write',
+      ui_draw_recipe: 'write', ui_build_layout: 'write', ui_measure_layout: 'read',
+      theme_create: 'write', theme_set_property: 'write',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
 };

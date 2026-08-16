@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { executeGdscriptTrusted } from '../../src/gdscript-executor.js';
 import { genUiBuildLayoutScript } from '../../src/tools/ui/ui-layout.js';
+import { genUiMeasureScript } from '../../src/tools/ui/ui-measure.js';
 
 const GODOT = process.env.GODOT_PATH;
 const run = !!GODOT && process.platform === 'win32';
@@ -91,5 +92,56 @@ func _on_frame() -> void:
     const g3 = 300 - (xs[2]! + ws[2]!);
     const spread = Math.max(g1, g2, g3) - Math.min(g1, g2, g3);
     expect(spread).toBeLessThanOrEqual(1);
+  });
+
+  // ui_measure_layout 集成:build 是运行时节点(进程退出即丢),测量须同进程。
+  // 拼接采用 Task 1 buildThenCollect 同构(授权调整):brief 原始拼接会把
+  // SCENE_TREE_HEADER 的函数重复定义两遍且 call_deferred 落在类体顶层(非法 GDScript)。
+  // 这里:build 尾部 layout_built+_mcp_done 换成 call_deferred 启动测量;再拼
+  // genUiMeasureScript 输出剥离 header 与 _initialize 后的测量核心(变量+5 函数,
+  // 直接复用生成物保真实性),尾部补 _measure_go 引导函数——函数零重复定义。
+  function buildThenMeasure(d: string): string {
+    const tree = {
+      type: 'VBoxContainer', name: 'Col',
+      layout: { direction: 'column', gap: 10 },
+      children: [
+        { type: 'Button', name: 'B1' }, { type: 'Button', name: 'B2' }, { type: 'Button', name: 'B3' },
+      ],
+    };
+    const buildBlock = genUiBuildLayoutScript(join(d, 'main.tscn'), 'root', tree)
+      .replace(/\t_mcp_output\("layout_built"[\s\S]*?\t_mcp_done\(\)\n$/, '\tcall_deferred("_measure_go")\n');
+    const full = genUiMeasureScript(join(d, 'main.tscn'), undefined, 16);
+    const measureCore = full
+      .slice(full.indexOf('var _frames := 0'))
+      .replace(/\nfunc _initialize\(\):[\s\S]*?(?=\nfunc _on_measure_frame)/, '\n');
+    return `${buildBlock}${measureCore}
+func _measure_go() -> void:
+\t_target = _mcp_scene_instance
+\tprocess_frame.connect(_on_measure_frame)
+`;
+  }
+
+  it('ui_measure_layout: VBox 三按钮 rect 顺序与 separation 数值正确', async () => {
+    const outs = await runScript(dir, buildThenMeasure(dir));
+    const measure = JSON.parse(String(outs.find(o => o.key === 'measure')!.value)) as {
+      stable_after_frames: number;
+      nodes: Array<{ path: string; type: string; rect: { x: number; y: number; w: number; h: number } }>;
+    };
+    expect(measure.stable_after_frames).toBeGreaterThanOrEqual(2);
+    expect(measure.stable_after_frames).toBeLessThanOrEqual(5);
+    const btns = measure.nodes.filter(n => /Col\/B\d/.test(n.path));
+    expect(btns).toHaveLength(3);
+    expect(btns.map(n => n.type)).toEqual(['Button', 'Button', 'Button']);
+    expect(btns[0]!.rect.y).toBeLessThan(btns[1]!.rect.y);
+    expect(btns[1]!.rect.y).toBeLessThan(btns[2]!.rect.y);
+    const gap1 = btns[1]!.rect.y - (btns[0]!.rect.y + btns[0]!.rect.h);
+    const gap2 = btns[2]!.rect.y - (btns[1]!.rect.y + btns[1]!.rect.h);
+    expect(Math.abs(gap1 - 10)).toBeLessThanOrEqual(1);
+    expect(Math.abs(gap2 - 10)).toBeLessThanOrEqual(1);
+  });
+
+  it('ui_measure_layout: 场景不存在 → error 输出', async () => {
+    const outs = await runScript(dir, genUiMeasureScript(join(dir, 'nope.tscn'), undefined, 16));
+    expect(outs.some(o => o.key === 'error')).toBe(true);
   });
 });

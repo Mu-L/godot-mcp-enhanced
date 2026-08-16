@@ -223,7 +223,7 @@ export const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: stri
       'save_path', 'theme_node_path', 'item_type', 'prop_name', 'theme_type', 'value',
       'tree', 'ops',
     ],
-    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}])',
+    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth',
   },
 };
 
