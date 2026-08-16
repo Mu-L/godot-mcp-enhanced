@@ -286,6 +286,11 @@ function buildSpec(
     // (实测:RTS fixture HpBar 显式 ProgressBar 无 bg 曾被误设,HP 条消失而 diff 不查 visible)。
     props.self_modulate = [1, 1, 1, 0];
     warnings.push(`node "${node.cleanName}" inferred as layout-only Panel and set transparent (self_modulate alpha 0); set bg or type to keep it visible`);
+  } else if (nd.type === 'Panel') {
+    // 审查遗留①(与规则 4 I-1 收窄对偶):显式 Panel 无 bg 不设任何 modulate → 落到 Godot
+    // 默认 Panel 主题的灰底 stylebox,而 web 原型 div 默认透明——渲染行为翻转(灰底可见),
+    // 声明式提示让生产者显式选择(补 bg 匹配原型,或去掉 type 走推断透明壳)。
+    warnings.push(`node "${node.cleanName}" explicit Panel without bg renders with the Godot default theme gray panel stylebox (web prototype div is transparent by default); set bg to match the prototype or drop type to let it be inferred as a transparent layout shell`);
   }
   if (nd.text !== undefined) {
     // 规则 10 + spec §2.1 "默认 center":文本节点缺省 horizontal_alignment=1

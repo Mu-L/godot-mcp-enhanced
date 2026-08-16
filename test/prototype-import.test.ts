@@ -341,6 +341,22 @@ describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
     expect(p.self_modulate).toBeUndefined();
   });
 
+  // 审查遗留①(与 I-1 对偶):显式 Panel 无 bg → 落 Godot 默认灰底 stylebox(HTML div 默认透明,
+  // 行为翻转),须 declaration warning;有 bg 负例不触发。
+  it('显式 type Panel 无 bg → 不设 modulate/self_modulate + 灰底翻转 warning', () => {
+    const { tree, warnings } = tr(geo([n('P', 0, 0, 100, 50, { type: 'Panel' })]));
+    const p = findNode(tree, 'P')!.properties ?? {};
+    expect(p.self_modulate).toBeUndefined();
+    expect(p.modulate).toBeUndefined();
+    expect(warnings.some(w => w.includes('P') && w.includes('gray panel stylebox'))).toBe(true);
+  });
+
+  it('显式 type Panel 有 bg → modulate 染色,无灰底翻转 warning(负例)', () => {
+    const { warnings } = tr(geo([n('PB', 0, 0, 100, 50, { type: 'Panel', bg: '#10141f' })]));
+    expect(warnings.some(w => w.includes('gray panel stylebox'))).toBe(false);
+    expect(warnings.some(w => w.includes('PB') && w.includes('近似'))).toBe(true);
+  });
+
   // I-1:Button(推断或显式)自带视觉,不设透明壳
   it('Button 推断(interactive+text)与显式 Button → 不设 self_modulate', () => {
     const { tree } = tr(geo([
