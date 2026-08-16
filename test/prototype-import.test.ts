@@ -1,0 +1,488 @@
+// Task 1 (prototype-import): 翻译器纯函数测试。
+// 覆盖 brief Step 1 四组:parseGeometry schema / buildTree 建树 / 12 规则正负例 / coverage;
+// fast-check 规则 2 闭环:随机合法两层嵌套 geometry → 翻译 → abs(parent)+rel 与输入视口坐标一致 ≤1px。
+// 深度口径:最终输出树(合成根 _PrototypeRoot = depth 1)cap 10,对齐 genUiBuildLayoutScript 的
+// validateUiNodeSpec(tree, 1) 语义——输入链 10 层 → 最终树 11 层 → throw;9 层 → 最终 10 层 → 合法。
+
+import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
+import { parseGeometry, translateGeometry } from '../src/tools/ui/prototype-import.js';
+import type { GeometryNode, PrototypeGeometry } from '../src/tools/ui/prototype-import.js';
+import { flattenTargets } from '../src/tools/ui/layout-diff.js';
+import type { UiNodeSpec } from '../src/tools/ui/types.js';
+
+const VP = { w: 1280, h: 720 };
+const ROOT_NAME = '_PrototypeRoot';
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+/** 最小合法节点。 */
+const n = (name: string, x: number, y: number, w: number, h: number, extra: Partial<GeometryNode> = {}): GeometryNode =>
+  ({ name, rect: { x, y, w, h }, ...extra });
+
+const geo = (nodes: GeometryNode[], viewport = VP): PrototypeGeometry => ({ viewport, nodes });
+
+/** 递归按 name 找节点(含合成根与 _Flow)。 */
+function findNode(node: UiNodeSpec, name: string): UiNodeSpec | undefined {
+  if (node.name === name) return node;
+  for (const c of node.children ?? []) {
+    const r = findNode(c, name);
+    if (r) return r;
+  }
+  return undefined;
+}
+
+/** 翻译便捷入口。 */
+const tr = (g: PrototypeGeometry) => translateGeometry(parseGeometry(g));
+
+// ─── 组 1: parseGeometry(zod schema) ──────────────────────────────────────
+
+describe('parseGeometry', () => {
+  it('合法 JSON 通过(含全部可选字段)', () => {
+    const g = parseGeometry(geo([
+      n('TopBar', 0, 0, 1280, 56, {
+        type: 'Panel', text: '标题', fontSize: 16, color: '#e8ecf5',
+        bg: '#10141f', align: 'center', flow: 'row', justify: 'space-between', interactive: false,
+      }),
+    ]));
+    expect(g.viewport).toEqual(VP);
+    expect(g.nodes[0]!.text).toBe('标题');
+    expect(g.nodes[0]!.flow).toBe('row');
+  });
+
+  it('缺 viewport → INVALID_PARAMS', () => {
+    expect(() => parseGeometry({ nodes: [] } as unknown as PrototypeGeometry)).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('缺 nodes → INVALID_PARAMS', () => {
+    expect(() => parseGeometry({ viewport: VP } as unknown as PrototypeGeometry)).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('缺 rect → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([{ name: 'A' } as unknown as GeometryNode]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('非数字坐标 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', '10' as unknown as number, 0, 5, 5)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('NaN/Infinity 坐标 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', NaN, 0, 5, 5)]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('A', 0, 0, Infinity, 5)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('rect w/h ≤ 0 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', 0, 0, 0, 5)]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('A', 0, 0, 5, -1)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('name 缺失/空 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('', 0, 0, 5, 5)]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([{ rect: { x: 0, y: 0, w: 5, h: 5 } } as unknown as GeometryNode]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('节点 > 500 → INVALID_PARAMS', () => {
+    const nodes = Array.from({ length: 501 }, (_, i) => n(`N${i}`, i * 2, 0, 1, 1));
+    expect(() => parseGeometry(geo(nodes))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('未知字段(strict)→ INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', 0, 0, 5, 5, { 'font-size': 12 } as unknown as Partial<GeometryNode>)])))
+      .toThrow(/INVALID_PARAMS/);
+  });
+
+  it('fontSize 非法(0/负/非数)→ INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { fontSize: 0 })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { fontSize: -3 })]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('color/bg 值域外([300,0,0] / [2,0,0,1])→ INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { color: [300, 0, 0] })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { bg: [2, 0, 0, 1] })]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('align/flow/justify 枚举外 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { align: 'justify' as never })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('A', 0, 0, 50, 50, { flow: 'diagonal' as never })]))).toThrow(/INVALID_PARAMS/);
+  });
+});
+
+// ─── 组 2: buildTree(经 translateGeometry) ────────────────────────────────
+
+describe('buildTree', () => {
+  it('嵌套 rects 正确建树(父=最小包含者)', () => {
+    const { tree } = tr(geo([
+      n('Root', 0, 0, 1000, 800),
+      n('Top', 0, 0, 1000, 60),
+      n('Btn', 10, 10, 80, 40),
+      n('Side', 0, 60, 200, 740),
+    ]));
+    const root = findNode(tree, 'Root');
+    expect(root).toBeDefined();
+    expect(root!.children?.map(c => c.name)).toContain('Top');
+    expect(root!.children?.map(c => c.name)).toContain('Side');
+    // Btn 挂最小包含者 Top(面积 60000)而非 Root(面积 800000)
+    expect(findNode(tree, 'Top')!.children!.some(c => c.name === 'Btn')).toBe(true);
+    expect(root!.children!.some(c => c.name === 'Btn')).toBe(false);
+  });
+
+  it('顶层节点挂合成根 _PrototypeRoot 下', () => {
+    const { tree } = tr(geo([n('A', 0, 0, 100, 100), n('B', 200, 0, 100, 100)]));
+    expect(tree.name).toBe(ROOT_NAME);
+    expect(tree.children?.map(c => c.name).sort()).toEqual(['A', 'B']);
+  });
+
+  it('两 rect 交叉重叠(互不包含)→ throw INVALID_PARAMS', () => {
+    expect(() => tr(geo([n('A', 0, 0, 100, 100), n('B', 50, 50, 100, 100)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('完全相等 rect → throw INVALID_PARAMS', () => {
+    expect(() => tr(geo([n('A', 0, 0, 100, 100), n('B', 0, 0, 100, 100)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('容差:严格包含(边距>1px)合法;近似相等(各边差 ≤1px 互含)→ throw', () => {
+    expect(() => tr(geo([n('A', 0, 0, 100, 100), n('B', 1, 1, 50, 50)]))).not.toThrow();
+    expect(() => tr(geo([n('A', 0, 0, 100, 100), n('B', 0, 0, 100.5, 100)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('兄弟相接(共享边)合法', () => {
+    expect(() => tr(geo([n('A', 0, 0, 50, 50), n('B', 50, 0, 50, 50)]))).not.toThrow();
+  });
+
+  it('容差 1px 内的微小重叠视为相离(合法)', () => {
+    expect(() => tr(geo([n('A', 0, 0, 50, 50), n('B', 49.5, 0, 50, 50)]))).not.toThrow();
+  });
+
+  it('重叠超过 1px 且互不包含 → throw', () => {
+    expect(() => tr(geo([n('A', 0, 0, 50, 50), n('B', 47, 0, 50, 50)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('节点 > 500(绕过 parse 的防御检查)→ INVALID_PARAMS', () => {
+    const nodes = Array.from({ length: 501 }, (_, i) => n(`N${i}`, i * 2, 0, 1, 1));
+    expect(() => translateGeometry(geo(nodes))).toThrow(/INVALID_PARAMS/);
+  });
+});
+
+// ─── 组 3: 12 规则正负例 ──────────────────────────────────────────────────
+
+describe('规则 1: 类型推断', () => {
+  it('显式 type 优先(白名单内)', () => {
+    const { tree, warnings } = tr(geo([n('A', 0, 0, 100, 40, { type: 'LineEdit' })]));
+    expect(findNode(tree, 'A')!.type).toBe('LineEdit');
+    expect(warnings.some(w => w.includes('降级'))).toBe(false);
+  });
+
+  it("flow:'row' → Panel 壳 + HBoxContainer(_Flow)", () => {
+    const { tree } = tr(geo([
+      n('Bar', 0, 0, 400, 40, { flow: 'row' }),
+      n('L', 0, 0, 100, 40), n('R', 300, 0, 100, 40),
+    ]));
+    const bar = findNode(tree, 'Bar')!;
+    expect(bar.type).toBe('Panel');
+    const flow = bar.children?.find(c => c.name === 'Bar_Flow');
+    expect(flow).toBeDefined();
+    expect(flow!.type).toBe('HBoxContainer');
+  });
+
+  it("flow:'column' → VBoxContainer", () => {
+    const { tree } = tr(geo([
+      n('Col', 0, 0, 100, 400, { flow: 'column' }),
+      n('A', 0, 0, 100, 190), n('B', 0, 210, 100, 190),
+    ]));
+    expect(findNode(tree, 'Col_Flow')!.type).toBe('VBoxContainer');
+  });
+
+  it('value → ProgressBar', () => {
+    const { tree } = tr(geo([n('Hp', 0, 0, 200, 20, { value: 0.72 })]));
+    const hp = findNode(tree, 'Hp')!;
+    expect(hp.type).toBe('ProgressBar');
+    expect(hp.properties!.value).toBe(0.72);
+  });
+
+  it('interactive + text → Button', () => {
+    const { tree } = tr(geo([n('OK', 0, 0, 80, 40, { text: '确定', interactive: true })]));
+    expect(findNode(tree, 'OK')!.type).toBe('Button');
+  });
+
+  it('text(无 interactive)→ Label(负例:不是 Button)', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: '标题' })]));
+    expect(findNode(tree, 'T')!.type).toBe('Label');
+  });
+
+  it('无任何线索 → Panel', () => {
+    const { tree } = tr(geo([n('A', 0, 0, 50, 50)]));
+    expect(findNode(tree, 'A')!.type).toBe('Panel');
+  });
+
+  it('推断优先级:显式 type > flow > value > interactive+text > text', () => {
+    // 显式 type 覆盖推断
+    const { tree } = tr(geo([n('A', 0, 0, 50, 50, { type: 'Panel', value: 0.5 })]));
+    expect(findNode(tree, 'A')!.type).toBe('Panel');
+    // value 优先于 text(无 interactive)
+    const r2 = tr(geo([n('B', 0, 0, 50, 50, { value: 0.5, text: 'x' })]));
+    expect(findNode(r2.tree, 'B')!.type).toBe('ProgressBar');
+  });
+});
+
+describe('规则 2: 视口坐标 → 相对父', () => {
+  it('逐层减父原点', () => {
+    const { tree } = tr(geo([
+      n('Root', 100, 50, 800, 600),
+      n('Child', 150, 100, 200, 80),
+    ]));
+    expect(findNode(tree, 'Root')!.rect).toEqual({ x: 100, y: 50, w: 800, h: 600 });
+    expect(findNode(tree, 'Child')!.rect).toEqual({ x: 50, y: 50, w: 200, h: 80 });
+  });
+
+  it('属性:随机合法两层嵌套 → abs(parent)+rel 与输入视口坐标一致 ≤1px', () => {
+    // 生成器:根 rect 在视口内;k(≥2) 个子列为宽 ≥3 的随机列(相邻割点整数,总宽 ≤ w0,
+    // y 全高贴边)。列宽 ≥3 避开 contains 公式的 1px 容差模糊带(1px 相邻列会被判定互含,
+    // 属输入格式约束;模糊带行为由上方"容差"固定用例专测)——本属性测的是规则 2 相对化正确性。
+    const genArb = fc.integer({ min: 200, max: 2000 }).chain(vw =>
+      fc.integer({ min: 200, max: 2000 }).chain(vh =>
+        fc.integer({ min: 0, max: vw - 100 }).chain(x0 =>
+          fc.integer({ min: 0, max: vh - 100 }).chain(y0 =>
+            fc.integer({ min: 100, max: vw - x0 }).chain(w0 =>
+              fc.integer({ min: 100, max: vh - y0 }).chain(h0 =>
+                fc.integer({ min: 2, max: 5 }).chain(k =>
+                  fc.array(fc.integer({ min: 3, max: 50 }), { minLength: k, maxLength: k })
+                    .filter(ws => ws.reduce((a, b) => a + b, 0) <= w0)
+                    .map(colWs => {
+                      let off = 0;
+                      const nodes: GeometryNode[] = [n('R', x0, y0, w0, h0)];
+                      for (let i = 0; i < colWs.length; i++) {
+                        nodes.push(n(`C${i}`, x0 + off, y0, colWs[i]!, h0));
+                        off += colWs[i]!;
+                      }
+                      return { vw, vh, nodes };
+                    }))))))));
+    fc.assert(fc.property(genArb, g => {
+      const { tree } = translateGeometry({ viewport: { w: g.vw, h: g.vh }, nodes: g.nodes });
+      const input = new Map(g.nodes.map(nd => [nd.name, nd.rect]));
+      const walk = (node: UiNodeSpec, ax: number, ay: number): void => {
+        let nx = ax, ny = ay;
+        if (node.rect) {
+          nx = ax + node.rect.x; ny = ay + node.rect.y;
+          const want = input.get(node.name);
+          if (want) {
+            expect(Math.abs(nx - want.x)).toBeLessThanOrEqual(1);
+            expect(Math.abs(ny - want.y)).toBeLessThanOrEqual(1);
+            expect(Math.abs(node.rect.w - want.w)).toBeLessThanOrEqual(1);
+            expect(Math.abs(node.rect.h - want.h)).toBeLessThanOrEqual(1);
+          }
+        }
+        for (const c of node.children ?? []) walk(c, nx, ny);
+      };
+      walk(tree, 0, 0);
+      // 每个输入节点都出现在树里
+      for (const nm of input.keys()) expect(findNode(tree, nm)).toBeDefined();
+    }), { numRuns: 300 });
+  });
+});
+
+describe('规则 3: Label 垂直居中', () => {
+  it('推断 Label → vertical_alignment === 1', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x' })]));
+    expect(findNode(tree, 'T')!.properties!.vertical_alignment).toBe(1);
+  });
+
+  it('显式 Label 同样 === 1;Button 不设(负例)', () => {
+    const { tree } = tr(geo([
+      n('L1', 0, 0, 80, 40, { type: 'Label', text: 'x' }),
+      n('B1', 0, 50, 80, 40, { text: 'x', interactive: true }),
+    ]));
+    expect(findNode(tree, 'L1')!.properties!.vertical_alignment).toBe(1);
+    expect(findNode(tree, 'B1')!.properties!.vertical_alignment).toBeUndefined();
+  });
+});
+
+describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
+  it('无 text/bg/flow → self_modulate [1,1,1,0] 且无 modulate', () => {
+    const { tree } = tr(geo([n('Shell', 0, 0, 100, 50)]));
+    const p = findNode(tree, 'Shell')!.properties!;
+    expect(p.self_modulate).toEqual([1, 1, 1, 0]);
+    expect(p.modulate).toBeUndefined();
+  });
+
+  it('有 bg → modulate 染色 + warning 含"近似" + 不设 self_modulate', () => {
+    const { tree, warnings } = tr(geo([n('Bg', 0, 0, 100, 50, { bg: '#10141f' })]));
+    const p = findNode(tree, 'Bg')!.properties!;
+    expect(p.modulate).toEqual([16 / 255, 20 / 255, 31 / 255, 1]);
+    expect(p.self_modulate).toBeUndefined();
+    expect(warnings.some(w => w.includes('近似'))).toBe(true);
+  });
+
+  it('有 text 无 bg(Label)→ 不设 self_modulate(负例)', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x' })]));
+    const p = findNode(tree, 'T')!.properties ?? {};
+    expect(p.self_modulate).toBeUndefined();
+  });
+
+  it('flow 壳自身无 bg → self_modulate 透明', () => {
+    const { tree } = tr(geo([
+      n('Bar', 0, 0, 400, 40, { flow: 'row' }),
+      n('A', 0, 0, 100, 40),
+    ]));
+    expect(findNode(tree, 'Bar')!.properties!.self_modulate).toEqual([1, 1, 1, 0]);
+  });
+});
+
+describe('规则 5: flow 容器(壳 + _Flow + 子丢 rect 留 min_size)', () => {
+  const built = tr(geo([
+    n('Bar', 10, 20, 400, 40, { flow: 'row', justify: 'space-between' }),
+    n('L', 10, 20, 100, 40), n('R', 310, 20, 100, 40),
+  ]));
+
+  it('壳保留 name/rect(相对化),子层 _Flow 为 full_rect 容器', () => {
+    const bar = findNode(built.tree, 'Bar')!;
+    expect(bar.type).toBe('Panel');
+    expect(bar.rect).toEqual({ x: 10, y: 20, w: 400, h: 40 });
+    const flow = bar.children!.find(c => c.name === 'Bar_Flow')!;
+    expect(flow.type).toBe('HBoxContainer');
+    expect(flow.anchor_preset).toBe('full_rect');
+    expect(flow.rect).toBeUndefined();
+    expect(flow.layout).toEqual({ direction: 'row', justify: 'space-between' });
+  });
+
+  it('flow 子节点挂 _Flow 下、丢 rect、min_size 取原 rect 尺寸', () => {
+    const flow = findNode(built.tree, 'Bar_Flow')!;
+    const kids = flow.children ?? [];
+    expect(kids.map(k => k.name).sort()).toEqual(['L', 'R']);
+    for (const k of kids) {
+      expect(k.rect).toBeUndefined();
+      expect(k.flex).toEqual({ min_width: 100, min_height: 40 });
+    }
+    // flow 子节点 min_size 映射产生提示 warning
+    expect(built.warnings.some(w => w.includes('min_'))).toBe(true);
+  });
+
+  it('flow 子节点的孙层保留相对化 rect(相对其输入父原点)', () => {
+    const { tree } = tr(geo([
+      n('Bar', 0, 0, 400, 100, { flow: 'row' }),
+      n('Item', 0, 0, 200, 100),
+      n('Deep', 20, 30, 160, 40), // Item 的子,孙层
+    ]));
+    const deep = findNode(tree, 'Deep')!;
+    expect(deep.rect).toEqual({ x: 20, y: 30, w: 160, h: 40 }); // 20-0, 30-0(相对 Item 原点)
+    expect(findNode(tree, 'Item')!.children?.some(c => c.name === 'Deep')).toBe(true);
+  });
+});
+
+describe('规则 6/7: 字号与行高钳制预警', () => {
+  it('fontSize → theme_override_font_sizes/font_size', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 200, 48, { text: 'x', fontSize: 16 })]));
+    expect(findNode(tree, 'T')!.properties!['theme_override_font_sizes/font_size']).toBe(16);
+  });
+
+  it('rect.h < fontSize*1.5 → warning 含"钳制";足够高则无(负例)', () => {
+    const r1 = tr(geo([n('S', 0, 0, 200, 18, { text: 'x', fontSize: 16 })]));
+    expect(r1.warnings.some(w => w.includes('钳制'))).toBe(true);
+    const r2 = tr(geo([n('B', 0, 0, 200, 48, { text: 'x', fontSize: 16 })]));
+    expect(r2.warnings.some(w => w.includes('钳制'))).toBe(false);
+  });
+});
+
+describe('规则 8/9/10: 颜色三格式与对齐', () => {
+  it("color '#ff8000' → font_color [1, 128/255, 0, 1]", () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: '#ff8000' })]));
+    expect(findNode(tree, 'T')!.properties!['theme_override_colors/font_color'])
+      .toEqual([1, 128 / 255, 0, 1]);
+  });
+
+  it('color [r,g,b](0-255)→ 归一 0-1', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: [255, 128, 0] })]));
+    expect(findNode(tree, 'T')!.properties!['theme_override_colors/font_color'])
+      .toEqual([1, 128 / 255, 0, 1]);
+  });
+
+  it('color [r,g,b,a](0-1)→ 直接用', () => {
+    const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: [1, 0.5, 0, 0.25] })]));
+    expect(findNode(tree, 'T')!.properties!['theme_override_colors/font_color'])
+      .toEqual([1, 0.5, 0, 0.25]);
+  });
+
+  it('color/bg 格式非法 → INVALID_PARAMS', () => {
+    expect(() => tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: '#ff' })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: '#gggggg' })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => tr(geo([n('T', 0, 0, 80, 40, { text: 'x', color: [1, 2] })]))).toThrow(/INVALID_PARAMS/);
+    expect(() => tr(geo([n('T', 0, 0, 80, 40, { bg: 42 as unknown as string })]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('bg [r,g,b](0-255)→ modulate 归一', () => {
+    const { tree } = tr(geo([n('P', 0, 0, 80, 40, { bg: [10, 20, 30] })]));
+    expect(findNode(tree, 'P')!.properties!.modulate).toEqual([10 / 255, 20 / 255, 30 / 255, 1]);
+  });
+
+  it('align left/center/right → horizontal_alignment 0/1/2', () => {
+    const mk = (align: 'left' | 'center' | 'right') =>
+      tr(geo([n('T', 0, 0, 80, 40, { text: 'x', align })]));
+    expect(findNode(mk('left').tree, 'T')!.properties!.horizontal_alignment).toBe(0);
+    expect(findNode(mk('center').tree, 'T')!.properties!.horizontal_alignment).toBe(1);
+    expect(findNode(mk('right').tree, 'T')!.properties!.horizontal_alignment).toBe(2);
+  });
+});
+
+describe('规则 11: 白名单过滤', () => {
+  it('非白名单 type → Panel 降级 + warning', () => {
+    const { tree, warnings } = tr(geo([n('W', 0, 0, 50, 50, { type: 'MagicWidget' })]));
+    expect(findNode(tree, 'W')!.type).toBe('Panel');
+    expect(warnings.some(w => w.includes('MagicWidget') && w.includes('降级'))).toBe(true);
+  });
+
+  it('白名单 type 不产生降级 warning(负例)', () => {
+    const { warnings } = tr(geo([n('L', 0, 0, 50, 50, { type: 'Label', text: 'x' })]));
+    expect(warnings.some(w => w.includes('降级'))).toBe(false);
+  });
+});
+
+describe('规则 12: 深度 cap 与 name 清洗', () => {
+  it('name 非法字符 [^a-zA-Z0-9_] → _', () => {
+    const { tree } = tr(geo([n('非法 字符!', 0, 0, 50, 50)]));
+    expect(findNode(tree, '______')).toBeDefined(); // "非法 字符!" 共 6 字符全清洗
+  });
+
+  it('清洗后重复("A B" 与 "A_B")→ INVALID_PARAMS', () => {
+    expect(() => tr(geo([n('A B', 0, 0, 50, 50), n('A_B', 100, 0, 50, 50)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('原始 name 重复 → INVALID_PARAMS', () => {
+    expect(() => tr(geo([n('A', 0, 0, 50, 50), n('A', 100, 0, 50, 50)]))).toThrow(/INVALID_PARAMS/);
+  });
+
+  it('输入嵌套 10 层(最终树 11 层)→ throw;9 层(最终 10)→ 合法', () => {
+    const chain = (depth: number): GeometryNode[] =>
+      Array.from({ length: depth }, (_, i) => n(`L${i}`, i, i, 200 - i * 2, 100 - i * 2));
+    expect(() => tr(geo(chain(10)))).toThrow(/INVALID_PARAMS/);
+    expect(() => tr(geo(chain(9)))).not.toThrow();
+  });
+});
+
+// ─── 组 4: coverage ────────────────────────────────────────────────────────
+
+describe('coverage', () => {
+  it('无 flow:targets = flattenTargets(tree).length = 输入节点数 + 1(合成根)', () => {
+    const g = geo([
+      n('Root', 0, 0, 1000, 800),
+      n('A', 10, 10, 100, 50, { text: 'x' }),
+      n('B', 10, 70, 100, 50),
+    ]);
+    const r = tr(g);
+    expect(r.coverage.total_nodes).toBe(3);
+    expect(r.coverage.targets).toBe(flattenTargets(r.tree).length);
+    expect(r.coverage.targets).toBe(4); // 合成根 + Root + A + B
+  });
+
+  it('含 flow:子节点丢 rect → targets < total_nodes', () => {
+    const g = geo([
+      n('Bar', 0, 0, 400, 40, { flow: 'row' }),
+      n('L', 0, 0, 100, 40), n('R', 300, 0, 100, 40),
+      n('Out', 0, 100, 400, 50),
+    ]);
+    const r = tr(g);
+    expect(r.coverage.total_nodes).toBe(4);
+    // targets = 合成根 + Bar 壳 + Out = 3;L/R 丢 rect 不计
+    expect(r.coverage.targets).toBe(flattenTargets(r.tree).length);
+    expect(r.coverage.targets).toBeLessThan(r.coverage.total_nodes);
+    expect(r.warnings.some(w => w.includes('verify'))).toBe(true);
+  });
+});
