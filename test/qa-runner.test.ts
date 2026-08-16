@@ -265,6 +265,63 @@ describe('setup / teardown', () => {
   });
 });
 
+describe('步骤分支覆盖（审查 NIT-8 补缺：set/call/step_until/wait_frames）', () => {
+  it('set 步骤：参数直传 + 非 /root/ 前缀路径被拒（ERROR）', async () => {
+    const s1 = suite({ steps: [{ type: 'set', path: '/root/Root', property: 'x', value: 3 }] });
+    const r1 = await runQaSuite(s1, PROJECT, makeCtx(), 'inline');
+    expect(r1.steps[0]!.status).toBe('PASSED');
+    expect(sendToBridge).toHaveBeenCalledWith('set_node_property',
+      { path: '/root/Root', property: 'x', value: 3 }, expect.any(Number));
+
+    vi.mocked(sendToBridge).mockClear();
+    const s2 = suite({ steps: [{ type: 'set', path: 'Root', property: 'x', value: 3 }] });
+    const r2 = await runQaSuite(s2, PROJECT, makeCtx(), 'inline');
+    expect(r2.steps[0]!.status).toBe('ERROR');
+    expect(r2.steps[0]!.detail).toContain('/root/');
+  });
+
+  it('call 步骤：args 默认空数组 + bridge 拒绝时提示 EXTRA_METHODS 逃生口', async () => {
+    const s = suite({ steps: [{ type: 'call', path: '/root/Root', method: 'take_damage' }] });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(sendToBridge).toHaveBeenCalledWith('call_method',
+      { path: '/root/Root', method: 'take_damage', args: [] }, expect.any(Number));
+    expect(r.steps[0]!.status).toBe('PASSED'); // 默认 mock 无 error
+
+    vi.mocked(sendToBridge).mockResolvedValue({ id: 9, error: { code: -1, message: 'blocked by whitelist' } });
+    const r2 = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r2.steps[0]!.status).toBe('ERROR');
+    expect(r2.steps[0]!.detail).toContain('GODOT_MCP_BRIDGE_EXTRA_METHODS');
+  });
+
+  it('step_until 步骤：conditions/max_frames/wall_budget_ms 透传 playtest.step_until', async () => {
+    const s = suite({
+      steps: [{
+        type: 'step_until',
+        conditions: [{ path: '/root/Root', property: 'x', op: '>=', value: 3 }],
+        max_frames: 120,
+        wall_budget_ms: 5000,
+      }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.steps[0]!.status).toBe('PASSED');
+    const call = vi.mocked(sendToBridge).mock.calls.find(c => c[0] === 'playtest.step_until');
+    expect(call?.[1]).toEqual({
+      conditions: [{ path: '/root/Root', property: 'x', op: '>=', value: 3 }],
+      max_frames: 120,
+      wall_budget_ms: 5000,
+    });
+    // wall_budget 5000 + 5s 余量公式（≥10000，且不小于 step 基础超时下限）
+    expect(call?.[2]).toBeGreaterThanOrEqual(10000);
+  });
+
+  it('wait_frames 步骤：playtest.step {frames} 透传', async () => {
+    const s = suite({ steps: [{ type: 'wait_frames', frames: 5 }] });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.steps[0]!.status).toBe('PASSED');
+    expect(sendToBridge).toHaveBeenCalledWith('playtest.step', { frames: 5 }, expect.any(Number));
+  });
+});
+
 describe('报告落盘接线', () => {
   it('writeReport(runner 产物) → json 可回读且结构完整', async () => {
     const { writeReport } = await import('../src/tools/qa/report.js');

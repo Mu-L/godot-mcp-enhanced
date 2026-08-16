@@ -4,7 +4,7 @@
 // JSON 是 diff 的机器可读真相源；md 是人读摘要。run_id = 文件名 stem（时间戳+套件名）。
 
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, isAbsolute, resolve, sep } from 'path';
 import { homedir } from 'os';
 
 export type StepStatus = 'PASSED' | 'FAILED' | 'ERROR' | 'SKIPPED';
@@ -111,22 +111,35 @@ export function listReports(): string[] {
     .reverse();
 }
 
-/** 读报告：'latest'/'prev'/空 → 最新/次新；否则绝对路径、dir 内文件名或 run_id */
+/** 读报告：'latest'/'prev'/空 → 最新/次新；裸 run_id 或文件名在 qa-reports 内查。
+ * 审查 Important-1 修复：带路径分隔符的 ref 必须解析进 qaReportsDir() 内——
+ * 拒绝任意路径读取（此前 existsSync(ref) 直读绝对路径绕过白名单）。 */
 export function readReport(pathRef: string): QaReport {
   const all = listReports();
+  const dir = qaReportsDir();
   let ref: string | undefined;
   if (!pathRef || pathRef === 'latest') ref = all[0];
   else if (pathRef === 'prev') ref = all[1];
   else ref = pathRef;
   if (!ref) {
-    throw new Error(`无 QA 报告（${qaReportsDir()} 内 ${pathRef === 'prev' ? '不足 2 份' : '为空'}）。先 qa run。`);
+    throw new Error(`无 QA 报告（${dir} 内 ${pathRef === 'prev' ? '不足 2 份' : '为空'}）。先 qa run。`);
   }
-  // ref 可能是：listReports() 的文件名 / 绝对或相对路径 / 裸 run_id
-  const direct = existsSync(ref) ? ref : join(qaReportsDir(), ref.endsWith('.json') ? ref : `${ref}.json`);
-  if (!existsSync(direct)) {
-    throw new Error(`QA 报告不存在: ${ref}（也试过 ${direct}）`);
+
+  let full: string;
+  if (isAbsolute(ref) || ref.includes('/') || ref.includes('\\')) {
+    const resolved = resolve(ref);
+    if (!(resolved === dir || resolved.startsWith(dir + sep))) {
+      throw new Error(`report_path 必须位于 ${dir} 内（拒绝任意路径读取）: ${ref}`);
+    }
+    full = resolved;
+  } else {
+    // 裸 run_id 或文件名
+    full = join(dir, ref.endsWith('.json') ? ref : `${ref}.json`);
   }
-  return JSON.parse(readFileSync(direct, 'utf-8')) as QaReport;
+  if (!existsSync(full)) {
+    throw new Error(`QA 报告不存在: ${ref}`);
+  }
+  return JSON.parse(readFileSync(full, 'utf-8')) as QaReport;
 }
 
 export function stepCaseId(st: StepRecord): string {

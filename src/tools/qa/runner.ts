@@ -33,18 +33,18 @@ const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
 export function resolveGameDataPath(projectPath: string, userUri: string): string | null {
   if (!userUri.startsWith('user://')) return null;
   const rel = userUri.slice('user://'.length);
-  let projectName = '';
-  let customDir = '';
+  let projectName: string;
+  let customDir: string;
   try {
     const cfg = readFileSync(join(projectPath, 'project.godot'), 'utf-8');
     const nameM = cfg.match(/^config\/name\s*=\s*"([^"]*)"/m);
     projectName = nameM?.[1] ?? '';
     const customM = cfg.match(/^config\/custom_user_dir_name\s*=\s*"([^"]*)"/m);
     customDir = customM?.[1] ?? '';
-    const useCustom = /^config\/use_custom_user_dir\s*=\s*true/m.test(cfg);
-    if (useCustom) {
-      projectName = '';
+    if (/^config\/use_custom_user_dir\s*=\s*true/m.test(cfg)) {
+      // use_custom_user_dir: 目录 = <appdata>/<custom_user_dir_name>（Godot 用项目名兜底）
       customDir = customDir || projectName;
+      projectName = '';
     }
   } catch {
     return null;
@@ -192,9 +192,9 @@ export async function runQaSuite(
           continue;
         }
 
-      ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
-      const t0 = Date.now();
-      const outcome = await execStep(step, o, runId, i, projectPath);
+        ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
+        const t0 = Date.now();
+        const outcome = await execStep(step, o, runId, i, projectPath);
         rec.elapsed_ms = Date.now() - t0;
         rec.status = outcome.status;
         rec.detail = outcome.detail;

@@ -125,7 +125,7 @@ export const QaOptionsSchema = z.object({
   auto_install_bridge: z.boolean().default(true),
   /** 自动 run_project（false = 连接已运行中的游戏，需游戏已装 bridge 且在跑） */
   auto_run: z.boolean().default(true),
-  /** 结束后 stop_project（auto_run=false 时建议保持 true 以便收尾，若游戏是外部启动的设 false） */
+  /** 结束后 stop_project（仅 auto_run=true 起的游戏会被收尾；auto_run=false 时游戏非本套件启动，此开关不生效，需自行 stop_project） */
   stop_after: z.boolean().default(true),
   /** 断言失败/步骤错误后是否继续执行剩余步骤（默认 false：首个非 PASSED 即中止） */
   continue_on_failure: z.boolean().default(false),

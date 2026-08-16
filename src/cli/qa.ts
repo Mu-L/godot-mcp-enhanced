@@ -135,5 +135,5 @@ export async function runQa(args: string[]): Promise<void> {
   }
 
   usage();
-  process.exit(args.length === 0 || !verb ? 2 : 2);
+  process.exit(2);
 }

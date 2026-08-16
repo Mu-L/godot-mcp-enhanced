@@ -13,11 +13,13 @@
 // call 步骤受 bridge 只读白名单 + GODOT_MCP_BRIDGE_EXTRA_METHODS 约束，不绕过。
 
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import type { Tool } from '@modelcontextprotocol/server';
 import type { ToolResult, ToolContext } from '../../types.js';
 import { textResult } from '../../types.js';
 import { opsErrorResult } from '../shared.js';
 import { requireProjectPath } from '../../helpers.js';
+import { isPathInAllowedRoots } from '../../core/path-utils.js';
 import { parseQaSuite } from './spec.js';
 import { runQaSuite } from './runner.js';
 import { writeReport, readReport, listReports, diffReports, type QaReport } from './report.js';
@@ -100,8 +102,15 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
   if (args.spec !== undefined && args.spec !== null) {
     specInput = args.spec;
   } else if (typeof args.spec_path === 'string' && args.spec_path) {
+    // 审查 Important-1 修复：spec_path 是文件读取入口，必须与 project_path 同标准过
+    // ALLOWED_PROJECT_PATHS 白名单（此前是全 src/tools 唯一 readFileSync(args.*) 直读口子）
+    const specAbs = resolve(args.spec_path);
+    if (!isPathInAllowedRoots(specAbs)) {
+      return opsErrorResult('INVALID_PATH',
+        `spec_path 不在 ALLOWED_PROJECT_PATHS 白名单内: ${specAbs}。把 spec 文件放进白名单根内，或改用 inline spec 参数。`);
+    }
     try {
-      specInput = readFileSync(args.spec_path, 'utf-8');
+      specInput = readFileSync(specAbs, 'utf-8');
       specSource = 'file';
     } catch (err) {
       return opsErrorResult('INVALID_PARAMS', `spec_path 不可读: ${err instanceof Error ? err.message : String(err)}`);

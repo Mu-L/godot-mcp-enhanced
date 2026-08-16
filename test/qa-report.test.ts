@@ -63,6 +63,16 @@ describe('writeReport / readReport', () => {
     rmSync(empty, { recursive: true, force: true });
   });
 
+  it('安全（审查 Important-1）：白名单外绝对路径拒绝读取', () => {
+    // 任意路径读是 v0.30 修复的口子——qa 报告只允许读 qa-reports 目录内
+    expect(() => readReport('C:/Windows/win.ini')).toThrow(/必须位于/);
+    expect(() => readReport('C:\\Windows\\win.ini')).toThrow(/必须位于/);
+    expect(() => readReport('/etc/passwd')).toThrow(/必须位于/);
+    // 目录内合法路径仍可（构造 dir 内绝对路径）
+    const r = readReport(join(dir, '20260815-100000-alpha.json'));
+    expect(r.run_id).toBe('20260815-100000-alpha');
+  });
+
   it('md 渲染含状态表与 setup error', () => {
     const r = report('20260815-100002-gamma', 'gamma', [step(0, 'a', 'assert', 'FAILED')], 'run_project 失败: x');
     const { md_path } = writeReport(r);

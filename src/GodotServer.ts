@@ -167,8 +167,8 @@ export class GodotServer {
         // 1) 自动注册 server/discover handler(_ondiscover,返 supportedVersions+capabilities)
         // 2) 启用 modern codec → fillCacheFields(cacheHints 上 wire)+ envelope lift(logLevel 等 reserved key 搬到 ctx.mcpReq.envelope)
         // 双时代自动:legacy 客户端仍走 initialize 握手 + oninitialized;modern 客户端走 server/discover + per-request _meta。
-        // Roots 影响:modern era 无连接级状态,oninitialized 不触发 → Roots 走 env baseline(ALLOWED_PROJECT_PATHS),
-        // 这是预期降级(modern 无状态与 enhanced 连接级安全白名单语义有根本张力,详见 initRootsIntegration 注释)。
+        // Roots 影响:v0.30 D 批已退役 MCP Roots 动态授权(2026-07-28 规范废弃),
+        // 路径白名单统一走 ALLOWED_PROJECT_PATHS env——详见 docs/protocol-debt-2026-07-28.md。
         supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, '2026-07-28'],
       }
     );
