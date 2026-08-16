@@ -5713,6 +5713,11 @@
             "type": "number",
             "description": "ui_measure_layout: 最大遍历深度(默认 16,上限 64)"
           },
+          "expect_tree": {
+            "type": "object",
+            "description": "ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界",
+            "additionalProperties": true
+          },
           "parent_path": {
             "type": "string",
             "description": "ui_build_layout: 父节点路径"
@@ -5747,6 +5752,7 @@
         "child_name",
         "child_properties",
         "max_depth",
+        "expect_tree",
         "parent_path",
         "load_autoloads"
       ],
@@ -5783,8 +5789,8 @@
       },
       "size": {
         "descBytes": 712,
-        "schemaBytes": 3685,
-        "totalBytes": 4397
+        "schemaBytes": 3875,
+        "totalBytes": 4587
       },
       "annotations": {
         "readOnlyHint": false,

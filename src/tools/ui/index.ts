@@ -14,6 +14,8 @@ import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } fr
 import { genUiSetThemeScript, genThemeCreateScript, genThemeSetPropertyScript } from './ui-theme.js';
 import { genUiDrawRecipeScript } from './ui-draw.js';
 import { genUiMeasureScript } from './ui-measure.js';
+import { flattenTargets, diffLayout, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
+import type { MeasuredNode } from './layout-diff.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
@@ -151,6 +153,7 @@ export function getToolDefinitions(): Tool[] {
             },
           },
           max_depth: { type: 'number', description: 'ui_measure_layout: 最大遍历深度(默认 16,上限 64)' },
+          expect_tree: { type: 'object', description: 'ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界', additionalProperties: true },
           parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径' },
           tree: {
             type: 'object',
@@ -419,6 +422,10 @@ export async function handleTool(
         const scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
         const nodePathRaw = args.node_path as string | undefined;
         const maxDepth = typeof args.max_depth === 'number' ? args.max_depth : 16;
+        const expectTree = args.expect_tree as UiNodeSpec | undefined;
+        if (expectTree && (typeof expectTree !== 'object' || !expectTree.name)) {
+          return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'expect_tree must be a tree object with name');
+        }
         script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth);
         break;
       }
@@ -442,7 +449,34 @@ export async function handleTool(
       return ERROR_CODES.SCRIPT_EXEC_FAILED;
     };
 
-    const r = parseGdscriptResult(result, [], errorMapper);
+    let r = parseGdscriptResult(result, [], errorMapper);
+    // Task 4: expect_tree 注入——measure 成功输出后,把逐节点 diff/重叠/越界问题清单
+    // 并回 data.layout_verify(Pascal verify_scene 模式,数字驱动收敛)。
+    if (action === 'ui_measure_layout' && (args.expect_tree as UiNodeSpec | undefined)) {
+      const expectTree = args.expect_tree as UiNodeSpec;
+      try {
+        const parsed = JSON.parse((r.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
+          success?: boolean;
+          data?: { measure?: { nodes?: MeasuredNode[] } };
+          warnings?: string[];
+        };
+        // 仅成功结果注入:错误/异常输出保持原样,diff 缺失由 AI 视为未验证
+        if (parsed.success === true) {
+          const measured = parsed.data?.measure?.nodes ?? [];
+          const targets = flattenTargets(expectTree);
+          const wrapped = {
+            targets,
+            diff: diffLayout(measured, targets, 2),
+            overlaps: detectOverlaps(measured),
+            out_of_bounds: detectOutOfBounds(measured),
+          };
+          const merged = { ...parsed, data: { ...parsed.data, layout_verify: wrapped } };
+          r = { ...r, content: [{ type: 'text', text: JSON.stringify(merged) }] };
+        }
+      } catch {
+        // measure 输出异常时保持原样返回,diff 缺失由 AI 视为未验证
+      }
+    }
     return UI_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, action) : r;
   } catch (err) {
     const msg = getErrorMessage(err);
