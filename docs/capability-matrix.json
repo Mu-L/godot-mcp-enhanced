@@ -5725,6 +5725,10 @@
           "load_autoloads": {
             "type": "boolean",
             "description": "是否加载 Autoload 上下文（默认 true）"
+          },
+          "persist": {
+            "type": "boolean",
+            "description": "ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）"
           }
         },
         "required": [
@@ -5754,7 +5758,8 @@
         "max_depth",
         "expect_tree",
         "parent_path",
-        "load_autoloads"
+        "load_autoloads",
+        "persist"
       ],
       "readonly": false,
       "longRunning": false,
@@ -5789,8 +5794,8 @@
       },
       "size": {
         "descBytes": 712,
-        "schemaBytes": 3875,
-        "totalBytes": 4587
+        "schemaBytes": 3996,
+        "totalBytes": 4708
       },
       "annotations": {
         "readOnlyHint": false,

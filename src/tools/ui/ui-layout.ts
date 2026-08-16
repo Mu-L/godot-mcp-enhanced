@@ -591,6 +591,7 @@ export function genUiBuildLayoutScript(
   parentPath: string,
   tree: UiNodeSpec,
   viewport?: { w: number; h: number },
+  persist: boolean = false,
 ): string {
   const warnings: string[] = [];
   validateUiNodeSpec(tree, 1, warnings);
@@ -608,6 +609,34 @@ export function genUiBuildLayoutScript(
     }))})`
     : '';
 
+  // persist=true:build 完成后原子写落盘(pack → tmp → rename,失败清理,同 scene-commit F-2 模式)。
+  // 注意 warningLines 为空时不自带前导换行,故本块以 \n 开头保证与 buildBlock 行分隔。
+  // owner 归一(实测 2026-08-16):build 时子节点先挂父、父后挂树,游离期设 owner 被引擎
+  // 拒绝(Invalid owner. Owner must be an ancestor)→ 子节点 owner=null → pack 丢弃整棵子树。
+  // pack 前全树已挂、祖先链成立,统一 set_owner 为场景根(编辑器保存语义)。
+  const persistBlock = persist
+    ? `\n\t# --- persist(原子写:pack → tmp → rename,同 scene-commit F-2 模式) ---
+\tfor n in _mcp_scene_instance.find_children("*", "Node", true, false):
+\t\tif n.get_owner() != _mcp_scene_instance:
+\t\t\tn.set_owner(_mcp_scene_instance)
+\tvar packed = PackedScene.new()
+\tpacked.pack(_mcp_scene_instance)
+\tvar _full := "${gdEscape(scenePath)}"
+\tvar _ext := _full.get_extension()
+\tvar _tmp := _full + ".tmp." + _ext
+\tif FileAccess.file_exists(_tmp):
+\t\tDirAccess.remove_absolute(_tmp)
+\tvar err := ResourceSaver.save(packed, _tmp)
+\tif err != OK:
+\t\tDirAccess.remove_absolute(_tmp)
+\telse:
+\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)
+\t\tif _ren != OK:
+\t\t\tDirAccess.remove_absolute(_tmp)
+\t\t\terr = _ren
+\t_mcp_output("persist", {"saved": err == OK})`
+    : '';
+
   const rootType = tree.layout ? resolveFlexContainer(tree.layout).containerType : tree.type;
 
   return `${SCENE_TREE_HEADER}
@@ -622,7 +651,7 @@ func _initialize():
 \t\treturn
 \tvar parent = root
 \tvar node: Node
-${buildBlock}${warningLines}
+${buildBlock}${warningLines}${persistBlock}
 \t_mcp_output("layout_built", {"parent": "${gdEscape(parentPath)}", "root_type": "${gdEscape(rootType)}", "root_name": "${gdEscape(tree.name)}"})
 \t_mcp_done()
 `;

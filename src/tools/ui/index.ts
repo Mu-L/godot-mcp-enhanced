@@ -202,6 +202,7 @@ export function getToolDefinitions(): Tool[] {
             required: ['type', 'name'],
           },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+          persist: { type: 'boolean', description: 'ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）' },
         },
         required: ['action'],
       },
@@ -401,8 +402,9 @@ export async function handleTool(
         if (!tree || typeof tree !== 'object') {
           return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'tree is required and must be an object');
         }
+        const persist = args.persist === true;
         try {
-          script = genUiBuildLayoutScript(scenePath, parentPath, tree);
+          script = genUiBuildLayoutScript(scenePath, parentPath, tree, undefined, persist);
         } catch (err) {
           const msg = getErrorMessage(err);
           if (msg.includes('INVALID_CONTROL_TYPE')) {
@@ -477,7 +479,11 @@ export async function handleTool(
         // measure 输出异常时保持原样返回,diff 缺失由 AI 视为未验证
       }
     }
-    return UI_PERSIST_ACTIONS.has(action) ? appendRuntimePersistWarning(r, action) : r;
+    // persist=true 的 ui_build_layout 已原子写落盘,不再 append "headless 退出即丢" 提示;其余照旧。
+    if (UI_PERSIST_ACTIONS.has(action) && !(action === 'ui_build_layout' && args.persist === true)) {
+      return appendRuntimePersistWarning(r, action);
+    }
+    return r;
   } catch (err) {
     const msg = getErrorMessage(err);
     if (msg.includes('NodePath')) return opsErrorResult('INVALID_PATH', msg);

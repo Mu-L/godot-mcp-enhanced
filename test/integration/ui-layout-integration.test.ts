@@ -144,4 +144,32 @@ func _measure_go() -> void:
     const outs = await runScript(dir, genUiMeasureScript(join(dir, 'nope.tscn'), undefined, 16));
     expect(outs.some(o => o.key === 'error')).toBe(true);
   });
+
+  // Task 5 persist:build 后原子写落盘,独立进程重载 measure 验证(节点+separation 都已持久化)。
+  // 注:此测试会写盘 main.tscn,故放在 describe 末尾,避免污染前序测试的干净 fixture。
+  it('persist=true:节点写入 .tscn,重载 measure 结果一致', async () => {
+    const build = genUiBuildLayoutScript(join(dir, 'main.tscn'), 'root', {
+      type: 'VBoxContainer', name: 'Saved', layout: { direction: 'column', gap: 8 },
+      children: [{ type: 'Button', name: 'OK' }, { type: 'Button', name: 'Cancel' }],
+    }, undefined, true);
+    const outs = await runScript(dir, build);
+    expect(outs.some(o => o.key === 'persist')).toBe(true);
+    expect(outs.some(o => o.key === 'layout_built')).toBe(true); // persist 后 layout_built 输出仍在
+    const saved = JSON.parse(String(outs.find(o => o.key === 'persist')!.value));
+    expect(saved.saved).toBe(true);
+    // 重载独立 measure
+    const measure = genUiMeasureScript(join(dir, 'main.tscn'), undefined, 16);
+    const outs2 = await runScript(dir, measure);
+    const m = JSON.parse(String(outs2.find(o => o.key === 'measure')!.value)) as {
+      nodes: Array<{ path: string; rect: { x: number; y: number; w: number; h: number } }>;
+    };
+    const paths = m.nodes.map(x => x.path);
+    expect(paths).toContain('Saved');
+    expect(paths).toContain('Saved/OK');
+    expect(paths).toContain('Saved/Cancel');
+    const ok = m.nodes.find(x => x.path === 'Saved/OK')!;
+    const cancel = m.nodes.find(x => x.path === 'Saved/Cancel')!;
+    const gap = cancel.rect.y - (ok.rect.y + ok.rect.h);
+    expect(Math.abs(gap - 8)).toBeLessThanOrEqual(1);
+  });
 });

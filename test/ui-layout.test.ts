@@ -1,5 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { genUiBuildLayoutScript, genSpacerLines } from '../src/tools/ui/ui-layout.js';
+import { mockSuccessResult } from './helpers/mock-results.js';
+
+const SUCCESS_RESULT = mockSuccessResult({
+  outputs: [{ key: 'layout_built', value: '{"parent":"root"}' }],
+});
+
+vi.mock('../src/gdscript-executor.js', () => ({
+  executeGdscript: vi.fn(async () => SUCCESS_RESULT),
+  executeGdscriptTrusted: vi.fn(async () => SUCCESS_RESULT),
+}));
+
+import { handleTool as uiHandle } from '../src/tools/ui/index.js';
+
+function createMockCtx() {
+  return {
+    opsScript: '/fake/ops.gd',
+    findGodot: vi.fn(async () => '/fake/godot'),
+    runningProcess: null,
+    setRunningProcess: vi.fn(),
+    outputBuffer: [],
+    setOutputBuffer: vi.fn(),
+    processStartTime: 0,
+    setProcessStartTime: vi.fn(),
+    projectDir: '/fake/project',
+    setProjectDir: vi.fn(),
+    parseGodotConfig: vi.fn(() => ({})),
+  };
+}
 
 const TREE = (justify: string) => ({
   type: 'HBoxContainer', name: 'Row',
@@ -107,5 +135,64 @@ describe('ui_build_layout rect 支持', () => {
       children: [{ type: 'Button', name: 'Btn', rect: { x: 400, y: 0, w: 200, h: 100 } }],
     }, { w: 1000, h: 800 });
     expect(s).toContain('node.anchor_left = 0.4');
+  });
+});
+
+describe('ui_build_layout persist', () => {
+  // 注:brief 原文 persist 写第 4 参,但第 4 参已被 viewport 占据(上方测试在用),
+  // 按需以实际签名为准:persist 落第 5 参,默认 false。
+  const tree = { type: 'VBoxContainer', name: 'Col', layout: { direction: 'column' as const }, children: [] };
+
+  it('persist=true 生成 pack→tmp→rename 原子写块', () => {
+    const s = genUiBuildLayoutScript('res://scenes/main.tscn', 'root', tree, undefined, true);
+    expect(s).toContain('PackedScene.new()');
+    expect(s).toContain('ResourceSaver.save(packed, _tmp)');
+    expect(s).toContain('DirAccess.rename_absolute(_tmp, _full)');
+    expect(s).toContain('DirAccess.remove_absolute(_tmp)');
+    expect(s).toContain('_mcp_output("persist"');
+  });
+
+  it('默认不持久化(无 ResourceSaver)', () => {
+    const s = genUiBuildLayoutScript('res://scenes/main.tscn', 'root', tree);
+    expect(s).not.toContain('ResourceSaver');
+  });
+
+  it('persist=true: persist 块在 build 完成后、layout_built 输出之前', () => {
+    const s = genUiBuildLayoutScript('res://scenes/main.tscn', 'root', tree, undefined, true);
+    expect(s.indexOf('ResourceSaver.save')).toBeGreaterThan(s.indexOf('node.owner = root'));
+    expect(s.indexOf('ResourceSaver.save')).toBeLessThan(s.indexOf('_mcp_output("layout_built"'));
+  });
+});
+
+describe('ui_build_layout persist 与运行时丢失 warning 合并', () => {
+  const tree = { type: 'VBoxContainer', name: 'Col', layout: { direction: 'column' as const }, children: [] };
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('persist=true: 不 append 运行时丢失 warning(已原子写落盘)', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_build_layout', scene_path: 'res://scene.tscn', parent_path: 'root', tree, persist: true },
+      createMockCtx() as never,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const allText = (result!.content as Array<{ type: string; text?: string }>)
+      .map(el => (el.type === 'text' ? el.text ?? '' : '')).join('');
+    expect(allText).not.toContain('⚠');
+  });
+
+  it('persist 未传: 仍 append 运行时丢失 warning(行为不变)', async () => {
+    const result = await uiHandle(
+      'ui',
+      { project_path: '/fake/p', action: 'ui_build_layout', scene_path: 'res://scene.tscn', parent_path: 'root', tree },
+      createMockCtx() as never,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBeFalsy();
+    const warning = (result!.content as Array<{ type: string; text?: string }>)
+      .find((el, i) => i > 0 && el.type === 'text' && (el.text ?? '').includes('⚠'));
+    expect(warning).toBeDefined();
+    expect(warning!.text).toContain('ui_build_layout');
   });
 });
