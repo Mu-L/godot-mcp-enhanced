@@ -126,33 +126,42 @@ describe('runQaSuite happy path', () => {
     expect(report.steps[3]!.evidence?.screenshot_path).toBeUndefined();
   });
 
-  it('screenshot 步骤：user:// 解析成功时 PNG 拷入报告目录', async () => {
-    // 构造 Godot app_userdata 布局：APPDATA/Godot/app_userdata/<config name>/shot.png
+  // darwin 的 Godot 数据根(~/Library/Application Support/Godot)无法用环境变量重定向,跳过(CI 矩阵仅 win/linux)
+  it.skipIf(process.platform === 'darwin')('screenshot 步骤：user:// 解析成功时 PNG 拷入报告目录', async () => {
+    // 构造 Godot app_userdata 布局(平台无关)：win32=APPDATA/Godot/app_userdata/<name>，
+    // linux=XDG_DATA_HOME/godot/app_userdata/<name>(resolveGameDataPath 按 platform 选 base，
+    // 只设 APPDATA 在 Linux CI 上解析不到 → 降级分支 → 本测试首跑 CI 即红,issue 见 PR#25)
     const appdata = mkdtempSync(join(tmpdir(), 'qa-appdata-'));
     const project = mkdtempSync(join(tmpdir(), 'qa-proj-'));
     const prevAppdata = process.env.APPDATA;
-    process.env.APPDATA = appdata;
+    const prevXdg = process.env.XDG_DATA_HOME;
     writeFileSync(join(project, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="TestProj"\n');
-    const userDataDir = join(appdata, 'Godot', 'app_userdata', 'TestProj');
+    const godotRoot = process.platform === 'win32'
+      ? (process.env.APPDATA = appdata, join(appdata, 'Godot'))
+      : (process.env.XDG_DATA_HOME = appdata, join(appdata, 'godot'));
+    const userDataDir = join(godotRoot, 'app_userdata', 'TestProj');
     mkdirSync(userDataDir, { recursive: true });
     writeFileSync(join(userDataDir, 'shot.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
 
-    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
-      if (method === 'take_screenshot') return { id: 3, result: { success: true, path: 'user://shot.png', size: { x: 8, y: 4 } } };
-      return { id: 5, result: {} };
-    });
-    const s = suite({ project_path: project, steps: [{ type: 'screenshot', label: '拷贝成功' }] });
-    const report = await runQaSuite(s, project, makeCtx(), 'inline');
+    try {
+      vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+        if (method === 'take_screenshot') return { id: 3, result: { success: true, path: 'user://shot.png', size: { x: 8, y: 4 } } };
+        return { id: 5, result: {} };
+      });
+      const s = suite({ project_path: project, steps: [{ type: 'screenshot', label: '拷贝成功' }] });
+      const report = await runQaSuite(s, project, makeCtx(), 'inline');
 
-    expect(report.steps[0]!.status).toBe('PASSED');
-    expect(report.steps[0]!.detail).toContain('8x4');
-    const shotPath = report.steps[0]!.evidence!.screenshot_path!;
-    expect(shotPath).toMatch(/-step0\.png$/);
-    expect(existsSync(shotPath)).toBe(true);
-
-    process.env.APPDATA = prevAppdata;
-    rmSync(appdata, { recursive: true, force: true });
-    rmSync(project, { recursive: true, force: true });
+      expect(report.steps[0]!.status).toBe('PASSED');
+      expect(report.steps[0]!.detail).toContain('8x4');
+      const shotPath = report.steps[0]!.evidence!.screenshot_path!;
+      expect(shotPath).toMatch(/-step0\.png$/);
+      expect(existsSync(shotPath)).toBe(true);
+    } finally {
+      process.env.APPDATA = prevAppdata;
+      if (prevXdg === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = prevXdg;
+      rmSync(appdata, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
 
