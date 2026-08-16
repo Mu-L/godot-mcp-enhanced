@@ -7,7 +7,7 @@
 
 ## 1. 背景与目标
 
-当前 enhanced `tools/list` 总量约 ~17000 tokens（capability-matrix 总 ~68000B ÷ 4）。`scripts/check-token-budget.mjs` 的当前阈值 `totalSum.warn=80KB / error=120KB` 已经偏松，对照 better-godot-mcp 的 ~4000 tokens，enhanced 上下文预算有近 4× 浪费。
+当前 enhanced `tools/list` 总量约 ~21600 tokens（capability-matrix 总 ~86412B ÷ 4，2026-08-16 实测）。`scripts/check-token-budget.mjs` 阈值 `totalSum.warn=90KB（2026-08-16 自 80KB 校准，对齐"持续超 4% 上调"惯例）/ error=120KB`，对照 better-godot-mcp 的 ~4000 tokens，enhanced 上下文预算有数倍冗余。
 
 better-godot-mcp 用三层压缩（核心层展开 action 清单 / 领域层单行 / help 工具按需展开完整文档），把上下文成本从工具数量增长中解耦。
 

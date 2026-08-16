@@ -2008,7 +2008,7 @@
           },
           "node_path": {
             "type": "string",
-            "description": "monitor_start: 要监控的节点路径（如 root/Player）"
+            "description": "monitor_start: 要监控的节点路径（如 /root/Player）"
           },
           "properties": {
             "type": "array",
@@ -2126,8 +2126,8 @@
       },
       "size": {
         "descBytes": 1117,
-        "schemaBytes": 5367,
-        "totalBytes": 6484
+        "schemaBytes": 5368,
+        "totalBytes": 6485
       },
       "annotations": {
         "readOnlyHint": false,

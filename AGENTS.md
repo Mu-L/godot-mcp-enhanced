@@ -461,3 +461,4 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
 | 2026-07-22 | 第一轮审查修正:`.claude/rules/` 与 `rule-templates.ts` 关系从「生成产物」更正为「独立副本同步」(依据 `rule-templates.ts:4` 注释) |
 | 2026-07-22 | 第二轮审查修正:补全 MCP 子系统表丢失的 8 行(粒子/TileMap/动画/导航/材质/信号/音频/工作流,含 rule 文件归属);清理第 190 行与「独立副本」声明的措辞矛盾 |
 | 2026-07-27 | 加「改动 `.claude/rules/` 后」+ 「plan 落地后必出第三方审查文档」+ 「完成前必登 memory」三段强制流程（源于 2026-07-27 get_node_layout PR 第三方审查反馈 + 用户反馈 memory/review 双断档） |
+| 2026-08-16 | 双副本内容一致性 CI 从 advisory 假接线升级为 STRICT 阻断(`check-rules-content-sync.mjs` 归一化收紧+双向对账,`ci.yml` 传 `STRICT=1`);历史 drift 8/9 文件已清零;「改动 `.claude/rules/` 后」与「独立副本同步约束」两段同步更新 |

@@ -39,14 +39,16 @@ const { DETAILED_RULE_TEMPLATES } = await import(pathToFileURL(templatesPath).hr
 const rulesDir = join(repoRoot, '.claude', 'rules');
 
 /**
- * normalize:CRLF→LF + 版本行互抹(锚定 "godot-mcp-enhanced " 前缀,支持 v0.19 两段式与
- * pre-release/build 后缀;不触碰 Godot 4.x 等其他版本号),其余逐字保留。
+ * normalize:CRLF→LF + 版本行互抹。锚定 "> 适用于 godot-mcp-enhanced " 前缀(审查 N-4 收紧:
+ * 防误抹正文叙述性版本引用),支持 v0.19 两段式与 pre-release/build 后缀;不触碰 Godot 4.x
+ * 等其他版本号。已知限制:版本行互抹会掩盖"最低适用版本"语义变更(如 v0.17.0+→v0.25.0+),
+ * 属有意归一(分发模板恒为 {{MCP_VERSION}} 占位,真值只在 rules 侧)。
  */
 function normalize(s) {
   return s
     .replace(/\r\n/g, '\n')
-    .replace(/godot-mcp-enhanced v[\d.]+(?:[-+][\w.+-]*)?/g, 'godot-mcp-enhanced VER')
-    .replace(/godot-mcp-enhanced \{\{MCP_VERSION\}\}(?:\+)?/g, 'godot-mcp-enhanced VER');
+    .replace(/> 适用于 godot-mcp-enhanced v[\d.]+(?:[-+][\w.+-]*)?/g, '> 适用于 godot-mcp-enhanced VER')
+    .replace(/> 适用于 godot-mcp-enhanced \{\{MCP_VERSION\}\}(?:\+)?/g, '> 适用于 godot-mcp-enhanced VER');
 }
 
 /** 行级首个差异描述(两侧已 normalize)。 */

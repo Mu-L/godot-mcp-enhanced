@@ -357,6 +357,14 @@ describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
     expect(warnings.some(w => w.includes('PB') && w.includes('近似'))).toBe(true);
   });
 
+  // 审查 N-5:非白名单 type 降级 Panel 无 bg → 同样落灰底默认主题,须一并提示(与显式 Panel 对齐)
+  it('非白名单 type(降级 Panel)无 bg → 灰底翻转 warning + 降级 warning 并存', () => {
+    const { tree, warnings } = tr(geo([n('Custom', 0, 0, 100, 50, { type: 'Foo' })]));
+    expect(findNode(tree, 'Custom')!.type).toBe('Panel');
+    expect(warnings.some(w => w.includes('Custom') && w.includes('降级为 Panel'))).toBe(true);
+    expect(warnings.some(w => w.includes('Custom') && w.includes('gray panel stylebox'))).toBe(true);
+  });
+
   // I-1:Button(推断或显式)自带视觉,不设透明壳
   it('Button 推断(interactive+text)与显式 Button → 不设 self_modulate', () => {
     const { tree } = tr(geo([

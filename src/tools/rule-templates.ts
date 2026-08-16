@@ -288,7 +288,7 @@ game_query(method="get_tree")
 // → { root: "Node3D", child_count: 15 }
 
 game_query(method="find_nodes", params={ "pattern": "Player" })
-// → { nodes: [{ path: "root/Player", type: "CharacterBody3D" }] }
+// → { nodes: [{ path: "/root/Player", type: "CharacterBody3D" }] }
 \`\`\`
 
 ### 模拟输入并等待
@@ -311,8 +311,8 @@ game_write(method="call_method", params={ "path": "/root/Player", "method": "tak
 ### 属性监控
 
 \`\`\`
-game(action="monitor_start", node_path="root/Player", properties=["position", "health"], interval_frames=5)
-// → { monitoring: true, node_path: "root/Player", properties: [...], interval_frames: 5 }
+game(action="monitor_start", node_path="/root/Player", properties=["position", "health"], interval_frames=5)
+// → { monitoring: true, node_path: "/root/Player", properties: [...], interval_frames: 5 }
 
 game(action="monitor_poll")
 // → { monitoring: true, samples: [{frame: 100, time: 1.667, values: {position: {x:10,y:0}}}], sample_count: 1 }
@@ -324,8 +324,8 @@ game(action="monitor_stop")
 ### 信号监听
 
 \`\`\`
-game(action="watch_start", node_path="root/Button", signal_name="pressed", max_events=100)
-// → { watching: true, node_path: "root/Button", signal_name: "pressed", max_events: 100 }
+game(action="watch_start", node_path="/root/Button", signal_name="pressed", max_events=100)
+// → { watching: true, node_path: "/root/Button", signal_name: "pressed", max_events: 100 }
 
 game(action="watch_poll")
 // → { watching: true, events: [{frame: 150, time: 2.5, args: []}], event_count: 1 }
@@ -338,10 +338,10 @@ game(action="watch_stop")
 
 \`\`\`
 game(action="find_ui_elements", type="Button", visible_only=true)
-// → { elements: [{path: "root/Menu/StartBtn", type: "Button", text: "Start", ...}], count: 3 }
+// → { elements: [{path: "/root/Menu/StartBtn", type: "Button", text: "Start", ...}], count: 3 }
 
 game(action="click_button", text="Start")
-// → { clicked: true, button_path: "root/Menu/StartBtn", button_text: "Start" }
+// → { clicked: true, button_path: "/root/Menu/StartBtn", button_text: "Start" }
 \`\`\`
 
 ### 错误：Bridge 未连接
@@ -712,7 +712,7 @@ ui_build_layout(
 ui_draw_recipe(
   project_path="D:/game",
   scene_path="res://scenes/main.tscn",
-  node_path="root/HUD/HealthBar",
+  node_path="/root/HUD/HealthBar",
   ops=[
     { "kind": "rect", "position": [0, 0], "size": [200, 20], "color": [0.2, 0.2, 0.2] },
     { "kind": "rect", "position": [0, 0], "size": [140, 20], "color": [0, 0.8, 0] },
