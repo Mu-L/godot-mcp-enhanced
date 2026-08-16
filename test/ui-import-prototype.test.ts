@@ -177,6 +177,29 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     expect(execMock).toHaveBeenCalledTimes(2);
   });
 
+  // I-2(final review 声明式修复):parent_path 非 root → build_warnings 追加根级 diff 参照系限制提示
+  it('parent_path 非 root → build_warnings 含根级 diff 参照系限制提示;默认 root 不提示', async () => {
+    mockTwoPhase();
+    const r1 = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: GEO, parent_path: '/root/HUD',
+    }, createCtx());
+    expect(r1!.isError).toBeFalsy();
+    const w1 = JSON.parse(textOf(r1)).data.build_warnings.join('\n');
+    expect(w1).toContain('parent_path="/root/HUD"');
+    expect(w1).toContain('原点对齐');
+    expect(w1).toContain('根级 diff 恒误报');
+
+    mockTwoPhase();
+    const r2 = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: GEO,
+    }, createCtx());
+    expect(r2!.isError).toBeFalsy();
+    const w2 = JSON.parse(textOf(r2)).data.build_warnings.join('\n');
+    expect(w2).not.toContain('根级 diff 恒误报');
+  });
+
   it('measure 阶段失败:错误信息附 "build 已持久化,可重跑 ui_measure_layout" 提示', async () => {
     execMock.mockReset();
     execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
@@ -323,6 +346,8 @@ describe('ui_import_prototype 登记契约', () => {
     expect(schema.properties.geometry).toBeTruthy();
     expect(schema.properties.geometry_path).toBeTruthy();
     expect(schema.properties.tolerance).toBeTruthy();
+    // I-2:parent_path schema 声明原点对齐限制(ui_build_layout 与 ui_import_prototype 共用参数)
+    expect(String((schema.properties.parent_path as { description?: string }).description)).toContain('原点对齐');
   });
 
   it('TOOL_META actionRisks: ui_import_prototype 为 write(satisfies 护卫)', () => {

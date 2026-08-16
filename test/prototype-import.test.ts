@@ -297,11 +297,13 @@ describe('规则 3: Label 垂直居中', () => {
 });
 
 describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
-  it('无 text/bg/flow → self_modulate [1,1,1,0] 且无 modulate', () => {
-    const { tree } = tr(geo([n('Shell', 0, 0, 100, 50)]));
+  it('无 text/bg/flow → self_modulate [1,1,1,0] 且无 modulate + 透明壳提示 warning', () => {
+    const { tree, warnings } = tr(geo([n('Shell', 0, 0, 100, 50)]));
     const p = findNode(tree, 'Shell')!.properties!;
     expect(p.self_modulate).toEqual([1, 1, 1, 0]);
     expect(p.modulate).toBeUndefined();
+    // I-1:被设透明壳的推断 Panel 节点追加一次性使用提示
+    expect(warnings.some(w => w.includes('Shell') && w.includes('layout-only Panel') && w.includes('set bg or type to keep it visible'))).toBe(true);
   });
 
   it('有 bg → modulate 染色 + warning 含"近似" + 不设 self_modulate', () => {
@@ -316,6 +318,38 @@ describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
     const { tree } = tr(geo([n('T', 0, 0, 80, 40, { text: 'x' })]));
     const p = findNode(tree, 'T')!.properties ?? {};
     expect(p.self_modulate).toBeUndefined();
+  });
+
+  // I-1(final review 负例防回归):value 推断 ProgressBar 无 text/bg —— 自带视觉,不设透明壳
+  it('ProgressBar(value 推断)无 bg → 不设 self_modulate(HP 条不可见回归防线)', () => {
+    const { tree } = tr(geo([n('Hp', 0, 0, 200, 27, { value: 0.72 })]));
+    const p = findNode(tree, 'Hp')!.properties ?? {};
+    expect(findNode(tree, 'Hp')!.type).toBe('ProgressBar');
+    expect(p.self_modulate).toBeUndefined();
+  });
+
+  // I-1:显式 type 一律不设(type 显式给出者说明有意为之——含显式 Label/ProgressBar/Panel)
+  it('显式 type Label 无 text/bg → 不设 self_modulate', () => {
+    const { tree } = tr(geo([n('L', 0, 0, 80, 40, { type: 'Label' })]));
+    const p = findNode(tree, 'L')!.properties ?? {};
+    expect(p.self_modulate).toBeUndefined();
+  });
+
+  it('显式 type ProgressBar 无 bg(RTS fixture HpBar 形态)→ 不设 self_modulate', () => {
+    const { tree } = tr(geo([n('HpBar', 992, 599, 240, 27, { type: 'ProgressBar', value: 0.72 })]));
+    const p = findNode(tree, 'HpBar')!.properties ?? {};
+    expect(p.self_modulate).toBeUndefined();
+  });
+
+  // I-1:Button(推断或显式)自带视觉,不设透明壳
+  it('Button 推断(interactive+text)与显式 Button → 不设 self_modulate', () => {
+    const { tree } = tr(geo([
+      n('OkBtn', 0, 0, 80, 40, { text: '确定', interactive: true }),
+      n('BtnA', 100, 0, 80, 40, { type: 'Button', text: 'A', interactive: true }),
+    ]));
+    expect(findNode(tree, 'OkBtn')!.type).toBe('Button');
+    expect(findNode(tree, 'OkBtn')!.properties?.self_modulate).toBeUndefined();
+    expect(findNode(tree, 'BtnA')!.properties?.self_modulate).toBeUndefined();
   });
 
   it('flow 壳自身无 bg → self_modulate 透明', () => {

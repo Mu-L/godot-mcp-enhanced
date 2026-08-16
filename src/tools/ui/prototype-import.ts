@@ -278,9 +278,14 @@ function buildSpec(
   if (nd.bg !== undefined) {
     props.modulate = normalizeColor(nd.bg, 'bg', nd.name);
     warnings.push(`节点 "${node.cleanName}": bg 以 modulate 近似染色(非 StyleBox Flat,叠加子树与实际底色有偏差)`);
-  } else if (nd.flow !== undefined || nd.text === undefined) {
-    // 规则 4:无 bg 且(无 text 或为 flow 壳)→ 透明壳;禁 modulate(级联陷阱)
+  } else if (nd.flow !== undefined || (nd.type === undefined && nd.text === undefined && nd.value === undefined)) {
+    // 规则 4(final review I-1 收窄):只有**推断为布局壳 Panel**(flow 壳,或无显式
+    // type/text/value 的纯布局节点)才设透明壳;禁 modulate(级联陷阱)。自带视觉的控件
+    // 一律豁免——显式 type 给出者(含显式 Panel)说明有意为之;value 推断 ProgressBar、
+    // interactive+text 推断 Button 自带视觉,误设 self_modulate alpha 0 会让控件不可见
+    // (实测:RTS fixture HpBar 显式 ProgressBar 无 bg 曾被误设,HP 条消失而 diff 不查 visible)。
     props.self_modulate = [1, 1, 1, 0];
+    warnings.push(`node "${node.cleanName}" inferred as layout-only Panel and set transparent (self_modulate alpha 0); set bg or type to keep it visible`);
   }
   if (nd.text !== undefined) {
     // 规则 10 + spec §2.1 "默认 center":文本节点缺省 horizontal_alignment=1

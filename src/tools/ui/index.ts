@@ -165,7 +165,7 @@ export function getToolDefinitions(): Tool[] {
           },
           geometry_path: { type: 'string', description: 'ui_import_prototype: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)' },
           tolerance: { type: 'number', description: 'ui_import_prototype: layout_verify 容差(px,默认 2)' },
-          parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径' },
+          parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报' },
           tree: {
             type: 'object',
             description: 'ui_build_layout: UI 节点树（最大深度 10）',
@@ -611,10 +611,15 @@ async function handleUiImportPrototype(
   };
 
   // build_warnings:输入消歧 + 翻译 warnings 透传 + 容差模糊带使用提示 + 生成器 warnings。
+  // I-2(声明式修复):parent_path 非 root 时根级 diff 参照系限制提示(diff 算法不改——
+  // measure 根级 target 的期望 rect 按视口原点求解,挂载父非原点对齐时恒误报)。
   const buildWarnings = [
     ...preWarnings,
     ...translated.warnings,
     '使用提示: 避免构造 ≤2px 宽的相邻独立节点(容差模糊带)——verify 容差内兄弟关系与偏移不可区分',
+    ...(parentPath !== '/root' ? [
+      `parent_path="${parentPath}" 非 root: layout_verify 根级条目期望 rect 按视口原点求解,挂载父非原点对齐(global_position≈0,0)时根级 diff 恒误报——请确认挂载父原点对齐,或忽略根级条目的 diff 结果`,
+    ] : []),
   ];
   for (const w of buildOut.data?.warnings ?? []) {
     buildWarnings.push(typeof w === 'object' && w !== null && 'message' in w ? String((w as { message: unknown }).message) : String(w));

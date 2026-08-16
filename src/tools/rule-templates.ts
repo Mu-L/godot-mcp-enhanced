@@ -508,7 +508,7 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 - **扁平列表，视口绝对坐标**（rect 为浏览器/原型视口绝对值）；树由翻译器按 rect 包含关系自动推导（容差 1px，≤500 节点）；**两节点 rect 交叉重叠（互不包含）或完全相等 → INVALID_PARAMS**（不静默落平级）。
 - 字段全可选（除 name/rect）：\`type\`（CONTROL_TYPES 白名单）/\`text\`/\`fontSize\`（px）/\`color\`/\`bg\`/\`align\`（left|center|right，缺省 center）/\`value\`（0-1，ProgressBar）/\`flow\`（row|column，容器排布语义）/\`justify\`/\`interactive\`（text+interactive→Button）。
 - **颜色仅三种格式**：\`#rrggbb\` / \`[r,g,b]\` 0-255 / \`[r,g,b,a]\` 0-1。CSS \`rgb()/rgba()\` 字符串**不支持**——evaluate 模板已内置转换（见下节）。
-- **bg 缺省 = 透明壳契约（责任归 JSON 生产者）**：无 text 无 bg 无 flow 的纯布局节点 → \`self_modulate:[1,1,1,0]\`（禁 modulate，级联陷阱见 godot-mcp-engine-quirks.md）。**该有背景的面板务必在原型侧显式填 bg**，否则被当透明壳。
+- **bg 缺省 = 透明壳契约（责任归 JSON 生产者）**：推断为布局壳 Panel（无显式 type、无 text、无 bg、无 value 的纯布局节点，及 flow 壳）→ \`self_modulate:[1,1,1,0]\`（禁 modulate，级联陷阱见 godot-mcp-engine-quirks.md）。**该有背景的面板务必在原型侧显式填 bg**，否则被当透明壳（build_warnings 会提示 "set bg or type to keep it visible"）。**自带视觉控件不会被设透明壳**：ProgressBar（推断或显式）、Button（推断或显式）、任何显式 type（含显式 Panel）——显式 type 说明有意为之，一律保留可见性。
 - **翻译规则要点**（12+1 条）：类型推断（显式 type > flow > value→ProgressBar > text+interactive→Button > text→Label > Panel）；视口坐标逐层减父原点转相对父 rect（进锚点求解链）；Label 全部 \`vertical_alignment:1\`；bg→modulate 近似染色（warning 声明非 StyleBox，叠加子树与实际底色有偏差）；非白名单 type 降级 Panel + warning；深度 cap 10；name 非法字符清洗。
 - **引擎下限预警（只警不修，修在原型侧）**：文本控件 rect.h < fontSize*1.5 → "可能被字体最小行高钳制" warning；ProgressBar rect.h < 27（Godot 4.7 默认主题 stylebox 最小高，实测 rect.h=16 落地 27px）→ "will be clamped" warning。应对：调大原型 rect.h 或调小字号，勿指望 Godot 侧硬压。
 - **容差模糊带**：verify 容差（默认 2px）内兄弟关系与偏移不可区分——**避免构造 ≤2px 宽的相邻独立节点**（工具返回也带此提示）。
@@ -521,7 +521,7 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 **像素验收要点（\`screenshot(action=diff)\`）**：\`image_a\`/\`image_b\` 两 PNG（白名单内，尺寸必须一致）、\`threshold\` 默认 0.12（per-pixel RGB 欧氏距离 / (√3×255)，严格大于才计差、忽略 alpha）、可选 \`diff_path\` 输出红染差异图；返回 \`{width, height, diff_pixels, diff_ratio, bbox}\`。
 
 - **capture 的 viewport 必须与原型 viewport 一致**（用法契约）：原型 1280x720 则 capture 也用 1280x720，否则几何比例全错、diff 全图皆红。
-- **diff_ratio 含字体抗锯齿底噪**——对 diff_ratio **设区间断言而非精确值**（如"好图 < 0.25、坏图 > 0.4"）。实测参考：上轮历史图对（web-prototype vs godot-hud，同布局不同渲染器）threshold=0.12 时 diff_ratio≈0.1762——同源渲染仍有 17% 量级像素差，精确值断言必 flaky。
+- **diff_ratio 含字体抗锯齿底噪**——对 diff_ratio **以同布局好图对为基线，坏图对 ratio 应显著高于基线（如 > 基线×1.5）**，勿用精确值断言。本仓实测（threshold=0.12）：好图对 web-prototype vs godot-hud（同布局不同渲染器）≈0.1762；下半部内容消失的合成坏图（godot-hud 下半 y>360 置纯黑，模拟 modulate 级联内容消失）≈0.48，约为基线 2.7 倍——"好图 < 0.25、坏图 > 0.4" 的区间示例在本仓成立；跨项目请以自身好图对为基线校准（同源渲染仍有 17% 量级像素差，精确值断言必 flaky）。
 
 ### 浏览器 evaluate 取数脚本模板（chrome-devtools / playwright 通用）
 

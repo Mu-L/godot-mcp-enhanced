@@ -264,6 +264,22 @@ describe('screenshot action=diff(handleTool 集成)', () => {
     }
   });
 
+  // Minor-2(final review):threshold 显式 null == 落默认 0.12(旧行为 Number(null)=0 全像素计差)
+  it('threshold: null → 落默认 0.12(非 0)', async () => {
+    const { a, b } = makePairWith250DiffPixels(32);
+    writeFileSync(join(allowedDir, 'a.png'), a);
+    writeFileSync(join(allowedDir, 'b.png'), b);
+    const r = await handleTool('screenshot', {
+      action: 'diff',
+      image_a: join(allowedDir, 'a.png'),
+      image_b: join(allowedDir, 'b.png'),
+      threshold: null,
+    }, makeCtx());
+    const sc = r!.structuredContent as Record<string, unknown>;
+    expect(sc.threshold).toBe(0.12);
+    expect(sc.diff_pixels).toBe(250); // ratio 32/255≈0.1255 > 0.12 计差;若误为 0 同样 250,靠 threshold 字段防回归
+  });
+
   it('缺 image_a/image_b → INVALID_PARAMS;图片不存在 → INVALID_PARAMS', async () => {
     const r1 = await handleTool('screenshot', { action: 'diff' }, makeCtx());
     const text1 = (r1!.content as Array<{ text?: string }>)[0]!.text ?? '';
@@ -369,6 +385,54 @@ describe('历史图对校准(web-prototype vs godot-hud, RTS demo)', () => {
       expect(sc.diff_ratio as number).toBeLessThan(0.6);
     } finally {
       restore();
+    }
+  });
+
+  // I-3(final review 补证据):坏图可区分性——程序化合成"下半部内容消失"坏图
+  // (读 godot-hud.png,y>360 像素置纯黑,模拟 modulate 级联内容消失),断言坏图对
+  // diff_ratio 显著大于好图对(基线),证明 threshold=0.12 的 diff 能区分"布局对但有
+  // 像素底噪"与"内容级消失"两种形态。
+  // 实测校准(2026-08-16,threshold=0.12):goodRatio=0.176224,badRatio=0.479714,
+  // bad/good≈2.72(>1.5 断言线);坏图对 0.4797 > 0.4 也成立(规则文档"坏图 > 0.4"
+  // 的实测支撑,数值以本注释为准)。
+  it('合成坏图(下半部消失)对 goodRatio 的 ratio 显著更高:bad > good * 1.5', async () => {
+    const badDir = mkdtempSync(join(tmpdir(), 'diff-bad-synth-'));
+    const restore = isolatePathEnv({ allowed: [fixtureDir, badDir] });
+    try {
+      // pngjs 程序化合成:godot-hud 下半(y>360)置纯黑
+      const hud = PNG.sync.read(readFileSync(join(fixtureDir, 'godot-hud.png')));
+      for (let y = 361; y < hud.height; y++) {
+        for (let x = 0; x < hud.width; x++) {
+          const idx = (hud.width * y + x) << 2;
+          hud.data[idx] = 0;
+          hud.data[idx + 1] = 0;
+          hud.data[idx + 2] = 0;
+        }
+      }
+      const badPath = join(badDir, 'godot-hud-bad.png');
+      writeFileSync(badPath, PNG.sync.write(hud));
+
+      const rGood = await handleTool('screenshot', {
+        action: 'diff',
+        image_a: join(fixtureDir, 'web-prototype.png'),
+        image_b: join(fixtureDir, 'godot-hud.png'),
+      }, makeCtx());
+      const rBad = await handleTool('screenshot', {
+        action: 'diff',
+        image_a: join(fixtureDir, 'web-prototype.png'),
+        image_b: badPath,
+      }, makeCtx());
+      const goodRatio = (rGood.structuredContent as Record<string, unknown>).diff_ratio as number;
+      const badRatio = (rBad.structuredContent as Record<string, unknown>).diff_ratio as number;
+      // 基线对齐既有校准记录(0.1762,防 fixture 被替换后断言静默漂移)
+      expect(goodRatio).toBeCloseTo(0.176224, 3);
+      // 坏图可区分性:显著高于基线(实测 ≈2.72 倍)
+      expect(badRatio, `badRatio=${badRatio} goodRatio=${goodRatio}`).toBeGreaterThan(goodRatio * 1.5);
+      // 0.4 实测成立(0.4797),保留为绝对下限的次级护栏
+      expect(badRatio).toBeGreaterThan(0.4);
+    } finally {
+      restore();
+      rmSync(badDir, { recursive: true, force: true });
     }
   });
 });

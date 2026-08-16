@@ -153,6 +153,14 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     // 独立重载 measure(executor 层):.tscn 含全部关键节点,抽查 rect 视口坐标。
     // fixture 建树:Bg 为全屏面板 → HUD 顶层节点均挂 _PrototypeRoot/Bg 下。
     const m = await measureFromDisk(dir);
+
+    // I-1(final review 端到端证据):HpBar 为显式 ProgressBar 无 bg——旧实现对一切无 text
+    // 节点设 self_modulate alpha 0(HP 条不可见而 layout diff 不查 visible,验收假绿);
+    // 修复后自带视觉控件(ProgressBar/Button/显式 type)豁免,落盘场景 HpBar 段应无 self_modulate。
+    const sceneText = readFileSync(join(dir, 'main.tscn'), 'utf-8');
+    const hpBarSeg = sceneText.split('[node name="HpBar"')[1]?.split('\n[node')[0] ?? '';
+    expect(hpBarSeg, `HpBar 落盘段被设透明壳: ${hpBarSeg}`).not.toContain('self_modulate');
+
     const paths = m.nodes.map(n => n.path);
     for (const p of ['_PrototypeRoot', '_PrototypeRoot/Bg', '_PrototypeRoot/Bg/TopBar',
       '_PrototypeRoot/Bg/Minimap', '_PrototypeRoot/Bg/Minimap/MinimapTag', '_PrototypeRoot/Bg/CmdPanel',

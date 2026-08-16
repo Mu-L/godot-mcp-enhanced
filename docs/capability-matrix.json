@@ -1,5 +1,5 @@
 {
-  "version": "0.31.1",
+  "version": "0.31.2",
   "tools": [
     {
       "name": "analysis",
@@ -5747,7 +5747,7 @@
           },
           "parent_path": {
             "type": "string",
-            "description": "ui_build_layout: 父节点路径"
+            "description": "ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报"
           },
           "load_autoloads": {
             "type": "boolean",
@@ -5837,8 +5837,8 @@
       },
       "size": {
         "descBytes": 969,
-        "schemaBytes": 4482,
-        "totalBytes": 5451
+        "schemaBytes": 4666,
+        "totalBytes": 5635
       },
       "annotations": {
         "readOnlyHint": false,

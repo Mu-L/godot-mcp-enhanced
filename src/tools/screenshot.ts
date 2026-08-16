@@ -85,7 +85,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   if (name !== 'screenshot') return null;
 
   const action = args.action as string;
-  if (!action) return opsErrorResult('INVALID_PARAMS', '"action" is required (capture or analyze).');
+  if (!action) return opsErrorResult('INVALID_PARAMS', '"action" is required (capture, analyze or diff).');
 
   switch (action) {
     case 'capture': {
@@ -380,9 +380,10 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
     // ─── Task 4: 像素级双图对比(纯 TS,零 Godot 依赖)────────────────────────
     case 'diff': {
-      // threshold 校验:默认 0.12;须为 [0,1] 内有限数
-      const thresholdRaw = args.threshold as number | undefined;
-      const threshold = thresholdRaw === undefined ? 0.12 : Number(thresholdRaw);
+      // threshold 校验:默认 0.12;须为 [0,1] 内有限数(== null 覆盖 undefined 与显式 null——
+      // 显式 null 若走 Number() 会得 0,把阈值静默变成 0 导致全像素计差)
+      const thresholdRaw = args.threshold as number | null | undefined;
+      const threshold = thresholdRaw == null ? 0.12 : Number(thresholdRaw);
       if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
         return opsErrorResult('INVALID_PARAMS', `"threshold" must be a finite number in [0, 1], got: ${String(args.threshold)}.`);
       }

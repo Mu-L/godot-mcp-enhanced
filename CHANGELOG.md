@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.2] - 2026-08-16
+
+> prototype-import final review 修复波（P2：透明壳误伤 / parent_path 参照系声明 / 坏图可区分性补证据 / screenshot 两处 Minor）。
+
+### Fixed
+
+- **规则 4 透明壳收窄（final review I-1，行为修复）**：旧实现对一切无 text 节点设 `self_modulate:[1,1,1,0]`，`value` 推断的 ProgressBar（无 text/bg）命中 → HP 条不可见而 layout diff 不查 visible（验收假绿，RTS fixture HpBar 即中招）。现只对**推断为布局壳 Panel**（flow 壳，或无显式 type/text/value 的纯布局节点）设透明壳；自带视觉控件一律豁免——ProgressBar（推断或显式）、Button（推断或显式）、任何显式 type（含显式 Panel）。被设透明壳的推断 Panel 追加 build_warnings 使用提示（"set bg or type to keep it visible"）。集成测试补 HpBar 落盘段无 self_modulate 断言（已做负例验证：旧条件下该断言 FAIL）。
+- **`screenshot` threshold 显式 null 落默认 0.12（final review Minor-2）**：旧 `Number(null)=0` 把阈值静默变 0（全像素计差）；现 `== null` 覆盖 undefined 与显式 null。
+- **`screenshot` action 缺失提示补 diff（Minor-1）**：`(capture or analyze)` → `(capture, analyze or diff)`。
+
+### Docs
+
+- **`parent_path` 根级参照系限制声明（I-2，声明式修复不改 diff 算法）**：`ui_import_prototype` 的 parent_path schema description 加"须为原点对齐（global_position≈0,0）的节点，默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解，根级 diff 恒误报"；handler 在 parent_path 非 root 时给 build_warnings 追加同语义提示（mock 单测断言）。
+- **坏图可区分性实测证据（I-3，双副本 ui.md/rule-templates.ts 同步）**："坏图 > 0.4" 从无来源声明改为以同布局好图对为基线：本仓实测（threshold=0.12）好图对 web-prototype vs godot-hud ≈0.1762，下半部内容消失合成坏图（godot-hud y>360 置纯黑，模拟 modulate 级联内容消失）≈0.4797（约基线 2.7 倍，> 0.4 成立）；跨项目以自身好图对为基线校准。screenshot-diff 测试补程序化合成坏图用例（断言 bad > good×1.5）。
+- 规则双副本（`.claude/rules/godot-mcp-ui.md` + `rule-templates.ts`）同步规则 4 收窄契约与 diff 基线口径；本次同步顺带消除 ui.md 副本历史 drift（归一化 diff 0 差异）。
+
 ## [0.31.1] - 2026-08-16
 
 > prototype-import Task 5 审查修复波（SHIPPED 后 Minor-2/3，防首次真实使用翻车）。
