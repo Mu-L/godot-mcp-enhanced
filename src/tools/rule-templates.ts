@@ -461,25 +461,28 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 
 16 种预设：top_left, top_right, bottom_left, bottom_right, center_left, center_top, center_right, center_bottom, center, left_wide, top_wide, right_wide, bottom_wide, vcenter_wide, hcenter_wide, **full_rect**（最常用）
 
-### rect 绝对几何（spec v0.31）
+### rect 绝对几何（v0.30.3 语义修正）
 
-无 \`layout\` 字段的节点支持 \`rect: {x, y, w, h}\`（相对**父节点**左上角；父为场景根时即视口绝对几何，默认视口 1280x720），由锚点求解器反解为 anchors+offsets：
+无 \`layout\` 字段的节点支持 \`rect: {x, y, w, h}\`——**相对父节点左上角**（不是视口绝对坐标），按**父尺寸**反解为 anchors+offsets：
 
+- **求解基准**：根节点（挂 parent_path 下）的 rect 相对 **\`viewport\` 参数**求解（默认 1280x720）；子节点的 rect 相对**父节点的 rect.w/h** 求解；父节点未声明 rect 时降级用 viewport 求解并发 warning（\`parent's size is unknown\`，结果可能不准）。
+- **viewport 参数**：\`ui_build_layout\` 顶层参数 \`{w, h}\`（须为正数），与项目 \`display/window/size\` 一致时根 rect 即视口绝对几何。
 - **父必须非 Container**：HBoxContainer 等容器父会强制重排子节点，rect 会被运行时跳过并给出 warning（需要容器内定位请重构为非容器父或兄弟节点）。
 - \`rect\` 优先于 \`anchor_preset\`；显式写四值 anchors+offsets，不用 set_anchors_preset（引擎陷阱：preset 不重置 offsets）。
 - 锚点值吸附 0/0.5/1（可读性优先），其余位置保持比例锚点兜底。
+- **带 \`layout\` 的容器节点自身 rect 不落地布局**：仅作为 \`ui_measure_layout(expect_tree)\` 的对照目标（diff 会报告实际偏差）；容器实际几何由 \`anchor_preset\`（默认 full_rect）与子节点内容/\`custom_minimum_size\` 撑开决定。
 
-### justify space-* 行为（v0.31）
+### justify space-* 行为（v0.30.3）
 
-\`space-between/around/evenly\` 通过注入 \`_spacer_N\` Control 节点实现（SIZE_EXPAND + stretch_ratio），**不再是近似映射**；注入节点计入 warnings。与子节点 \`flex.grow\` 并存时，spacer 与 grow 子节点瓜分剩余空间，分配语义与 CSS 不同，会有 warning。
+非 wrap 非 grid 的 row/column 下，\`space-between/around/evenly\` 通过注入 \`_spacer_N\` Control 节点实现（SIZE_EXPAND + stretch_ratio），**不再是近似映射**。\`wrap: "wrap"\` 时 justify 被忽略（FlowContainer 无对齐）、\`grid\` 方向时同样忽略——这两种情况**不注入 spacer、也不发 spacer 注入 warning**。与子节点 \`flex.grow\` 并存时，spacer 与 grow 子节点瓜分剩余空间，分配语义与 CSS 不同，会有 warning。
 
 ### 布局收敛闭环
 
 \`ui_build_layout(tree 含 rect)\` → \`ui_measure_layout(expect_tree=同一棵 tree，**不带 node_path**)\` → 按 \`data.layout_verify.diff\` 的 Δ 数值修 tree → 循环至全绿 → \`ui_build_layout(persist=true)\` 原子写 .tscn（pack → tmp → rename）。
 
-- \`layout_verify\` 结构：\`targets\`（期望 rect 清单）/ \`diff\`（逐节点 target vs actual 的 Δ，容差默认 2px）/ \`overlaps\`（兄弟节点重叠）/ \`out_of_bounds\`（溢出父边界）。
-- **坐标系前提**：rect 为视口绝对几何；measured 的 \`global_position\` 与之同构要求"树挂场景根下且根在原点"——expect_tree 用 build 的同一棵树、measure 不带 node_path 即满足（路径同构约定，两种 path 逐一对齐）。
-- \`ui_measure_layout\` 单独使用时：\`node_path\` 可选（省略则从场景根整树测），\`max_depth\` 默认 16（上限 64），等布局稳定（连续帧快照一致或最多 5 帧）后输出。
+- \`layout_verify\` 结构：\`targets\`（期望 rect 清单）/ \`diff\`（逐节点 Δ，容差默认 2px）/ \`overlaps\`（兄弟节点重叠）/ \`out_of_bounds\`（溢出父边界）/ \`viewport\`（measure 输出的根参照系透传）。
+- **坐标系语义（v0.30.3）**：rect 相对父节点左上角；\`diff\` 的 actual 为**父相对坐标**（measured 子 global − 父 global，与 target 同构可直接比 Δ）；根级 target（树根自身 rect）以视口原点为参照；父不在测量集（未渲染/不可见）时该条目 delta 为 NaN。
+- \`ui_measure_layout\` 单独使用时：\`node_path\` 可选（省略则从场景根整树测），\`max_depth\` 默认 16（上限 64），等布局稳定（连续帧快照一致或最多 5 帧）后输出；输出含 \`viewport\`（项目声明视口尺寸）与 \`stalled\`（5 帧上限内未达 2 帧稳定时 true，布局可能未收敛）。
 
 ### draw_recipe 声明式绘图
 

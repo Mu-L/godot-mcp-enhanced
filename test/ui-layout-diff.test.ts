@@ -35,6 +35,7 @@ describe('flattenTargets', () => {
     // ui_build_layout 建树 P{A, Col{B}} 挂 root 下 → ui_measure_layout(不带 node_path)
     // 输出 nodes path: 'P' / 'P/A' / 'P/Col/B'(_target=场景根,get_path_to 不含根名)。
     // expect_tree 传 build 的同一棵树 → flattenTargets 计根名后恰为 'P/A' / 'P/Col/B'。
+    // C1 父相对语义:父 P 在非原点 (500,300),子 target 为相对父的 rect → diff 仍全绿。
     const tree: UiNodeSpec = {
       type: 'Panel', name: 'P',
       children: [
@@ -44,9 +45,10 @@ describe('flattenTargets', () => {
       ],
     };
     const measured: MeasuredNode[] = [
-      n('P', 0, 0, 100, 100),
-      n('P/A', 0, 0, 10, 10),
-      n('P/Col/B', 0, 0, 5, 5),
+      n('P', 500, 300, 100, 100),
+      n('P/A', 500, 300, 10, 10),
+      n('P/Col', 500, 300, 50, 50),
+      n('P/Col/B', 500, 300, 5, 5),
     ];
     const d = diffLayout(measured, flattenTargets(tree), 2);
     expect(d.map(e => e.path)).toEqual(['P/A', 'P/Col/B']);
@@ -54,37 +56,69 @@ describe('flattenTargets', () => {
   });
 });
 
-describe('diffLayout', () => {
-  const targets = [{ path: 'A', rect: { x: 0, y: 24, w: 100, h: 48 } }];
-
-  it('超容差 → ok:false 并给出 delta', () => {
-    const d = diffLayout([n('A', 0, 40, 100, 48)], targets, 2);
-    expect(d).toHaveLength(1);
-    expect(d[0]!.ok).toBe(false);
-    expect(d[0]!.delta.dy).toBe(16);
+describe('diffLayout(C1 父相对坐标语义)', () => {
+  // target 语义 = 相对父左上角(与生成侧一致);actual = 子 global − 父 global,与 target 同构。
+  it('同父两子各自相对位置正确(父在非原点也不误报)', () => {
+    const targets = [
+      { path: 'P/A', rect: { x: 50, y: 30, w: 120, h: 48 } },
+      { path: 'P/B', rect: { x: 300, y: 0, w: 100, h: 48 } },
+    ];
+    const measured = [
+      n('P', 100, 50, 600, 400),
+      n('P/A', 150, 80, 120, 48),   // global 150,80 = 父 100,50 + 相对 50,30
+      n('P/B', 400, 50, 100, 48),
+    ];
+    const d = diffLayout(measured, targets, 2);
+    expect(d).toHaveLength(2);
+    expect(d.every(e => e.ok)).toBe(true);
+    expect(d[0]!.actual).toEqual({ x: 50, y: 30, w: 120, h: 48 });
+    expect(d[1]!.actual).toEqual({ x: 300, y: 0, w: 100, h: 48 });
   });
 
-  it('容差内 → ok:true(负向:不误报)', () => {
-    const d = diffLayout([n('A', 0, 25, 100, 48)], targets, 2);
-    expect(d[0]!.ok).toBe(true);
+  it('父相对换算后超容差 → ok:false,delta 为父相对差', () => {
+    const targets = [{ path: 'P/A', rect: { x: 50, y: 30, w: 120, h: 48 } }];
+    // 子 global y=90,父 y=50 → 父相对 y=40 vs target 30 → dy=10(旧语义误算 90-30=60)
+    const d = diffLayout([n('P', 100, 50, 600, 400), n('P/A', 150, 90, 120, 48)], targets, 2);
+    expect(d[0]!.ok).toBe(false);
+    expect(d[0]!.delta.dy).toBe(10);
+    expect(d[0]!.delta.dx).toBe(0);
+  });
+
+  it('根级 target(无父段)以视口原点为参照:measured global 直接比', () => {
+    const targets = [{ path: 'P', rect: { x: 100, y: 50, w: 600, h: 400 } }];
+    const ok = diffLayout([n('P', 100, 50, 600, 400)], targets, 2);
+    expect(ok[0]!.ok).toBe(true);
+    const off = diffLayout([n('P', 120, 50, 600, 400)], targets, 2);
+    expect(off[0]!.ok).toBe(false);
+    expect(off[0]!.delta.dx).toBe(20);
+  });
+
+  it('父不在测量集 → delta NaN 不 ok(缺失语义)', () => {
+    const targets = [{ path: 'P/A', rect: { x: 50, y: 30, w: 120, h: 48 } }];
+    const d = diffLayout([n('P/A', 150, 80, 120, 48)], targets, 2); // 父 'P' 未测
+    expect(d[0]!.ok).toBe(false);
+    expect(Number.isNaN(d[0]!.delta.dx)).toBe(true);
+    expect(Number.isNaN(d[0]!.delta.dy)).toBe(true);
   });
 
   it('measure 缺失的目标节点 → delta 标记 NaN 不 ok', () => {
-    const d = diffLayout([n('Z', 0, 0, 1, 1)], targets, 2);
+    const d = diffLayout([n('Z', 0, 0, 1, 1)], [{ path: 'A', rect: { x: 0, y: 24, w: 100, h: 48 } }], 2);
     expect(d).toHaveLength(1);
     expect(d[0]!.ok).toBe(false);
     expect(Number.isNaN(d[0]!.delta.dx)).toBe(true);
   });
 
   it('delta 恰等于容差 2 → ok:true(容差为 <= 语义)', () => {
-    const d = diffLayout([n('A', 2, 24, 100, 50)], targets, 2);
+    const targets = [{ path: 'P/A', rect: { x: 0, y: 24, w: 100, h: 48 } }];
+    const d = diffLayout([n('P', 0, 0, 100, 100), n('P/A', 2, 26, 100, 50)], targets, 2);
     expect(d[0]!.ok).toBe(true);
   });
 
   it('默认容差为 2(不传 tolerancePx)', () => {
-    const within = diffLayout([n('A', 0, 26, 100, 48)], targets);
+    const targets = [{ path: 'P/A', rect: { x: 0, y: 24, w: 100, h: 48 } }];
+    const within = diffLayout([n('P', 0, 0, 100, 100), n('P/A', 0, 26, 100, 48)], targets);
     expect(within[0]!.ok).toBe(true);
-    const beyond = diffLayout([n('A', 0, 27, 100, 48)], targets);
+    const beyond = diffLayout([n('P', 0, 0, 100, 100), n('P/A', 0, 27, 100, 48)], targets);
     expect(beyond[0]!.ok).toBe(false);
   });
 });
@@ -182,11 +216,13 @@ describe('ui_measure_layout expect_tree(handler 集成)', () => {
     expect(mockedExec).not.toHaveBeenCalled();
   });
 
-  it('提供 expect_tree → data.layout_verify 注入 diff/overlaps/out_of_bounds,measure 数据保留', async () => {
+  it('提供 expect_tree → data.layout_verify 注入 diff/overlaps/out_of_bounds/viewport,measure 数据保留', async () => {
     mockedExec.mockResolvedValue(okResult({
       stable_after_frames: 3,
+      stalled: false,
+      viewport: { w: 1280, h: 720 },
       nodes: [
-        { path: '.', type: 'Panel', rect: { x: 0, y: 0, w: 200, h: 200 } },
+        { path: '.', type: 'Control', rect: { x: 0, y: 0, w: 1280, h: 720 } },
         { path: 'P', type: 'Panel', rect: { x: 0, y: 0, w: 200, h: 200 } },
         { path: 'P/A', type: 'Button', rect: { x: 0, y: 40, w: 100, h: 48 } },
         { path: 'P/B', type: 'Button', rect: { x: 0, y: 0, w: 120, h: 48 } },
@@ -213,6 +249,7 @@ describe('ui_measure_layout expect_tree(handler 集成)', () => {
           diff: Array<{ path: string; ok: boolean; delta: { dy: number; dw: number } }>;
           overlaps: Array<{ a: string; b: string }>;
           out_of_bounds: Array<{ path: string }>;
+          viewport?: { w: number; h: number };
         };
       };
     };
@@ -220,12 +257,14 @@ describe('ui_measure_layout expect_tree(handler 集成)', () => {
     expect(parsed.data.measure?.nodes).toHaveLength(4);   // 原 measure 输出保留
     const lv = parsed.data.layout_verify!;
     expect(lv.targets.map(t => t.path)).toEqual(['P/A', 'P/B']);
+    // C1 父相对语义:P/A actual = (0,40)−(0,0) → dy=16;P/B dw=20
     const a = lv.diff.find(e => e.path === 'P/A')!;
-    expect(a.ok).toBe(false);                              // y 40 vs 24,dy=16 超容差
+    expect(a.ok).toBe(false);                              // 父相对 y 40 vs 24,dy=16 超容差
     expect(a.delta.dy).toBe(16);
     const b = lv.diff.find(e => e.path === 'P/B')!;
     expect(b.ok).toBe(false);                              // w 120 vs 100,dw=20 超容差
     expect(b.delta.dw).toBe(20);
+    expect(lv.viewport).toEqual({ w: 1280, h: 720 });      // 根级参照系透传
     expect(lv.overlaps).toEqual([{ a: 'P/A', b: 'P/B', overlap: { x: 0, y: 40, w: 100, h: 8 } }]); // A(y40-88)与 B(y0-48)同父重叠
     expect(lv.out_of_bounds).toEqual([]);                  // 均在 P 内
   });

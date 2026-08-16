@@ -3,6 +3,8 @@
 // 路径同构约定:ui_measure_layout 不带 node_path 时 path 为 get_path_to 名称链
 // ('P' / 'P/A',不含场景根名),expect_tree 传 ui_build_layout 的同一棵树(挂场景
 // 根下)时 flattenTargets 计根名,两者恰好逐一对齐。
+// C1 坐标语义:target.rect 相对父左上角(与生成侧一致);diff 的 actual 换算为
+// 父相对坐标(子 global − 父 global),根级 target 以视口原点为参照。
 
 import type { UiNodeSpec } from './types.js';
 import type { Rect } from './anchor-solver.js';
@@ -45,11 +47,24 @@ export function diffLayout(
       return { path: t.path, target: t.rect, actual: null,
         delta: { dx: NaN, dy: NaN, dw: NaN, dh: NaN }, ok: false };
     }
-    const dx = m.rect.x - t.rect.x, dy = m.rect.y - t.rect.y;
+    // C1: target 语义 = 相对父左上角(与生成侧 uiNodeToGd 一致),actual 换算为同构的父相对坐标:
+    //   子 global − 父 global(父 = path 去最后一段,从 measure 输出查);
+    //   根级 target(无父段,即树根自身 rect)以视口原点为参照——树挂场景根下,根 global 即视口系;
+    //   父不在测量集(中间节点未渲染/不可见)→ NaN 缺失语义,不 ok。
+    const parentPath = parentOf(t.path);
+    const parent = parentPath === '' ? null : byPath.get(parentPath);
+    if (parentPath !== '' && !parent) {
+      return { path: t.path, target: t.rect, actual: null,
+        delta: { dx: NaN, dy: NaN, dw: NaN, dh: NaN }, ok: false };
+    }
+    const ax = m.rect.x - (parent ? parent.rect.x : 0);
+    const ay = m.rect.y - (parent ? parent.rect.y : 0);
+    const dx = ax - t.rect.x, dy = ay - t.rect.y;
     const dw = m.rect.w - t.rect.w, dh = m.rect.h - t.rect.h;
     const ok = Math.abs(dx) <= tolerancePx && Math.abs(dy) <= tolerancePx
       && Math.abs(dw) <= tolerancePx && Math.abs(dh) <= tolerancePx;
-    return { path: t.path, target: t.rect, actual: m.rect, delta: { dx, dy, dw, dh }, ok };
+    return { path: t.path, target: t.rect, actual: { x: ax, y: ay, w: m.rect.w, h: m.rect.h },
+      delta: { dx, dy, dw, dh }, ok };
   });
 }
 

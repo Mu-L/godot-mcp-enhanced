@@ -209,7 +209,10 @@ function validateFlexLayout(layout: FlexLayout, warnings: string[]): void {
   if (layout.row_gap !== undefined && layout.wrap !== 'wrap') {
     warnings.push('layout.row_gap is ignored when wrap is not "wrap"');
   }
-  if (layout.justify !== undefined && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify)) {
+  // I1: wrap/grid 下 justify 根本不生效(见 genFlexContainerProps 的 ignored warning),
+  // 此处不再宣称"经注入 spacer 实现"——两条 warning 语义矛盾。
+  if (layout.justify !== undefined && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify)
+    && layout.wrap !== 'wrap' && layout.direction !== 'grid') {
     warnings.push(`layout.justify "${layout.justify}" is implemented via injected spacer nodes`);
   }
 }
@@ -430,15 +433,24 @@ function uiNodeToGd(
   warnings: string[] = [], nextId: () => number = () => 0,
   viewport: { w: number; h: number } = { w: 1280, h: 720 },
   parentIsContainer: boolean = false,
+  parentSize?: { w: number; h: number },
 ): string {
   if (spec.layout) {
     return uiNodeToGdWithLayout(spec, parentVar, ownerVar, indent, warnings, nextId, viewport);
   }
+  // C1: rect 按父尺寸求解——parentSize 为当前节点 rect 的求解基准:
+  //   根节点由调用方显式传 viewport;父带 rect 的子节点传父 rect.w/h;
+  //   父无 rect(非根)时降级 viewport 并告警(结果可能不准)。
+  //   容器父走 parentIsContainer 路径(rect 运行时跳过,已有 skipped warning),不再叠加本告警。
+  if (spec.rect && !parentSize && !parentIsContainer) {
+    warnings.push(`node "${spec.name}" has rect but its parent's size is unknown — solved against viewport, result may be inaccurate`);
+  }
+  const solveBase = parentSize ?? viewport;
   // rect(绝对几何)优先于 anchor_preset;父为 Container 时静态提示(运行时另有跳过守卫,B-3)
   if (spec.rect && parentIsContainer) {
     warnings.push(`node "${spec.name}" has rect but parent is a Container — rect will be skipped at runtime (containers re-arrange children)`);
   }
-  const rectLines = spec.rect ? genRectLines(spec.rect, viewport, indent) : '';
+  const rectLines = spec.rect ? genRectLines(spec.rect, solveBase, indent) : '';
   const anchorLine = spec.anchor_preset && !spec.rect
     ? `\n${indent}node.set_anchors_preset(${ANCHOR_PRESETS[spec.anchor_preset]})`
     : '';
@@ -466,8 +478,10 @@ ${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
     const savedIdx = nextId();
     const savedVar = `_saved_${savedIdx}`;
     lines += `\n${indent}var ${savedVar} = node`;
+    // C1: 子 rect 的求解基准 = 本节点 rect.w/h(无 rect 时 undefined → 子侧降级 viewport)
+    const childParentSize = spec.rect ? { w: spec.rect.w, h: spec.rect.h } : undefined;
     for (const child of spec.children) {
-      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, isContainerSpec(spec));
+      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, isContainerSpec(spec), childParentSize);
     }
     lines += `\n${indent}node = ${savedVar}`;
   }
@@ -598,8 +612,10 @@ export function genUiBuildLayoutScript(
 
   let _idCounter = 0;
   const nextId = () => _idCounter++;
-  // 根节点父未知 → rect 以期望视口求解(默认 1280x720);树内父已知时静态 warning 见 uiNodeToGd
-  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId, viewport);
+  // C1: 根节点 rect 的父(parent_path 指向的节点)尺寸静态未知 → 以 viewport 为基准求解
+  // (默认 1280x720,可通过参数覆盖);树内子节点则按各自父的 rect.w/h 求解(见 uiNodeToGd)。
+  const baseViewport = viewport ?? { w: 1280, h: 720 };
+  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId, baseViewport, false, baseViewport);
 
   const warningLines = warnings.length > 0
     ? `\n\t_mcp_output("warnings", ${JSON.stringify(warnings.map(w => {

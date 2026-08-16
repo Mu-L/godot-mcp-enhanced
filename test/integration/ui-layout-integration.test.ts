@@ -11,6 +11,7 @@ const run = !!GODOT && process.platform === 'win32';
 
 describe.skipIf(!run)('justify space-* 真实布局数值断言(GODOT_PATH)', () => {
   let dir: string;
+  let dirRect: string;
 
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), 'ui-justify-'));
@@ -19,8 +20,21 @@ describe.skipIf(!run)('justify space-* 真实布局数值断言(GODOT_PATH)', ()
     // Control 根 300x100,锚点无关(直接 offsets)
     writeFileSync(join(dir, 'main.tscn'),
       '[gd_scene format=3]\n\n[node name="Main" type="Control"]\noffset_right = 300.0\noffset_bottom = 100.0\n');
+    // C1-6 fixture:根 Control 固定尺寸 1280x720(anchors 0 + offsets,同上方 justify
+    // fixture 的 300x100 模式,不随 headless Window 实际尺寸缩放——headless --script 下
+    // Window 实际尺寸不反映 project 设置,实测 2496x?;full_rect 根会让根 rect 的
+    // viewport 基准与运行时父尺寸脱节)。固定 1280x720 = viewport → 根级 rect(以
+    // viewport 求解)落地后 global 与视口系一致,嵌套 rect 断言方可成立。
+    dirRect = mkdtempSync(join(tmpdir(), 'ui-rect-'));
+    writeFileSync(join(dirRect, 'project.godot'),
+      'config_version=5\n\n[display]\n\nwindow/size/viewport_width=1280\nwindow/size/viewport_height=720\n');
+    writeFileSync(join(dirRect, 'main.tscn'),
+      '[gd_scene format=3]\n\n[node name="Main" type="Control"]\noffset_right = 1280.0\noffset_bottom = 720.0\n');
   });
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dirRect, { recursive: true, force: true });
+  });
 
   async function runScript(dir: string, code: string) {
     const res = await executeGdscriptTrusted({
@@ -143,6 +157,69 @@ func _measure_go() -> void:
   it('ui_measure_layout: 场景不存在 → error 输出', async () => {
     const outs = await runScript(dir, genUiMeasureScript(join(dir, 'nope.tscn'), undefined, 16));
     expect(outs.some(o => o.key === 'error')).toBe(true);
+  });
+
+  // C1-6 嵌套 rect 验收(final-review 验收 1):根 Panel rect 相对 viewport(1280x720)求解,
+  // 子 Button rect 相对父 rect(600x400)求解——落地后 Button global = Panel 原点 + 相对偏移,
+  // anchors 值 = 相对偏移/父尺寸。build 与 measure 同进程(运行时节点退出即丢),复用
+  // buildThenMeasure 拼接模式(build 尾换 call_deferred + 剥离 measure 核心)。
+  function buildThenMeasureRect(d: string): string {
+    const tree = {
+      type: 'Panel', name: 'P', rect: { x: 100, y: 50, w: 600, h: 400 },
+      children: [{ type: 'Button', name: 'Btn', rect: { x: 50, y: 30, w: 120, h: 48 } }],
+    };
+    const buildBlock = genUiBuildLayoutScript(join(d, 'main.tscn'), 'root', tree, { w: 1280, h: 720 })
+      .replace(/\t_mcp_output\("layout_built"[\s\S]*?\t_mcp_done\(\)\n$/, '\tcall_deferred("_measure_go")\n');
+    const full = genUiMeasureScript(join(d, 'main.tscn'), undefined, 16);
+    const measureCore = full
+      .slice(full.indexOf('var _frames := 0'))
+      .replace(/\nfunc _initialize\(\):[\s\S]*?(?=\nfunc _on_measure_frame)/, '\n');
+    return `${buildBlock}${measureCore}
+func _measure_go() -> void:
+\t_target = _mcp_scene_instance
+\tprocess_frame.connect(_on_measure_frame)
+`;
+  }
+
+  interface MeasureOutput {
+    stable_after_frames: number;
+    stalled: boolean;
+    viewport: { w: number; h: number };
+    nodes: Array<{
+      path: string;
+      rect: { x: number; y: number; w: number; h: number };
+      anchors?: { left: number; top: number };
+    }>;
+  }
+
+  it('嵌套 rect: Panel(100,50,600,400) 内 Button 相对 (50,30),global (150,80),anchors 相对父尺寸', async () => {
+    const outs = await runScript(dirRect, buildThenMeasureRect(dirRect));
+    const measure = JSON.parse(String(outs.find(o => o.key === 'measure')!.value)) as MeasureOutput;
+    // M-b: viewport 输出(headless 下 root Window 尺寸 = project 设置)
+    expect(Math.abs(measure.viewport.w - 1280)).toBeLessThanOrEqual(1);
+    expect(Math.abs(measure.viewport.h - 720)).toBeLessThanOrEqual(1);
+    // M-a: 本场景布局立刻稳定 → stalled 为 false
+    expect(measure.stalled).toBe(false);
+    const p = measure.nodes.find(n => n.path === 'P');
+    const btn = measure.nodes.find(n => n.path === 'P/Btn');
+    expect(p).toBeDefined();
+    expect(btn).toBeDefined();
+    // 根 rect 相对 viewport 原点(global 即视口系),容差 2px
+    expect(Math.abs(p!.rect.x - 100)).toBeLessThanOrEqual(2);
+    expect(Math.abs(p!.rect.y - 50)).toBeLessThanOrEqual(2);
+    expect(Math.abs(p!.rect.w - 600)).toBeLessThanOrEqual(2);
+    expect(Math.abs(p!.rect.h - 400)).toBeLessThanOrEqual(2);
+    // 子 global = 父原点(100,50) + 相对偏移(50,30) = (150,80),size 精确,容差 2px
+    expect(Math.abs(btn!.rect.x - 150)).toBeLessThanOrEqual(2);
+    expect(Math.abs(btn!.rect.y - 80)).toBeLessThanOrEqual(2);
+    expect(Math.abs(btn!.rect.w - 120)).toBeLessThanOrEqual(2);
+    expect(Math.abs(btn!.rect.h - 48)).toBeLessThanOrEqual(2);
+    // anchors 语义:Button 锚点按父尺寸(600x400)而非 viewport 求解
+    expect(btn!.anchors!.left).toBeCloseTo(50 / 600, 5);
+    expect(btn!.anchors!.top).toBeCloseTo(30 / 400, 5);
+    // 根 Panel 锚点按 viewport(1280x720)求解
+    expect(p!.anchors!.left).toBeCloseTo(100 / 1280, 5);
+    expect(p!.anchors!.top).toBeCloseTo(50 / 720, 5);
   });
 
   // Task 5 persist:build 后原子写落盘,独立进程重载 measure 验证(节点+separation 都已持久化)。

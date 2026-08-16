@@ -18,6 +18,17 @@ describe('genUiMeasureScript', () => {
     expect(s).toContain('_frames >= 5');
   });
 
+  it('C1(M-a): 输出含 stalled 标志(5 帧上限内未达 2 帧稳定)', () => {
+    const s = genUiMeasureScript('res://scenes/main.tscn', undefined, 16);
+    expect(s).toContain('"stalled": _frames >= 5 and _stable_count < 2');
+  });
+
+  it('C1(M-b): 输出含 viewport(content_scale_size,根级 rect 参照系;headless 下 Window.size 不可靠)', () => {
+    const s = genUiMeasureScript('res://scenes/main.tscn', undefined, 16);
+    expect(s).toContain('var _vp := root.content_scale_size');
+    expect(s).toContain('"viewport": {"w": _vp.x, "h": _vp.y}');
+  });
+
   it('node_path 限定测量子树', () => {
     const s = genUiMeasureScript('res://scenes/main.tscn', 'HUD', 16);
     expect(s).toContain('_mcp_get_scene_node("HUD")');

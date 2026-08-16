@@ -65,7 +65,16 @@ func _emit() -> void:
 \tvar nodes: Array = []
 \t_count = 0
 \t_walk(_target, 0, nodes)
-\t_mcp_output("measure", JSON.stringify({"stable_after_frames": _frames, "nodes": nodes}))
+\t# C1(M-a/M-b): stalled = 5 帧上限内未达到 2 帧稳定快照;viewport 作为 layout_verify
+\t# 根级 rect 的参照系。注意用 content_scale_size 而非 Window.size / get_visible_rect()——
+\t# headless --script 模式下 Window 实际尺寸不反映 project 设置(实测 100x100/2496x?),
+\t# content_scale_size 才是 display/window/size 的直接映射(实测 1280x720)。
+\tvar _vp := root.content_scale_size
+\t_mcp_output("measure", JSON.stringify({
+\t\t"stable_after_frames": _frames,
+\t\t"stalled": _frames >= 5 and _stable_count < 2,
+\t\t"viewport": {"w": _vp.x, "h": _vp.y},
+\t\t"nodes": nodes}))
 \t_mcp_done()
 
 func _walk(n: Node, depth: int, nodes: Array) -> void:

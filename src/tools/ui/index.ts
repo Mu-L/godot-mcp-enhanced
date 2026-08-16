@@ -202,6 +202,11 @@ export function getToolDefinitions(): Tool[] {
             required: ['type', 'name'],
           },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+          viewport: {
+            type: 'object',
+            description: 'ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何)',
+            properties: { w: { type: 'number', description: '宽(px)' }, h: { type: 'number', description: '高(px)' } },
+          },
           persist: { type: 'boolean', description: 'ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）' },
         },
         required: ['action'],
@@ -403,8 +408,19 @@ export async function handleTool(
           return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'tree is required and must be an object');
         }
         const persist = args.persist === true;
+        // C1: viewport 参数——根节点 rect 的求解基准;非正数(含缺项/NaN)→ INVALID_PARAMS
+        let viewport: { w: number; h: number } | undefined;
+        if (args.viewport !== undefined) {
+          const vp = args.viewport as { w?: unknown; h?: unknown };
+          const w = typeof vp.w === 'number' ? vp.w : NaN;
+          const h = typeof vp.h === 'number' ? vp.h : NaN;
+          if (!(w > 0) || !(h > 0)) {
+            return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'viewport must be an object {w, h} with positive numbers');
+          }
+          viewport = { w, h };
+        }
         try {
-          script = genUiBuildLayoutScript(scenePath, parentPath, tree, undefined, persist);
+          script = genUiBuildLayoutScript(scenePath, parentPath, tree, viewport, persist);
         } catch (err) {
           const msg = getErrorMessage(err);
           if (msg.includes('INVALID_CONTROL_TYPE')) {
@@ -413,7 +429,7 @@ export async function handleTool(
           if (msg.includes('INVALID_ANCHOR_PRESET')) {
             return opsErrorResult(ERROR_CODES.INVALID_ANCHOR_PRESET, msg);
           }
-          if (msg.includes('name is required') || msg.includes('Maximum nesting')) {
+          if (msg.includes('name is required') || msg.includes('Maximum nesting') || msg.includes('INVALID_PARAMS')) {
             return opsErrorResult(ERROR_CODES.INVALID_PARAMS, msg);
           }
           return opsErrorResult(ERROR_CODES.SCRIPT_EXEC_FAILED, msg);
@@ -459,18 +475,21 @@ export async function handleTool(
       try {
         const parsed = JSON.parse((r.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
           success?: boolean;
-          data?: { measure?: { nodes?: MeasuredNode[] } };
+          data?: { measure?: { nodes?: MeasuredNode[]; viewport?: { w: number; h: number } } };
           warnings?: string[];
         };
         // 仅成功结果注入:错误/异常输出保持原样,diff 缺失由 AI 视为未验证
         if (parsed.success === true) {
-          const measured = parsed.data?.measure?.nodes ?? [];
+          const measure = parsed.data?.measure;
+          const measured = measure?.nodes ?? [];
           const targets = flattenTargets(expectTree);
           const wrapped = {
             targets,
             diff: diffLayout(measured, targets, 2),
             overlaps: detectOverlaps(measured),
             out_of_bounds: detectOutOfBounds(measured),
+            // C1: 根级 rect 的参照系(measure 输出的 root Window 尺寸),供消费方核对
+            viewport: measure?.viewport,
           };
           const merged = { ...parsed, data: { ...parsed.data, layout_verify: wrapped } };
           r = { ...r, content: [{ type: 'text', text: JSON.stringify(merged) }] };
