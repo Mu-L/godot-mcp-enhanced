@@ -150,11 +150,24 @@ async function waitForDisconnected(conn: EditorConnection, timeoutMs = 5_000): P
   return false;
 }
 
-/** 等待 conn 重连成功(isConnected() === true),最多 timeoutMs。 */
-async function waitForConnected(conn: EditorConnection, timeoutMs = 30_000): Promise<boolean> {
+/**
+ * 等待 conn 重连成功(isConnected() === true 且 ready 谓词满足),最多 timeoutMs。
+ *
+ * issue #23 (2026-08-16): 只轮询 isConnected() 不够 —— EditorConnection 在 ws open 后、
+ * performAuth 完成前就置 connected=true(open handler 内、performAuth 调用之前;
+ * fireReconnect 在 auth 成功后才调,同一同步块)。CI 慢环境(editor 刚 SIGKILL 重启,
+ * 主线程忙)auth 响应慢于 200ms 轮询间隔,waitForConnected 会在 auth 未完成窗口误判
+ * "已重连",紧接断言 reconnectFired 必然 false → 假失败(CI 首跑即红,本地 auth 快未暴露)。
+ * ready 谓词传 () => reconnectFired:等真正被断言的事件(auth 成功必然触发)。
+ */
+async function waitForConnected(
+  conn: EditorConnection,
+  timeoutMs = 30_000,
+  ready?: () => boolean,
+): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (conn.isConnected()) return true;
+    if (conn.isConnected() && (!ready || ready())) return true;
     await new Promise((r) => setTimeout(r, 200));
   }
   return false;
@@ -240,7 +253,14 @@ describe.skipIf(!canRun)('e2e-resilience (editor): 崩溃后 EditorConnection �
     expect(restartedSecret, 'PERSISTENT_SECRET=true 应让 secret 复用不变').toBe(secret);
 
     // ─── 4. 等自动重连(不调 requestReconnect——reconnect:true 让 close handler 自跑)───
-    const reconnected = await waitForConnected(conn, 30_000);
+    // ready 谓词同等 reconnectFired:防 isConnected() 在 auth 完成前的窗口提前放行(issue #23)
+    const reconnected = await waitForConnected(conn, 30_000, () => reconnectFired);
+    if (!reconnected) {
+      // 超时诊断:区分"未连上"与"连上但 fireReconnect 未触发"(auth 失败链死)
+      process.stderr.write(
+        `[E2E-DIAG] 重连等待超时: isConnected=${conn.isConnected()} reconnectFired=${reconnectFired} disconnectFired=${disconnectFired}\n`,
+      );
+    }
     expect(reconnected, '重启后应自动重连成功(reconnect:true + 300ms 间隔)').toBe(true);
     expect(reconnectFired, 'onReconnect handler 应触发(证明 fireReconnect 调用)').toBe(true);
     expect(conn.isConnected(), '重连后 isConnected()=true').toBe(true);
