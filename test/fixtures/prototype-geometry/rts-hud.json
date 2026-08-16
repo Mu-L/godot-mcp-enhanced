@@ -21,7 +21,7 @@
     { "name": "BtnRetreat", "rect": {"x":816,"y":656,"w":72,"h":36}, "type":"Button", "text":"撤退", "interactive": true },
     { "name": "UnitPanel", "rect": {"x":976,"y":552,"w":288,"h":152}, "type":"Panel", "bg":"#10141f" },
     { "name": "UnitName", "rect": {"x":992,"y":568,"w":200,"h":28}, "text":"战斗步兵 ×5", "fontSize":20, "color":"#ffd76e", "align":"left" },
-    { "name": "HpBar", "rect": {"x":992,"y":606,"w":240,"h":16}, "type":"ProgressBar", "value": 0.72 },
+    { "name": "HpBar", "rect": {"x":992,"y":599,"w":240,"h":27}, "type":"ProgressBar", "value": 0.72 },
     { "name": "HpText", "rect": {"x":992,"y":628,"w":120,"h":20}, "text":"HP 72/100", "fontSize":13, "align":"left" },
     { "name": "StatText", "rect": {"x":992,"y":652,"w":240,"h":20}, "text":"护甲 3 · 攻击 12 · 射程 5", "fontSize":13, "align":"left", "color":"#99aabb" }
   ]

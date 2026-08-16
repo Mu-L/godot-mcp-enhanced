@@ -124,29 +124,15 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
       };
     };
 
-    // layout_verify 全部 ok(spec 语义:rect 覆盖内),唯一例外 = 已知引擎主题校准项:
-    // HpBar(ProgressBar rect.h=16)被 Godot 4.7 默认主题最小高度顶到 27px(实测 2026-08-16,
-    // dh=+11,x/y/w 精确),与上轮 Button 默认主题高 8px 同类的主题硬约束——非 fontSize
-    // 行高钳制(降档指引不适用),fixture 逐字不可改。顶高 27 与下方 HpText(y=628)产生
-    // 606+27=633 > 628 的 5px 兄弟重叠。断言把这两项**锁死在实测数值**上:出现任何其他
-    // 不绿/重叠、或数值漂移,本测试立刻红(防回归);fixture/翻译器处置待控制器裁定。
+    // layout_verify 全部 ok(spec 语义:rect 覆盖内)。
+    // fixture 校准留痕(2026-08-16 裁定):HpBar 原型 y=606/h=16 按引擎下限校准为
+    // y=599/h=27——Godot 4.7 默认主题 ProgressBar stylebox 最小高 27px(Control.minimum_size
+    // 硬下限,h<27 被 clamp,实测原型 h=16 落地 27 且与 HpText 重叠 5px);翻译器规则 7
+    // 同族已加预警(will be clamped)。校准后 23/23 全绿、无重叠、无越界。
     expect(parsed.data.layout_verify.diff).toHaveLength(parsed.data.layout_verify.targets.length);
     const bad = parsed.data.layout_verify.diff.filter(d => !d.ok);
-    const hpBarKnown = bad.length === 1
-      && bad[0]!.path === '_PrototypeRoot/Bg/UnitPanel/HpBar'
-      && bad[0]!.delta.dx === 0 && bad[0]!.delta.dy === 0 && bad[0]!.delta.dw === 0
-      && bad[0]!.delta.dh === 11; // Godot 4.7 默认主题 ProgressBar 最小高度 27px(16+11)
-    if (!hpBarKnown) {
-      expect(bad, `不绿 diff: ${JSON.stringify(bad)}`).toEqual([]);
-    }
-    const overlaps = parsed.data.layout_verify.overlaps as Array<{ a: string; b: string; overlap: { w: number; h: number } }>;
-    const overlapKnown = overlaps.length === 1
-      && overlaps[0]!.a === '_PrototypeRoot/Bg/UnitPanel/HpBar'
-      && overlaps[0]!.b === '_PrototypeRoot/Bg/UnitPanel/HpText'
-      && overlaps[0]!.overlap.h === 5 && overlaps[0]!.overlap.w > 100; // HpBar 顶高 27 侵入 HpText 上沿 5px
-    if (!overlapKnown) {
-      expect(overlaps, `重叠: ${JSON.stringify(overlaps)}`).toEqual([]);
-    }
+    expect(bad, `不绿 diff: ${JSON.stringify(bad)}`).toEqual([]);
+    expect(parsed.data.layout_verify.overlaps).toEqual([]);
     expect(parsed.data.layout_verify.out_of_bounds).toEqual([]);
 
     // verify_coverage:实现契约含合成根 _PrototypeRoot(_note:"无 flow 时 = 输入节点数+1";

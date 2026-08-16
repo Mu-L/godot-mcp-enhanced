@@ -380,6 +380,18 @@ describe('规则 6/7: 字号与行高钳制预警', () => {
     const r2 = tr(geo([n('B', 0, 0, 200, 48, { text: 'x', fontSize: 16 })]));
     expect(r2.warnings.some(w => w.includes('钳制'))).toBe(false);
   });
+
+  // 规则 7 同族(引擎下限,2026-08-16 Task 3 集成验收裁定):Godot 4.7 默认主题
+  // ProgressBar stylebox 最小高 27px(实测 HpBar h=16 落地 27)——只警不修。
+  it('ProgressBar rect.h < 27 → "will be clamped" 预警;h=27 与非 ProgressBar 不误报(负例)', () => {
+    const r1 = tr(geo([n('P', 0, 0, 240, 16, { type: 'ProgressBar', value: 0.7 })]));
+    expect(r1.warnings.some(w => w.includes('will be clamped'))).toBe(true);
+    const r2 = tr(geo([n('P', 0, 0, 240, 27, { type: 'ProgressBar', value: 0.7 })]));
+    expect(r2.warnings.some(w => w.includes('will be clamped'))).toBe(false);
+    // 非 ProgressBar 的矮节点不误报(该引擎约束仅 ProgressBar)
+    const r3 = tr(geo([n('L', 0, 0, 240, 16, { type: 'Panel' })]));
+    expect(r3.warnings.some(w => w.includes('will be clamped'))).toBe(false);
+  });
 });
 
 describe('规则 8/9/10: 颜色三格式与对齐', () => {

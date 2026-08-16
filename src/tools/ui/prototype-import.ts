@@ -204,6 +204,14 @@ function normalizeColor(c: string | number[], field: string, name: string): [num
 
 const ALIGN_MAP: Record<ProtoAlign, number> = { left: 0, center: 1, right: 2 };
 
+/**
+ * Godot 4.7 默认主题 ProgressBar 最小高度(px)——默认主题 stylebox 的最小高把
+ * Control.minimum_size 顶到该值,rect.h 更小会被引擎钳制(clamp)。
+ * 实测来源:2026-08-16 ui_import_prototype 集成验收,RTS HUD fixture HpBar
+ * rect.h=16 落地实测 27px(Godot_v4.7.1-stable_win64 headless,dh=+11)。
+ */
+export const PROGRESS_BAR_MIN_HEIGHT = 27;
+
 /** 规则 1/11:显式 type(白名单)> flow(壳 Panel,容器类型在 _Flow 层)> value > interactive+text > text > Panel。 */
 function inferType(nd: GeometryNode, warnings: string[]): string {
   if (nd.type !== undefined) {
@@ -258,6 +266,11 @@ function buildSpec(
     if (rel.h < nd.fontSize * 1.5) {
       warnings.push(`节点 "${node.cleanName}": rect.h=${rel.h} < fontSize*1.5=${nd.fontSize * 1.5},可能被字体最小行高钳制`);
     }
+  }
+  // 规则 7 同族(引擎下限预警,与字体行高同性质):ProgressBar 默认主题 stylebox 最小高
+  // 会顶起 Control.minimum_size,rect.h 更小被引擎钳制(来源实测见 PROGRESS_BAR_MIN_HEIGHT 注释)。
+  if (type === 'ProgressBar' && rel.h < PROGRESS_BAR_MIN_HEIGHT) {
+    warnings.push(`节点 "${node.cleanName}": ProgressBar height below Godot 4.7 default theme minimum (~${PROGRESS_BAR_MIN_HEIGHT}px): will be clamped`);
   }
   if (nd.color !== undefined) {
     props['theme_override_colors/font_color'] = normalizeColor(nd.color, 'color', nd.name);
