@@ -1,16 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, copyFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PNG } from 'pngjs';
 import { handleTool } from '../src/tools/screenshot.js';
 import { isolatePathEnv } from './helpers/path-isolation.js';
 
 // Tier1-1: 验证 screenshot 工具成功路径的 structuredContent 字段
 // capture 路径:mock captureScreenshot(避免依赖真 Godot 进程)
-// analyze 路径:复用现成真实 PNG fixture(不依赖 Godot,只读文件 + downsample)
+// analyze 路径:pngjs 自生成合法 PNG(不依赖 Godot,只读文件 + downsample)
 
-// 现成合法 PNG fixture(screenshot-detail.ts 的 pngjs 能解析)
-const FIXTURE_PNG = join(process.cwd(), 'test', 'fixtures', 'e2e-project', 'screenshot.png');
+// 自生成 64x64 渐变 PNG(2026-08-15 CI 平台债:原依赖 test/fixtures/e2e-project/
+// screenshot.png,被 .gitignore 的 test/fixtures/**/*.png 规则忽略 → CI 缺文件挂 3 用例)
+const FIXTURE_PNG_BUFFER: Buffer = PNG.sync.write((() => {
+  const png = new PNG({ width: 64, height: 64 });
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const idx = (png.width * y + x) << 2;
+      png.data[idx] = (x * 4) % 256;
+      png.data[idx + 1] = (y * 4) % 256;
+      png.data[idx + 2] = 128;
+      png.data[idx + 3] = 255;
+    }
+  }
+  return png;
+})());
 
 // mock captureScreenshot(capture 路程依赖真 Godot 进程,这里 mock 掉)
 vi.mock('../src/screenshot.js', async (importOriginal) => {
@@ -100,8 +114,8 @@ describe('screenshot structuredContent (Tier1-1)', () => {
 
   describe('analyze action', () => {
     beforeEach(() => {
-      // 复制现成 PNG fixture 到临时目录供 analyze 读取
-      copyFileSync(FIXTURE_PNG, join(dir, 'test.png'));
+      // 自生成 PNG 写入临时目录供 analyze 读取
+      writeFileSync(join(dir, 'test.png'), FIXTURE_PNG_BUFFER);
     });
 
     it('detail=full 返回 structuredContent(无 width/height,因代码不读图像头)', async () => {

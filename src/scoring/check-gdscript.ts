@@ -65,6 +65,30 @@ function writeReport(r: GdscriptReport): void {
   process.stdout.write(`gdscript report → ${REPORT_OUT} (errors=${r.errors} warnings=${r.warnings}${r.incomplete ? ' INCOMPLETE' : ''})\n`);
 }
 
+/**
+ * 将 addons/godot_mcp_server + src/scripts 复制进 gdscript-check fixture(幂等覆盖拷贝)。
+ * fixture 的这两处目录被 .gitignore(运行时拷贝产物),供 main 与 vitest globalSetup
+ * (test/global-setup.ts)共用——CI check job 的 vitest 跑在本脚本之前,不填充则
+ * Godot load() 得 null → SCRIPT ERROR → SceneTree _init 中断 quit() 不执行 → 挂死超时。
+ */
+export function syncCheckProjectFixture(): { addonFiles: string[]; scriptFiles: string[] } {
+  const addonFiles = listGd(SRC_ADDON);
+  const scriptFiles = listGd(SRC_SCRIPTS);
+  mkdirSync(CHECK_ADDON, { recursive: true });
+  for (const f of addonFiles) {
+    const dst = resolve(CHECK_ADDON + f.slice(SRC_ADDON.length));
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(f, dst);
+  }
+  mkdirSync(CHECK_SCRIPTS, { recursive: true });
+  for (const f of scriptFiles) {
+    const dst = resolve(CHECK_SCRIPTS + f.slice(SRC_SCRIPTS.length));
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(f, dst);
+  }
+  return { addonFiles, scriptFiles };
+}
+
 async function main(): Promise<void> {
   const godotPath = process.env.GODOT_PATH || '';
 
@@ -79,23 +103,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  const srcFiles = listGd(SRC_ADDON);
-  const scriptFiles = listGd(SRC_SCRIPTS);
-  const expected = srcFiles.length + scriptFiles.length;
-
   // ② 复制 addon + src/scripts 进检查项目(每次新拷最新源)
-  mkdirSync(CHECK_ADDON, { recursive: true });
-  for (const f of srcFiles) {
-    const dst = resolve(CHECK_ADDON + f.slice(SRC_ADDON.length));
-    mkdirSync(dirname(dst), { recursive: true });
-    copyFileSync(f, dst);
-  }
-  mkdirSync(CHECK_SCRIPTS, { recursive: true });
-  for (const f of scriptFiles) {
-    const dst = resolve(CHECK_SCRIPTS + f.slice(SRC_SCRIPTS.length));
-    mkdirSync(dirname(dst), { recursive: true });
-    copyFileSync(f, dst);
-  }
+  const { addonFiles, scriptFiles } = syncCheckProjectFixture();
+  const expected = addonFiles.length + scriptFiles.length;
 
   // ③ runGodotHeadless --import(复用 helper,继承 forceKillTree)
   let result;
@@ -120,8 +130,8 @@ async function main(): Promise<void> {
   }
   // class cache 断言(全部源 class_name 在 cache;当前仅 CommandHelpers)
   const srcContents: Record<string, string> = {};
-  for (const f of srcFiles) srcContents[f] = readFileSync(f, 'utf8');
-  const srcClassNames = extractClassNames(srcFiles, srcContents);
+  for (const f of addonFiles) srcContents[f] = readFileSync(f, 'utf8');
+  const srcClassNames = extractClassNames(addonFiles, srcContents);
   if (srcClassNames.length > 0) {
     let cache = '';
     try { cache = readFileSync(resolve(CHECK_PROJECT, '.godot', 'global_script_class_cache.cfg'), 'utf8'); } catch { /* 未生成 */ }

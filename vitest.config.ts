@@ -4,6 +4,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     globals: true,
+    // 填充 gdscript-check fixture(被 gitignore 的运行时拷贝产物)——CI vitest 跑在
+    // check:gdscript 之前,不填充则 GD 类测试 load null 挂死超时(见 test/global-setup.ts)
+    globalSetup: ['test/global-setup.ts'],
     setupFiles: ['test/setup.js'],
     include: ['test/**/*.test.{js,ts}'],
     coverage: {

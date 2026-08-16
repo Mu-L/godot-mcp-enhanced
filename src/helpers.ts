@@ -163,6 +163,9 @@ export function buildSafeEnv(): NodeJS.ProcessEnv {
     OS: process.env.OS ?? '',
     PATHEXT: process.env.PATHEXT ?? '',
     DISPLAY: process.env.DISPLAY ?? '',
+    // XAUTHORITY 与 DISPLAY 配对的 X11 认证文件。缺它 xvfb-run 下 spawn 的 Godot
+    // 无法认证 X 连接 → 游戏进程秒退 → bridge 永不就绪(2026-08-15 CI matrix L2 根因)
+    XAUTHORITY: process.env.XAUTHORITY ?? '',
     WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY ?? '',
     XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? '',
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? '',
