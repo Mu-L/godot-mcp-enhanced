@@ -7,7 +7,7 @@
 // - runtime-assert 用真实现（其 sendToBridge 依赖同样被 mock → 同源验证 assert 复用链路）
 // 报告目录 env 重定向 tmp。runner.ts 的 game-bridge.ts 不 mock net（符合"仅 game-bridge.test.ts 可 mock net"约定）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { textResult } from '../src/types.js';
@@ -71,7 +71,7 @@ function defaultMocks(props: Record<string, unknown> = {}) {
   vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
     if (method === 'get_node_properties') return { id: 1, result: { health: 100 } };
     if (method === 'get_tree') return { id: 2, result: { nodes: [{ path: '/root/Root' }] } };
-    if (method === 'take_screenshot') return { id: 3, result: { image: Buffer.from('89504e470d0a1a0a', 'hex').toString('base64') } };
+    if (method === 'take_screenshot') return { id: 3, result: { success: true, path: 'user://mcp_screenshot.png', size: { x: 64, y: 64 } } };
     if (method === 'ping') return { id: 4, result: {} };
     if (method === 'wait_for_node') return { id: 6, result: { exists: true } };
     return { id: 5, result: {} };
@@ -121,8 +121,38 @@ describe('runQaSuite happy path', () => {
 
     expect(report.summary).toMatchObject({ total: 4, passed: 4, failed: 0, errors: 0, skipped: 0, status: 'PASSED' });
     expect(report.steps.map(x => x.status)).toEqual(['PASSED', 'PASSED', 'PASSED', 'PASSED']);
-    expect(report.steps[3]!.evidence?.screenshot_path).toMatch(/-step3\.png$/);
-    expect(existsSync(report.steps[3]!.evidence!.screenshot_path!)).toBe(true);
+    // PROJECT 是虚构路径 → user:// 解析不到本地文件 → 诚实降级（记录游戏侧路径，不伪造证据）
+    expect(report.steps[3]!.detail).toContain('留在游戏侧');
+    expect(report.steps[3]!.evidence?.screenshot_path).toBeUndefined();
+  });
+
+  it('screenshot 步骤：user:// 解析成功时 PNG 拷入报告目录', async () => {
+    // 构造 Godot app_userdata 布局：APPDATA/Godot/app_userdata/<config name>/shot.png
+    const appdata = mkdtempSync(join(tmpdir(), 'qa-appdata-'));
+    const project = mkdtempSync(join(tmpdir(), 'qa-proj-'));
+    const prevAppdata = process.env.APPDATA;
+    process.env.APPDATA = appdata;
+    writeFileSync(join(project, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="TestProj"\n');
+    const userDataDir = join(appdata, 'Godot', 'app_userdata', 'TestProj');
+    mkdirSync(userDataDir, { recursive: true });
+    writeFileSync(join(userDataDir, 'shot.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'take_screenshot') return { id: 3, result: { success: true, path: 'user://shot.png', size: { x: 8, y: 4 } } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({ project_path: project, steps: [{ type: 'screenshot', label: '拷贝成功' }] });
+    const report = await runQaSuite(s, project, makeCtx(), 'inline');
+
+    expect(report.steps[0]!.status).toBe('PASSED');
+    expect(report.steps[0]!.detail).toContain('8x4');
+    const shotPath = report.steps[0]!.evidence!.screenshot_path!;
+    expect(shotPath).toMatch(/-step0\.png$/);
+    expect(existsSync(shotPath)).toBe(true);
+
+    process.env.APPDATA = prevAppdata;
+    rmSync(appdata, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
   });
 });
 

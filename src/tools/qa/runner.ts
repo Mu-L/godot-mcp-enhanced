@@ -9,8 +9,9 @@
 // 语义：FAILED = 断言未满足（测试失败）；ERROR = 基础设施失败（bridge 断连/超时/校验拒绝）。
 // 两者默认都中止剩余步骤（continue_on_failure=true 继续）；中止的剩余步骤记 SKIPPED。
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { mkdirSync, readFileSync, copyFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import type { ToolContext, ToolResult } from '../../types.js';
 import {
   sendToBridge, setBridgeProjectDir, pollWaitCondition, computePlaytestTimeoutMs,
@@ -23,6 +24,45 @@ import type { QaSuite, QaStep } from './spec.js';
 import { makeRunId, qaReportsDir, type QaReport, type StepRecord } from './report.js';
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
+
+/**
+ * 把游戏侧 user:// URI 解析为本地绝对路径（Godot app_userdata 布局，三平台）。
+ * 读 project.godot 的 config/name（use_custom_user_dir 时用 custom_user_dir_name）。
+ * 解析不出/文件不存在返回 null（调用方诚实降级，只记录游戏侧路径）。
+ */
+export function resolveGameDataPath(projectPath: string, userUri: string): string | null {
+  if (!userUri.startsWith('user://')) return null;
+  const rel = userUri.slice('user://'.length);
+  let projectName = '';
+  let customDir = '';
+  try {
+    const cfg = readFileSync(join(projectPath, 'project.godot'), 'utf-8');
+    const nameM = cfg.match(/^config\/name\s*=\s*"([^"]*)"/m);
+    projectName = nameM?.[1] ?? '';
+    const customM = cfg.match(/^config\/custom_user_dir_name\s*=\s*"([^"]*)"/m);
+    customDir = customM?.[1] ?? '';
+    const useCustom = /^config\/use_custom_user_dir\s*=\s*true/m.test(cfg);
+    if (useCustom) {
+      projectName = '';
+      customDir = customDir || projectName;
+    }
+  } catch {
+    return null;
+  }
+  const home = homedir();
+  let base: string;
+  if (process.platform === 'win32') {
+    base = join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Godot');
+  } else if (process.platform === 'darwin') {
+    base = join(home, 'Library', 'Application Support', 'Godot');
+  } else {
+    base = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'godot');
+  }
+  const dir = customDir ? join(base, customDir) : projectName ? join(base, 'app_userdata', projectName) : null;
+  if (!dir) return null;
+  const abs = join(dir, rel);
+  return existsSync(abs) ? abs : null;
+}
 
 /** 解析 ToolResult.content[0].text 为 JSON；失败返回 null（text 可能是纯文本错误） */
 function parseToolJson(res: ToolResult): Record<string, unknown> | null {
@@ -152,9 +192,9 @@ export async function runQaSuite(
           continue;
         }
 
-        ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
-        const t0 = Date.now();
-        const outcome = await execStep(step, o, runId, i);
+      ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
+      const t0 = Date.now();
+      const outcome = await execStep(step, o, runId, i, projectPath);
         rec.elapsed_ms = Date.now() - t0;
         rec.status = outcome.status;
         rec.detail = outcome.detail;
@@ -211,7 +251,7 @@ interface StepOutcome {
 
 type ResolvedOptions = QaSuite['options'];
 
-async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number): Promise<StepOutcome> {
+async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string): Promise<StepOutcome> {
   switch (step.type) {
     case 'input': {
       const pathErr = validateBridgePath(step.params);
@@ -301,17 +341,30 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       };
     }
     case 'screenshot': {
-      const resp = await sendToBridge('take_screenshot', {}, o.step_timeout_ms);
+      // 真 bridge 契约（v0.30 e2e 实测纠正）：take_screenshot 把 PNG 存游戏侧
+      // user:// 并返回 {success, path, size}——无 base64 字段（runtime-assert 占位
+      // 代码里的 image 字段是臆测）。这里尽力把文件拷进报告目录，解析不到则
+      // 诚实降级记录游戏侧路径（不伪造证据）。
+      const shotUri = `user://mcp_qa_${runId}_step${index}.png`;
+      const resp = await sendToBridge('take_screenshot', { path: shotUri }, o.step_timeout_ms);
       if (resp.error) return err(`bridge: ${resp.error.message}`);
-      const r = (resp.result ?? {}) as { image?: string };
-      if (typeof r.image !== 'string' || r.image.length === 0) {
-        return { status: 'FAILED', detail: 'take_screenshot 未返回 image 数据' };
+      const r = (resp.result ?? {}) as { success?: boolean; path?: string; size?: { x: number; y: number } };
+      if (r.success !== true || typeof r.path !== 'string') {
+        return { status: 'FAILED', detail: `take_screenshot 未成功: ${condense(resp.result)}` };
       }
-      const dir = qaReportsDir();
-      mkdirSync(dir, { recursive: true });
-      const p = join(dir, `${runId}-step${index}.png`);
-      writeFileSync(p, Buffer.from(r.image, 'base64'));
-      return { status: 'PASSED', detail: 'screenshot saved', evidence: { screenshot_path: p } };
+      const gameSide = r.path;
+      const local = resolveGameDataPath(projectPath, gameSide);
+      if (local) {
+        const dir = qaReportsDir();
+        mkdirSync(dir, { recursive: true });
+        const p = join(dir, `${runId}-step${index}.png`);
+        copyFileSync(local, p);
+        return { status: 'PASSED', detail: `screenshot ${r.size?.x ?? '?'}x${r.size?.y ?? '?'}`, evidence: { screenshot_path: p } };
+      }
+      return {
+        status: 'PASSED',
+        detail: `screenshot 留在游戏侧 ${gameSide}（user:// 无法解析到本机路径，报告目录无副本）`,
+      };
     }
     case 'sleep': {
       await sleep(step.ms);

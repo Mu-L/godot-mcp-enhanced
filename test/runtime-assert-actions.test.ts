@@ -119,10 +119,41 @@ describe('runtime-assert scene_structure (P0-1)', () => {
     expect((p.mismatch as Record<string, unknown>)['/root/Main/Boss']).toEqual({ expected: 'absent', actual: 'present' });
   });
 
+  // v0.30 修复回归:真 bridge 的 get_tree 返回 {scene, tree:[{children:[...]}]} 嵌套形态,
+  // 原 collectPaths 只递归 children/nodes 键、不进 tree 键 → 真实环境恒空集(节点全判 absent)。
+  // 此前所有 mock 均为 {nodes:[...]},真实 shape 从未被测试覆盖(qa e2e 实测暴露)。
+  it('回归: 真 bridge shape {scene, tree:[...]} 的节点可被匹配(修复前恒 absent)', async () => {
+    mockedBridge.mockResolvedValue({
+      result: {
+        scene: 'res://scenes/main.tscn',
+        tree: [
+          {
+            children: [
+              { name: 'MCPBridge', path: '/root/MCPBridge', type: 'Node' },
+              { name: 'Root', path: '/root/Root', type: 'Node3D' },
+            ],
+            name: 'root', path: '/root', type: 'Window',
+          },
+        ],
+      },
+    });
+    const r = await handleTool('runtime_assert', { action: 'scene_structure', nodes: [{ path: '/root/Root' }] }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(true);
+  });
+
+  it('回归: 真 bridge shape 下 absent 断言正常判定', async () => {
+    mockedBridge.mockResolvedValue({
+      result: { scene: 'res://scenes/main.tscn', tree: [{ name: 'root', path: '/root', type: 'Window', children: [{ name: 'Root', path: '/root/Root', type: 'Node3D' }] }] },
+    });
+    const r = await handleTool('runtime_assert', { action: 'scene_structure', nodes: [{ path: '/root/Ghost', absent: true }] }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(true);
+  });
+
   it('error: 缺 nodes → INVALID_PARAMS', async () => {
     const r = await handleTool('runtime_assert', { action: 'scene_structure' }, {} as never);
-    const p = parse(r);
-    expect(p.success).toBe(false);
+    const p = parse(r);    expect(p.success).toBe(false);
     expect(p.error_code).toBe('INVALID_PARAMS');
   });
 });

@@ -161,6 +161,9 @@ export async function assertNodeState(args: Record<string, unknown>): Promise<To
 /**
  * F-3: 递归收集场景树中所有 path 字段到 Set,用于精确匹配(替代原 JSON.stringify 子串匹配)。
  * 兼容平坦 {nodes:[{path}]} 与嵌套 {children:[...]} 两种形态。
+ * v0.30 修复(qa e2e 实测暴露):真 bridge 的 get_tree 返回 {scene, tree:[{children:[...]}]},
+ * 原实现只递归 children/nodes 键、从不进 tree 键 → 真实环境收集集恒空、一切节点判 absent。
+ * 此前单测全部 mock {nodes:[...]} 形态,从未覆盖真实 shape。
  */
 function collectPaths(obj: unknown, out: Set<string>): void {
   if (Array.isArray(obj)) {
@@ -168,10 +171,11 @@ function collectPaths(obj: unknown, out: Set<string>): void {
     return;
   }
   if (obj && typeof obj === 'object') {
-    const o = obj as { path?: unknown; children?: unknown; nodes?: unknown };
+    const o = obj as { path?: unknown; children?: unknown; nodes?: unknown; tree?: unknown };
     if (typeof o.path === 'string') out.add(o.path);
     if (o.children !== undefined) collectPaths(o.children, out);
     if (o.nodes !== undefined) collectPaths(o.nodes, out);
+    if (o.tree !== undefined) collectPaths(o.tree, out);
   }
 }
 

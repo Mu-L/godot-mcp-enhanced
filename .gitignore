@@ -45,3 +45,5 @@ test/fixtures/gdscript-check/addons/
 test/fixtures/gdscript-check/src/
 # A0-3: e2e-resilience-editor 复制的 addon(同 M3c 模式,保留 project.godot 源)
 test/fixtures/real-project/addons/
+.tmp-qa-debug/
+.tmp-qa-e2e-reports/

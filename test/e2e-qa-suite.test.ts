@@ -4,8 +4,8 @@
 // 验证 qa.run 端到端：install → run_project → wait/assert/screenshot 步骤 → 报告落盘 → stop。
 // fixture：test/fixtures/e2e-project（main.tscn 仅 Root/Node3D，无 autoload 链）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, readFileSync, rmSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import { registerAllModules } from '../src/core/module-loader.js';
@@ -62,6 +62,20 @@ describe('L2 e2e: qa run 端到端（真 Godot）', () => {
       // 进程槽兜底清理（qa stop_after 正常已停；防中途失败泄漏游戏进程）
       const proc = ps.getRunningProcess();
       if (proc) ps.setRunningProcess(null);
+      // fixture 还原：qa 的 auto_install_bridge 会写 project.godot autoload + 拷
+      // mcp_bridge.gd——e2e-project 的设计前提是"无 autoload"（避免加载链），跑完必须还原。
+      const cfgPath = join(E2E_PROJECT, 'project.godot');
+      try {
+        const cfg = readFileSync(cfgPath, 'utf-8');
+        if (/^MCPBridge=/m.test(cfg)) {
+          // 去 MCPBridge 行后，若 [autoload] 段变空则整段移除（还原 git 基线的"无 autoload"形态）
+          let cleaned = cfg.split('\n').filter(l => !l.startsWith('MCPBridge=')).join('\n');
+          cleaned = cleaned.replace(/\[autoload\]\s*(?=(\n\[)|\s*$)/g, '');
+          writeFileSync(cfgPath, cleaned.replace(/\n+$/, '\n'), 'utf-8');
+        }
+        rmSync(join(E2E_PROJECT, 'mcp_bridge.gd'), { force: true });
+        rmSync(join(E2E_PROJECT, 'mcp_bridge.gd.uid'), { force: true });
+      } catch { /* best effort */ }
     }
   });
 
@@ -73,22 +87,34 @@ describe('L2 e2e: qa run 端到端（真 Godot）', () => {
 
     const mod = getModuleForTool('qa');
     expect(mod).toBeTruthy();
-    const result = await mod!.handleTool('qa', {
-      action: 'run',
-      project_path: E2E_PROJECT,
-      spec: {
-        name: 'l2-smoke',
-        options: { bridge_timeout_s: 30, run_timeout_s: 120, suite_budget_ms: 90000 },
-        steps: [
-          { type: 'wait', method: 'wait_for_node', params: { path: '/root/Root' }, timeout_ms: 20000, label: '主场景加载' },
-          { type: 'assert', assert: 'scene_structure', nodes: [{ path: '/root/Root' }], label: 'Root 存在' },
-          { type: 'screenshot', label: '留证' },
-        ],
-      },
-    }, makeCtx());
 
-    const text = result?.content[0]?.type === 'text' ? result.content[0].text : '';
-    const json = parseResultJson(text);
+    // 背靠背运行防护：上一场游戏的 9081 释放有拖尾（实测孤儿进程秒级退出但窗口期
+    // 下一场 bind 失败 → 31s bridge 超时）。'Bridge not ready' 签名时等 5s 重试一次。
+    const runOnce = async (): Promise<Record<string, unknown> | null> => {
+      const result = await mod!.handleTool('qa', {
+        action: 'run',
+        project_path: E2E_PROJECT,
+        spec: {
+          name: 'l2-smoke',
+          options: { bridge_timeout_s: 30, run_timeout_s: 120, suite_budget_ms: 90000 },
+          steps: [
+            { type: 'wait', method: 'wait_for_node', params: { path: '/root/Root' }, timeout_ms: 20000, label: '主场景加载' },
+            { type: 'assert', assert: 'scene_structure', nodes: [{ path: '/root/Root' }], label: 'Root 存在' },
+            { type: 'screenshot', label: '留证' },
+          ],
+        },
+      }, makeCtx());
+      const text = result?.content[0]?.type === 'text' ? result.content[0].text : '';
+      return parseResultJson(text);
+    };
+
+    let json = await runOnce();
+    let setupError = (json?.data as { setup_error?: string } | undefined)?.setup_error;
+    if (typeof setupError === 'string' && setupError.includes('Bridge not ready')) {
+      await new Promise(r => setTimeout(r, 5000));
+      json = await runOnce();
+    }
+
     expect(json).not.toBeNull();
     expect(json!.success).toBe(true);
     const data = json!.data as {
