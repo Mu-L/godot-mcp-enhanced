@@ -768,11 +768,11 @@ describe('Flex Layout: justify', () => {
     expect(script).toContain('node.alignment = 2');
   });
 
-  it('justify: space-between -> approximated with warning', () => {
+  it('justify: space-between -> injected spacer nodes with warning', () => {
     const tree = { type: 'Panel', name: 'R', layout: { direction: 'row', justify: 'space-between' } };
     const script = genUiBuildLayoutScript('/s.tscn', 'root', tree);
-    expect(script).toContain('node.alignment = 0');
-    expect(script).toContain('approximated');
+    expect(script.includes('node.alignment = 0')).toBeFalsy(); // 旧近似(space-between→BEGIN)已移除
+    expect(script).toContain('injected spacer nodes');
   });
 });
 

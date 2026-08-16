@@ -183,7 +183,7 @@ function validateFlexLayout(layout: FlexLayout, warnings: string[]): void {
     warnings.push('layout.row_gap is ignored when wrap is not "wrap"');
   }
   if (layout.justify !== undefined && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify)) {
-    warnings.push(`layout.justify "${layout.justify}" is approximated (no exact Godot equivalent)`);
+    warnings.push(`layout.justify "${layout.justify}" is implemented via injected spacer nodes`);
   }
 }
 
@@ -264,15 +264,10 @@ function genFlexContainerProps(layout: FlexLayout, indent: string, warnings: str
   if (layout.justify) {
     if (isWrap) {
       warnings.push('layout.justify is ignored when wrap is "wrap" (FlowContainer has no alignment)');
+    } else if (['space-between', 'space-around', 'space-evenly'].includes(layout.justify)) {
+      warnings.push(`layout.justify "${layout.justify}" is implemented by injecting _spacer_N Control nodes (BoxContainer has no space-* alignment)`);
     } else {
-      const justifyMap: Record<string, number> = {
-        'flex-start': 0,
-        'center': 1,
-        'flex-end': 2,
-        'space-between': 0,
-        'space-around': 1,
-        'space-evenly': 1,
-      };
+      const justifyMap: Record<string, number> = { 'flex-start': 0, 'center': 1, 'flex-end': 2 };
       const alignment = justifyMap[layout.justify];
       if (alignment !== undefined) {
         lines += `\n${indent}node.alignment = ${alignment}`;
@@ -307,6 +302,56 @@ function genFlexContainerProps(layout: FlexLayout, indent: string, warnings: str
   }
 
   return lines;
+}
+
+// space-* justify 无法用 BoxContainer alignment 表达,改为注入 SIZE_EXPAND spacer 实现。
+// CSS 语义:between = 元素间 N-1 个等距;evenly = N+1 个等距(含首尾);around = 2N 个半距。
+// (spec §3.3,审查 B-2:around 必须是 2N 个 0.5,不能用 N+1 个 —— N≥2 时配比不等)
+export type SequenceItem = { kind: 'spacer'; ratio: number } | { kind: 'child'; spec: UiNodeSpec };
+
+function interleaveSpacers(justify: string, children: UiNodeSpec[]): SequenceItem[] {
+  const asChildren = (): SequenceItem[] => children.map(c => ({ kind: 'child' as const, spec: c }));
+  if (children.length === 0) return [];
+  if (justify === 'space-between') {
+    const out: SequenceItem[] = [];
+    children.forEach((c, i) => {
+      if (i > 0) out.push({ kind: 'spacer', ratio: 1 });
+      out.push({ kind: 'child', spec: c });
+    });
+    return out;
+  }
+  if (justify === 'space-evenly') {
+    const out: SequenceItem[] = [];
+    for (const c of children) {
+      out.push({ kind: 'spacer', ratio: 1 });
+      out.push({ kind: 'child', spec: c });
+    }
+    out.push({ kind: 'spacer', ratio: 1 });
+    return out;
+  }
+  if (justify === 'space-around') {
+    // B-2: 必须是 2N 个 0.5(每个 child 前后各一个),不能用 N+1 个 —— N≥2 时配比不等。
+    // 相邻两个 0.5 spacer 拼出元素间距(2x),边缘单个 0.5 为边距(x),即 around 的"边距=间距之半"。
+    const out: SequenceItem[] = [];
+    for (const c of children) {
+      out.push({ kind: 'spacer', ratio: 0.5 });
+      out.push({ kind: 'child', spec: c });
+      out.push({ kind: 'spacer', ratio: 0.5 });
+    }
+    return out;
+  }
+  return asChildren();
+}
+
+export function genSpacerLines(name: string, ratio: number, isRow: boolean, indent: string, ownerVar: string, parentVar: string): string {
+  const flag = isRow ? 'size_flags_horizontal' : 'size_flags_vertical';
+  return `${indent}node = ClassDB.instantiate("Control")
+${indent}node.name = "${gdEscape(name)}"
+${indent}node.${flag} = Control.SIZE_EXPAND
+${indent}node.size_flags_stretch_ratio = ${ratio}
+${indent}node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+${indent}${parentVar}.add_child(node)
+${indent}node.owner = ${ownerVar}`;
 }
 
 function applyAlignSelf(align: string, isRow: boolean, indent: string, warnings?: string[]): string {
@@ -455,17 +500,27 @@ ${indent}${marginWrapperVar}.set_anchors_preset(${preset})`;
   lines += `\n${indent}var ${savedVar} = node`;
 
   let children = spec.children ?? [];
-  if (isReverse) {
-    children = [...children].reverse();
-  }
+  if (isReverse) children = [...children].reverse();
 
-  for (const child of children) {
+  const justifyNeedsSpacers = !isWrap && !isGrid && layout.justify !== undefined
+    && ['space-between', 'space-around', 'space-evenly'].includes(layout.justify);
+  if (justifyNeedsSpacers && children.some(c => c.flex?.grow !== undefined && c.flex.grow > 0)) {
+    warnings.push('justify space-* combined with child flex.grow: spacers and grow children share the free space, distribution will not match CSS semantics');
+  }
+  const seq: SequenceItem[] = justifyNeedsSpacers ? interleaveSpacers(layout.justify!, children) : children.map(c => ({ kind: 'child' as const, spec: c }));
+
+  let spacerIdx = 0;
+  for (const item of seq) {
+    if (item.kind === 'spacer') {
+      lines += '\n' + genSpacerLines(`_spacer_${spacerIdx++}`, item.ratio, isRow, indent, ownerVar, savedVar);
+      continue;
+    }
+    const child = item.spec;
     lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId);
 
     if (layout.align && (!child.flex || !child.flex.align_self || child.flex.align_self === 'auto')) {
       lines += applyAlignSelf(layout.align, isRow, indent, warnings);
     }
-
     if (child.flex) {
       lines += genFlexChildLines(child.flex, isRow, indent, warnings);
     }
