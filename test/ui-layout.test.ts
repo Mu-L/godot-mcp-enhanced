@@ -68,6 +68,8 @@ describe('ui_build_layout rect 支持', () => {
     expect(s).toContain('node.anchor_left = 0.03125');
     expect(s).toContain('node.offset_left = 0');
     expect(s).toContain('get_parent() is Container');
+    // 守卫时序:rect 赋值必须在 add_child 之后(get_parent() 才有效,守卫真实判定)
+    expect(s.indexOf('node.anchor_left = 0.03125')).toBeGreaterThan(s.indexOf('_saved_0.add_child(node)'));
   });
 
   it('rect 节点父为容器时发 warning 且生成运行时跳过守卫', () => {
@@ -77,6 +79,8 @@ describe('ui_build_layout rect 支持', () => {
     });
     expect(s).toContain('rect will be skipped');
     expect(s).toContain('get_parent() is Container');
+    // 容器子路径(layout 分支递归)同样在 add_child 之后赋值,守卫对两条路径都真实生效
+    expect(s.indexOf('node.anchor_left = 0')).toBeGreaterThan(s.indexOf('_saved_0.add_child(node)'));
   });
 
   it('rect 优先于 anchor_preset(同时提供时)', () => {
@@ -94,6 +98,7 @@ describe('ui_build_layout rect 支持', () => {
     });
     expect(s).toContain('get_parent() is Container');
     expect(s).not.toContain('_mcp_output("warnings"');
+    expect(s.indexOf('node.anchor_left = 0')).toBeGreaterThan(s.indexOf('parent.add_child(node)'));
   });
 
   it('自定义 viewport 参与求解(参数链透传)', () => {

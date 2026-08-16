@@ -124,9 +124,10 @@ function isContainerSpec(spec: UiNodeSpec): boolean {
   return spec.layout !== undefined || CONTAINER_CONTROL_TYPES.includes(spec.type);
 }
 
-/** rect(绝对几何,相对父左上角)→ 显式 anchors+offsets 赋值行。
+/** rect(绝对几何,相对父左上角)→ 显式 anchors+offsets 赋值块。
  * 不用 set_anchors_preset(它不重置 offsets,引擎陷阱,spec §3.2)。
- * 父为 Container 时运行时跳过守卫(B-3:容器会强制重排子 Control,赋值必然被覆盖)。 */
+ * ⚠️ 本块必须拼在 add_child 之后:get_parent() 挂树后才有效,
+ * 父为 Container 的守卫才能真实判定并跳过(B-3:容器会强制重排子 Control)。 */
 function genRectLines(rect: Rect, viewport: { w: number; h: number }, indent: string): string {
   const a = solveAnchors(viewport, rect);
   return `
@@ -459,7 +460,7 @@ ${indent}if node == null:
 ${indent}\t_mcp_output("error", "Failed to instantiate: ${gdEscape(spec.type)}")
 ${indent}\t_mcp_done()
 ${indent}\treturn
-${indent}node.name = "${gdEscape(spec.name)}"${rectLines}${anchorLine}${propLines}`;
+${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
 
   if (spec.children && spec.children.length > 0) {
     const savedIdx = nextId();
@@ -473,6 +474,9 @@ ${indent}node.name = "${gdEscape(spec.name)}"${rectLines}${anchorLine}${propLine
 
   lines += `\n${indent}${parentVar}.add_child(node)
 ${indent}node.owner = ${ownerVar}`;
+  // rect 赋值必须在 add_child 之后执行:get_parent() 此时才有效,
+  // Container 守卫才能真实判定并跳过(否则守卫恒走 else,名存实亡)
+  lines += rectLines;
 
   return lines;
 }
