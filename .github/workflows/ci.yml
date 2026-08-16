@@ -99,7 +99,13 @@ jobs:
         # P0-4：补 env GODOT_PATH，让 describe.skipIf(!hasGodot) 测试真跑（非静默 skip）
         # 2026-08-15: CI 2 核 runner 并发 spawn Godot 资源耗尽致 GD 类测试超时/输出丢失(flaky 58%)
         # 历史失败——限 maxWorkers=2 串行化大部分 GD spawn(本地全量绿,CI 全绿为合并门禁)
-        run: npx vitest run --maxWorkers=2 --exclude test/game-bridge.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
+        # 2026-08-16 (PR#25): 再排除 data-import-integration——其 beforeAll 自预热
+        # real-project(executeGdscript 触发 --import 生成 .godot/global_script_class_cache.cfg),
+        # 与 e2e-full L1/L2 段(同用 real-project 的 Godot 进程)在全量并发调度下竞态:
+        # 预热"成功"返回但 cache 未生成 → suite 稳定红(master 靠文件调度顺序侥幸不撞,
+        # v0.30 新增测试文件改变调度后暴露)。真 Godot 集成覆盖不降:matrix job
+        # (4.6.3+4.7.1)的 7 文件隔离集稳定跑它且绿。
+        run: npx vitest run --maxWorkers=2 --exclude test/game-bridge.test.ts --exclude test/tools/data-import-integration.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
       - name: Check gdscript（产出 report；blocking 经下游 score:gate，本步 exit 0 即使 errors>0）
