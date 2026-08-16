@@ -21,7 +21,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 43 个 MCP 工具（236 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 43 个 MCP 工具（238 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -388,15 +388,16 @@ alwaysApply: false
 
 UI 布局工具将 **CSS Flexbox/Grid 语义**翻译为 Godot Container 树，让 AI 用熟悉的布局概念构建 Godot UI。
 
-- **两种使用方式**：单节点操作（ui_create_control）vs 批量布局（ui_build_layout）
-- **运行时工具**：操作在 headless 进程中执行，默认不持久化到 .tscn（例外：\`ui_build_layout\` 支持 \`persist=true\` 原子写）。详见 godot-mcp-core.md "运行时 vs 持久化"。
-- **两种方式互补**：ui_build_layout 适合整体布局，ui_create_control + ui_set_layout 适合精确定位
+- **三种入口**：单节点操作（ui_create_control）/ 批量布局（ui_build_layout）/ HTML 原型还原（ui_import_prototype，几何 JSON 一次调用，固定持久化）
+- **运行时工具**：操作在 headless 进程中执行，默认不持久化到 .tscn（例外：\`ui_build_layout\` 支持 \`persist=true\` 原子写；\`ui_import_prototype\` 无 persist 参数、固定持久化）。详见 godot-mcp-core.md "运行时 vs 持久化"。
+- **互补关系**：ui_import_prototype 适合"HTML 原型→Godot"还原（原型是唯一真源）；ui_build_layout 适合手写树整体布局；ui_create_control + ui_set_layout 适合精确定位
 
 ## 工具清单
 
 | 工具 | 说明 |
 |------|------|
 | \`ui_build_layout\` | 声明式批量布局，CSS Flexbox/Grid → Godot Container 树；支持 rect 绝对几何与 persist 原子写 |
+| \`ui_import_prototype\` | HTML 原型几何 JSON 一次调用：翻译→build（固定 persist）→measure→layout_verify；返回 verify_coverage 覆盖率（v0.31.0） |
 | \`ui_measure_layout\` | headless 整树 computed rect 测量（等布局稳定后输出，可带 expect_tree diff） |
 | \`ui_create_control\` | 创建单个 Control 节点（29 种类型） |
 | \`ui_set_layout\` | 设置锚点/偏移/最小尺寸 |
@@ -483,6 +484,96 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 - \`layout_verify\` 结构：\`targets\`（期望 rect 清单）/ \`diff\`（逐节点 Δ，容差默认 2px）/ \`overlaps\`（兄弟节点重叠）/ \`out_of_bounds\`（溢出父边界）/ \`viewport\`（measure 输出的根参照系透传）。
 - **坐标系语义（v0.30.3）**：rect 相对父节点左上角；\`diff\` 的 actual 为**父相对坐标**（measured 子 global − 父 global，与 target 同构可直接比 Δ）；根级 target（树根自身 rect）以视口原点为参照；父不在测量集（未渲染/不可见）时该条目 delta 为 NaN。
 - \`ui_measure_layout\` 单独使用时：\`node_path\` 可选（省略则从场景根整树测），\`max_depth\` 默认 16（上限 64），等布局稳定（连续帧快照一致或最多 5 帧）后输出；输出含 \`viewport\`（项目声明视口尺寸）与 \`stalled\`（5 帧上限内未达 2 帧稳定时 true，布局可能未收敛）。
+
+### ui_import_prototype — HTML 原型还原（v0.31.0）
+
+**工作流（AI 全链路，原型是唯一真源）**：AI 写 HTML 原型（每个待还原元素标 \`data-name\`）→ 浏览器 MCP 一条 evaluate 提取几何 JSON（模板见下节）→ \`ui_import_prototype\` **一次调用**完成 翻译→build→measure→layout_verify → **不绿回 HTML 改原型**（不在 Godot 侧调 rect）→ 绿后 \`screenshot(action=diff)\` 像素级双图验收（要点见本节末）。
+
+**入参**：\`geometry\`（inline JSON）或 \`geometry_path\`（文件路径，相对项目、支持 \`res://\` 前缀；二选一，同时给时 \`geometry\` 优先 + warning）/\`viewport\`（可选，默认取 geometry.viewport）/\`tolerance\`（默认 2px）/\`parent_path\`（默认 root）。**没有 persist 参数——固定持久化**（内部 measure 是第二次 Godot spawn 从磁盘 load 场景，不落盘则 verify 全部 actual:null）。
+
+**proto-geometry JSON**（strict schema，未知字段拒绝——字段拼错（如 \`font-size\`）早暴露，不静默丢）：
+
+\`\`\`json
+{
+  "viewport": { "w": 1280, "h": 720 },
+  "nodes": [
+    { "name": "TopBar", "rect": { "x": 0, "y": 0, "w": 1280, "h": 56 },
+      "type": "Panel", "text": "标题", "fontSize": 16, "color": "#e8ecf5",
+      "bg": "#10141f", "align": "center", "value": 0.72,
+      "flow": "row", "justify": "space-between", "interactive": true }
+  ]
+}
+\`\`\`
+
+- **扁平列表，视口绝对坐标**（rect 为浏览器/原型视口绝对值）；树由翻译器按 rect 包含关系自动推导（容差 1px，≤500 节点）；**两节点 rect 交叉重叠（互不包含）或完全相等 → INVALID_PARAMS**（不静默落平级）。
+- 字段全可选（除 name/rect）：\`type\`（CONTROL_TYPES 白名单）/\`text\`/\`fontSize\`（px）/\`color\`/\`bg\`/\`align\`（left|center|right，缺省 center）/\`value\`（0-1，ProgressBar）/\`flow\`（row|column，容器排布语义）/\`justify\`/\`interactive\`（text+interactive→Button）。
+- **颜色仅三种格式**：\`#rrggbb\` / \`[r,g,b]\` 0-255 / \`[r,g,b,a]\` 0-1。CSS \`rgb()/rgba()\` 字符串**不支持**——evaluate 模板已内置转换（见下节）。
+- **bg 缺省 = 透明壳契约（责任归 JSON 生产者）**：推断为布局壳 Panel（无显式 type、无 text、无 bg、无 value 的纯布局节点，及 flow 壳）→ \`self_modulate:[1,1,1,0]\`（禁 modulate，级联陷阱见 godot-mcp-engine-quirks.md）。**该有背景的面板务必在原型侧显式填 bg**，否则被当透明壳（build_warnings 会提示 "set bg or type to keep it visible"）。**自带视觉控件不会被设透明壳**：ProgressBar（推断或显式）、Button（推断或显式）、任何显式 type（含显式 Panel）——显式 type 说明有意为之，一律保留可见性。
+- **翻译规则要点**（12+1 条）：类型推断（显式 type > flow > value→ProgressBar > text+interactive→Button > text→Label > Panel）；视口坐标逐层减父原点转相对父 rect（进锚点求解链）；Label 全部 \`vertical_alignment:1\`；bg→modulate 近似染色（warning 声明非 StyleBox，叠加子树与实际底色有偏差）；非白名单 type 降级 Panel + warning；深度 cap 10；name 非法字符清洗。
+- **引擎下限预警（只警不修，修在原型侧）**：文本控件 rect.h < fontSize*1.5 → "可能被字体最小行高钳制" warning；ProgressBar rect.h < 27（Godot 4.7 默认主题 stylebox 最小高，实测 rect.h=16 落地 27px）→ "will be clamped" warning。应对：调大原型 rect.h 或调小字号，勿指望 Godot 侧硬压。
+- **容差模糊带**：verify 容差（默认 2px）内兄弟关系与偏移不可区分——**避免构造 ≤2px 宽的相邻独立节点**（工具返回也带此提示）。
+
+**返回**：\`{ tree, build_warnings, measure: {stable_after_frames, stalled, viewport}, verify_coverage, layout_verify: {targets, diff, overlaps, out_of_bounds, viewport}, persist }\`。
+
+- **verify_coverage 覆盖率语义**：\`targets\` 为受几何 verify 覆盖的节点数（**含合成根 \`_PrototypeRoot\`——无 flow 时 = 输入节点数 + 1**）。**flow 直接子节点丢 rect、不在覆盖内**——flow 子树（spacer/min_size/justify 映射）出错时 verify 仍绿，唯一补偿防线是 \`screenshot(action=diff)\` 像素验收。
+- measure 阶段失败时错误信息附 \`(build 已持久化,可重跑 ui_measure_layout)\`——场景已在磁盘，无需重新 import。
+
+**像素验收要点（\`screenshot(action=diff)\`）**：\`image_a\`/\`image_b\` 两 PNG（白名单内，尺寸必须一致）、\`threshold\` 默认 0.12（per-pixel RGB 欧氏距离 / (√3×255)，严格大于才计差、忽略 alpha）、可选 \`diff_path\` 输出红染差异图；返回 \`{width, height, diff_pixels, diff_ratio, bbox}\`。
+
+- **capture 的 viewport 必须与原型 viewport 一致**（用法契约）：原型 1280x720 则 capture 也用 1280x720，否则几何比例全错、diff 全图皆红。
+- **diff_ratio 含字体抗锯齿底噪**——对 diff_ratio **以同布局好图对为基线，坏图对 ratio 应显著高于基线（如 > 基线×1.5）**，勿用精确值断言。本仓实测（threshold=0.12）：好图对 web-prototype vs godot-hud（同布局不同渲染器）≈0.1762；下半部内容消失的合成坏图（godot-hud 下半 y>360 置纯黑，模拟 modulate 级联内容消失）≈0.48，约为基线 2.7 倍——"好图 < 0.25、坏图 > 0.4" 的区间示例在本仓成立；跨项目请以自身好图对为基线校准（同源渲染仍有 17% 量级像素差，精确值断言必 flaky）。
+
+### 浏览器 evaluate 取数脚本模板（chrome-devtools / playwright 通用）
+
+HTML 原型侧约定：每个待还原元素标 \`data-name\`（=Godot 节点名，须唯一）；flex 容器标 \`data-flow="row|column"\`（可选 \`data-justify\`）；整页视口容器标 \`data-viewport\`（可选，缺省取窗口尺寸）。在浏览器 MCP（如 chrome-devtools 的 evaluate_script / playwright 的 browser_evaluate）执行：
+
+\`\`\`js
+() => {
+  const toHex = (c) => {
+    const m = /rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)/.exec(c);
+    if (!m) return null;                                  // 非 rgb()/rgba() 不填(翻译器仅认 #rrggbb)
+    if (m[4] !== undefined && Number(m[4]) === 0) return null;  // alpha 0 = 透明
+    return '#' + [1, 2, 3].map(i => Number(m[i]).toString(16).padStart(2, '0')).join('');
+  };
+  const vpEl = document.querySelector('[data-viewport]');
+  const vpRect = vpEl ? vpEl.getBoundingClientRect() : { width: innerWidth, height: innerHeight };
+  const out = { viewport: { w: Math.round(vpRect.width), h: Math.round(vpRect.height) }, nodes: [] };
+  for (const el of document.querySelectorAll('[data-name]')) {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const node = {
+      name: el.dataset.name,
+      rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+    };
+    const text = (el.dataset.text ?? el.textContent ?? '').trim();  // 嵌套容器建议用 data-text 标注,避免吞子元素文本
+    if (text) node.text = text;
+    const alignMap = { left: 'left', start: 'left', center: 'center', right: 'right', end: 'right' };
+    const align = alignMap[cs.textAlign];                // 水平对齐:CSS 默认 left 而翻译器缺省 center——不采集会系统性丢失对齐
+    if (align) node.align = align;                       // (justify 等其余值不输出字段,走翻译器缺省 center)
+    const fs = parseFloat(cs.fontSize);
+    if (Number.isFinite(fs)) node.fontSize = fs;
+    const fg = toHex(cs.color);
+    if (fg && fg !== '#000000') node.color = fg;          // 文本色:跳过浏览器默认黑(CSS 未设 color 时 computed 恒黑)
+    const bg = toHex(cs.backgroundColor);                 // 背景色:非透明才填(v2 N-3——该有背景的面板被当透明壳是高频误判)
+    if (bg) node.bg = bg;
+    const flow = el.dataset.flow;
+    if (flow === 'row' || flow === 'column') {
+      node.flow = flow;
+      if (el.dataset.justify) node.justify = el.dataset.justify;
+    }
+    if (el.dataset.value !== undefined) {                 // ProgressBar:value 必填 0-1 小数,百分数(如 72)请先除以 100——schema min(0).max(1) 会拒
+      const v = Number(el.dataset.value);
+      node.value = Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined;
+    }
+    if (el.dataset.interactive === 'true') node.interactive = true;
+    if (el.dataset.type) node.type = el.dataset.type;     // 显式类型覆盖推断(29 种白名单内)
+    out.nodes.push(node);
+  }
+  return out;  // → 直接作 geometry 入参,或写文件后走 geometry_path
+}
+\`\`\`
+
+要点：**bg 只在 \`getComputedStyle().backgroundColor\` 非透明时填**（透明壳契约由翻译器兜底）；**颜色经 toHex 转 \`#rrggbb\`**（翻译器不认 CSS \`rgb()\` 原文）；\`viewport\` 取 \`[data-viewport]\` 容器或窗口尺寸，**必须与 Godot 项目 \`display/window/size\` 及后续 \`screenshot(capture)\` 的 viewport 参数一致**（不一致则几何比例全错）。
 
 ### draw_recipe 声明式绘图
 
@@ -671,7 +762,7 @@ recording_start(project_path="D:/game")
 `,
 
   'godot-mcp-engine-quirks.md': `---
-description: "godot-mcp 引擎陷阱 物理查询 碰撞体 ConcavePolygonShape3D CollisionLayer Mask ArrayMesh GenerateNormals GLB headless RID leak _Ready Free QueueFree Camera2D screenshot 截图 导航 bake shader compile_success MaterialOverride MultiMesh"
+description: "godot-mcp 引擎陷阱 物理查询 碰撞体 ConcavePolygonShape3D CollisionLayer Mask ArrayMesh GenerateNormals GLB headless RID leak _Ready Free QueueFree Camera2D screenshot 截图 导航 bake shader compile_success MaterialOverride MultiMesh modulate self_modulate 级联 Label 垂直对齐 vertical_alignment 行高钳制 minimum_size ProgressBar 最小高 原型还原"
 alwaysApply: false
 ---
 
@@ -729,7 +820,15 @@ alwaysApply: false
 
 - **★ 三种坐标系不可混算**：Sprite2D/Node2D 系的 \`position\` 是节点原点，Sprite2D 还有 \`centered\`（true=纹理以 position 为中心绘制，false=从 position 起绘）+ \`offset\`；Control 系（TextureRect/Button/Panel 等）用 \`anchor\` + \`offset_left/right/top/bottom\`，\`position\` 是相对父节点左上角且受父 Container 布局影响，\`global_position\` 才是屏幕坐标。纸面推算「Sprite2D 视觉中心」vs「TextureRect anchor 位置」vs「Control global_position」三者极易错，必须读运行时真实值再算。关联：scene/edit_node 设坐标属性、game_query(get_node_properties) 读坐标、UI 布局调试。
 - **★ 定位类问题先实测不纸面猜**：调坐标/布局/对齐时第一步用 game bridge 读真实值，不要 headless 截图（空白，见「截图与捕获」段）或纸面推算：(1) \`game_query find_nodes\` 确认真实节点路径与类型；(2) \`game_query get_node_properties\` 读 \`position\`/\`global_position\`/\`size\`/\`offset_*\`；(3) \`game_query take_screenshot\`（GPU 真渲染）+ 视觉确认实际渲染的是哪个元素；(4) 看到真实数据再改。反例：据「偏右上」反馈想当然以为是 lock 按钮、反复改 4 次无果，game bridge 实测发现根本没 lock、偏的是角标——根因就是没第一时间实测。关联：game_query/find_ui_elements、screenshot（headless 空白）；headless 截图根因见 godot-mcp-core.md「Headless 截图限制」。\`get_node_layout\` method 一次返全布局（含 \`global_position\` 成对），优先于手动拼 \`get_node_properties\` 扁平 dump。
-- **★ Node3D.scale 对部分节点无效**：Node3D.xml 原文 "The behavior of some 3D node types is not affected by this property. These include Light3D, Camera3D, AudioStreamPlayer3D"。\`get_node_layout\` 照读这些节点的 scale 值，但引擎忽略——AI 勿用 scale 对这几类节点做布局推断。关联：game_query(get_node_layout) Node3D 分支。
+- **Node3D.scale 对部分节点无效**：Node3D.xml 原文 "The behavior of some 3D node types is not affected by this property. These include Light3D, Camera3D, AudioStreamPlayer3D"。\`get_node_layout\` 照读这些节点的 scale 值，但引擎忽略——AI 勿用 scale 对这几类节点做布局推断。关联：game_query(get_node_layout) Node3D 分支。
+- **★ \`set_anchors_preset\` 不改 offset，\`set_anchors_and_offsets_preset\` 才改**：\`Control.set_anchors_preset(preset, keep_offsets=false)\`（Godot 4.7 headless 实测：默认 / 显式 false / 显式 true 三种形式）**只设 anchor 分数，不动 offset_left/right/top/bottom**，\`keep_offsets\` 参数对 offset 无实际影响。只有 \`set_anchors_and_offsets_preset(preset)\` 才重算 offset（如 FULL_RECT → offsets 全归 0）。后果：do 用 \`set_anchors_preset\` 时，undo 只记 4 anchors（property op）即完整还原（offset 没被动过）；若 do 用 \`set_anchors_and_offsets_preset\`，undo 必须补记 4 offsets。reviewer/code 易误判"set_anchors_preset(keep_offsets=false) 会重算 offset 致 undo 不全"——实测不成立。关联：ui_anchor_preset、game_query Control 布局、D-P2 Task3 final review Important#1（实测推翻）。
+
+## UI 渲染与控件尺寸（ui_import_prototype / ui 布局 / modulate 染色）
+
+- **★ \`modulate\` 乘性级联影响整个子树，\`self_modulate\` 只染自身**：\`modulate\` 与子节点 modulate 相乘作用到所有后代——给布局壳设 \`modulate:[1,1,1,0]\` 想做"透明占位"会让**整个子树跟着消失**（无错误无警告）。仅染自身用 \`self_modulate\`；透明布局壳必须 \`self_modulate\`。\`ui_import_prototype\` 翻译器对透明壳已固定走 self_modulate（bg 近似染色除外——modulate 染色会叠加子树，翻译器 warning 声明是近似）。关联：ui_import_prototype(bg/透明壳规则)、ui_create_control(properties.modulate)。
+- **★ Label 垂直对齐默认 TOP，CSS line-height 居中惯用法失效**：CSS \`line-height = height\` 的文本垂直居中在 Godot 不成立——Label 默认 \`vertical_alignment=0\`(TOP)，单行文本会贴顶。需显式 \`vertical_alignment=1\`(CENTER)。\`ui_import_prototype\` 翻译器对全部 Label 已固定 \`vertical_alignment:1\`；手写 properties 时勿漏。关联：ui_build_layout/ui_create_control 文本节点、ui_import_prototype 翻译规则 3。
+- **Control 高度被字体最小行高钳制（minimum_size 顶开）**：Label/Button 的 rect.h 小于字体行高时，引擎 \`Control.minimum_size\` 把高度顶开到行高——**无警告静默变高**，verify 的 \`dh\` 会暴露（实际比目标高）。文本控件 rect.h 需 ≥ fontSize*1.5，或显式调小字号。\`ui_import_prototype\` 翻译器对 rect.h < fontSize*1.5 发 warning（"可能被字体最小行高钳制"）。关联：ui_import_prototype 行高预警、ui_measure_layout(layout_verify.diff 的 dh)。
+- **★ ProgressBar 默认主题最小高 27px（Godot 4.7，实测）**：默认主题 stylebox 把 ProgressBar 的 \`Control.minimum_size\` 顶到约 27px——原型 rect.h=16 落地实测 27px（2026-08-16 RTS HUD fixture HpBar 集成验收，dh=+11）。这是主题硬约束非 bug；处置：原型侧把 rect.h 调到 ≥27，或换自定义 Theme stylebox。\`ui_import_prototype\` 翻译器对 rect.h < 27 发 "will be clamped" warning（具名常量 PROGRESS_BAR_MIN_HEIGHT=27）。同类：Button 默认主题也有最小高约束。关联：ui_import_prototype 引擎下限预警、ui_set_theme。
 `,
 
   'godot-mcp-workflow-bridge-e2e.md': `---

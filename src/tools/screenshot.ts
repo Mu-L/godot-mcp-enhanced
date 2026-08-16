@@ -1,12 +1,13 @@
 import { isAbsolute, resolve, join, extname } from 'path';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { PNG } from 'pngjs';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
-import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii } from './screenshot-detail.js';
+import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii, diffPngBuffers } from './screenshot-detail.js';
 import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots } from '../helpers.js';
 import { routeImage } from '../core/vision-router.js';
 
@@ -27,8 +28,8 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Path to Godot project directory' },
           action: {
             type: 'string',
-            enum: ['capture', 'analyze'],
-            description: 'Action type: capture (take a screenshot) or analyze (AI visual analysis of an image)',
+            enum: ['capture', 'analyze', 'diff'],
+            description: 'Action type: capture (take a screenshot), analyze (AI visual analysis of an image), or diff (pixel-level comparison of two PNG images)',
           },
           // capture params
           scene: { type: 'string', description: 'capture: Scene file path relative to project (res://scenes/main.tscn). If omitted, captures the default scene or an empty viewport.' },
@@ -61,6 +62,15 @@ export function getToolDefinitions(): Tool[] {
           thumbnail_width: { type: 'number', description: 'detail=thumbnail: 目标宽度像素(默认 256,保持纵横比)', default: 256 },
           ascii_cols: { type: 'number', description: 'detail=ascii: 字符列数(默认 80)', default: 80 },
           ascii_rows: { type: 'number', description: 'detail=ascii: 字符行数(默认 40)', default: 40 },
+          // Task 4: diff params(像素级双图对比,零 Godot 依赖,纯 TS)
+          image_a: { type: 'string', description: 'diff: 基准图(a 图)路径。相对路径需 project_path;两图尺寸必须一致。' },
+          image_b: { type: 'string', description: 'diff: 对比图(b 图)路径。路径策略同 analyze 的 image_path(白名单校验)。' },
+          threshold: {
+            type: 'number',
+            description: 'diff: per-pixel 归一化欧氏距离阈值 sqrt(Δr²+Δg²+Δb²)/(√3×255),0-1,默认 0.12。恰好等于阈值不计差(严格大于才计)。忽略 alpha 只比 RGB。',
+            default: 0.12,
+          },
+          diff_path: { type: 'string', description: 'diff: 可选,差异图输出路径。差异像素染纯红 (255,0,0),其余保留 a 图原色。不提供则不写文件。' },
           godot_path: { type: 'string', description: '覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）' },
         },
         required: ['action'],
@@ -75,7 +85,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
   if (name !== 'screenshot') return null;
 
   const action = args.action as string;
-  if (!action) return opsErrorResult('INVALID_PARAMS', '"action" is required (capture or analyze).');
+  if (!action) return opsErrorResult('INVALID_PARAMS', '"action" is required (capture, analyze or diff).');
 
   switch (action) {
     case 'capture': {
@@ -368,8 +378,120 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       };
     }
 
+    // ─── Task 4: 像素级双图对比(纯 TS,零 Godot 依赖)────────────────────────
+    case 'diff': {
+      // threshold 校验:默认 0.12;须为 [0,1] 内有限数(== null 覆盖 undefined 与显式 null——
+      // 显式 null 若走 Number() 会得 0,把阈值静默变成 0 导致全像素计差)
+      const thresholdRaw = args.threshold as number | null | undefined;
+      const threshold = thresholdRaw == null ? 0.12 : Number(thresholdRaw);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+        return opsErrorResult('INVALID_PARAMS', `"threshold" must be a finite number in [0, 1], got: ${String(args.threshold)}.`);
+      }
+
+      // project_path 可选(相对路径解析用);提供时校验白名单(对齐 analyze #1 先例)
+      const projectPathRaw = typeof args.project_path === 'string' ? args.project_path : undefined;
+      const projectPath = projectPathRaw?.trim() ? validatePath(projectPathRaw) : undefined;
+      if (projectPath && !isPathInAllowedRoots(projectPath)) {
+        throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${projectPath}. Check your ALLOWED_PROJECT_PATHS setting.`);
+      }
+
+      // image_a/image_b 必填
+      const imageARaw = args.image_a as string | undefined;
+      const imageBRaw = args.image_b as string | undefined;
+      if (!imageARaw?.trim() || !imageBRaw?.trim()) {
+        return opsErrorResult('INVALID_PARAMS', '"image_a" and "image_b" are both required for action=diff.');
+      }
+
+      // 非 allowOutside 模式必须提供 project_path(相对路径解析锚点,对齐 analyze 先例)
+      if (!allowOutsideProjectPaths() && !projectPath) {
+        return opsErrorResult('INVALID_PARAMS', 'project_path is required to resolve relative image paths (or set GODOT_MCP_UNRESTRICTED=true / ALLOWED_PROJECT_PATHS to allow arbitrary paths).');
+      }
+
+      // 读入路径解析:沿用 analyze 的 image_path 链(allowOutside 双分支,白名单校验)
+      const resolveDiffImage = (raw: string): string => {
+        let p = raw;
+        if (allowOutsideProjectPaths()) {
+          if (!isAbsolute(p) && projectPath) {
+            p = resolve(projectPath, normalizeUserProjectPath(p));
+          }
+          p = validatePath(p);
+          if (!isPathInAllowedRoots(p)) {
+            throw new Error(`Image path is outside allowed project roots: ${p}`);
+          }
+        } else {
+          p = resolveWithinRoot(projectPath!, normalizeUserProjectPath(p));
+        }
+        return p;
+      };
+      const pathA = resolveDiffImage(imageARaw);
+      const pathB = resolveDiffImage(imageBRaw);
+
+      // 读入前校验:not found / 超限 → INVALID_PARAMS(10MB 上限沿用 analyze 的 MAX_IMAGE_SIZE)
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+      for (const p of [pathA, pathB]) {
+        if (!existsSync(p)) {
+          return opsErrorResult('INVALID_PARAMS', `Image not found: ${p}`);
+        }
+        const size = statSync(p).size;
+        if (size > MAX_IMAGE_SIZE) {
+          return opsErrorResult('INVALID_PARAMS', `Image file too large: ${(size / 1024 / 1024).toFixed(1)} MB. Maximum allowed: 10 MB.`);
+        }
+      }
+      const bufferA = readFileSync(pathA);
+      const bufferB = readFileSync(pathB);
+
+      // 逐像素比对(尺寸不一致/非 PNG → INVALID_PARAMS)
+      let diff;
+      try {
+        diff = diffPngBuffers(bufferA, bufferB, threshold);
+      } catch (e) {
+        return opsErrorResult('INVALID_PARAMS', `Pixel diff failed: ${(e as Error).message}`);
+      }
+
+      // 可选 diff_path 写出(沿用 capture 的 output_path 链)
+      const diffPathRaw = args.diff_path as string | undefined;
+      let diffOutPath: string | undefined;
+      if (diffPathRaw?.trim()) {
+        const normalizedOut = normalizeUserProjectPath(diffPathRaw);
+        diffOutPath = allowOutsideProjectPaths()
+          ? (() => {
+              const p = validatePath(diffPathRaw);
+              if (!isPathInAllowedRoots(p)) {
+                throw new Error(`Output path is outside allowed project roots: ${p}`);
+              }
+              return p;
+            })()
+          : resolveWithinRoot(projectPath!, normalizedOut);
+        const outPng = new PNG({ width: diff.width, height: diff.height });
+        outPng.data = diff.diffImageData;
+        writeFileSync(diffOutPath, PNG.sync.write(outPng));
+      }
+
+      return {
+        ...textResult(
+          `Pixel diff (${diff.width}x${diff.height}, threshold=${threshold}):\n` +
+          `- diff_pixels: ${diff.diffPixels}\n` +
+          `- diff_ratio: ${diff.diffRatio}\n` +
+          `- bbox: ${diff.bbox === null ? 'null (no differences)' : JSON.stringify(diff.bbox)}` +
+          (diffOutPath ? `\n- diff image (red overlay on image_a) saved to: ${diffOutPath}` : ''),
+        ),
+        structuredContent: {
+          action: 'screenshot_diff',
+          image_a: pathA,
+          image_b: pathB,
+          width: diff.width,
+          height: diff.height,
+          diff_pixels: diff.diffPixels,
+          diff_ratio: diff.diffRatio,
+          bbox: diff.bbox,
+          threshold,
+          ...(diffOutPath && { diff_path: diffOutPath }),
+        },
+      };
+    }
+
     default:
-      return textResult(`Unknown action: ${action}. Use "capture" or "analyze".`);
+      return textResult(`Unknown action: ${action}. Use "capture", "analyze", or "diff".`);
   }
 }
 
@@ -380,6 +502,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
     actionRisks: {
       capture: 'read',  // 截图写入文件，但本质是只读操作
       analyze: 'read',  // 仅读取图片文件分析
+      diff: 'read',     // Task 4: 像素级双图比对(diff_path 写出是显式参数)
     },
   },
 };

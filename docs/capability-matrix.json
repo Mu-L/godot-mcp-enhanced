@@ -1,5 +1,5 @@
 {
-  "version": "0.30.3",
+  "version": "0.31.2",
   "tools": [
     {
       "name": "analysis",
@@ -4567,9 +4567,10 @@
             "type": "string",
             "enum": [
               "capture",
-              "analyze"
+              "analyze",
+              "diff"
             ],
-            "description": "Action type: capture (take a screenshot) or analyze (AI visual analysis of an image)"
+            "description": "Action type: capture (take a screenshot), analyze (AI visual analysis of an image), or diff (pixel-level comparison of two PNG images)"
           },
           "scene": {
             "type": "string",
@@ -4645,6 +4646,23 @@
             "description": "detail=ascii: 字符行数(默认 40)",
             "default": 40
           },
+          "image_a": {
+            "type": "string",
+            "description": "diff: 基准图(a 图)路径。相对路径需 project_path;两图尺寸必须一致。"
+          },
+          "image_b": {
+            "type": "string",
+            "description": "diff: 对比图(b 图)路径。路径策略同 analyze 的 image_path(白名单校验)。"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "diff: per-pixel 归一化欧氏距离阈值 sqrt(Δr²+Δg²+Δb²)/(√3×255),0-1,默认 0.12。恰好等于阈值不计差(严格大于才计)。忽略 alpha 只比 RGB。",
+            "default": 0.12
+          },
+          "diff_path": {
+            "type": "string",
+            "description": "diff: 可选,差异图输出路径。差异像素染纯红 (255,0,0),其余保留 a 图原色。不提供则不写文件。"
+          },
           "godot_path": {
             "type": "string",
             "description": "覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）"
@@ -4674,6 +4692,10 @@
         "thumbnail_width",
         "ascii_cols",
         "ascii_rows",
+        "image_a",
+        "image_b",
+        "threshold",
+        "diff_path",
         "godot_path"
       ],
       "readonly": true,
@@ -4681,7 +4703,7 @@
       "guarded": false,
       "securityLevel": "safe",
       "riskDistribution": {
-        "read": 2,
+        "read": 3,
         "write": 0,
         "destructive": 0,
         "process": 0
@@ -4709,8 +4731,8 @@
       },
       "size": {
         "descBytes": 269,
-        "schemaBytes": 3008,
-        "totalBytes": 3277
+        "schemaBytes": 3737,
+        "totalBytes": 4006
       },
       "annotations": {
         "readOnlyHint": true,
@@ -5491,7 +5513,7 @@
     {
       "name": "ui",
       "group": "ui",
-      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth",
+      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5511,6 +5533,7 @@
               "ui_draw_recipe",
               "ui_build_layout",
               "ui_measure_layout",
+              "ui_import_prototype",
               "theme_create",
               "theme_set_property"
             ],
@@ -5718,9 +5741,13 @@
             "description": "ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界",
             "additionalProperties": true
           },
+          "tolerance": {
+            "type": "number",
+            "description": "ui_import_prototype: layout_verify 容差(px,默认 2)"
+          },
           "parent_path": {
             "type": "string",
-            "description": "ui_build_layout: 父节点路径"
+            "description": "ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报"
           },
           "load_autoloads": {
             "type": "boolean",
@@ -5728,7 +5755,7 @@
           },
           "viewport": {
             "type": "object",
-            "description": "ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何)",
+            "description": "ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何);ui_import_prototype: 可选,默认取 geometry.viewport",
             "properties": {
               "w": {
                 "type": "number",
@@ -5771,6 +5798,7 @@
         "child_properties",
         "max_depth",
         "expect_tree",
+        "tolerance",
         "parent_path",
         "load_autoloads",
         "viewport",
@@ -5782,7 +5810,7 @@
       "securityLevel": "danger-api",
       "riskDistribution": {
         "read": 2,
-        "write": 9,
+        "write": 10,
         "destructive": 0,
         "process": 0
       },
@@ -5808,9 +5836,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 712,
-        "schemaBytes": 4303,
-        "totalBytes": 5015
+        "descBytes": 969,
+        "schemaBytes": 4666,
+        "totalBytes": 5635
       },
       "annotations": {
         "readOnlyHint": false,

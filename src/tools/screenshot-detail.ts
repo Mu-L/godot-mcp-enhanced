@@ -21,9 +21,95 @@ export function parseDetailLevel(value: unknown): DetailLevel {
  * 解码 PNG buffer 为 RGBA 像素数据。
  * @throws 如果不是有效 PNG
  */
-function decodePng(pngBuffer: Buffer): { width: number; height: number; data: Buffer } {
+export function decodePng(pngBuffer: Buffer): { width: number; height: number; data: Buffer } {
   const png = PNG.sync.read(pngBuffer);
   return { width: png.width, height: png.height, data: png.data };
+}
+
+// ─── Task 4: 像素级双图对比 ──────────────────────────────────────────────────
+
+/** diff 像素包围盒(像素坐标,含 x/y 左上角与 width/height)。 */
+export interface DiffBbox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** diffPngBuffers 结果。diffImageData:RGBA,差异像素纯红 (255,0,0),其余保留 a 图原色(alpha 同样保留 a 图值)。 */
+export interface DiffPngResult {
+  width: number;
+  height: number;
+  diffPixels: number;
+  /** diffPixels / (width*height)。 */
+  diffRatio: number;
+  /** diff 像素包围盒;无差异 → null。 */
+  bbox: DiffBbox | null;
+  diffImageData: Buffer;
+}
+
+/**
+ * 逐像素比较两张 PNG(RGB 欧氏距离,O(n) 单 pass)。
+ *
+ * 语义裁定:
+ * - threshold 归一化:per-pixel sqrt(Δr²+Δg²+Δb²) / (√3×255),默认 0.12(由调用方传入);
+ *   **恰好等于阈值不计差(严格大于才计)**。
+ * - **忽略 alpha 只比 RGB**(pngjs 解码为 RGBA,比较维度仅 R/G/B 三通道)。
+ * - diffImageData:差异像素染纯红 (255,0,0),其余保留 a 图原色(alpha 保留 a 图值,不参与比较)。
+ *
+ * @throws 尺寸不一致时抛错(调用方转 INVALID_PARAMS)
+ */
+export function diffPngBuffers(pngA: Buffer, pngB: Buffer, threshold: number): DiffPngResult {
+  const imgA = decodePng(pngA);
+  const imgB = decodePng(pngB);
+  if (imgA.width !== imgB.width || imgA.height !== imgB.height) {
+    throw new Error(
+      `Image dimensions mismatch: a=${imgA.width}x${imgA.height}, b=${imgB.width}x${imgB.height}. Pixel diff requires identical dimensions.`,
+    );
+  }
+  const { width, height } = imgA;
+  const totalPixels = width * height;
+  // 归一化因子 = 最大可能欧氏距离(255²×3 开根)。循环外算一次,位级与 threshold 构造公式一致。
+  const norm = Math.sqrt(3) * 255;
+  // diff 图底稿 = a 图原色(含 alpha),差异像素在循环内染红
+  const diffImageData = Buffer.from(imgA.data);
+  let diffPixels = 0;
+  let minX = 0, minY = 0, maxX = 0, maxY = 0;
+  for (let i = 0; i < totalPixels; i++) {
+    const idx = i << 2;
+    const dr = imgA.data[idx]! - imgB.data[idx]!;
+    const dg = imgA.data[idx + 1]! - imgB.data[idx + 1]!;
+    const db = imgA.data[idx + 2]! - imgB.data[idx + 2]!;
+    // 忽略 alpha(裁定):只比 RGB
+    const ratio = Math.sqrt(dr * dr + dg * dg + db * db) / norm;
+    if (ratio > threshold) { // 严格大于:恰好等于阈值不计差
+      const x = i % width;
+      const y = (i / width) | 0;
+      if (diffPixels === 0) {
+        minX = maxX = x;
+        minY = maxY = y;
+      } else {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      diffPixels++;
+      diffImageData[idx] = 255;
+      diffImageData[idx + 1] = 0;
+      diffImageData[idx + 2] = 0;
+    }
+  }
+  return {
+    width,
+    height,
+    diffPixels,
+    diffRatio: diffPixels / totalPixels,
+    bbox: diffPixels === 0
+      ? null
+      : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 },
+    diffImageData,
+  };
 }
 
 /**

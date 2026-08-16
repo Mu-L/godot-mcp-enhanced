@@ -6,7 +6,7 @@ import type { RiskLevel } from '../../core/tool-registry.js';
 import { getErrorMessage } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { executeGdscriptTrusted } from '../../gdscript-executor.js';
-import { normalizeNodePath, sanitizeResPath, opsErrorResult, parseGdscriptResult, NON_PERSIST, appendRuntimePersistWarning } from '../shared.js';
+import { normalizeNodePath, sanitizeResPath, opsErrorResult, parseGdscriptResult, opsSuccess, NON_PERSIST, appendRuntimePersistWarning } from '../shared.js';
 import { ACTIONS, CONTROL_TYPES, ANCHOR_PRESETS, ERROR_CODES, DRAW_OP_KINDS, findBlockedProps } from './types.js';
 import type { DrawOp, UiNodeSpec } from './types.js';
 import { genUiCreateControlScript, genUiContainerAddScript, genUiAnchorPresetScript } from './ui-create.js';
@@ -16,6 +16,10 @@ import { genUiDrawRecipeScript } from './ui-draw.js';
 import { genUiMeasureScript } from './ui-measure.js';
 import { flattenTargets, diffLayout, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
 import type { MeasuredNode } from './layout-diff.js';
+import { parseGeometry, translateGeometry } from './prototype-import.js';
+import type { PrototypeGeometry, TranslateResult } from './prototype-import.js';
+import { textResult } from '../../types.js';
+import { readFileSync } from 'node:fs';
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────
 
@@ -23,7 +27,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'ui',
-      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
+      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -154,7 +158,14 @@ export function getToolDefinitions(): Tool[] {
           },
           max_depth: { type: 'number', description: 'ui_measure_layout: 最大遍历深度(默认 16,上限 64)' },
           expect_tree: { type: 'object', description: 'ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界', additionalProperties: true },
-          parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径' },
+          geometry: {
+            type: 'object',
+            description: 'ui_import_prototype: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先)',
+            additionalProperties: true,
+          },
+          geometry_path: { type: 'string', description: 'ui_import_prototype: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)' },
+          tolerance: { type: 'number', description: 'ui_import_prototype: layout_verify 容差(px,默认 2)' },
+          parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报' },
           tree: {
             type: 'object',
             description: 'ui_build_layout: UI 节点树（最大深度 10）',
@@ -204,7 +215,7 @@ export function getToolDefinitions(): Tool[] {
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
           viewport: {
             type: 'object',
-            description: 'ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何)',
+            description: 'ui_build_layout: 根节点 rect 的求解基准 {w, h}(默认 1280x720,须为正数;与项目 display/window/size 一致时根 rect 即视口绝对几何);ui_import_prototype: 可选,默认取 geometry.viewport',
             properties: { w: { type: 'number', description: '宽(px)' }, h: { type: 'number', description: '高(px)' } },
           },
           persist: { type: 'boolean', description: 'ui_build_layout: 持久化到 .tscn（原子写；默认 false 运行时）' },
@@ -447,6 +458,9 @@ export async function handleTool(
         script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth);
         break;
       }
+      case 'ui_import_prototype':
+        // 特殊链路:内部两次 executor(build+persist → measure),不走公共单次执行段,提前 return。
+        return handleUiImportPrototype(args, projectPath, godot, loadAutoloads);
       default:
         return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
     }
@@ -459,15 +473,7 @@ export async function handleTool(
       loadAutoloads,
     });
 
-    const errorMapper = (msg: string) => {
-      if (msg.includes('not found')) return ERROR_CODES.NODE_NOT_FOUND;
-      if (msg.includes('not a Control')) return ERROR_CODES.INVALID_PARAMS;
-      if (msg.includes('no theme')) return ERROR_CODES.THEME_NOT_FOUND;
-      if (msg.includes('not a Theme')) return ERROR_CODES.THEME_NOT_FOUND;
-      return ERROR_CODES.SCRIPT_EXEC_FAILED;
-    };
-
-    let r = parseGdscriptResult(result, [], errorMapper);
+    let r = parseGdscriptResult(result, [], uiErrorMapper);
     // Task 4: expect_tree 注入——measure 成功输出后,把逐节点 diff/重叠/越界问题清单
     // 并回 data.layout_verify(Pascal verify_scene 模式,数字驱动收敛)。
     if (action === 'ui_measure_layout' && (args.expect_tree as UiNodeSpec | undefined)) {
@@ -510,6 +516,179 @@ export async function handleTool(
   }
 }
 
+// ─── ui_import_prototype 内部链(spec §2.3)──────────────────────────────────
+
+/** GDScript error 输出 → 错误码映射(handleTool 公共段与 ui_import_prototype 共用)。 */
+const uiErrorMapper = (msg: string) => {
+  if (msg.includes('not found')) return ERROR_CODES.NODE_NOT_FOUND;
+  if (msg.includes('not a Control')) return ERROR_CODES.INVALID_PARAMS;
+  if (msg.includes('no theme')) return ERROR_CODES.THEME_NOT_FOUND;
+  if (msg.includes('not a Theme')) return ERROR_CODES.THEME_NOT_FOUND;
+  return ERROR_CODES.SCRIPT_EXEC_FAILED;
+};
+
+/**
+ * ui_import_prototype 一次调用内部链:zod 校验 → translateGeometry 纯函数翻译 →
+ * build(**固定 persist=true**,B-1 契约:measure 是第二次 Godot spawn 从磁盘 load 场景,
+ * 不持久化则 verify 全部 actual:null;因此也不入 UI_PERSIST_ACTIONS,无"退出即丢"可提示)
+ * → measure → diffLayout(目标=翻译树)→ 组装 {tree, build_warnings, measure,
+ * verify_coverage, layout_verify}。两次 spawn 是首版简单方案(spec 开放问题 3)。
+ */
+async function handleUiImportPrototype(
+  args: Record<string, unknown>,
+  projectPath: string,
+  godot: string,
+  loadAutoloads: boolean,
+): Promise<ToolResult> {
+  const scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
+  const parentPath = normalizeNodePath((args.parent_path as string) || 'root');
+
+  // geometry / geometry_path 二选一:都给 → geometry 优先 + warning;都不给 → INVALID_PARAMS。
+  const geometryPathRaw = args.geometry_path as string | undefined;
+  let rawGeometry: unknown;
+  const preWarnings: string[] = [];
+  if (args.geometry !== undefined && args.geometry !== null) {
+    if (geometryPathRaw !== undefined) {
+      preWarnings.push('geometry 与 geometry_path 同时提供: geometry 优先, geometry_path 被忽略');
+    }
+    rawGeometry = args.geometry;
+  } else if (geometryPathRaw !== undefined) {
+    // v2 N-6:先 normalizeUserProjectPath 剥 res:// 再 resolveWithinRoot 白名单;路径非法是
+    // 参数错误(INVALID_PARAMS)而非脚本执行失败——在 executor 之前前置拦截。
+    let absGeometryPath: string;
+    try {
+      absGeometryPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(geometryPathRaw));
+    } catch (err) {
+      return opsErrorResult(ERROR_CODES.INVALID_PARAMS, `geometry_path 非法: ${getErrorMessage(err)}`);
+    }
+    try {
+      rawGeometry = JSON.parse(readFileSync(absGeometryPath, 'utf-8'));
+    } catch (err) {
+      return opsErrorResult(ERROR_CODES.INVALID_PARAMS,
+        `geometry_path 文件读取或 JSON 解析失败: ${getErrorMessage(err)}`);
+    }
+  } else {
+    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'geometry 与 geometry_path 必须提供其一');
+  }
+
+  let geo: PrototypeGeometry;
+  let translated: TranslateResult;
+  try {
+    geo = parseGeometry(rawGeometry);
+    translated = translateGeometry(geo);
+  } catch (err) {
+    // parseGeometry/translateGeometry 的非法输入(交叉重叠/等 rect/超限/重名…)均以
+    // INVALID_PARAMS 前缀抛出(v2 N-1 拒绝而非静默),原样透传给 AI 修原型侧。
+    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, getErrorMessage(err));
+  }
+
+  // tolerance:有限非负数,默认 2(diffLayout 同款语义)
+  const tolRaw = args.tolerance;
+  const tolerance = typeof tolRaw === 'number' && Number.isFinite(tolRaw) && tolRaw >= 0 ? tolRaw : 2;
+
+  // viewport:显式优先,默认 geometry.viewport(合成根 rect 的求解基准)
+  let viewport = geo.viewport;
+  if (args.viewport !== undefined) {
+    const vp = args.viewport as { w?: unknown; h?: unknown };
+    const w = typeof vp.w === 'number' ? vp.w : NaN;
+    const h = typeof vp.h === 'number' ? vp.h : NaN;
+    if (!(w > 0) || !(h > 0)) {
+      return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'viewport must be an object {w, h} with positive numbers');
+    }
+    viewport = { w, h };
+  }
+
+  // ① build(固定 persist=true):挂 parentPath 下,合成根 _PrototypeRoot rect=viewport。
+  const buildScript = genUiBuildLayoutScript(scenePath, parentPath, translated.tree, viewport, true);
+  const buildResult = await executeGdscriptTrusted({
+    godotPath: godot, projectPath, code: buildScript, timeout: 30, loadAutoloads,
+  });
+  const buildParsed = parseGdscriptResult(buildResult, [], uiErrorMapper);
+  if (buildParsed.isError) return buildParsed;
+
+  const buildOut = JSON.parse((buildParsed.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
+    data?: { persist?: { saved?: boolean }; warnings?: unknown[] };
+  };
+
+  // build_warnings:输入消歧 + 翻译 warnings 透传 + 容差模糊带使用提示 + 生成器 warnings。
+  // I-2(声明式修复):parent_path 非 root 时根级 diff 参照系限制提示(diff 算法不改——
+  // measure 根级 target 的期望 rect 按视口原点求解,挂载父非原点对齐时恒误报)。
+  const buildWarnings = [
+    ...preWarnings,
+    ...translated.warnings,
+    '使用提示: 避免构造 ≤2px 宽的相邻独立节点(容差模糊带)——verify 容差内兄弟关系与偏移不可区分',
+    ...(parentPath !== '/root' ? [
+      `parent_path="${parentPath}" 非 root: layout_verify 根级条目期望 rect 按视口原点求解,挂载父非原点对齐(global_position≈0,0)时根级 diff 恒误报——请确认挂载父原点对齐,或忽略根级条目的 diff 结果`,
+    ] : []),
+  ];
+  for (const w of buildOut.data?.warnings ?? []) {
+    buildWarnings.push(typeof w === 'object' && w !== null && 'message' in w ? String((w as { message: unknown }).message) : String(w));
+  }
+  if (buildOut.data?.persist?.saved !== true) {
+    buildWarnings.push('persist 落盘失败(saved=false):measure 读到的是磁盘旧场景,layout_verify 不可信,请排查后重试');
+  }
+
+  // ② measure(第二次 spawn):nodePath=挂载父节点,measure path(get_path_to 相对父)与
+  // flattenTargets(树根名起算)恰好对齐——同 expect_tree 注入段的对齐前提。
+  const measureScript = genUiMeasureScript(scenePath, parentPath, 16);
+  const measureResult = await executeGdscriptTrusted({
+    godotPath: godot, projectPath, code: measureScript, timeout: 30, loadAutoloads,
+  });
+  const measureParsed = parseGdscriptResult(measureResult, [], uiErrorMapper);
+  if (measureParsed.isError) {
+    // B-1 契约下 build 固定 persist=true 已落盘——measure 阶段失败时场景仍在磁盘,
+    // 提示 AI 无需重新 import,可单独重跑 ui_measure_layout 补测量(Task 2 遗留改进)。
+    const el = measureParsed.content?.[0];
+    if (el?.type === 'text') {
+      try {
+        const errObj = JSON.parse(el.text) as { error?: unknown };
+        if (typeof errObj.error === 'string') {
+          return { ...measureParsed, content: [{ type: 'text', text: JSON.stringify({ ...errObj, error: `${errObj.error}(build 已持久化,可重跑 ui_measure_layout)` }) }] };
+        }
+      } catch { /* 非 JSON 错误文本保持原样 */ }
+    }
+    return measureParsed;
+  }
+
+  // ③ 组装返回(content[0].text 解析模式,同 expect_tree 注入段;输出异常保持原样,
+  // diff 缺失由 AI 视为未验证)。
+  try {
+    const measureOut = JSON.parse((measureParsed.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
+      data?: { measure?: { nodes?: MeasuredNode[]; viewport?: { w: number; h: number }; stable_after_frames?: number; stalled?: boolean } };
+      warnings?: string[];
+    };
+    const measure = measureOut.data?.measure;
+    const measured = measure?.nodes ?? [];
+    const targets = flattenTargets(translated.tree);
+    const layoutVerify = {
+      targets,
+      diff: diffLayout(measured, targets, tolerance),
+      overlaps: detectOverlaps(measured),
+      out_of_bounds: detectOutOfBounds(measured),
+      // 根级 rect 的参照系(measure 输出的 root Window 尺寸),供消费方核对
+      viewport: measure?.viewport,
+    };
+    const verifyCoverage = {
+      ...translated.coverage,
+      _note: 'targets 为受几何 verify 覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在覆盖内,其几何正确性由 screenshot diff 兜底',
+    };
+    return textResult(JSON.stringify(opsSuccess({
+      tree: translated.tree,
+      build_warnings: buildWarnings,
+      measure: {
+        stable_after_frames: measure?.stable_after_frames,
+        stalled: measure?.stalled,
+        viewport: measure?.viewport,
+      },
+      verify_coverage: verifyCoverage,
+      layout_verify: layoutVerify,
+      persist: buildOut.data?.persist,
+    }, measureOut.warnings ?? [])));
+  } catch {
+    return measureParsed;
+  }
+}
+
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
 export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
@@ -520,6 +699,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       ui_get_layout: 'read', ui_create_control: 'write', ui_set_layout: 'write',
       ui_anchor_preset: 'write', ui_set_theme: 'write', ui_container_add: 'write',
       ui_draw_recipe: 'write', ui_build_layout: 'write', ui_measure_layout: 'read',
+      ui_import_prototype: 'write',
       theme_create: 'write', theme_set_property: 'write',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },

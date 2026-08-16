@@ -16,6 +16,7 @@ export const ACTIONS = [
   'ui_draw_recipe',
   'ui_build_layout',
   'ui_measure_layout',
+  'ui_import_prototype',
   'theme_create',
   'theme_set_property',
 ] as const;

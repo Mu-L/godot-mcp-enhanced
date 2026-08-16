@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.2] - 2026-08-16
+
+> prototype-import final review 修复波（P2：透明壳误伤 / parent_path 参照系声明 / 坏图可区分性补证据 / screenshot 两处 Minor）。
+
+### Fixed
+
+- **规则 4 透明壳收窄（final review I-1，行为修复）**：旧实现对一切无 text 节点设 `self_modulate:[1,1,1,0]`，`value` 推断的 ProgressBar（无 text/bg）命中 → HP 条不可见而 layout diff 不查 visible（验收假绿，RTS fixture HpBar 即中招）。现只对**推断为布局壳 Panel**（flow 壳，或无显式 type/text/value 的纯布局节点）设透明壳；自带视觉控件一律豁免——ProgressBar（推断或显式）、Button（推断或显式）、任何显式 type（含显式 Panel）。被设透明壳的推断 Panel 追加 build_warnings 使用提示（"set bg or type to keep it visible"）。集成测试补 HpBar 落盘段无 self_modulate 断言（已做负例验证：旧条件下该断言 FAIL）。
+- **`screenshot` threshold 显式 null 落默认 0.12（final review Minor-2）**：旧 `Number(null)=0` 把阈值静默变 0（全像素计差）；现 `== null` 覆盖 undefined 与显式 null。
+- **`screenshot` action 缺失提示补 diff（Minor-1）**：`(capture or analyze)` → `(capture, analyze or diff)`。
+
+### Docs
+
+- **`parent_path` 根级参照系限制声明（I-2，声明式修复不改 diff 算法）**：`ui_import_prototype` 的 parent_path schema description 加"须为原点对齐（global_position≈0,0）的节点，默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解，根级 diff 恒误报"；handler 在 parent_path 非 root 时给 build_warnings 追加同语义提示（mock 单测断言）。
+- **坏图可区分性实测证据（I-3，双副本 ui.md/rule-templates.ts 同步）**："坏图 > 0.4" 从无来源声明改为以同布局好图对为基线：本仓实测（threshold=0.12）好图对 web-prototype vs godot-hud ≈0.1762，下半部内容消失合成坏图（godot-hud y>360 置纯黑，模拟 modulate 级联内容消失）≈0.4797（约基线 2.7 倍，> 0.4 成立）；跨项目以自身好图对为基线校准。screenshot-diff 测试补程序化合成坏图用例（断言 bad > good×1.5）。
+- 规则双副本（`.claude/rules/godot-mcp-ui.md` + `rule-templates.ts`）同步规则 4 收窄契约与 diff 基线口径；本次同步顺带消除 ui.md 副本历史 drift（归一化 diff 0 差异）。
+
+## [0.31.1] - 2026-08-16
+
+> prototype-import Task 5 审查修复波（SHIPPED 后 Minor-2/3，防首次真实使用翻车）。
+
+### Fixed
+
+- **evaluate 取数脚本模板补 `align` 采集（双副本）**：读 `getComputedStyle(el).textAlign`，映射 left/start→'left'、center→'center'、right/end→'right'，其余值（justify 等）不输出字段（走翻译器缺省 center）。此前模板不采集水平对齐——CSS 默认 left 而翻译器缺省 center，所有未显式设 text-align 的元素会系统性丢失对齐语义。
+- **evaluate 模板 `data-value` 守卫（双副本）**：解析改为 `Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined` 并注释"value 必填 0-1 小数，百分数（如 72）请先除以 100"——`NodeSchema.value` 为 `min(0).max(1)`，`data-value="72"` 直接透传会被 zod 拒（INVALID_PARAMS）。
+
+## [0.31.0] - 2026-08-16
+
+> prototype-import Task 5：登记收尾（规则双副本 / 版本 / 文档归档）。v0.31.0 为原型翻译层 + 视觉验收批次（spec `docs/superpowers/specs/2026-08-16-prototype-import-design.md`）的目标版本；工具实现详录见 [0.30.4]（ui_import_prototype）与 [0.30.5]（screenshot diff）段。
+
+### Added
+
+- **`ui_import_prototype`（ui 工具族 action）**：HTML 原型几何 JSON（扁平视口坐标，strict schema 拒未知字段）**一次调用**完成 翻译→build（固定 persist，无 persist 参数）→measure（二次 spawn）→layout_verify；树按 rect 包含关系自动推导（容差 1px），交叉重叠/等 rect 直接 `INVALID_PARAMS` 拒绝；翻译规则 12+1 条（Label `vertical_alignment:1`、透明壳 `self_modulate`、flow Holder 壳、bg→modulate 近似、ProgressBar 最小高 27 预警、行高钳制预警）；返回含 `verify_coverage`（targets 含合成根 `_PrototypeRoot`，无 flow 时 = 输入节点数+1；flow 直接子节点不受几何 verify 覆盖，补偿防线为 screenshot diff）。
+- **`screenshot(action=diff)`**：两张 PNG 逐像素对比（纯 TS + pngjs，零新依赖）；per-pixel 归一化欧氏距离，`threshold` 默认 0.12（严格大于才计差、忽略 alpha）；返回 `{width,height,diff_pixels,diff_ratio,bbox}`；可选 `diff_path` 红染差异图。
+
+### Docs
+
+- **`godot-mcp-ui.md` 规则双副本**（`.claude/rules/` + `rule-templates.ts`）新增 `ui_import_prototype` 专节：AI 全链路工作流（写 HTML 原型→浏览器 evaluate 取数→一次调用→**不绿回 HTML 改（原型是唯一真源）**→绿后像素验收）；proto-geometry JSON 格式与颜色三格式（仅 `#rrggbb`/`[r,g,b]`0-255/`[r,g,b,a]`0-1，CSS `rgb()` 需转换）；**浏览器 evaluate 取数脚本模板**（读 `[data-name]`/`getBoundingClientRect`/`getComputedStyle` background-color 非透明才填 bg，内置 rgb()→#hex 转换，chrome-devtools / playwright 通用）；容差模糊带提示（避免 ≤2px 宽相邻独立节点）与引擎下限预警（fontSize*1.5 行高 / ProgressBar 27px）；Task 4 审查留的 2 条用法契约：**capture 的 viewport 必须与原型 viewport 一致**、**diff_ratio 含字体抗锯齿底噪须设区间断言而非精确值**（实测参考：同布局跨渲染器历史图对 threshold=0.12 时 ≈0.1762）。
+- **`godot-mcp-engine-quirks.md` 规则双副本**新增「UI 渲染与控件尺寸」段 4 条：★`modulate` 乘性级联影响整个子树（透明壳必须 `self_modulate`）；★Label 垂直对齐默认 TOP（CSS line-height 居中惯用法需显式 `vertical_alignment=1`）；Control 高度被字体最小行高钳制（rect.h ≥ fontSize*1.5）；★ProgressBar 默认主题最小高 27px（实测 rect.h=16 落地 27px）。
+- `claudemd-builder.ts` 分发规则 UI 段补一句：HTML 原型还原优先 `ui_import_prototype`。
+- 控制器文档入库：spec（`docs/superpowers/specs/2026-08-16-prototype-import-design.md`）、plan（`docs/superpowers/plans/2026-08-16-prototype-import.md`）、spec 审查（`docs/reviews/2026-08-16-prototype-import-spec.md`）。
+
+### Fixed
+
+- 双副本历史 drift（`rule-templates.ts` 与 `.claude/rules/godot-mcp-engine-quirks.md`）：`set_anchors_preset` 不改 offset 条目（commit a97c6cc 只改了 `.claude/rules` 未同步模板）与 frontmatter 缺失（实际文件无 `--- description ---` 头，其余规则文件均有）——本批以 `.claude/rules` 为准同步模板并补齐 frontmatter，归一化 diff（转义还原 + 版本行归一）核对逐行一致。
+
+## [0.30.5] - 2026-08-16
+
+> prototype-import Task 4：`screenshot` 像素级双图对比。
+
+### Added
+
+- **`screenshot(action=diff)`**：两张 PNG 逐像素对比（纯 TS + pngjs，零 Godot 依赖、零新依赖）。语义：per-pixel 归一化欧氏距离 `sqrt(Δr²+Δg²+Δb²)/(√3×255)`，`threshold` 默认 0.12（0-1，恰好等于阈值不计差，严格大于才计）；**忽略 alpha 只比 RGB**；返回 `{width,height,diff_pixels,diff_ratio,bbox}`（bbox 为差异像素包围盒，无差异为 null）；可选 `diff_path` 写出红染差异图（差异像素纯红 255,0,0，其余保留 a 图原色）。路径策略沿用同工具先例（读取链同 `analyze` 的 image_path 白名单双分支，写出链同 `capture` 的 output_path）；尺寸不一致 / 非法 threshold / 图片缺失 → `INVALID_PARAMS`。历史图对校准（`test/fixtures/visual/{web-prototype,godot-hud}.png`，1280x720 入库）：threshold=0.12 实测 diff_ratio≈0.1762（162408/921600）。
+- `decodePng`（`src/tools/screenshot-detail.ts`）加 export；新增纯函数 `diffPngBuffers`（O(n) 单 pass）。
+
+### Fixed
+
+- action 数 drift：`screenshot` 新增 diff action 后 `rule-templates.ts` / `.claude/rules/godot-mcp-core.md` 手写 action 数未同步（237 → 238，check-tool-count 红），本批随版本 bump 0.30.5 修复。
+
+## [0.30.4] - 2026-08-16
+
+> prototype-import Task 3 集成验收 + Task 2 遗留修复波。
+
+### Added
+
+- `ui_import_prototype` 集成验收（真跑 Godot，GODOT_PATH gated）：RTS HUD fixture（23 节点，chrome-devtools 实测 DOM 产出，`test/fixtures/prototype-geometry/rts-hud.json`）经 `geometry_path` 一次调用 → **23/23 节点 layout_verify 全绿 + overlaps/out_of_bounds 空** + `verify_coverage` + `persist saved:true` + 独立重载 measure 验证落盘 `.tscn`；HpBar 按 Godot 4.7 默认主题 ProgressBar 最小高 27px 校准（fixture y=599/h=27），翻译器新增同类引擎下限预警（will be clamped）+ mini-flow 覆盖率语义 + 逃逸负向；一次调用（build+measure 两次 spawn）实测约 5.7s。
+- **引擎校准数据**：Godot 4.7 默认主题 ProgressBar 最小高度 27px（实测原型 rect.h=16 落地 27px，`Control.minimum_size` 硬下限）——与 Button 默认主题高 8px 同类的主题硬约束，非翻译器 bug；处置 = 翻译器引擎下限预警（具名常量 `PROGRESS_BAR_MIN_HEIGHT=27`，warning "will be clamped"，规则 7 字体行高同族）+ fixture 按下限校准。
+
+### Fixed
+
+- Task 2 遗留：`ui_import_prototype` measure 阶段失败的错误信息附 `(build 已持久化,可重跑 ui_measure_layout)`——B-1 契约下 build 固定持久化，AI 无需重新 import 即可补测量。
+- Task 2 遗留 drift：`ui_import_prototype` 新增 action 后 `rule-templates.ts` / `.claude/rules/godot-mcp-core.md` 手写 action 数未同步（236 → 237，check-tool-count 红），本批随版本 bump 0.30.4 修复。
+
 ## [0.30.3] - 2026-08-16
 
 > UI 布局保真 final-review 修复波（合并前唯一修复批次）。
