@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { executeGdscriptTrusted } from '../../src/gdscript-executor.js';
 import { genUiMeasureScript } from '../../src/tools/ui/ui-measure.js';
 import { handleTool } from '../../src/tools/ui/index.js';
-import type { ToolResult } from '../../src/types.js';
+import type { ToolContext, ToolResult } from '../../src/types.js';
 
 const GODOT = process.env.GODOT_PATH;
 const run = !!GODOT && process.platform === 'win32';
@@ -57,7 +57,8 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     console.log(`[ui-import-integration] RTS 一次调用(handler 内 build+measure 两次 spawn)实测耗时: ${importElapsedMs}ms`);
   });
 
-  function createCtx(): never {
+  /** 集成链路只消费 ctx.findGodot();其余为 handler 不触达的 no-op stub。 */
+  function createCtx(): ToolContext {
     return {
       opsScript: '/fake/ops.gd',
       findGodot: async () => GODOT!,
@@ -66,7 +67,7 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
       processStartTime: 0, setProcessStartTime: () => {},
       projectDir: dir, setProjectDir: () => {},
       parseGodotConfig: () => ({}),
-    } as never;
+    } as unknown as ToolContext;
   }
 
   function textOf(result: ToolResult | null, index = 0): string {

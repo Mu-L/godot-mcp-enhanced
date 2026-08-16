@@ -10,8 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `ui_import_prototype` 集成验收（真跑 Godot，GODOT_PATH gated）：RTS HUD fixture（23 节点，chrome-devtools 实测 DOM 产出，`test/fixtures/prototype-geometry/rts-hud.json`）经 `geometry_path` 一次调用 → 22/23 节点 layout_verify 全绿 + `verify_coverage` + `persist saved:true` + 独立重载 measure 验证落盘 `.tscn`；mini-flow（3 按钮 space-between）→ 覆盖率语义（targets < total）+ HBox 通道 + 重载间距实测 96px±2；`../` 逃逸集成层负向。实测一次调用（build+measure 两次 spawn）约 5.7-5.9s。
-- **引擎校准数据**：Godot 4.7 默认主题 ProgressBar 最小高度 27px（fixture HpBar rect.h=16 被顶到 27，dh=+11，且与下方 HpText 产生 5px 兄弟重叠）——集成测试把该例外锁死在实测数值上（漂移即红）；与 Button 默认主题高 8px 同类的主题硬约束，非翻译器 bug。
+- `ui_import_prototype` 集成验收（真跑 Godot，GODOT_PATH gated）：RTS HUD fixture（23 节点，chrome-devtools 实测 DOM 产出，`test/fixtures/prototype-geometry/rts-hud.json`）经 `geometry_path` 一次调用 → **23/23 节点 layout_verify 全绿 + overlaps/out_of_bounds 空** + `verify_coverage` + `persist saved:true` + 独立重载 measure 验证落盘 `.tscn`；HpBar 按 Godot 4.7 默认主题 ProgressBar 最小高 27px 校准（fixture y=599/h=27），翻译器新增同类引擎下限预警（will be clamped）+ mini-flow 覆盖率语义 + 逃逸负向；一次调用（build+measure 两次 spawn）实测约 5.7s。
+- **引擎校准数据**：Godot 4.7 默认主题 ProgressBar 最小高度 27px（实测原型 rect.h=16 落地 27px，`Control.minimum_size` 硬下限）——与 Button 默认主题高 8px 同类的主题硬约束，非翻译器 bug；处置 = 翻译器引擎下限预警（具名常量 `PROGRESS_BAR_MIN_HEIGHT=27`，warning "will be clamped"，规则 7 字体行高同族）+ fixture 按下限校准。
 
 ### Fixed
 
