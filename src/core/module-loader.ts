@@ -222,8 +222,11 @@ export const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: stri
       'theme_action', 'theme_path', 'params', 'theme_create_action', 'source_node_path',
       'save_path', 'theme_node_path', 'item_type', 'prop_name', 'theme_type', 'value',
       'tree', 'ops',
+      // v2 N-4(prototype-import):geometry/geometry_path 同 tree——复杂嵌套/低频专属参数,
+      // 移进 description 提示,handler 仍从 args 读(additionalProperties 传入)。
+      'geometry', 'geometry_path',
     ],
-    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth',
+    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)',
   },
 };
 
