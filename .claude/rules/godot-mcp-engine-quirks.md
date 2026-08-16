@@ -1,3 +1,8 @@
+---
+description: "godot-mcp 引擎陷阱 物理查询 碰撞体 ConcavePolygonShape3D CollisionLayer Mask ArrayMesh GenerateNormals GLB headless RID leak _Ready Free QueueFree Camera2D screenshot 截图 导航 bake shader compile_success MaterialOverride MultiMesh modulate self_modulate 级联 Label 垂直对齐 vertical_alignment 行高钳制 minimum_size ProgressBar 最小高 原型还原"
+alwaysApply: false
+---
+
 > 适用于 godot-mcp-enhanced v0.19+
 
 ## 定位
@@ -54,3 +59,10 @@
 - **★ 定位类问题先实测不纸面猜**：调坐标/布局/对齐时第一步用 game bridge 读真实值，不要 headless 截图（空白，见「截图与捕获」段）或纸面推算：(1) `game_query find_nodes` 确认真实节点路径与类型；(2) `game_query get_node_properties` 读 `position`/`global_position`/`size`/`offset_*`；(3) `game_query take_screenshot`（GPU 真渲染）+ 视觉确认实际渲染的是哪个元素；(4) 看到真实数据再改。反例：据「偏右上」反馈想当然以为是 lock 按钮、反复改 4 次无果，game bridge 实测发现根本没 lock、偏的是角标——根因就是没第一时间实测。关联：game_query/find_ui_elements、screenshot（headless 空白）；headless 截图根因见 godot-mcp-core.md「Headless 截图限制」。`get_node_layout` method 一次返全布局（含 `global_position` 成对），优先于手动拼 `get_node_properties` 扁平 dump。
 - **Node3D.scale 对部分节点无效**：Node3D.xml 原文 "The behavior of some 3D node types is not affected by this property. These include Light3D, Camera3D, AudioStreamPlayer3D"。`get_node_layout` 照读这些节点的 scale 值，但引擎忽略——AI 勿用 scale 对这几类节点做布局推断。关联：game_query(get_node_layout) Node3D 分支。
 - **★ `set_anchors_preset` 不改 offset，`set_anchors_and_offsets_preset` 才改**：`Control.set_anchors_preset(preset, keep_offsets=false)`（Godot 4.7 headless 实测：默认 / 显式 false / 显式 true 三种形式）**只设 anchor 分数，不动 offset_left/right/top/bottom**，`keep_offsets` 参数对 offset 无实际影响。只有 `set_anchors_and_offsets_preset(preset)` 才重算 offset（如 FULL_RECT → offsets 全归 0）。后果：do 用 `set_anchors_preset` 时，undo 只记 4 anchors（property op）即完整还原（offset 没被动过）；若 do 用 `set_anchors_and_offsets_preset`，undo 必须补记 4 offsets。reviewer/code 易误判"set_anchors_preset(keep_offsets=false) 会重算 offset 致 undo 不全"——实测不成立。关联：ui_anchor_preset、game_query Control 布局、D-P2 Task3 final review Important#1（实测推翻）。
+
+## UI 渲染与控件尺寸（ui_import_prototype / ui 布局 / modulate 染色）
+
+- **★ `modulate` 乘性级联影响整个子树，`self_modulate` 只染自身**：`modulate` 与子节点 modulate 相乘作用到所有后代——给布局壳设 `modulate:[1,1,1,0]` 想做"透明占位"会让**整个子树跟着消失**（无错误无警告）。仅染自身用 `self_modulate`；透明布局壳必须 `self_modulate`。`ui_import_prototype` 翻译器对透明壳已固定走 self_modulate（bg 近似染色除外——modulate 染色会叠加子树，翻译器 warning 声明是近似）。关联：ui_import_prototype(bg/透明壳规则)、ui_create_control(properties.modulate)。
+- **★ Label 垂直对齐默认 TOP，CSS line-height 居中惯用法失效**：CSS `line-height = height` 的文本垂直居中在 Godot 不成立——Label 默认 `vertical_alignment=0`(TOP)，单行文本会贴顶。需显式 `vertical_alignment=1`(CENTER)。`ui_import_prototype` 翻译器对全部 Label 已固定 `vertical_alignment:1`；手写 properties 时勿漏。关联：ui_build_layout/ui_create_control 文本节点、ui_import_prototype 翻译规则 3。
+- **Control 高度被字体最小行高钳制（minimum_size 顶开）**：Label/Button 的 rect.h 小于字体行高时，引擎 `Control.minimum_size` 把高度顶开到行高——**无警告静默变高**，verify 的 `dh` 会暴露（实际比目标高）。文本控件 rect.h 需 ≥ fontSize*1.5，或显式调小字号。`ui_import_prototype` 翻译器对 rect.h < fontSize*1.5 发 warning（"可能被字体最小行高钳制"）。关联：ui_import_prototype 行高预警、ui_measure_layout(layout_verify.diff 的 dh)。
+- **★ ProgressBar 默认主题最小高 27px（Godot 4.7，实测）**：默认主题 stylebox 把 ProgressBar 的 `Control.minimum_size` 顶到约 27px——原型 rect.h=16 落地实测 27px（2026-08-16 RTS HUD fixture HpBar 集成验收，dh=+11）。这是主题硬约束非 bug；处置：原型侧把 rect.h 调到 ≥27，或换自定义 Theme stylebox。`ui_import_prototype` 翻译器对 rect.h < 27 发 "will be clamped" warning（具名常量 PROGRESS_BAR_MIN_HEIGHT=27）。同类：Button 默认主题也有最小高约束。关联：ui_import_prototype 引擎下限预警、ui_set_theme。

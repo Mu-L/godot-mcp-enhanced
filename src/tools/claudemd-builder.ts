@@ -60,6 +60,7 @@ export const GODOT_MCP_RULES = `# Godot MCP 开发规则
 ## UI
 - 运行时操作，不持久化
 - 复杂布局优先用 ui_build_layout
+- HTML 原型还原优先 ui_import_prototype（几何 JSON 一次调用翻译+构建+校验，固定持久化，用法与浏览器 evaluate 取数模板见 .claude/rules/godot-mcp-ui.md）
 
 ## TileMap
 - 运行时操作，不持久化

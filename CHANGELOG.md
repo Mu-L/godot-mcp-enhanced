@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.0] - 2026-08-16
+
+> prototype-import Task 5：登记收尾（规则双副本 / 版本 / 文档归档）。v0.31.0 为原型翻译层 + 视觉验收批次（spec `docs/superpowers/specs/2026-08-16-prototype-import-design.md`）的目标版本；工具实现详录见 [0.30.4]（ui_import_prototype）与 [0.30.5]（screenshot diff）段。
+
+### Added
+
+- **`ui_import_prototype`（ui 工具族 action）**：HTML 原型几何 JSON（扁平视口坐标，strict schema 拒未知字段）**一次调用**完成 翻译→build（固定 persist，无 persist 参数）→measure（二次 spawn）→layout_verify；树按 rect 包含关系自动推导（容差 1px），交叉重叠/等 rect 直接 `INVALID_PARAMS` 拒绝；翻译规则 12+1 条（Label `vertical_alignment:1`、透明壳 `self_modulate`、flow Holder 壳、bg→modulate 近似、ProgressBar 最小高 27 预警、行高钳制预警）；返回含 `verify_coverage`（targets 含合成根 `_PrototypeRoot`，无 flow 时 = 输入节点数+1；flow 直接子节点不受几何 verify 覆盖，补偿防线为 screenshot diff）。
+- **`screenshot(action=diff)`**：两张 PNG 逐像素对比（纯 TS + pngjs，零新依赖）；per-pixel 归一化欧氏距离，`threshold` 默认 0.12（严格大于才计差、忽略 alpha）；返回 `{width,height,diff_pixels,diff_ratio,bbox}`；可选 `diff_path` 红染差异图。
+
+### Docs
+
+- **`godot-mcp-ui.md` 规则双副本**（`.claude/rules/` + `rule-templates.ts`）新增 `ui_import_prototype` 专节：AI 全链路工作流（写 HTML 原型→浏览器 evaluate 取数→一次调用→**不绿回 HTML 改（原型是唯一真源）**→绿后像素验收）；proto-geometry JSON 格式与颜色三格式（仅 `#rrggbb`/`[r,g,b]`0-255/`[r,g,b,a]`0-1，CSS `rgb()` 需转换）；**浏览器 evaluate 取数脚本模板**（读 `[data-name]`/`getBoundingClientRect`/`getComputedStyle` background-color 非透明才填 bg，内置 rgb()→#hex 转换，chrome-devtools / playwright 通用）；容差模糊带提示（避免 ≤2px 宽相邻独立节点）与引擎下限预警（fontSize*1.5 行高 / ProgressBar 27px）；Task 4 审查留的 2 条用法契约：**capture 的 viewport 必须与原型 viewport 一致**、**diff_ratio 含字体抗锯齿底噪须设区间断言而非精确值**（实测参考：同布局跨渲染器历史图对 threshold=0.12 时 ≈0.1762）。
+- **`godot-mcp-engine-quirks.md` 规则双副本**新增「UI 渲染与控件尺寸」段 4 条：★`modulate` 乘性级联影响整个子树（透明壳必须 `self_modulate`）；★Label 垂直对齐默认 TOP（CSS line-height 居中惯用法需显式 `vertical_alignment=1`）；Control 高度被字体最小行高钳制（rect.h ≥ fontSize*1.5）；★ProgressBar 默认主题最小高 27px（实测 rect.h=16 落地 27px）。
+- `claudemd-builder.ts` 分发规则 UI 段补一句：HTML 原型还原优先 `ui_import_prototype`。
+- 控制器文档入库：spec（`docs/superpowers/specs/2026-08-16-prototype-import-design.md`）、plan（`docs/superpowers/plans/2026-08-16-prototype-import.md`）、spec 审查（`docs/reviews/2026-08-16-prototype-import-spec.md`）。
+
+### Fixed
+
+- 双副本历史 drift（`rule-templates.ts` 与 `.claude/rules/godot-mcp-engine-quirks.md`）：`set_anchors_preset` 不改 offset 条目（commit a97c6cc 只改了 `.claude/rules` 未同步模板）与 frontmatter 缺失（实际文件无 `--- description ---` 头，其余规则文件均有）——本批以 `.claude/rules` 为准同步模板并补齐 frontmatter，归一化 diff（转义还原 + 版本行归一）核对逐行一致。
+
 ## [0.30.5] - 2026-08-16
 
 > prototype-import Task 4：`screenshot` 像素级双图对比。
