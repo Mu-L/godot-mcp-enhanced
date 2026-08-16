@@ -2,6 +2,8 @@
 
 import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
 import { CONTROL_TYPES, ANCHOR_PRESETS } from './types.js';
+import { solveAnchors, CONTAINER_CONTROL_TYPES } from './anchor-solver.js';
+import type { Rect } from './anchor-solver.js';
 import { BLOCKED_PROPS } from '../scene/helpers.js';
 import type { FlexLayout, FlexChild, UiNodeSpec } from './types.js';
 
@@ -116,6 +118,30 @@ func _initialize():
 // ─── ui_build_layout ──────────────────────────────────────────────────────
 
 const MAX_NESTING_DEPTH = 10;
+
+/** 节点会以 Container 形态落地的判定:声明了 flex layout,或类型本身就是容器(B-3)。 */
+function isContainerSpec(spec: UiNodeSpec): boolean {
+  return spec.layout !== undefined || CONTAINER_CONTROL_TYPES.includes(spec.type);
+}
+
+/** rect(绝对几何,相对父左上角)→ 显式 anchors+offsets 赋值行。
+ * 不用 set_anchors_preset(它不重置 offsets,引擎陷阱,spec §3.2)。
+ * 父为 Container 时运行时跳过守卫(B-3:容器会强制重排子 Control,赋值必然被覆盖)。 */
+function genRectLines(rect: Rect, viewport: { w: number; h: number }, indent: string): string {
+  const a = solveAnchors(viewport, rect);
+  return `
+${indent}if node.get_parent() != null and node.get_parent() is Container:
+${indent}\tpass # parent is Container: rect skipped (would be re-arranged)
+${indent}else:
+${indent}\tnode.anchor_left = ${a.anchor_left}
+${indent}\tnode.anchor_right = ${a.anchor_right}
+${indent}\tnode.anchor_top = ${a.anchor_top}
+${indent}\tnode.anchor_bottom = ${a.anchor_bottom}
+${indent}\tnode.offset_left = ${a.offset_left}
+${indent}\tnode.offset_right = ${a.offset_right}
+${indent}\tnode.offset_top = ${a.offset_top}
+${indent}\tnode.offset_bottom = ${a.offset_bottom}`;
+}
 
 const VALID_DIRECTIONS = ['row', 'column', 'row-reverse', 'column-reverse', 'grid'] as const;
 const VALID_JUSTIFY = ['flex-start', 'center', 'flex-end', 'space-between', 'space-around', 'space-evenly'] as const;
@@ -398,11 +424,21 @@ function genFlexChildLines(flex: FlexChild, isRow: boolean, indent: string, warn
   return lines;
 }
 
-function uiNodeToGd(spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string, warnings: string[] = [], nextId: () => number = () => 0): string {
+function uiNodeToGd(
+  spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string,
+  warnings: string[] = [], nextId: () => number = () => 0,
+  viewport: { w: number; h: number } = { w: 1280, h: 720 },
+  parentIsContainer: boolean = false,
+): string {
   if (spec.layout) {
-    return uiNodeToGdWithLayout(spec, parentVar, ownerVar, indent, warnings, nextId);
+    return uiNodeToGdWithLayout(spec, parentVar, ownerVar, indent, warnings, nextId, viewport);
   }
-  const anchorLine = spec.anchor_preset
+  // rect(绝对几何)优先于 anchor_preset;父为 Container 时静态提示(运行时另有跳过守卫,B-3)
+  if (spec.rect && parentIsContainer) {
+    warnings.push(`node "${spec.name}" has rect but parent is a Container — rect will be skipped at runtime (containers re-arrange children)`);
+  }
+  const rectLines = spec.rect ? genRectLines(spec.rect, viewport, indent) : '';
+  const anchorLine = spec.anchor_preset && !spec.rect
     ? `\n${indent}node.set_anchors_preset(${ANCHOR_PRESETS[spec.anchor_preset]})`
     : '';
   const propLines = spec.properties && Object.keys(spec.properties).length > 0
@@ -423,14 +459,14 @@ ${indent}if node == null:
 ${indent}\t_mcp_output("error", "Failed to instantiate: ${gdEscape(spec.type)}")
 ${indent}\t_mcp_done()
 ${indent}\treturn
-${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
+${indent}node.name = "${gdEscape(spec.name)}"${rectLines}${anchorLine}${propLines}`;
 
   if (spec.children && spec.children.length > 0) {
     const savedIdx = nextId();
     const savedVar = `_saved_${savedIdx}`;
     lines += `\n${indent}var ${savedVar} = node`;
     for (const child of spec.children) {
-      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId);
+      lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, isContainerSpec(spec));
     }
     lines += `\n${indent}node = ${savedVar}`;
   }
@@ -441,7 +477,11 @@ ${indent}node.owner = ${ownerVar}`;
   return lines;
 }
 
-function uiNodeToGdWithLayout(spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string, warnings: string[], nextId: () => number): string {
+function uiNodeToGdWithLayout(
+  spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string,
+  warnings: string[], nextId: () => number,
+  viewport: { w: number; h: number } = { w: 1280, h: 720 },
+): string {
   const layout = spec.layout!;
   const { containerType, isReverse, isWrap, isGrid } = resolveFlexContainer(layout);
   const isRow = layout.direction === 'row' || layout.direction === 'row-reverse';
@@ -516,7 +556,7 @@ ${indent}${marginWrapperVar}.set_anchors_preset(${preset})`;
       continue;
     }
     const child = item.spec;
-    lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId);
+    lines += '\n' + uiNodeToGd(child, savedVar, ownerVar, indent, warnings, nextId, viewport, true);
 
     if (layout.align && (!child.flex || !child.flex.align_self || child.flex.align_self === 'auto')) {
       lines += applyAlignSelf(layout.align, isRow, indent, warnings);
@@ -546,13 +586,15 @@ export function genUiBuildLayoutScript(
   scenePath: string,
   parentPath: string,
   tree: UiNodeSpec,
+  viewport?: { w: number; h: number },
 ): string {
   const warnings: string[] = [];
   validateUiNodeSpec(tree, 1, warnings);
 
   let _idCounter = 0;
   const nextId = () => _idCounter++;
-  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId);
+  // 根节点父未知 → rect 以期望视口求解(默认 1280x720);树内父已知时静态 warning 见 uiNodeToGd
+  const buildBlock = uiNodeToGd(tree, 'parent', 'root', '\t', warnings, nextId, viewport);
 
   const warningLines = warnings.length > 0
     ? `\n\t_mcp_output("warnings", ${JSON.stringify(warnings.map(w => {

@@ -56,3 +56,51 @@ describe('justify space-* spacer 注入', () => {
     expect(s).toContain('_mcp_output("warnings"');
   });
 });
+
+describe('ui_build_layout rect 支持', () => {
+  // 注:求解语义为比例锚点(锚点承载 x/pw,offset=round 残差),故整数 rect 下 offset 恒为 0
+  // (40/1280=0.03125 精确可表示);brief 草稿断言 offset_left=x 系笔误,已按 anchor-solver 单测语义修正。
+  it('带 rect 的节点生成显式 anchors+offsets 赋值', () => {
+    const s = genUiBuildLayoutScript('res://scenes/t.tscn', 'root', {
+      type: 'Panel', name: 'P',
+      children: [{ type: 'Button', name: 'Btn', rect: { x: 40, y: 30, w: 120, h: 48 } }],
+    });
+    expect(s).toContain('node.anchor_left = 0.03125');
+    expect(s).toContain('node.offset_left = 0');
+    expect(s).toContain('get_parent() is Container');
+  });
+
+  it('rect 节点父为容器时发 warning 且生成运行时跳过守卫', () => {
+    const s = genUiBuildLayoutScript('res://scenes/t.tscn', 'root', {
+      type: 'HBoxContainer', name: 'Row', layout: { direction: 'row' as const },
+      children: [{ type: 'Button', name: 'Btn', rect: { x: 0, y: 0, w: 50, h: 50 } }],
+    });
+    expect(s).toContain('rect will be skipped');
+    expect(s).toContain('get_parent() is Container');
+  });
+
+  it('rect 优先于 anchor_preset(同时提供时)', () => {
+    const s = genUiBuildLayoutScript('res://scenes/t.tscn', 'root', {
+      type: 'Panel', name: 'P',
+      children: [{ type: 'Button', name: 'Btn', anchor_preset: 'center', rect: { x: 10, y: 10, w: 20, h: 20 } }],
+    });
+    expect(s).toContain('node.anchor_left = 0.0078125');
+    expect(s).not.toContain('set_anchors_preset');
+  });
+
+  it('根节点带 rect(父未知)也生成运行时守卫且不发 warning', () => {
+    const s = genUiBuildLayoutScript('res://scenes/t.tscn', 'root', {
+      type: 'Panel', name: 'P', rect: { x: 0, y: 0, w: 1280, h: 720 },
+    });
+    expect(s).toContain('get_parent() is Container');
+    expect(s).not.toContain('_mcp_output("warnings"');
+  });
+
+  it('自定义 viewport 参与求解(参数链透传)', () => {
+    const s = genUiBuildLayoutScript('res://scenes/t.tscn', 'root', {
+      type: 'Panel', name: 'P',
+      children: [{ type: 'Button', name: 'Btn', rect: { x: 400, y: 0, w: 200, h: 100 } }],
+    }, { w: 1000, h: 800 });
+    expect(s).toContain('node.anchor_left = 0.4');
+  });
+});
