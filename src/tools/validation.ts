@@ -165,6 +165,14 @@ function collectFilesWithExcludes(projectPath: string, extensions: string[], exc
 // ─── Batch script validation ────────────────────────────────────────────────
 // Used by edit_script auto-validate (script.ts) and batch_validate tool.
 
+// 归一化两侧分隔符后再剥前缀:正斜杠形态的 project_path 下原实现(pathSep 前缀精确
+// 匹配)失配,绝对路径泄漏进 res:// 列表 → load 全量 null 误报(2026-08-15 批 K,
+// 历史 0404f75 引入;反斜杠门禁路径不受影响故长期潜伏)。导出仅为双形态单测。
+export function stripProjectPrefix(absPath: string, projectPath: string): string {
+  const prefix = projectPath.replace(/\\/g, '/').replace(/\/+$/, '') + '/';
+  return absPath.replace(/\\/g, '/').replace(prefix, '');
+}
+
 export async function batchValidateScripts(
   godotPath: string,
   projectPath: string,
@@ -181,8 +189,7 @@ export async function batchValidateScripts(
     }
   }
 
-  const pathSep = process.platform === 'win32' ? '\\' : '/';
-  const relOf = (absPath: string) => absPath.replace(projectPath + pathSep, '');
+  const relOf = (absPath: string) => stripProjectPrefix(absPath, projectPath);
   const scriptRels = scriptFiles.map(relOf);
   const resPaths = scriptRels.map(rel => 'res://' + rel.replace(/\\/g, '/'));
 

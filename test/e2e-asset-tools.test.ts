@@ -163,6 +163,12 @@ beforeAll(async () => {
   await editorConn.connect();
   editorExec = new EditorToolExecutor(editorConn);
 
+  // session 恢复竞态防护(2026-08-16,同 e2e-resilience-editor 3b 段):9090 LISTEN 只证明
+  // plugin _ready,editor 的"恢复上次会话场景"异步动作在 LISTEN 后数百 ms 才发生,会把
+  // 活动场景整个换掉。本套件操作"当前活动场景"(不指定场景),若恢复动作插在 add→断言
+  // 中间会撕裂;缓冲 1.5s 让恢复先完成,测试期内活动场景稳定。
+  await new Promise((r) => setTimeout(r, 1500));
+
   // 确保 GeneratedAssets 目录存在(save 测试落盘需要)
   mkdirSync(join(REAL_PROJECT, 'GeneratedAssets'), { recursive: true });
 }, 60_000);
@@ -204,9 +210,13 @@ async function getSceneTree(): Promise<string> {
   return result.content.map(c => (c as { text: string }).text).join('\n');
 }
 
-// 解析 GD 返回:成功 → parsed.result;失败 → parsed.error
-function unwrap(r: { parsed: any }): any { return r.parsed?.result; }
-function errCode(r: { parsed: any }): string | undefined { return r.parsed?.error?.code; }
+// 解析 GD 返回(对齐 EditorToolExecutor 实际契约,c30f242 重写时假设了错误的
+// {result}/{error:{code}} 包装致 7 用例首真跑全挂——executor 成功时 text 即 GD
+// JSON-RPC result 字段值本身(asset_create → {node_path,...});失败时 conn.request
+// 对 JSON-RPC error reject,executor catch 后 text = {error: <safeMessage 字符串>,
+// code: <插件 code,如 'UNSUPPORTED_SHAPE' 或 number>}(EditorToolExecutor.ts:148/:182-198)
+function unwrap(r: { parsed: any }): any { return r.parsed; }
+function errCode(r: { parsed: any }): string | number | undefined { return r.parsed?.code; }
 
 // 11 shape 名(逐字对齐 schema.ts SHAPE_NAMES + docs/shapes-reference.md)
 const SHAPES_11 = [

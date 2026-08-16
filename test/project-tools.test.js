@@ -358,6 +358,23 @@ describe('project-tools handleTool — create_project', () => {
     expect(projectGodot).toContain('PackedStringArray("4.4")');
   });
 
+  it('create_project project_name 换行转义:注入段落被抑制(批 K P3)', async () => {
+    const ctx = createMockCtx();
+    const newProject = join(dir, 'InjName');
+
+    await callProject('create_project', {
+      project_path: newProject,
+      // 修复前: 只转义 \ 与 ",换行原样落盘 → 可注入额外 config 段落(配置污染)
+      project_name: 'Evil\n[autoload]\nMal="*res://evil.gd"',
+    }, ctx);
+
+    const projectGodot = readFileSync(join(newProject, 'project.godot'), 'utf-8');
+    // config/name 行保持单行,换行以 \n 字面量转义(不构成新段落)
+    expect(projectGodot).toContain('config/name="Evil\\n[autoload]\\nMal=\\"*res://evil.gd\\""');
+    // 落盘文本中不存在真实换行引发的独立 [autoload] 段(只有转义字面量)
+    expect(projectGodot).not.toMatch(/\[autoload\]\r?\n/);
+  });
+
   it('refuses to create if project.godot already exists', async () => {
     const ctx = createMockCtx();
     makeGodotProject(dir);

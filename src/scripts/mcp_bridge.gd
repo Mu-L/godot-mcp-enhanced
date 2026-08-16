@@ -1057,6 +1057,9 @@ func _cmd_set_node_property(params: Dictionary) -> Variant:
 	# 生效;普通 script var(health 等)本就在 list 不受影响。`in` 是引擎存在性真值
 	# (拼错名 DIAG8 "healt" in node=false),故 -1 且 not in 才拒;在但无声明类型 → 放行
 	# 裸 set 保持旧行为(static var 是调试通道典型写入目标,一票否决是行为回归)。
+	# null 值安全(2026-08-16 批 K 实测补证, Godot 4.6.3): in 是"属性存在性"而非
+	# "get() 非 null" —— `static var sv = null`/`var v = null` 的 in 均为 true 且
+	# set 后 get 立即可读;null 初值不会被 -7 误拒,无需特判。
 	# prop_type 未知 → 数学/Object 分派不适用;Array/Dict 输入仍走 coerce(-1 不匹配
 	# 任何分支 → null → -8 拒绝,标量透传由引擎 Variant 转换处理,DIAG15 String→int 生效)。
 	var prop_type := _get_property_type(node, prop)
