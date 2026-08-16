@@ -547,6 +547,9 @@ HTML 原型侧约定：每个待还原元素标 \`data-name\`（=Godot 节点名
     };
     const text = (el.dataset.text ?? el.textContent ?? '').trim();  // 嵌套容器建议用 data-text 标注,避免吞子元素文本
     if (text) node.text = text;
+    const alignMap = { left: 'left', start: 'left', center: 'center', right: 'right', end: 'right' };
+    const align = alignMap[cs.textAlign];                // 水平对齐:CSS 默认 left 而翻译器缺省 center——不采集会系统性丢失对齐
+    if (align) node.align = align;                       // (justify 等其余值不输出字段,走翻译器缺省 center)
     const fs = parseFloat(cs.fontSize);
     if (Number.isFinite(fs)) node.fontSize = fs;
     const fg = toHex(cs.color);
@@ -558,7 +561,10 @@ HTML 原型侧约定：每个待还原元素标 \`data-name\`（=Godot 节点名
       node.flow = flow;
       if (el.dataset.justify) node.justify = el.dataset.justify;
     }
-    if (el.dataset.value !== undefined) node.value = Number(el.dataset.value);  // ProgressBar 0-1
+    if (el.dataset.value !== undefined) {                 // ProgressBar:value 必填 0-1 小数,百分数(如 72)请先除以 100——schema min(0).max(1) 会拒
+      const v = Number(el.dataset.value);
+      node.value = Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined;
+    }
     if (el.dataset.interactive === 'true') node.interactive = true;
     if (el.dataset.type) node.type = el.dataset.type;     // 显式类型覆盖推断(29 种白名单内)
     out.nodes.push(node);

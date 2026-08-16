@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.1] - 2026-08-16
+
+> prototype-import Task 5 审查修复波（SHIPPED 后 Minor-2/3，防首次真实使用翻车）。
+
+### Fixed
+
+- **evaluate 取数脚本模板补 `align` 采集（双副本）**：读 `getComputedStyle(el).textAlign`，映射 left/start→'left'、center→'center'、right/end→'right'，其余值（justify 等）不输出字段（走翻译器缺省 center）。此前模板不采集水平对齐——CSS 默认 left 而翻译器缺省 center，所有未显式设 text-align 的元素会系统性丢失对齐语义。
+- **evaluate 模板 `data-value` 守卫（双副本）**：解析改为 `Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined` 并注释"value 必填 0-1 小数，百分数（如 72）请先除以 100"——`NodeSchema.value` 为 `min(0).max(1)`，`data-value="72"` 直接透传会被 zod 拒（INVALID_PARAMS）。
+
 ## [0.31.0] - 2026-08-16
 
 > prototype-import Task 5：登记收尾（规则双副本 / 版本 / 文档归档）。v0.31.0 为原型翻译层 + 视觉验收批次（spec `docs/superpowers/specs/2026-08-16-prototype-import-design.md`）的目标版本；工具实现详录见 [0.30.4]（ui_import_prototype）与 [0.30.5]（screenshot diff）段。
