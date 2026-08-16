@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed — CI Linux 平台债(2026-08-15 run#122 三 job 全红根因修复)
+
+- **check job 4 文件 23 用例稳定超时/输出丢失**:CI 的 vitest 步骤跑在 `check:gdscript` 之前,而 gdscript-check fixture 的 `src/scripts/`+`addons/` 是被 .gitignore 的运行时拷贝产物 → CI checkout 后 fixture 是空壳,Godot `load()` 得 null → SCRIPT ERROR → `extends SceneTree` 脚本 `_init` 中断、`quit()` 不执行 → headless 进程无限挂 → vitest 10s 超时(本地 Windows 绿是因开发机留有旧拷贝残留,属环境假绿)。修复:`check-gdscript.ts` 抽出 `syncCheckProjectFixture()` 导出函数,vitest 新增 `globalSetup`(`test/global-setup.ts`)在所有测试 worker 启动前填充 fixture——本地/CI 任意 vitest 入口统一就绪,ci.yml 零改动。
+- **screenshot-structured-content 3 用例挂(analyze 路径)**:依赖被 `test/fixtures/**/*.png` gitignore 规则忽略的 E2E 运行产物 `e2e-project/screenshot.png`,CI 缺文件。修复:pngjs 自生成 64×64 渐变 PNG 写入测试临时目录,零磁盘 fixture 依赖。
+- **matrix job L2 2 用例挂(bridge 正路径/recording)+ `e2e-bridge-get-node-layout` 整 suite 静默 skip**:`buildSafeEnv()` 环境白名单缺 `XAUTHORITY` → xvfb-run 环境下 spawn 的 Godot 游戏进程无法认证 X11 连接秒退(实测:unset XAUTHORITY exit=1 秒退,保留则存活)→ `run_project` 报 `Bridge not ready (process exited during probe)`。修复:白名单补 `XAUTHORITY`(与已透传的 `DISPLAY` 配对的 X11 凭证文件路径)+ `helpers.test.js` 断言防回归。
+
 ## [0.29.0] - 2026-08-15
 
 ### ⚠️ Breaking / 迁移需知 — autoload 键名迁移(2026-08-14 批次,影响 bridge 安装)

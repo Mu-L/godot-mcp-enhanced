@@ -351,4 +351,14 @@ describe('buildSafeEnv', () => {
     expect(env.PATH).toBe('/usr/bin');
     expect(env.HOME).toBe('/home/user');
   });
+
+  it('透传 XAUTHORITY 给 godot 子进程(xvfb-run 下 X11 认证依赖)', () => {
+    // DISPLAY 的配对凭证文件。缺它 CI xvfb-run(如 matrix job L2)spawn 的 Godot 游戏
+    // 无法认证 X 连接 → 进程秒退 → bridge 永不就绪(2026-08-15 run#122 平台债根因 ③)。
+    process.env.DISPLAY = ':99';
+    process.env.XAUTHORITY = '/tmp/xvfb-run.XXXX/Xauthority';
+    const env = buildSafeEnv();
+    expect(env.DISPLAY).toBe(':99');
+    expect(env.XAUTHORITY).toBe('/tmp/xvfb-run.XXXX/Xauthority');
+  });
 });
