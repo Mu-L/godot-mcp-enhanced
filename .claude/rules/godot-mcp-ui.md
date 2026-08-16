@@ -1,5 +1,5 @@
 ---
-description: "ui ui_create_control ui_build_layout ui_set_layout ui_get_layout ui_anchor_preset ui_set_theme ui_container_add ui_draw_recipe theme_create theme_set_property CSS flexbox grid 布局 容器 锚点 Control HBoxContainer VBoxContainer GridContainer 全屏 居中"
+description: "ui ui_create_control ui_build_layout ui_measure_layout ui_set_layout ui_get_layout ui_anchor_preset ui_set_theme ui_container_add ui_draw_recipe theme_create theme_set_property CSS flexbox grid 布局 测量 容器 锚点 rect Control HBoxContainer VBoxContainer GridContainer 全屏 居中"
 alwaysApply: false
 ---
 
@@ -10,14 +10,15 @@ alwaysApply: false
 UI 布局工具将 **CSS Flexbox/Grid 语义**翻译为 Godot Container 树，让 AI 用熟悉的布局概念构建 Godot UI。
 
 - **两种使用方式**：单节点操作（ui_create_control）vs 批量布局（ui_build_layout）
-- **运行时工具**：操作在 headless 进程中执行，不持久化到 .tscn。详见 godot-mcp-core.md "运行时 vs 持久化"。
+- **运行时工具**：操作在 headless 进程中执行，默认不持久化到 .tscn（例外：`ui_build_layout` 支持 `persist=true` 原子写）。详见 godot-mcp-core.md "运行时 vs 持久化"。
 - **两种方式互补**：ui_build_layout 适合整体布局，ui_create_control + ui_set_layout 适合精确定位
 
 ## 工具清单
 
 | 工具 | 说明 |
 |------|------|
-| `ui_build_layout` | 声明式批量布局，CSS Flexbox/Grid → Godot Container 树 |
+| `ui_build_layout` | 声明式批量布局，CSS Flexbox/Grid → Godot Container 树；支持 rect 绝对几何与 persist 原子写 |
+| `ui_measure_layout` | headless 整树 computed rect 测量（等布局稳定后输出，可带 expect_tree diff） |
 | `ui_create_control` | 创建单个 Control 节点（29 种类型） |
 | `ui_set_layout` | 设置锚点/偏移/最小尺寸 |
 | `ui_get_layout` | 查询节点布局信息 |
@@ -81,6 +82,26 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 
 16 种预设：top_left, top_right, bottom_left, bottom_right, center_left, center_top, center_right, center_bottom, center, left_wide, top_wide, right_wide, bottom_wide, vcenter_wide, hcenter_wide, **full_rect**（最常用）
 
+### rect 绝对几何（spec v0.31）
+
+无 `layout` 字段的节点支持 `rect: {x, y, w, h}`（相对**父节点**左上角；父为场景根时即视口绝对几何，默认视口 1280x720），由锚点求解器反解为 anchors+offsets：
+
+- **父必须非 Container**：HBoxContainer 等容器父会强制重排子节点，rect 会被运行时跳过并给出 warning（需要容器内定位请重构为非容器父或兄弟节点）。
+- `rect` 优先于 `anchor_preset`；显式写四值 anchors+offsets，不用 set_anchors_preset（引擎陷阱：preset 不重置 offsets）。
+- 锚点值吸附 0/0.5/1（可读性优先），其余位置保持比例锚点兜底。
+
+### justify space-* 行为（v0.31）
+
+`space-between/around/evenly` 通过注入 `_spacer_N` Control 节点实现（SIZE_EXPAND + stretch_ratio），**不再是近似映射**；注入节点计入 warnings。与子节点 `flex.grow` 并存时，spacer 与 grow 子节点瓜分剩余空间，分配语义与 CSS 不同，会有 warning。
+
+### 布局收敛闭环
+
+`ui_build_layout(tree 含 rect)` → `ui_measure_layout(expect_tree=同一棵 tree，**不带 node_path**)` → 按 `data.layout_verify.diff` 的 Δ 数值修 tree → 循环至全绿 → `ui_build_layout(persist=true)` 原子写 .tscn（pack → tmp → rename）。
+
+- `layout_verify` 结构：`targets`（期望 rect 清单）/ `diff`（逐节点 target vs actual 的 Δ，容差默认 2px）/ `overlaps`（兄弟节点重叠）/ `out_of_bounds`（溢出父边界）。
+- **坐标系前提**：rect 为视口绝对几何；measured 的 `global_position` 与之同构要求"树挂场景根下且根在原点"——expect_tree 用 build 的同一棵树、measure 不带 node_path 即满足（路径同构约定，两种 path 逐一对齐）。
+- `ui_measure_layout` 单独使用时：`node_path` 可选（省略则从场景根整树测），`max_depth` 默认 16（上限 64），等布局稳定（连续帧快照一致或最多 5 帧）后输出。
+
 ### draw_recipe 声明式绘图
 
 7 种绘图操作：`rect`（矩形）、`circle`（圆形）、`line`（线段）、`arc`（弧线）、`polygon`（多边形）、`polyline`（折线）、`string`（文本）
@@ -139,7 +160,7 @@ ui_create_control(
 
 ## 常见陷阱
 
-- **运行时不持久化**：UI 布局工具创建的节点在 headless 进程退出后丢失。**持久化替代方案**：使用 `add_node` + `save_scene` 逐个写入 .tscn 文件，或使用 `scene_commit`（批量 node_property/node_add 操作）直接编辑 .tscn。`ui_build_layout` 适合快速原型验证，生产 UI 应通过持久化方式创建。
+- **运行时默认不持久化**：UI 布局工具创建的节点在 headless 进程退出后丢失。`ui_build_layout(persist=true)` 可原子写 .tscn（pack → tmp → rename，默认 false）；其余持久化替代方案：`add_node` + `save_scene` 逐个写入，或 `scene_commit`（批量 node_property/node_add 操作）直接编辑 .tscn。
 - **Container 子节点必须是 Control**：向 HBoxContainer/VBoxContainer 等容器添加非 Control 子节点会报错。
 - **CSS 属性回退**：`wrap`、`order`、`flex-shrink`、`max-width/height` 等 CSS 属性在 Godot 中无对应，会被忽略。
 - **grid 方向必须指定 columns**：使用 `direction: "grid"` 时必须同时指定 `columns` 数量。

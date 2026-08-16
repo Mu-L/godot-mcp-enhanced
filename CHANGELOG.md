@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.2] - 2026-08-16
+
+> UI 布局保真批次（spec v0.31 主菜，`docs/superpowers/specs/2026-08-16-ui-layout-fidelity-design.md`）：rect 绝对几何 + 整树测量 + 期望树 diff 收敛闭环 + persist 持久化。
+
+### Added
+
+- **`ui_measure_layout`**：headless 整树 computed rect 测量（等布局稳定后输出；`node_path` 可选，省略则从场景根整树测；`max_depth` 默认 16 上限 64）。支持 `expect_tree`（同 `ui_build_layout` tree，含 rect）→ `data.layout_verify`：`targets`/`diff`（逐节点 Δ，容差默认 2px）/`overlaps`（兄弟重叠）/`out_of_bounds`（溢出父边界）。
+- **`ui_build_layout` rect 绝对几何 + 锚点求解**：节点支持 `rect: {x,y,w,h}`（相对父左上角），反解为显式四值 anchors+offsets（snap 0/0.5/1，比例兜底；不用 set_anchors_preset——引擎陷阱 preset 不重置 offsets）；优先于 `anchor_preset`；父为 Container 时 TS warning + 运行时跳过（容器强制重排子节点）。
+- **`ui_build_layout` persist 原子写**：`persist=true`（默认 false）在 build 完成后原子写 .tscn（pack → tmp → rename，失败清理，同 scene-commit F-2 模式）。
+- **布局收敛闭环用法**：`ui_build_layout(tree 含 rect)` → `ui_measure_layout(expect_tree=同一棵 tree，不带 node_path)` → 按 diff Δ 修 tree 循环至全绿 → `persist=true` 落盘。
+
+### Fixed
+
+- justify `space-between/space-around/space-evenly` 由近似映射改为 `_spacer_N` spacer 注入真实现（原映射语义丢失；与子节点 `flex.grow` 并存时给出"瓜分剩余空间、分配语义不同于 CSS"的 warning）。
+
+### Docs
+
+- `.claude/rules/godot-mcp-ui.md` 与 `src/tools/rule-templates.ts` UI 模板段双副本同步：工具清单补 `ui_measure_layout` 行、新增 rect/justify/布局收敛闭环三小节、description 关键词补 `ui_measure_layout`/`测量`/`rect`（修复 Task 3 审查 Minor：关键词列表未含 measure）。
+
 ## [0.30.0] - 2026-08-15
 
 > 方向拍板（2026-08-15 竞品调研，见 `docs/research/2026-08-15-新版本方向竞品调研.md`）：B AI QA + C 理解层 + D 协议债；A（Asset Store/HTTP transport/dock）因 Asset Store 提交通道问题搁置。零 GDScript 改动（纯 TS 侧批次）。
