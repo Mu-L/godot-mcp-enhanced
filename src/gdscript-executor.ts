@@ -682,10 +682,12 @@ async function writeTempScript(code: string, sessionDir: string): Promise<string
   if (process.platform === 'win32') {
     try {
       const { execFileSync } = await import('node:child_process');
-      // C-ARC-01: Validate username strictly (no backslash injection), use :R not :F
-      const winUser = userInfo().username;
-      if (winUser && /^[A-Za-z0-9_-]+$/.test(winUser)) {
-        execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${winUser}:R`], { windowsHide: true });
+        // C-ARC-01: Validate username strictly (no backslash injection), use :M not :F
+        // (批 K 2026-08-16: 与 5968a03/editor-auth 同款 —— :R 只读残留会让后续重写/删除
+        // 临时 .gd 失败,仅累积 tmpdir 垃圾;:M 允许写删但不给改 ACL 的完全控制)
+        const winUser = userInfo().username;
+        if (winUser && /^[A-Za-z0-9_-]+$/.test(winUser)) {
+          execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${winUser}:M`], { windowsHide: true });
       }
     } catch { /* non-critical: best-effort permission restriction */ }
   }

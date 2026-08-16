@@ -14,6 +14,7 @@ import { getModuleForTool, getAllToolNames, getAllToolDefinitions } from '../src
 import type { ToolContext, ToolResult } from '../src/types.js';
 import { parseGodotConfig } from '../src/helpers.js';
 import * as ps from '../src/core/process-state.js';
+import { resetOrphanScanTime } from '../src/core/orphan-cleanup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -158,7 +159,10 @@ beforeAll(() => {
 afterEach(() => {
   const proc = ps.getRunningProcess();
   if (proc && !proc.killed) {
-    try { proc.kill(); } catch { /* best effort */ }
+    // 批 K (2026-08-16): 树杀替代原生 proc.kill()(单进程终止)——Windows 上 Godot
+    // 子进程树残留占用 9081,连续跑时下一轮 install/run 因端口占用失败(干净环境
+    // 单轮全绿、连续跑竞态)。forceKillTree: taskkill /F /T 或 pkill -P + SIGTERM。
+    try { ps.forceKillTree(proc); } catch { /* best effort */ }
   }
   ps.setProcessBusy(false);
   ps.setRunningProcess(null, true);
@@ -890,6 +894,11 @@ describe.skipIf(!hasGodot || !hasRealProject || !OPT_IN_L2)('L2 real-project: br
     if (existsSync(bridgeScript)) { try { rmSync(bridgeScript, { force: true }); } catch { /* best effort */ } }
     const secret = resolve(REAL_PROJECT, '.godot', 'mcp_bridge_9081.secret');
     if (existsSync(secret)) { try { rmSync(secret, { force: true }); } catch { /* best effort */ } }
+    // 批 K (2026-08-16): orphan 兜底 —— stop_project 只杀 ctx.runningProcess 引用,
+    // it 中途失败时 spawn 过但未被引用的 Godot 会残留占 9081。走第一层会话隔离扫描
+    // (只杀本会话注册的 PID,零误杀 vitest 并行文件正在用的进程);先重置 30s 节流,
+    // 保证两个 L2 describe 连续收尾时各自生效。
+    try { resetOrphanScanTime(); await ps.killOrphanGodotProcesses(); } catch { /* best effort */ }
   });
 });
 
@@ -948,6 +957,11 @@ describe.skipIf(!hasGodot || !hasRealProject || !OPT_IN_L2)('L2 real-project: re
     if (existsSync(bridgeScript)) { try { rmSync(bridgeScript, { force: true }); } catch { /* best effort */ } }
     const secret = resolve(REAL_PROJECT, '.godot', 'mcp_bridge_9081.secret');
     if (existsSync(secret)) { try { rmSync(secret, { force: true }); } catch { /* best effort */ } }
+    // 批 K (2026-08-16): orphan 兜底 —— stop_project 只杀 ctx.runningProcess 引用,
+    // it 中途失败时 spawn 过但未被引用的 Godot 会残留占 9081。走第一层会话隔离扫描
+    // (只杀本会话注册的 PID,零误杀 vitest 并行文件正在用的进程);先重置 30s 节流,
+    // 保证两个 L2 describe 连续收尾时各自生效。
+    try { resetOrphanScanTime(); await ps.killOrphanGodotProcesses(); } catch { /* best effort */ }
   });
 });
 

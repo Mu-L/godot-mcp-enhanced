@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 import fc from 'fast-check';
-import { isErrorFalsePositive, KNOWN_BASE_METHODS } from '../src/tools/validation.js';
+import { isErrorFalsePositive, KNOWN_BASE_METHODS, stripProjectPrefix } from '../src/tools/validation.js';
 
 // ─── Helper: build a realistic Godot headless parser error line ──────────────
 function parseError(message) {
@@ -212,5 +212,38 @@ describe('Property: validation-filter fuzz', () => {
       }),
       { numRuns: process.env.CI ? 200 : 1000 }
     );
+  });
+});
+
+// ─── stripProjectPrefix: relOf 双形态(批 K P2, 2026-08-16) ────────────────
+// 回归背景: batchValidateScripts 原实现用 pathSep 精确前缀匹配,正斜杠形态的
+// project_path 下失配 → 绝对路径泄漏进 res:// 列表 → script_health 全量误报
+// load null(历史 0404f75 引入)。修复后两侧分隔符归一化,双形态等价。
+
+describe('stripProjectPrefix: 双分隔符形态等价(批 K P2)', () => {
+  const proj = 'D:/work/demo';  // 正斜杠形态(修复前触发误报的形态)
+
+  it('正斜杠 project_path + 正斜杠文件路径 → 正确剥前缀', () => {
+    expect(stripProjectPrefix('D:/work/demo/scripts/a.gd', proj)).toBe('scripts/a.gd');
+  });
+
+  it('正斜杠 project_path + 反斜杠文件路径 → 正确剥前缀(修复前泄漏绝对路径)', () => {
+    expect(stripProjectPrefix('D:\\work\\demo\\scripts\\a.gd', proj)).toBe('scripts/a.gd');
+  });
+
+  it('反斜杠 project_path + 正斜杠文件路径 → 正确剥前缀(反向失配)', () => {
+    expect(stripProjectPrefix('D:/work/demo/scripts/a.gd', 'D:\\work\\demo')).toBe('scripts/a.gd');
+  });
+
+  it('反斜杠 project_path + 反斜杠文件路径 → 既有门禁形态不回归', () => {
+    expect(stripProjectPrefix('D:\\work\\demo\\scripts\\a.gd', 'D:\\work\\demo')).toBe('scripts/a.gd');
+  });
+
+  it('project_path 带尾斜杠 → 不重复剥/不残留', () => {
+    expect(stripProjectPrefix('D:/work/demo/scripts/a.gd', 'D:/work/demo/')).toBe('scripts/a.gd');
+  });
+
+  it('前缀不匹配的外部路径 → 原样返回(不误剥)', () => {
+    expect(stripProjectPrefix('E:/other/x.gd', proj)).toBe('E:/other/x.gd');
   });
 });

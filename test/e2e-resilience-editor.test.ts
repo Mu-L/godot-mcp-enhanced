@@ -355,6 +355,25 @@ describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量�
     // 清空 times — open_scene 的 request 不参与 N=5 串行断言（只计 edit_node）
     times.length = 0;
 
+    // ─── 3b. session 恢复竞态防护(2026-08-16 daily 首跑失败根因) ────────────────
+    // startEditor 的就绪判定(9090 LISTEN)只证明 plugin _ready,editor 主循环仍在
+    // 初始化:Godot 4.6.3 实测(fixture push_warning 诊断)LISTEN 后数百 ms,editor
+    // 的"恢复上次会话场景"异步动作会把活动场景从 open_scene 的 main_3d 切回上次
+    // 会话的 main_2d → 后续 edit_node 全部 "Node not found"(CI Linux 启动慢,恢复
+    // 稳定落在 open_scene 之后 → daily 稳定红;本地 Windows 时序抖动 → 间歇红/绿)。
+    // 防护:缓冲 1.5s 让恢复动作先发生完,再 reopen 一次把活动场景切回 main_3d。
+    await new Promise((r) => setTimeout(r, 1500));
+    const reopenRes = await exec.execute('scene', {
+      project_path: REAL_PROJECT,
+      action: 'open_scene',
+      scene_path: 'res://scenes/3d/main_3d.tscn',
+    });
+    const cr = reopenRes.content[0];
+    const reopenMsg = cr && cr.type === 'text' ? cr.text : JSON.stringify(cr);
+    expect(reopenRes.isError, `reopen_scene 不应失败: ${reopenMsg}`).not.toBe(true);
+    // reopen 的 request 同样不参与 N=5 串行断言,清空后只计后续 edit_node
+    times.length = 0;
+
     // ─── 4. 并发 N=5 个 edit_node（改 Camera3D position，每个不同 value 防互覆盖平凡）───
     // node_path="Camera3D"（find_node 识别 root 子名）；position 用 Array 格式（coerce_value_for_property
     // 只转 Array→Vector3，Dictionary 不支持，见 command_helpers.gd:99-128）。

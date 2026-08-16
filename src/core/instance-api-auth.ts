@@ -118,7 +118,9 @@ export function getOrCreateApiSecret(): string {
       try {
         const username = userInfo().username;
         if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
-          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:R`], { stdio: 'ignore' });
+          // 批 K 2026-08-16: :R → :M(与 5968a03/editor-auth、gdscript-executor 同款统一)
+          // :R 只读会让后续 secret 轮换重写/删除失败;:M 允许写删但不给改 ACL 的完全控制
+          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:M`], { stdio: 'ignore' });
         } else {
           getLogger().warn('instance-api-auth', `Username "${username}" contains unexpected characters, skipping ACL restriction`);
         }

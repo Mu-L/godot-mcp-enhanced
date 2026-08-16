@@ -200,7 +200,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         '',
         '[application]',
         '',
-        'config/name="' + projectName.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"',
+        // 换行转义(2026-08-16 批 K P3):只转义 \ 与 " 时,project_name 含 \n/\r 可注入
+        // 额外 config 段落(配置污染级,非 RCE;godot_version 注入面已由 3b80e36 白名单修复)。
+        'config/name="' + projectName.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"',
         'run/main_scene="res://scenes/main.tscn"',
         'config/features=PackedStringArray("' + godotVersion + '")',
         '',
