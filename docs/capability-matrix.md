@@ -5,9 +5,9 @@
 ## 概览
 - 工具总数：43
 - securityLevel：danger-api 11 / guarded 21 / safe 11
-- risk：read 118 / write 94 / destructive 10 / process 15
+- risk：read 119 / write 94 / destructive 10 / process 15
 - L2 覆盖：covered 0 / partial 0 / none 43
-- token 预算：tools/list ≈ 85499B / ~21375 tokens（description 15464B / schema 70035B，schema 占 82%）
+- token 预算：tools/list ≈ 86228B / ~21557 tokens（description 15464B / schema 70764B，schema 占 82%）
 - annotations：readOnly 10 / destructive 5 / idempotent 13
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
@@ -79,4 +79,4 @@
 - `ui` (ui): desc 969B / schema 4482B / total 5451B
 - `scene` (core): desc 277B / schema 4780B / total 5057B
 - `workflow` (profiler): desc 228B / schema 4224B / total 4452B
-- `script` (core): desc 739B / schema 2805B / total 3544B
+- `screenshot` (visual): desc 269B / schema 3737B / total 4006B

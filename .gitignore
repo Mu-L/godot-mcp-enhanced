@@ -39,6 +39,8 @@ test/e2e-scene/*.png
 test/fixtures/**/.godot/
 test/fixtures/**/*.png
 test/fixtures/**/*.png.import
+# Task4(screenshot diff): visual/ 是入库的视觉校准素材(非运行时产物),放行
+!test/fixtures/visual/*.png
 # M3c: gdscript 检查项目运行时复制的 addon(保留 project.godot 源)
 test/fixtures/gdscript-check/addons/
 # I-3 (P2-4 审查): gdscript 检查项目运行时复制的 src/scripts(check-gdscript.ts 扩编译范围)

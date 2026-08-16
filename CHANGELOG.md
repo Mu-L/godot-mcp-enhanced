@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.5] - 2026-08-16
+
+> prototype-import Task 4：`screenshot` 像素级双图对比。
+
+### Added
+
+- **`screenshot(action=diff)`**：两张 PNG 逐像素对比（纯 TS + pngjs，零 Godot 依赖、零新依赖）。语义：per-pixel 归一化欧氏距离 `sqrt(Δr²+Δg²+Δb²)/(√3×255)`，`threshold` 默认 0.12（0-1，恰好等于阈值不计差，严格大于才计）；**忽略 alpha 只比 RGB**；返回 `{width,height,diff_pixels,diff_ratio,bbox}`（bbox 为差异像素包围盒，无差异为 null）；可选 `diff_path` 写出红染差异图（差异像素纯红 255,0,0，其余保留 a 图原色）。路径策略沿用同工具先例（读取链同 `analyze` 的 image_path 白名单双分支，写出链同 `capture` 的 output_path）；尺寸不一致 / 非法 threshold / 图片缺失 → `INVALID_PARAMS`。历史图对校准（`test/fixtures/visual/{web-prototype,godot-hud}.png`，1280x720 入库）：threshold=0.12 实测 diff_ratio≈0.1762（162408/921600）。
+- `decodePng`（`src/tools/screenshot-detail.ts`）加 export；新增纯函数 `diffPngBuffers`（O(n) 单 pass）。
+
+### Fixed
+
+- action 数 drift：`screenshot` 新增 diff action 后 `rule-templates.ts` / `.claude/rules/godot-mcp-core.md` 手写 action 数未同步（237 → 238，check-tool-count 红），本批随版本 bump 0.30.5 修复。
+
 ## [0.30.4] - 2026-08-16
 
 > prototype-import Task 3 集成验收 + Task 2 遗留修复波。
