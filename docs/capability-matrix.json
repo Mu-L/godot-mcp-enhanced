@@ -1,6 +1,104 @@
 {
-  "version": "0.29.0",
+  "version": "0.30.0",
   "tools": [
+    {
+      "name": "analysis",
+      "group": "code",
+      "description": "理解层静态分析（零 Godot 依赖）。action=signal_map 列全项目信号连接（.tscn [connection] 声明 + .gd 代码 connect/emit 引用，两来源分开标注）；action=impact_check 改动前影响面评估——改信号列出全部连接方/发射方/监听方，改脚本列出引用它的场景与节点，改场景列出其连接/脚本/被实例化处。盲区诚实标注：运行时动态信号名/autoload 间连接不可见。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "signal_map",
+              "impact_check"
+            ],
+            "description": "signal_map=信号连接全景；impact_check=改动影响面"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "项目路径"
+          },
+          "signal": {
+            "type": "string",
+            "description": "信号名过滤（signal_map 精确匹配；impact_check 必填三选一）"
+          },
+          "scene": {
+            "type": "string",
+            "description": "signal_map: 场景路径子串过滤（如 scenes/ui）"
+          },
+          "script_path": {
+            "type": "string",
+            "description": "impact_check: 脚本路径（res:// 或绝对）"
+          },
+          "scene_path": {
+            "type": "string",
+            "description": "impact_check: 场景路径（res:// 或绝对）"
+          },
+          "limit": {
+            "type": "number",
+            "description": "每列表截断上限（默认 200）"
+          }
+        },
+        "required": [
+          "action",
+          "project_path"
+        ]
+      },
+      "requiredParams": [
+        "action",
+        "project_path"
+      ],
+      "optionalParams": [
+        "signal",
+        "scene",
+        "script_path",
+        "scene_path",
+        "limit"
+      ],
+      "readonly": true,
+      "longRunning": false,
+      "guarded": false,
+      "securityLevel": "safe",
+      "riskDistribution": {
+        "read": 2,
+        "write": 0,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [],
+      "offlineCapable": true,
+      "needsGodot": false,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 453,
+        "schemaBytes": 762,
+        "totalBytes": 1215
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
     {
       "name": "android",
       "group": "android",
@@ -3760,6 +3858,106 @@
         "descBytes": 109,
         "schemaBytes": 2854,
         "totalBytes": 2963
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "qa",
+      "group": "bridge",
+      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行（输入/等待/断言/确定性 playtest/截图证据）→ 聚合报告 + 回归 diff（夜间跑批用）。步骤 type：input(send_key/mouse_click/mouse_move/text/touch/drag)、wait(wait_for_node/wait_for_property)、wait_frames、freeze/unfreeze、step_until(结构化条件)、snapshot/restore、set、call(只读白名单,写方法需 GODOT_MCP_BRIDGE_EXTRA_METHODS)、assert(node_state/scene_structure/screen_text/perf)、screenshot、sleep。options：seed/fixed_delta_hz(确定性)、continue_on_failure、auto_install_bridge/auto_run/stop_after、各超时预算。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "run",
+              "report",
+              "diff"
+            ],
+            "description": "run=执行套件；report=读报告；diff=对比两份报告找回归"
+          },
+          "spec": {
+            "type": "object",
+            "description": "run: inline 套件 spec 对象（结构见 description；步骤带 label 便于 diff 对齐）"
+          },
+          "spec_path": {
+            "type": "string",
+            "description": "run: spec 文件路径（.json 或含 ```qa-spec 围栏的 .md），大套件建议用文件避免 token 截断"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "run: 项目路径（覆盖 spec 内的 project_path；spec 未写时必填）"
+          },
+          "report_path": {
+            "type": "string",
+            "description": "report: 报告路径或 run_id；latest=最新，prev=次新"
+          },
+          "base_path": {
+            "type": "string",
+            "description": "diff: 基线报告（默认 prev）"
+          },
+          "head_path": {
+            "type": "string",
+            "description": "diff: 对比报告（默认 latest）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "spec",
+        "spec_path",
+        "project_path",
+        "report_path",
+        "base_path",
+        "head_path"
+      ],
+      "readonly": false,
+      "longRunning": true,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 2,
+        "write": 0,
+        "destructive": 0,
+        "process": 1
+      },
+      "groupRequires": [
+        "bridge"
+      ],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": false,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 736,
+        "schemaBytes": 895,
+        "totalBytes": 1631
       },
       "annotations": {
         "readOnlyHint": false,

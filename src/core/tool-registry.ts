@@ -166,7 +166,7 @@ export interface ToolGroupDef {
 export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   core:       { description: '核心工具', tools: ['project', 'scene', 'script', 'runtime', 'validation', 'confirm_and_execute', 'godot_get_context', 'runtime_assert', 'help', 'audit'], requires: [], protected: true },
   editor:     { description: '编辑器', tools: ['editor'], requires: ['editor'] },
-  bridge:     { description: 'Game Bridge', tools: ['game'], requires: ['bridge'] },
+  bridge:     { description: 'Game Bridge', tools: ['game', 'qa'], requires: ['bridge'] },
   animation:  { description: '动画系统', tools: ['animation', 'animtree', 'animation_track'], requires: [] },
   audio:      { description: '音频', tools: ['audio'], requires: [] },
   visual:     { description: '视觉', tools: ['material', 'screenshot', 'particles'], requires: [] },
@@ -177,7 +177,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   signal:     { description: '信号', tools: ['signal'], requires: [] },
   profiler:   { description: '性能分析', tools: ['profiler', 'workflow'], requires: [] },
   test:       { description: '测试（已并入 validation）', tools: [], requires: [] },
-  code:       { description: '代码工具', tools: ['docs', 'load_skill', 'cpp'], requires: [] },
+  code:       { description: '代码工具', tools: ['docs', 'load_skill', 'cpp', 'analysis'], requires: [] },
   // v0.18.0 合并说明:
   // ik → animation (ik_modifier_create/get/set/list_bones)
   // recording → runtime (record_start/stop/save/load/play)
@@ -327,6 +327,7 @@ export const MINIMAL_TOOLS: Set<string> = resolveProfile('minimal');
 export const OFFLINE_TOOLS = new Set([
   'project', 'script', 'validation', 'confirm_and_execute',
   'manage_tools', 'godot_advanced_tool', 'load_skill', 'cpp',
+  'analysis',  // v0.30 C 批：纯静态分析（tscn parser + .gd 扫描），零 Godot 依赖
 ]);
 
 /** Check if a tool can run in offline mode. */

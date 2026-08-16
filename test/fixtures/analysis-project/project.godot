@@ -1,0 +1,7 @@
+; Engine configuration file.
+; analysis 工具 fixture（v0.30 C 批）：最小项目，供 signal_map/impact_check 静态扫描测试。
+config_version=5
+
+[application]
+
+config/name="Analysis Fixture"

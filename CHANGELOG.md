@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-08-15
+
+> 方向拍板（2026-08-15 竞品调研，见 `docs/research/2026-08-15-新版本方向竞品调研.md`）：B AI QA + C 理解层 + D 协议债；A（Asset Store/HTTP transport/dock）因 Asset Store 提交通道问题搁置。零 GDScript 改动（纯 TS 侧批次）。
+
+### ⚠️ Breaking / 迁移需知
+
+- **MCP Roots 动态授权退役**：MCP `2026-07-28` 规范正式废弃 Roots（12 个月窗口），v0.30 删除 `initRootsIntegration` 与 path-utils 动态 roots 三函数。modern era 客户端零行为变化（SDK roots 拉取本就抛错回落 env）；**legacy + 配置了 roots 的客户端此后统一走 `ALLOWED_PROJECT_PATHS` env**（SDK 官方迁移路径即 configuration）。详见 `docs/protocol-debt-2026-07-28.md`。
+- **默认 profile（basic）新增 `qa` 与 `analysis` 两个工具**（分别归 bridge/code 组，lite/basic 随组可见；`qa.run` 是 process 风险，经 dispatcher confirm+audit 门）。
+
+### Added — B 批：`qa` 工具（AI QA 测试套件编排，免费开源闭环游戏 QA）
+
+- **`qa` merged 工具（bridge 组，3 action）**：`run`（结构化测试规范 → 自动 `game_bridge_install` → `run_project` → 逐步执行 → 聚合报告）、`report`（读报告，latest/prev/run_id）、`diff`（两份报告按用例回归对比：回归/修复/新增/移除，nightly 跑批用）。
+- **13 种步骤类型**：`input`（key/mouse_click/mouse_move/text/touch/drag）、`wait`（wait_for_node/wait_for_property 轮询）、`wait_frames`（确定性帧推进）、`freeze`/`unfreeze`、`step_until`（结构化条件，规避 Expression RCE）、`snapshot`/`restore`、`set`、`call`（bridge 只读白名单 + `GODOT_MCP_BRIDGE_EXTRA_METHODS` 逃生口，不绕过）、`assert`（node_state/scene_structure/screen_text/perf，复用 runtime-assert 同源实现）、`screenshot`（报告证据 PNG）、`sleep`。
+- **spec 双源**：inline JSON 对象或 `.json`/`.md` 文件（markdown ```qa-spec 围栏），zod v4 严格校验（仓库既有依赖，零新增）。确定性选项：`seed`/`fixed_delta_hz`/`continue_on_failure`/`suite_budget_ms` 等。
+- **报告落盘 `~/.godot-mcp/qa-reports/<run_id>.{json,md}`**（`GODOT_MCP_QA_REPORTS_DIR` 可重定向；不污染用户项目）：每步 PASSED/FAILED/ERROR/SKIPPED + mismatch + 截图证据路径 + 套件汇总；setup 失败全步骤 SKIPPED('setup failed') 如实标注。
+- **CLI：`godot-mcp-enhanced qa run <spec> [--project p] [--json]` / `qa report` / `qa diff`**（`npm run qa`；run 退出码 0/1 供 cron 夜间跑批直接判定）。
+- **安全设计**：`qa.run` 声明 `process` 风险——整个套件经 ToolDispatcher confirm+audit 门一次性覆盖（与 confirm_and_execute 对已确认操作直调模块的语义一致），步骤层直调 `sendToBridge` 不产生绕门；断言复用 `runtime-assert.ts` 导出的 4 个 assert 函数（v0.30 起导出，同源防 drift）。
+
+### Added — C 批：`analysis` 工具（理解层：免费开源版信号影响面分析）
+
+- **`analysis` merged 工具（code 组，OFFLINE_TOOLS，纯静态零 Godot 依赖）**：`signal_map`（全项目信号连接全景，editor `.tscn [connection]` 与 code `.gd` 文本扫描两来源分开标注 + 盲区诚实声明）；`impact_check`（改动前影响面：signal 目标列全部连接方/发射方/监听方，script 目标列引用场景+节点绑定+文本引用，scene 目标列连接/脚本/被实例化处）。
+- **`tscn-parser` 连接属性补全**：`[connection]` 的 `flags`/`binds`/`unbinds` 此前被头部正则静默丢弃（只匹配引号值），现完整捕获（binds 含空格数组覆盖）。
+- **`gdscript-lint` helper 导出**：`isInComment`/`isInString`/`isInCommentOrString` 改导出，analysis 的 .gd 信号扫描同源复用（注释/字符串内同名调用不误报，负向用例锁定）。
+- 对标 GodotIQ Pro（$19）的空间/影响面分析能力，免费开源且支持到 Godot 4.7（GodotIQ 仅 4.0-4.4）。
+
+### Changed — D 批：协议债处置（详见 `docs/protocol-debt-2026-07-28.md`）
+
+- **Logging（SEP-2577）**：4 处 `sendLoggingMessage` 调用点窗口内保持（SDK 承诺 12 个月兼容），2027-04 前启动 stderr 迁移（文档记录路径）。
+- **Sampling**：实测零使用，零影响。
+- **Tasks / MCP Apps**：SDK 2.0.0 分别仅 wire 词汇无 runtime / 零支持——自研任务注册表与 `dashboard://` 降级资源 defer，文档记录两条路径的底座评估。
+- `oninitialized` 回调保留（承载 logger/progress client-ready，与 Roots 无关）；负向契约测试锁定源码无 Roots API 引用。
+
+### Tests
+
+- B 批 35 新用例：spec 解析正负向（13 步骤类型全解析/未知 type 拒绝/围栏语法错误不进 zod）、报告 diff（回归/修复/新增/移除/ERROR 视为 not-passed/无 label 按 index:type 对齐）、runner mock 编排（install→run→seed→steps→stop 全链调用序列/断言 mismatch 中止/continue_on_failure/bridge error→ERROR/wait 超时→FAILED/setup 失败全 SKIPPED/teardown_warnings）。
+- C 批 15 新用例：connection flags/binds 回归、gdscan 正负向（注释/字符串内 emit_signal 不误报/connect_to_host 不误报）、signal_map 两来源/过滤、impact_check 三类目标 + 参数校验。
+- D 批：`godot-server-oninitialized.test.ts`（接线 + 负向断言）替换随功能删除的 8 个 roots 注入用例。
+- 契约更新：LITE_TOOLS 补 `qa`/`analysis`；GUARDED_KEYS 补 `qa`（run=process 有意设计）；tool-count 20 处文档同步 43 工具/235 action（含 rule-templates.ts + godot-mcp-core.md 独立双副本）。
+- 新增 L2 e2e：`test/e2e-qa-suite.test.ts`（真 Godot + 真 bridge 的 qa.run 端到端，`GODOT_MCP_E2E_L2=1` opt-in）。
+
 ## [Unreleased]
 
 ### Fixed — CI Linux 平台债(2026-08-15 run#122 三 job 全红根因修复)

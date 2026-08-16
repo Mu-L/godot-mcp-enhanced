@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __cliDir = dirname(fileURLToPath(import.meta.url));
 const __rootDir = join(__cliDir, '..', '..');
 
-const SUBCOMMANDS = ['setup', 'doctor', 'init', 'dashboard'] as const;
+const SUBCOMMANDS = ['setup', 'doctor', 'init', 'dashboard', 'qa'] as const;
 export type Subcommand = typeof SUBCOMMANDS[number];
 
 export function parseSubcommand(args: string[]): { subcommand: Subcommand; rest: string[] } | null {
@@ -46,6 +46,12 @@ export async function routeCommand(args: string[]): Promise<void> {
       launchDashboardOnce();
       console.log('Dashboard starting... (use the separate terminal window)');
       process.exit(0);
+      break; // unreachable — no-fallthrough 需要显式终止语句（process.exit 不被识别）
+    }
+    case 'qa': {
+      const { runQa } = await import('./qa.js');
+      await runQa(parsed.rest);
+      break;
     }
   }
 }
@@ -73,6 +79,7 @@ godot-mcp-enhanced — Godot AI 开发环境
   godot-mcp-enhanced doctor           环境诊断
   godot-mcp-enhanced init <name>      创建 Godot 项目
   godot-mcp-enhanced dashboard        启动监控面板
+  godot-mcp-enhanced qa run <spec>    执行 QA 测试套件（夜间跑批）
 
 MCP 参数:
   --profile=<name>  工具 profile (full/minimal/lite)

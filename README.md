@@ -4,7 +4,7 @@
 > 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:41 个 MCP 工具(merged,共 210 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
+工具层:43 个 MCP 工具(merged,共 235 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **41** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
+| 工具数 | **43** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
 | **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
@@ -139,7 +139,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 ## 工具一览
 
-> 共 41 个 MCP 工具(merged tool definition,共 210 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+> 共 43 个 MCP 工具(merged tool definition,共 235 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
 >
 > **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:36**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:205**(matrix 的 risk 聚合 read 100+write 80+destructive 10+process 13)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
 
@@ -497,7 +497,7 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
-> ✅ 协议层实测通过（41 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+> ✅ 协议层实测通过（43 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
 
 #### ZCode（智谱 GLM-5.2 ADE）
 [ZCode](https://zcode.z.ai/) 原生支持 MCP。**设置 → MCP 服务器 → 新建**（stdio，`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`），或写入 `<项目根>/.zcode/config.json` / `.agents/mcp.json`。**关键**：ZCode 不读 `CLAUDE.md`，只读 workspace 根 `AGENTS.md`——运行 `setup_project_rules`（默认双写）生成 `AGENTS.md` 让 godot 规则生效。
@@ -638,6 +638,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.30.0** | 2026-08-15 | **AI QA 编排 + 理解层 + 协议债（方向拍板 B/C/D,零 GDScript 改动纯 TS 批次）**：B `qa` 工具（结构化测试规范→自动装 bridge→起游戏→13 种步骤逐步执行/断言/确定性 playtest→聚合报告+回归 diff,报告落 ~/.godot-mcp/qa-reports,CLI `npm run qa` 夜间跑批;run=process 风险经 confirm+audit 一次覆盖）+ C `analysis` 工具（signal_map 全项目信号连接两来源全景 + impact_check 改信号/脚本/场景前列受影响面,免费开源版对标 GodotIQ Pro,纯静态零 Godot 依赖;tscn [connection] 补 flags/binds 解析）+ D **⚠️ MCP Roots 动态授权退役（Breaking,legacy+roots 客户端统一走 ALLOWED_PROJECT_PATHS env,modern era 零变化）** + protocol-debt 决策文档（Logging 窗口内保持/Sampling 零使用/Tasks+MCP Apps defer）。43 工具/235 action。 |
 | **v0.29.0** | 2026-08-15 | **2026-08-14 六批次审查 findings 全量修复（P0×1 + P1×10 + P2/P3,43 commits,双波终审）**：P0 editor 重连链死修复（编辑器重启后自动恢复）+ 安全面（write_script 沙箱 4 旁路入口封堵/deny-list 拼写/load_skill 白名单/nonce symlink）+ audit 工具复活（生产 bug,0.28.3 特性此前不可见）+ playtest 六项（永久暂停/owner 互斥/paused 保存等）+ 属性写入 no-op 假成功三路对齐 + bridge 订阅断线恢复 + **⚠️ autoload 键名迁移（Breaking,旧项目重跑 game_bridge_install 自动迁移）**+ debug/undo GD 修复 + 测试债（debug e2e 首跑/GD 套件/dispatcher 审计 9 场景）+ 披露对齐。发版门禁全绿（verify_delivery 3/3 + e2e L2 真跑 75 passed）。 |
 | **v0.28.3** | 2026-08-13 | **战略批收尾（14 竞品路线图 G1/G3/G7）**：G3 操作级审计日志（audit.jsonl appendFile 原子追加,危险操作可追溯/回放）+ G1 deterministic playtest control 层（freeze/unfreeze/step_until 结构化条件,规避 RCE）+ G7 能力 profile（basic=9 组/advanced/full,**BREAKING**：默认 profile 从 full 改 basic,schema 79KB→~30KB 省 ~60% context）。路线图全完成（G2/G3/G1/G7/G8 ✅,G6 实测已有移除）。 |
 | **v0.28.2** | 2026-08-12 | **安全加固 + 威胁模型 + 可观测性 + 审查修复**：G2 trace_id + 结构化错误分类 + PII 护栏（速赢批）+ S-1/S-2 bpy-sandbox 双 opt-in + spawn 清单 + S-3~S-7 多实例 registry/editor-auth/http-server 加固 + G8 威胁模型文档（10 层防护实测声明）+ P0 animtree sub_action 死代码修复（F-6 CRITICAL）+ P1 data-import timeout 钳制（F-1/F-2）+ P2 工具层校验精确化（F-3~F-8）+ CMP-13 generate-all-modules + Tier1 structuredContent/prompt + Tier2 skills/tscn parser + Vision Routing 双 opt-in。 |

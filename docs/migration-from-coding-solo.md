@@ -14,7 +14,7 @@ enhanced 是 Coding-Solo 的 fork,**核心能力(启动编辑器 / 运行项目 
 
 ## 3 步平滑升级
 
-> **能力零丢失**:enhanced 继承 Coding-Solo 全部核心能力。工具结构从 13 个独立工具进化为 41 个 grouped tool(每个含多 action),**AI 读 schema 自动适配新结构**——你无需手改工具调用。
+> **能力零丢失**:enhanced 继承 Coding-Solo 全部核心能力。工具结构从 13 个独立工具进化为 43 个 grouped tool(每个含多 action),**AI 读 schema 自动适配新结构**——你无需手改工具调用。
 
 **① 移除旧的 godot MCP server**
 
@@ -50,7 +50,7 @@ AI 会自动选用 enhanced 的对应工具完成。能返回版本号即接入�
 
 ## 工具对应(Coding-Solo → enhanced)
 
-enhanced 继承 Coding-Solo 的全部核心能力,工具结构从 **13 个独立工具 → 41 个 grouped tool**(每个 tool 含多个 action):
+enhanced 继承 Coding-Solo 的全部核心能力,工具结构从 **13 个独立工具 → 43 个 grouped tool**(每个 tool 含多个 action):
 
 | Coding-Solo 能力 | enhanced 位置(grouped tool) |
 |---|---|

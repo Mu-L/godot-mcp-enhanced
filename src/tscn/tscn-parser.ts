@@ -40,6 +40,11 @@ export interface Connection {
   from: string;
   to: string;
   method: string;
+  /** v0.30 C 批：连接可选属性（原样字符串）。flags 常见 4=DEFERRED/8=PERSIST；
+   * binds=[...] 为绑定参数数组。此前头部正则只匹配引号值，这三个键被静默丢弃。 */
+  flags?: string;
+  binds?: string;
+  unbinds?: string;
 }
 
 export interface ParsedScene {
@@ -499,6 +504,19 @@ export function parseTscn(content: string): ParsedScene {
             else if (key === 'method') currentConnection!.method = val;
           }
         }
+        // v0.30 C 批：非引号值键（flags=4 / binds=[...] / unbinds=2）——原正则只匹配
+        // 引号值致其静默丢弃。binds 数组值以 ] 结束（数组内可含空格/逗号）。
+        const barePairs = attrs.match(/\b(flags|binds|unbinds)=(\[[^\]]*\]|[^\s"\]]+)/g);
+        if (barePairs) {
+          for (const pair of barePairs) {
+            const eq = pair.indexOf('=');
+            const key = pair.slice(0, eq);
+            const val = pair.slice(eq + 1);
+            if (key === 'flags') currentConnection!.flags = val;
+            else if (key === 'binds') currentConnection!.binds = val;
+            else if (key === 'unbinds') currentConnection!.unbinds = val;
+          }
+        }
       }
       continue;
     }
@@ -528,6 +546,9 @@ export function parseTscn(content: string): ParsedScene {
             else if (prop.name === 'from') currentConnection.from = String(prop.value);
             else if (prop.name === 'to') currentConnection.to = String(prop.value);
             else if (prop.name === 'method') currentConnection.method = String(prop.value);
+            else if (prop.name === 'flags') currentConnection.flags = String(prop.value);
+            else if (prop.name === 'binds') currentConnection.binds = String(prop.value);
+            else if (prop.name === 'unbinds') currentConnection.unbinds = String(prop.value);
           }
           break;
       }
