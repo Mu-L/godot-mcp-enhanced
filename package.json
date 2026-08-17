@@ -69,6 +69,7 @@
     "qa": "node build/index.js qa"
   },
   "dependencies": {
+    "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "pngjs": "^7.0.0",
     "ws": "^8.21.0",
