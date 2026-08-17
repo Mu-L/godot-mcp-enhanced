@@ -26,6 +26,8 @@ export interface RunRecord {
   done?: Promise<void>;
   report?: QaReport;
   reportPaths?: { json_path: string; md_path: string };
+  /** 终态失败原因(PR-1b M-8);finishRun 尾参写入 */
+  error?: string;
 }
 
 const DEFAULT_TTL_MS = 3_600_000;
@@ -89,11 +91,20 @@ export function requestCancel(runId: string): { ok: boolean; message?: string } 
   return { ok: true };
 }
 
+/** 终态通知钩子(PR-2 tasks wire):finishRun 到终态时回调(发 notifications/tasks/status 用)。
+ * null = 注销。回调抛异常 best-effort 吞掉(记日志由调用方包装),不影响状态写入。 */
+let terminalNotifier: ((runId: string, status: 'completed' | 'failed' | 'cancelled') => void) | null = null;
+
+export function setTerminalNotifier(fn: ((runId: string, status: 'completed' | 'failed' | 'cancelled') => void) | null): void {
+  terminalNotifier = fn;
+}
+
 export function finishRun(
   runId: string,
   status: 'completed' | 'failed' | 'cancelled',
   report?: QaReport,
   reportPaths?: { json_path: string; md_path: string },
+  error?: string,
 ): void {
   const r = registry.get(runId);
   if (!r) return;
@@ -101,6 +112,10 @@ export function finishRun(
   r.lastUpdatedAt = new Date().toISOString();
   if (report) r.report = report;
   if (reportPaths) r.reportPaths = reportPaths;
+  if (error !== undefined) r.error = error;
+  if (terminalNotifier) {
+    try { terminalNotifier(runId, status); } catch { /* best-effort:通知失败不影响注册表 */ }
+  }
 }
 
 export function updateProgress(runId: string, step: number, total: number, current?: string): void {

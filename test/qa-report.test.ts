@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  writeReport, readReport, listReports, diffReports, sanitizeSuiteName, findPreviousReport,
+  writeReport, readReport, listReports, diffReports, sanitizeSuiteName, findPreviousReport, makeRunId,
   type QaReport, type StepRecord,
 } from '../src/tools/qa/report.js';
 
@@ -197,5 +197,45 @@ describe('findPreviousReport 跳过 CANCELLED（PR-1b）', () => {
     writeReport(report('20260817-120000-suiteC', 'suiteC', [step(0, 'a', 'sleep', 'PASSED')]));
 
     expect(findPreviousReport('20260817-120000-suiteC', 'suiteC')).toBeNull();
+  });
+});
+
+// ═══ PR-2 Task 1:makeRunId 随机后缀 + findPreviousReport 匹配适配(双兼容) ═══
+
+describe('makeRunId 随机后缀与 findPreviousReport 适配(PR-2)', () => {
+  it('同秒内两次 makeRunId 同名套件 → run_id 不同(随机后缀)', () => {
+    const a = makeRunId('suiteX');
+    const b = makeRunId('suiteX');
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^\d{8}-\d{6}-suiteX-[0-9a-f]{4}$/); // 时间戳-sanitize-rand4 三段
+    expect(b).toMatch(/-suiteX-[0-9a-f]{4}$/);
+  });
+
+  it('findPreviousReport 仍能跨随机后缀找到同套件基线(三段式形态)', () => {
+    // old-PASSED → new-PASSED,均带随机后缀形态(时间戳取晚于既有 20260817-12xx 文件,避免跨用例污染)
+    writeReport(report('20260817-130000-suiteX-0d10', 'suiteX', [step(0, 'a', 'sleep', 'PASSED')]));
+    writeReport(report('20260817-140000-suiteX-1c2e', 'suiteX', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260817-140000-suiteX-1c2e', 'suiteX');
+    expect(prev?.run_id).toBe('20260817-130000-suiteX-0d10');
+  });
+
+  it('findPreviousReport 双兼容:历史两段式报告在新代码下仍可作基线', () => {
+    // PR-2 前落盘的 run_id 是两段式(时间戳-套件名);粗筛兼容旧 endsWith 形态,历史基线不丢
+    writeReport(report('20260816-235959-legacy', 'legacy', [step(0, 'a', 'sleep', 'PASSED')]));
+    writeReport(report('20260817-150000-legacy-7e8f', 'legacy', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260817-150000-legacy-7e8f', 'legacy');
+    expect(prev?.run_id).toBe('20260816-235959-legacy');
+  });
+
+  it('findPreviousReport 不误配 sanitize 相同的不同套件(碰撞防护回归,随机后缀形态)', () => {
+    // 'suite X' 与 'suite_X' sanitize 后同段;碰撞候选被 suite.name 精校拒后继续往前找真同名
+    writeReport(report('20260816-060000-suite_X-0a1b', 'suite_X', [step(0, 'mine', 'sleep', 'PASSED')]));
+    writeReport(report('20260816-070000-suite_X-e5f6', 'suite X', [step(0, 'other', 'sleep', 'PASSED')]));
+    writeReport(report('20260816-080000-suite_X-1a2b', 'suite_X', [step(0, 'mine', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260816-080000-suite_X-1a2b', 'suite_X');
+    expect(prev?.run_id).toBe('20260816-060000-suite_X-0a1b'); // 不是碰撞的 'suite X'
   });
 });
