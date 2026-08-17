@@ -189,3 +189,9 @@ describe('manage_tools actionRisks', () => {
   const cases = { list_groups:'read', sync:'read', reconnect:'read', migrate:'read', activate:'write', deactivate:'write' } as const;
   for (const [a, r] of Object.entries(cases)) it(`manage_tools.${a}→${r}`, () => expect(getActionRisk('manage_tools', a)).toBe(r));
 });
+
+describe('qa actionRisks', () => {
+  // PR-1b Task 4：status 只读注册表；cancel 置取消标志干预运行中进程（teardown 收尾），process
+  const cases = { run: 'process', report: 'read', diff: 'read', status: 'read', cancel: 'process' } as const;
+  for (const [a, r] of Object.entries(cases)) it(`qa.${a}→${r}`, () => expect(getActionRisk('qa', a)).toBe(r));
+});
