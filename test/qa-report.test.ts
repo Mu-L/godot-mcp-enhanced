@@ -174,3 +174,28 @@ describe('findPreviousReport 碰撞防护（审查 Important-2）', () => {
     expect(findPreviousReport('20260816-100002-_', '冒烟')?.run_id).toBe('20260816-100000-_',);
   });
 });
+
+// ═══ PR-1b Task 3：CANCELLED 报告不作 nightly 基线 ═══
+
+describe('findPreviousReport 跳过 CANCELLED（PR-1b）', () => {
+  it('CANCELLED 报告不作为基线候选，继续往前找', () => {
+    // old-PASSED（base 期望）→ mid-CANCELLED（应被跳过）→ new-PASSED（exclude）
+    writeReport(report('20260817-080000-suiteX', 'suiteX', [step(0, 'a', 'sleep', 'PASSED')]));
+    const mid = report('20260817-090000-suiteX', 'suiteX', [step(0, 'a', 'sleep', 'FAILED')]);
+    mid.summary.status = 'CANCELLED'; // 手动取消的半途报告（取消优先于 FAILED，Task 2 终态）
+    writeReport(mid);
+    writeReport(report('20260817-100000-suiteX', 'suiteX', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260817-100000-suiteX', 'suiteX');
+    expect(prev?.run_id).toBe('20260817-080000-suiteX'); // 不是 mid-CANCELLED
+  });
+
+  it('同套件历史全为 CANCELLED → 无基线 null（nightly 跳过 diff 只报告本次）', () => {
+    const c1 = report('20260817-110000-suiteC', 'suiteC', [step(0, 'a', 'sleep', 'SKIPPED')]);
+    c1.summary.status = 'CANCELLED'; // 取消时未跑到的步骤按 SKIPPED 收尾
+    writeReport(c1);
+    writeReport(report('20260817-120000-suiteC', 'suiteC', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    expect(findPreviousReport('20260817-120000-suiteC', 'suiteC')).toBeNull();
+  });
+});

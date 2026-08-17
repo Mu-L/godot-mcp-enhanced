@@ -164,7 +164,10 @@ export function findPreviousReport(excludeRunId: string, suiteName: string): QaR
     if (!f.endsWith(suffix)) continue;
     try {
       const rep = JSON.parse(readFileSync(join(qaReportsDir(), f), 'utf8')) as QaReport;
-      if (rep.suite?.name === suiteName) return rep;
+      if (rep.suite?.name === suiteName) {
+        if (rep.summary?.status === 'CANCELLED') continue; // 半途报告不作基线（PR-1b I-5），继续往前找
+        return rep;
+      }
     } catch { /* 损坏的候选报告跳过，继续往前找 */ }
   }
   return null;
