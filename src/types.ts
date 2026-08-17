@@ -29,6 +29,10 @@ export interface ToolContext {
   checkEditorSceneSave?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
   /** MCP Progress 通知 emitter（per-request，dispatcher 注入）。无 progressToken 时 undefined，调用方用 ctx.progress?.()。 */
   progress?: (progress: number, total: number, message?: string) => void;
+  /** PR-2: 客户端声明 tasks 能力(tools/call task-augmented)时 true——qa run 据此自动转 async
+   *  并在响应 _meta.relatedTask 回指 task。由 GodotServer tools/call handler 从
+   *  server.getClientCapabilities() 读出注入(dispatcher 层拿不到 server 引用)。 */
+  taskAugmented?: boolean;
 }
 
 // Helper to create a text result

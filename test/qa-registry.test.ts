@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   registerRun, getRun, listRuns, activeWorkingRun, requestCancel,
   finishRun, updateProgress, clearRegistry, QaBusyError, cancelAndAwaitWorkingRun,
+  setTerminalNotifier,
 } from '../src/tools/qa/registry.js';
 
 beforeEach(() => clearRegistry());
@@ -121,5 +122,37 @@ describe('cancelAndAwaitWorkingRun(close 优雅收尾)', () => {
     // 若实现误用 60s,advance 100 后 p 仍挂起,断言会超时失败
     const r = await vi.advanceTimersByTimeAsync(100).then(() => p);
     expect(r).toEqual({ cancelled: 'run-1', settled: false });
+  });
+});
+
+// ═══ PR-2 Task 1:registry 终态通知钩子 + error 字段 ═══
+
+describe('registry 终态通知与 error 字段(PR-2)', () => {
+  afterEach(() => setTerminalNotifier(null));
+
+  it('finishRun 终态时调用 notifier(runId+status);updateProgress 不触发', () => {
+    clearRegistry();
+    const fired: Array<[string, string]> = [];
+    setTerminalNotifier((id, st) => fired.push([id, st]));
+    registerRun('run-1', 'a', 'D:/p', 2);
+    updateProgress('run-1', 1, 2, 'x');
+    expect(fired).toHaveLength(0);
+    finishRun('run-1', 'completed');
+    expect(fired).toEqual([['run-1', 'completed']]);
+  });
+
+  it('notifier 抛异常不影响 finishRun 状态写入(best-effort)', () => {
+    clearRegistry();
+    setTerminalNotifier(() => { throw new Error('boom'); });
+    registerRun('run-2', 'a', 'D:/p', 1);
+    expect(() => finishRun('run-2', 'failed')).not.toThrow();
+    expect(getRun('run-2')!.status).toBe('failed');
+  });
+
+  it('finishRun error 参数写入 RunRecord.error', () => {
+    clearRegistry();
+    registerRun('run-3', 'a', 'D:/p', 1);
+    finishRun('run-3', 'failed', undefined, undefined, 'writeReport failed: EACCES');
+    expect(getRun('run-3')!.error).toBe('writeReport failed: EACCES');
   });
 });

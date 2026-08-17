@@ -10,6 +10,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
   '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07',
 ] as const;
 import { join } from 'path';
+import { z } from 'zod';
 import { readInstructions } from './core/instructions.js';
 import { registerBridgePushHandler, setBridgeProjectDir } from './tools/game-bridge.js';
 import {
@@ -42,7 +43,9 @@ import { setGetContextConnectionProvider, setEditorSceneProvider } from './tools
 import { InstanceManager, buildInstanceInfo } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
-import { cancelAndAwaitWorkingRun } from './tools/qa/registry.js';
+import { cancelAndAwaitWorkingRun, getRun, listRuns, requestCancel, setTerminalNotifier } from './tools/qa/registry.js';
+import { toWireTask, toTaskPayload, assertTaskWire } from './tools/qa/task-view.js';
+import { appendAuditLine, isAuditEnabled } from './core/audit-log.js';
 import { buildAuthHeaders } from './core/instance-api-auth.js';
 import { InstanceHttpServer } from './core/instance-http-server.js';
 import { isFeatureEnabled } from './core/feature-flags.js';
@@ -137,6 +140,13 @@ export class GodotServer {
           // ('logging/setLevel',...) 会 Map.set 覆盖内置 handler → 丢 _loggingLevels 状态维护,
           // 引入回归。勿重复注册(见 test/k-subscribe-setlevel.test.ts 行为锁定测试)。
           logging: {},
+          // PR-2 (2025-11-25 tasks wire):tasks 族协议 method 上线(qa run 注册表 → wire Task)。
+          // era-gated——2026 era 客户端在 SDK 分发层即 METHOD_NOT_FOUND,无害(spec §3.2);
+          // SDK 无 task 运行时(类型层将 tasks 词汇从 RequestMethod 排除),handler 自建。
+          // 通知能否真正发出由 _notificationViaCodec 的协商 era 检查决定(2024 era 客户端连
+          // tasks/status 通知也收不到,codec 拒后由外层 catch 吞);assertNotificationCapability
+          // 的 switch 无该 case,不构成门控(T3 审查 Minor-1 纠偏)。声明本身是协议正确性要求。
+          tasks: { list: {}, cancel: {}, requests: { tools: { call: {} } } },
           // P2-5 (SEP-2133): extensions 声明让 modern-era 客户端发现 enhanced 的 runtime-bridge 能力。
           // ⚠️ era-gated:extensions 是 2026-07-28 引入,legacy-era 客户端不认识 → SDK encode 时 strip,对 legacy 无害。
           // runtime-bridge:TCP 通道(game_query/input/write/wait + 确定性 playtest 四原语 P2-4)。
@@ -181,6 +191,26 @@ export class GodotServer {
   }
 
   private setupHandlers(): void {
+    // PR-2 (2025-11-25 tasks wire): 终态通知——仅当客户端声明 tasks 能力时发(协议要求);best-effort。
+    // 通知通道单点 as never:'notifications/tasks/status' 不在 SDK NotificationMethod
+    // (类型层排除 2025-11-25 词汇),运行时通道可用(InMemoryTransport 实测客户端可收)。
+    setTerminalNotifier((runId, status) => {
+      try {
+        const caps = this.server.getClientCapabilities();
+        if (!caps?.tasks) return;
+        const r = getRun(runId);
+        if (!r) return;
+        void this.server.notification({
+          method: 'notifications/tasks/status',
+          params: {
+            taskId: r.taskId, status,
+            ttl: Math.round(r.ttl / 1000),
+            createdAt: r.createdAt, lastUpdatedAt: r.lastUpdatedAt,
+          },
+        } as never).catch(() => { /* best-effort:transport send 中途失败(如对端刚断)静默 */ });
+      } catch { /* best-effort:通知失败不影响注册表状态写入 */ }
+    });
+
     const dispatcher = new ToolDispatcher({
       readOnly: this.options.readOnly ?? false,
       mode: this.options.mode ?? 'full',  // G7 审查 O1 defer: 兜底保持 full(godot-server.test 假设;生产经 index.ts 默认 basic,O1 一致性 defer 到未来统一)
@@ -203,8 +233,63 @@ export class GodotServer {
     });
 
     this.server.setRequestHandler('tools/call', (request, ctx) =>
-      dispatcher.handleCall(request, ctx)
+      // PR-2 Task 4: per-request 读客户端 tasks 能力(tools/call task-augmented 协商)传入
+      // dispatcher → ctx.taskAugmented(qa run 据此自动 async + _meta.relatedTask 回指)。
+      // initialize 握手后才有值;未声明/未握手 → false,保持 sync 现状。
+      dispatcher.handleCall(request, ctx, !!this.server.getClientCapabilities()?.tasks)
     );
+
+    // ── PR-2 (2025-11-25 tasks wire):tasks/get|list|cancel|result ─────────────
+    // SDK 类型层将 tasks 族 method 从 RequestMethod 排除(2025-11-25 词汇无 SDK 运行时,
+    // wire schema 仅为互操作保留解析),故走 3 参 schema 重载的字符串 method 通道:
+    // params 由 SDK zod 校验(缺 taskId → -32602),handler 抛普通 Error → SDK 转 -32603。
+    // era 门控由 SDK 分发层兜底:未注册(本 server)或 2026 era 客户端 → METHOD_NOT_FOUND。
+    const TaskIdParams = z.object({ taskId: z.string() });
+
+    this.server.setRequestHandler('tasks/get', { params: TaskIdParams }, async ({ taskId }) => {
+      const r = getRun(taskId);
+      if (!r) throw new Error(`task not found: ${taskId}(server 可能已重启;qa report 可读落盘报告)`);
+      const t = toWireTask(r);
+      assertTaskWire(t);
+      return t;
+    });
+
+    this.server.setRequestHandler('tasks/list', { params: z.object({}) }, async () => ({
+      tasks: listRuns().map(r => { const t = toWireTask(r); assertTaskWire(t); return t; }),
+    }));
+
+    this.server.setRequestHandler('tasks/cancel', { params: TaskIdParams }, async ({ taskId }) => {
+      const r = getRun(taskId);
+      if (!r) throw new Error(`task not found: ${taskId}`);
+      const res = requestCancel(taskId);
+      if (!res.ok) throw new Error(`cannot cancel: ${res.message}`);
+      // B-3 裁定:免二次 elicitation(启动已过 confirm 门)但必须 audit 留痕。
+      // AuditEntry 字段照 src/cli/qa.ts auditRun 先例同构(best-effort,失败由 catch 吞)。
+      if (isAuditEnabled()) {
+        try {
+          await appendAuditLine(r.project_path, {
+            timestamp: new Date().toISOString(),
+            trace_id: `tasks-cancel-${taskId}`,
+            tool: 'qa',
+            action: 'tasks/cancel',
+            risk: 'process',
+            ok: true,
+            project_path: r.project_path,
+            changed_files: [],
+            duration_ms: 0,
+          });
+        } catch { /* best-effort(与 dispatcher 审计哲学一致:失败由 catch 吞) */ }
+      }
+      const t = toWireTask(r);
+      assertTaskWire(t);
+      return t;
+    });
+
+    this.server.setRequestHandler('tasks/result', { params: TaskIdParams }, async ({ taskId }) => {
+      const r = getRun(taskId);
+      if (!r) throw new Error(`task not found: ${taskId}`);
+      return { payload: toTaskPayload(r) };  // working 时 toTaskPayload 抛 → SDK 转 JSON-RPC error
+    });
 
     // ── MCP Resources handlers ──────────────────────────────────────────────
     this.server.setRequestHandler('resources/list', async () => {
@@ -660,6 +745,8 @@ export class GodotServer {
       // 与 dynamicSchema.setFetcher(:229 注入的 fetcher 同样持旧 editorMgr 闭包)。
       registerBridgePushHandler(null);
       dynamicSchema.setFetcher(null);
+      // PR-2 (tasks wire): 注销终态通知钩子(闭包持已 close 旧 server,防测试隔离泄漏/热重启残留)。
+      setTerminalNotifier(null);
       // K-1: 清空资源订阅集合(热重启/测试隔离时防旧订阅状态残留)
       this.resourceSubscriptions.clear();
       log('Server shut down');

@@ -128,6 +128,9 @@ export class ToolDispatcher {
       if (targetTool === 'godot_advanced_tool') {
         return opsErrorResult('PROXY_RECURSION', 'Cannot proxy godot_advanced_tool through itself');
       }
+      // PR-2 Task 4 诚实边界:代理再分发不透传 clientTasksCapable(拿不到 GodotServer 的
+      // per-request 能力快照)→ 代理链上 taskAugmented=false。qa 不经 godot_advanced_tool
+      // 代理,当前零影响;若未来经代理调 qa 需要传第 3 参。
       return this.handleCall({ params: { name: targetTool, arguments: toolArgs } }) as Promise<ToolResult>;
     });
   }
@@ -197,7 +200,7 @@ export class ToolDispatcher {
     return allTools;
   }
 
-  async handleCall(request: { params: { name: string; arguments?: Record<string, unknown> } }, srvCtx?: ServerContext): Promise<HandlerResult> {
+  async handleCall(request: { params: { name: string; arguments?: Record<string, unknown> } }, srvCtx?: ServerContext, clientTasksCapable?: boolean): Promise<HandlerResult> {
     // Apply deferred mode switch before processing
     this._applyPendingModeSwitch();
 
@@ -255,13 +258,13 @@ export class ToolDispatcher {
     return withRequestLogFn(requestLogFn ?? null, () =>
       withRequestLogLevelAsync(requestLogLevel, () =>
         executeMiddleware(this.middleware, ctx, async () => {
-          return this.executeToolCall(name, args, startTime, ctx.traceId, progressEmitter, srvCtx);
+          return this.executeToolCall(name, args, startTime, ctx.traceId, progressEmitter, srvCtx, clientTasksCapable);
         }),
       ),
     );
   }
 
-  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, traceId: string, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext): Promise<HandlerResult> {
+  private async executeToolCall(name: string, args: Record<string, unknown>, startTime: number, traceId: string, progressEmitter?: ProgressEmitter, srvCtx?: ServerContext, clientTasksCapable?: boolean): Promise<HandlerResult> {
     // ── Task 3 (A-RCE #3): profile 硬隔离入口强制 ──
     // isToolAllowed 原只在 getFilteredTools 广告层(:183),被转发 MCP 客户端(拿完整
     // tools/list 或硬编码工具名)仍可调用 TOOL_GROUPS/slim 过滤的工具。此处对称补强:
@@ -367,7 +370,7 @@ export class ToolDispatcher {
             `Please call the original tool again — the server will re-generate a fresh token with the full args.`);
           console.warn(`[SECURITY] GODOT_MCP_ALLOW_UNSAFE_CONFIRM=true — confirm_and_execute 跳过 elicitation (token:${String(token).slice(0, 8)} tool:${pending.toolName})。仅可信本地/CI,生产保持默认未设。`);
           // 跳到执行段（下面 confirmedPending 赋值后共用）
-          const __confirmedResult = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+          const __confirmedResult = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor, clientTasksCapable);
           await this._auditConfirmedExecution(pending, startTime, __confirmedResult, traceId);
           return __confirmedResult;
         }
@@ -406,7 +409,7 @@ export class ToolDispatcher {
 
         const pending = consumeToken(token);
         if (!pending) return opsErrorResult('TOKEN_EXPIRED', 'Confirmation token expired during MRTR round-trip');
-        const __confirmedResult2 = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor);
+        const __confirmedResult2 = await this._confirmExecute(pending, startTime, progressEmitter, currentMode, currentExecutor, clientTasksCapable);
         await this._auditConfirmedExecution(pending, startTime, __confirmedResult2, traceId);
         return __confirmedResult2;
       }
@@ -439,7 +442,7 @@ export class ToolDispatcher {
       }
 
       // ── 4+5. editor/headless dispatch(抽到 _dispatchEditorOrHeadless,与 _confirmExecute 复用)──
-      return await this._dispatchEditorOrHeadless(name, args, currentMode, currentExecutor, startTime, findGodotOverride, progressEmitter);
+      return await this._dispatchEditorOrHeadless(name, args, currentMode, currentExecutor, startTime, findGodotOverride, progressEmitter, clientTasksCapable);
     } catch (err) {
       // G2 (2026-08-13): 结构化错误分类 + PII 护栏。classifyError 从异常【类型】映射,
       // 绝不读 err.message。safeMessage 进 client 响应(PII-safe);完整 err.message 只 log。
@@ -746,6 +749,7 @@ export class ToolDispatcher {
     progressEmitter: ProgressEmitter | undefined,
     currentMode: 'headless' | 'editor',
     currentExecutor: EditorToolExecutor | null,
+    clientTasksCapable?: boolean,
   ): Promise<ToolResult> {
     // 二次 guard 检查
     const confirmedGuardResult = this.readOnlyGuard.check(pending.toolName);
@@ -764,7 +768,7 @@ export class ToolDispatcher {
 
     // editor/headless 分支逻辑复用 _dispatchEditorOrHeadless(与 executeToolCall 共用)
     log('[CONFIRM] Executing confirmed tool: %s', pending.toolName);
-    return this._dispatchEditorOrHeadless(pending.toolName, pending.args, currentMode, currentExecutor, startTime, confirmedFindGodotOverride, progressEmitter);
+    return this._dispatchEditorOrHeadless(pending.toolName, pending.args, currentMode, currentExecutor, startTime, confirmedFindGodotOverride, progressEmitter, clientTasksCapable);
   }
 
   /** B-1 修复(审查):confirm_and_execute 真实执行后补审计。
@@ -826,6 +830,7 @@ export class ToolDispatcher {
     startTime: number,
     findGodotOverride: ((projectPath?: string) => Promise<string>) | undefined,
     progressEmitter: ProgressEmitter | undefined,
+    taskAugmented?: boolean,
   ): Promise<ToolResult> {
     if (currentMode === 'editor' && currentExecutor) {
       const logger = getLogger();
@@ -835,7 +840,7 @@ export class ToolDispatcher {
       // 被误判 unknown method 触发静默降级(见 ToolDispatcher.test「isError guard」负面用例)。
       if (editorResult.isError === true && this._isUnknownMethod(editorResult)) {
         logger.toolEnd(callId, toolName, Date.now() - startTime, 'editor_unknown_method_fallback');
-        return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter));
+        return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter, taskAugmented));
       }
       const duration = Date.now() - startTime;
       logger.toolEnd(callId, toolName, duration);
@@ -849,10 +854,10 @@ export class ToolDispatcher {
     }
     // CR-1: 必须传入 findGodotOverride,否则 perCallCtx 回退 this.ctx.findGodot,
     // 导致 godot_path 参数和项目感知 findGodot 在最常用路径失效。
-    return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter));
+    return this.attachFallbackWarning(await this.dispatchTool(toolName, args, startTime, findGodotOverride, progressEmitter, taskAugmented));
   }
 
-  private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter): Promise<ToolResult> {
+  private async dispatchTool(toolName: string, args: Record<string, unknown>, startTime: number, findGodotOverride?: ((projectPath?: string) => Promise<string>), progressEmitter?: ProgressEmitter, taskAugmented?: boolean): Promise<ToolResult> {
     let targetMod = getModuleForTool(toolName);
     let effectiveToolName = toolName;
     let effectiveArgs = args;
@@ -878,7 +883,8 @@ export class ToolDispatcher {
     try {
       // C-CONC-1: per-call findGodot 经参数传入(局部变量),避免实例字段被并发请求覆盖
       // 用 buildPerCallCtx(Object.create)而非 spread,保留 ctx getter(见该函数注释)
-      const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride, progressEmitter);
+      // PR-2 Task 4: taskAugmented 同为 per-request 态(C-CONC-1 模式),随调用链显式传入
+      const perCallCtx = buildPerCallCtx(this.ctx, findGodotOverride, progressEmitter, taskAugmented);
       // P1-2 (2026-07-06 review): editor 文本资源/场景写守卫注入。editorExecutor 可用(非 null)时
       // 注入回调; script.ts/scene 写前调, 经 WS 调编辑器 guard_text_resource_write/guard_offline_scene_save,
       // 防 TS writeFileSync 绕过编辑器内存状态守卫致磁盘/内存版本撕裂。headless 模式 editorExecutor=null 不注入。
@@ -1003,12 +1009,18 @@ export function buildPerCallCtx(
   baseCtx: ToolContext,
   findGodotOverride?: (projectPath?: string) => Promise<string>,
   progressEmitter?: ProgressEmitter,
+  taskAugmented?: boolean,
 ): ToolContext {
   const perCallCtx = Object.create(baseCtx) as ToolContext;
   perCallCtx.findGodot = findGodotOverride ?? baseCtx.findGodot;
   // Task 3: 注入 per-request progress emitter（progress 是新增字段非 getter，不破坏 Object.create 继承机制）
   if (progressEmitter) {
     perCallCtx.progress = progressEmitter;
+  }
+  // PR-2 Task 4: 注入 per-request taskAugmented(同为新增字段非 getter)。仅 true 时显式
+  // 赋值,false/undefined 时保持继承态(baseCtx 不设此字段 → undefined),避免遮蔽。
+  if (taskAugmented === true) {
+    perCallCtx.taskAugmented = true;
   }
   return perCallCtx;
 }
