@@ -157,6 +157,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — QA 编排收尾（v0.30 方向 B 收口：nightly diff + 录制集成 + 审查 NIT-7/8 处置）
+
+- **`qa nightly <spec-dir>` CLI（夜间跑批）**：跑目录下全部 `*.json`/`*.md` spec，每套件自动与**上次同套件**结果 diff（按报告时间序查基线，首次运行跳过 diff），汇总回归/修复清单 + 退出码（任一套件 FAILED → 1）。`report.ts` 新增 `findPreviousReport`；`qa run` 响应补 `suite_name`/`project_path`。
+- **`record_on_failure` 套件选项（失败自动留录制）**：setup 就绪后 `recording.start`，teardown（stop_project 杀游戏断 bridge 前）`recording.stop`；结果非 PASSED 时 events 落盘 `qa-reports/<run_id>-recording.json`（格式与 `recording_play` 的 events_json 兼容，可离线回放复现），成功丢弃。旧 bridge 无录制命令仅记 `teardown_warning` 降级不阻断（同 screenshot 降级哲学）。
+- **CLI audit 留痕（v0.30 审查 NIT-7）**：`qa run`/`qa nightly` 直调 `handleTool` 不经 dispatcher 确认/审计门，CLI 层手动 `appendAuditLine`（best-effort），夜间跑批操作审计可追溯。
+- **测试补全（v0.30 审查 NIT-8 收口）**：freeze/unfreeze/snapshot/restore 分支 + suite budget 耗尽路径 + record_on_failure 四场景（失败落盘含 recording.stop 先于 stop_project 顺序断言/成功不落盘/start 失败降级/默认关闭负例）+ nightly CLI 四场景（回归检出+汇总+exit 码/多套件无基线/spec 错误不中断/空目录）+ findPreviousReport。
+
 ### Fixed — 原型翻译层迭代小修批(2026-08-16 实施审查遗留 ①②⑤)
 
 - **显式 `type:'Panel'` 无 bg 行为翻转无提示**:HTML div 默认透明而 Godot 默认 Panel 主题灰底 stylebox,渲染行为翻转(灰底可见)此前静默——翻译器补 declaration warning(建议补 bg 匹配原型或去掉 type 走推断透明壳),正负测试锁定。

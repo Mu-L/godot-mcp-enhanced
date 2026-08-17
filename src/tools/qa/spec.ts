@@ -143,6 +143,12 @@ export const QaOptionsSchema = z.object({
   run_timeout_s: z.number().int().min(30).max(3600).default(600),
   /** 套件总墙钟预算（ms），超预算剩余步骤标记 SKIPPED */
   suite_budget_ms: z.number().int().min(10000).max(600000).default(300000),
+  /**
+   * 失败自动留录制（QA 收尾批①）：setup 就绪后开始录制输入事件，teardown 前 stop；
+   * 结果非 PASSED 时 events 落盘 qa-reports/<run_id>-recording.json（成功丢弃）。
+   * recording.start 不可用（旧 bridge）仅记 teardown_warning 降级，不阻断套件。
+   */
+  record_on_failure: z.boolean().default(false),
 });
 
 // ─── 套件 ────────────────────────────────────────────────────────────────────

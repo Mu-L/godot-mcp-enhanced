@@ -36,6 +36,8 @@ export interface QaReport {
   setup_error?: string;
   /** teardown（stop_project 等）尽力收尾的失败记录，不影响 status 判定 */
   teardown_warnings?: string[];
+  /** record_on_failure 且结果非 PASSED 时，录制文件路径（qa-reports/<run_id>-recording.json，格式与 recording_play 的 events_json 兼容） */
+  recording_path?: string;
   summary: {
     total: number;
     passed: number;
@@ -144,6 +146,24 @@ export function readReport(pathRef: string): QaReport {
 
 export function stepCaseId(st: StepRecord): string {
   return st.label ?? `${st.index}:${st.type}`;
+}
+
+/**
+ * 找同套件的上一次运行报告（QA 收尾批② nightly 基线）：按 run_id 文件名时间序，
+ * 从 excludeRunId 之后往前找第一个同 sanitizeSuiteName 后缀的报告；找不到返回 null
+ * （首次运行无基线，nightly 对该套件跳过 diff 只报告本次结果）。
+ */
+export function findPreviousReport(excludeRunId: string, suiteName: string): QaReport | null {
+  const suffix = `-${sanitizeSuiteName(suiteName)}.json`;
+  const all = listReports(); // 倒序，最新在前
+  const curIdx = all.indexOf(`${excludeRunId}.json`);
+  const candidates = curIdx >= 0 ? all.slice(curIdx + 1) : all;
+  for (const f of candidates) {
+    if (f.endsWith(suffix)) {
+      return JSON.parse(readFileSync(join(qaReportsDir(), f), 'utf8')) as QaReport;
+    }
+  }
+  return null;
 }
 
 export interface QaDiff {

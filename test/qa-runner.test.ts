@@ -343,3 +343,141 @@ describe('报告落盘接线', () => {
     expect(back.run_id).toBe(report.run_id);
   });
 });
+
+// ═══ QA 收尾批（2026-08-16）：NIT-8 分支补全 + record_on_failure ═══
+
+describe('playtest 控制步骤（NIT-8 补全：freeze/unfreeze/snapshot/restore）', () => {
+  it('freeze/unfreeze → playtest.freeze / playtest.unfreeze 方法名 + 成功 PASSED', async () => {
+    const s = suite({
+      steps: [
+        { type: 'freeze', label: '冻结' },
+        { type: 'unfreeze', label: '解冻' },
+      ],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.steps.map(x => x.status)).toEqual(['PASSED', 'PASSED']);
+    expect(sendToBridge).toHaveBeenCalledWith('playtest.freeze', {}, expect.any(Number));
+    expect(sendToBridge).toHaveBeenCalledWith('playtest.unfreeze', {}, expect.any(Number));
+  });
+
+  it('snapshot/restore → playtest.snapshot / playtest.restore 透传', async () => {
+    const s = suite({
+      steps: [{ type: 'snapshot', label: '快照' }, { type: 'restore', label: '恢复' }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.steps.map(x => x.status)).toEqual(['PASSED', 'PASSED']);
+    expect(sendToBridge).toHaveBeenCalledWith('playtest.snapshot', {}, expect.any(Number));
+    expect(sendToBridge).toHaveBeenCalledWith('playtest.restore', {}, expect.any(Number));
+  });
+
+  it('freeze bridge error → ERROR + 中止后续步骤', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'playtest.freeze') return { id: 9, error: { code: -1, message: 'frozen by other peer' } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [{ type: 'freeze' }, { type: 'unfreeze' }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.steps[0]!.status).toBe('ERROR');
+    expect(r.steps[0]!.detail).toContain('frozen by other peer');
+    expect(r.steps[1]!.skip_reason).toContain('aborted after step 0');
+  });
+});
+
+describe('suite budget 耗尽（NIT-8）', () => {
+  it('预算耗尽后剩余步骤 SKIPPED + summary FAILED', async () => {
+    // Date.now 递进 mock：第 4 次调用起 +11s（suite_budget_ms=10000 最小值），
+    // 首个步骤执行中预算被吃穿 → 后续步骤 SKIPPED。阈值断言容错（内部调用次数实现细节）。
+    const realNow = Date.now();
+    let calls = 0;
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow + (calls++ > 3 ? 11000 : 0));
+    try {
+      const s = suite({
+        options: { suite_budget_ms: 10000, continue_on_failure: true },
+        steps: [
+          { type: 'sleep', ms: 100, label: 's1' },
+          { type: 'sleep', ms: 100, label: 's2' },
+          { type: 'sleep', ms: 100, label: 's3' },
+        ],
+      });
+      const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+      expect(r.steps.some(x => x.skip_reason === 'suite budget exhausted')).toBe(true);
+      expect(r.summary.skipped).toBeGreaterThanOrEqual(1);
+      expect(r.summary.status).toBe('FAILED'); // skipped>0 → FAILED（finalizeSummary 语义）
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('record_on_failure（QA 收尾批①）', () => {
+  const recordingEvents = [{ type: 'key', keycode: 87, pressed: true, time_offset: 120 }];
+
+  function recordMocks(): string[] {
+    // 共享顺序日志：验证 recording.stop 先于 stop_project（杀游戏断 bridge 前取 events）
+    const order: string[] = [];
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      order.push(method);
+      if (method === 'recording.start') return { id: 10, result: {} };
+      if (method === 'recording.stop') return { id: 11, result: { version: 1, duration_ms: 500, events: recordingEvents } };
+      if (method === 'get_node_properties') return { id: 1, result: { health: 1 } }; // 断言失败：expect 100
+      return { id: 5, result: {} };
+    });
+    vi.mocked(runtimeHandleTool).mockImplementation(async (_n, args) => {
+      const action = (args as Record<string, unknown>).action;
+      order.push(`runtime:${String(action)}`);
+      if (action === 'run_project') return textResult('Bridge ready. Running project.');
+      return textResult('Stopped.');
+    });
+    return order;
+  }
+
+  it('失败套件：events 落盘 qa-reports/<run_id>-recording.json + recording.stop 先于 stop_project', async () => {
+    const order = recordMocks();
+    const s = suite({
+      options: { record_on_failure: true },
+      steps: [{ type: 'assert', assert: 'node_state', path: '/root/Root', expect: { health: 100 } }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.summary.status).toBe('FAILED');
+    expect(r.recording_path).toBeDefined();
+    const saved = JSON.parse(readFileSync(r.recording_path!, 'utf-8'));
+    expect(saved).toEqual({ version: 1, duration_ms: 500, events: recordingEvents });
+    expect(order.indexOf('recording.stop')).toBeLessThan(order.lastIndexOf('runtime:stop_project'));
+    expect(order).toContain('recording.start');
+  });
+
+  it('成功套件：不落盘（recording_path undefined）', async () => {
+    recordMocks();
+    const s = suite({
+      options: { record_on_failure: true },
+      steps: [{ type: 'sleep', ms: 100 }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.summary.status).toBe('PASSED');
+    expect(r.recording_path).toBeUndefined();
+  });
+
+  it('recording.start 失败（旧 bridge）：teardown_warning 降级，套件照常执行', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'recording.start') return { id: 10, error: { code: -32601, message: 'Method not found' } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      options: { record_on_failure: true },
+      steps: [{ type: 'sleep', ms: 100 }],
+    });
+    const r = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(r.summary.status).toBe('PASSED');
+    expect(r.teardown_warnings?.some(w => w.includes('recording.start 失败'))).toBe(true);
+    expect(r.recording_path).toBeUndefined();
+  });
+
+  it('默认 false：不发起录制（负例）', async () => {
+    const order = recordMocks();
+    const s = suite({ steps: [{ type: 'sleep', ms: 100 }] });
+    await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(order).not.toContain('recording.start');
+  });
+});

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  writeReport, readReport, listReports, diffReports, sanitizeSuiteName,
+  writeReport, readReport, listReports, diffReports, sanitizeSuiteName, findPreviousReport,
   type QaReport, type StepRecord,
 } from '../src/tools/qa/report.js';
 
@@ -133,5 +133,27 @@ describe('sanitizeSuiteName', () => {
     expect(sanitizeSuiteName('save-load_smoke v1')).toBe('save-load_smoke_v1');
     expect(sanitizeSuiteName('!!!')).toBe('_');
     expect(sanitizeSuiteName('')).toBe('suite');
+  });
+});
+
+// ═══ QA 收尾批②（2026-08-16）：nightly 基线查找 ═══
+
+describe('findPreviousReport（nightly 同套件基线）', () => {
+  it('跳过当前 run，取同套件名最近一次；跨套件名跳过', () => {
+    writeReport(report('20260815-100000-smoke', 'smoke', [step(0, 'a', 'sleep', 'PASSED')]));
+    writeReport(report('20260815-110000-other', 'other', [step(0, 'b', 'sleep', 'PASSED')]));
+    writeReport(report('20260815-120000-smoke', 'smoke', [step(0, 'a', 'sleep', 'FAILED')]));
+    const cur = writeReport(report('20260816-090000-smoke', 'smoke', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260816-090000-smoke', 'smoke');
+    expect(prev?.run_id).toBe('20260815-120000-smoke'); // 不是 other，也不是更早的 100000
+
+    // 首次运行（无同套件历史）→ null
+    expect(findPreviousReport('20260816-090001-newbie', 'newbie')).toBeNull();
+    // 中文套件名 sanitize 后仍可对齐
+    void cur;
+    writeReport(report('20260816-091000-_smoke', '冒烟', [step(0, 'a', 'sleep', 'PASSED')]));
+    const prev2 = findPreviousReport('20260816-091000-_smoke', '冒烟');
+    expect(prev2).toBeNull(); // '冒烟'→'_'，之前无同后缀
   });
 });

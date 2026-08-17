@@ -9,7 +9,7 @@
 // 语义：FAILED = 断言未满足（测试失败）；ERROR = 基础设施失败（bridge 断连/超时/校验拒绝）。
 // 两者默认都中止剩余步骤（continue_on_failure=true 继续）；中止的剩余步骤记 SKIPPED。
 
-import { mkdirSync, readFileSync, copyFileSync, existsSync } from 'fs';
+import { mkdirSync, readFileSync, copyFileSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { ToolContext, ToolResult } from '../../types.js';
@@ -121,6 +121,10 @@ export async function runQaSuite(
   };
 
   let gameStarted = false;
+  // record_on_failure（QA 收尾批①）：setup 就绪后 start，teardown（stop_project 杀游戏
+  // 断 bridge）前 stop；成功丢弃，失败落盘 qa-reports（与 screenshot 证据同目录）。
+  let recordStarted = false;
+  let pendingRecording: { version: 1; duration_ms: number; events: unknown[] } | null = null;
 
   // finalize 放外层 finally：早退（setup error）/正常结束/异常路径都统一结算 summary
   /** setup 失败统一出口：记 setup_error + 全部步骤标 SKIPPED('setup failed') */
@@ -175,6 +179,16 @@ export async function runQaSuite(
         if (resp.error) return failSetup(`playtest.fixed_delta 失败: ${resp.error.message}`);
       }
 
+      if (o.record_on_failure) {
+        // best-effort：旧 bridge 无此命令只记警告降级，不阻断套件（同 screenshot 降级哲学）
+        const resp = await sendToBridge('recording.start', {}, o.step_timeout_ms);
+        if (resp.error) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `recording.start 失败(录制证据不可用): ${resp.error.message}`];
+        } else {
+          recordStarted = true;
+        }
+      }
+
       // ── steps ──────────────────────────────────────────────────────────────
       let aborted: string | undefined;
       for (let i = 0; i < suite.steps.length; i++) {
@@ -207,6 +221,22 @@ export async function runQaSuite(
       }
     } finally {
       // ── teardown：尽力收尾，失败只记警告不影响报告判定 ──────────────────────
+      // 录制 stop 必须在 stop_project 之前（杀游戏即断 bridge，之后取不到 events）。
+      if (recordStarted) {
+        try {
+          const resp = await sendToBridge('recording.stop', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `recording.stop 失败(录制证据丢失): ${resp.error.message}`];
+          } else {
+            const r = resp.result as { version?: number; duration_ms?: number; events?: unknown[] };
+            if (r && Array.isArray(r.events)) {
+              pendingRecording = { version: 1, duration_ms: r.duration_ms ?? 0, events: r.events };
+            }
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `recording.stop 异常(录制证据丢失): ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
       if (o.stop_after && gameStarted) {
         try {
           await runtime.handleTool('runtime', { action: 'stop_project' }, ctx);
@@ -217,6 +247,18 @@ export async function runQaSuite(
     }
   } finally {
     finalizeSummary(report, startedMs);
+    // 失败落盘录制（成功丢弃）：格式与 recording_play 的 events_json 兼容，可离线回放复现。
+    if (o.record_on_failure && pendingRecording && report.summary.status !== 'PASSED') {
+      try {
+        const dir = qaReportsDir();
+        mkdirSync(dir, { recursive: true });
+        const p = join(dir, `${runId}-recording.json`);
+        writeFileSync(p, JSON.stringify(pendingRecording), 'utf-8');
+        report.recording_path = p;
+      } catch (err) {
+        report.teardown_warnings = [...(report.teardown_warnings ?? []), `录制落盘失败: ${err instanceof Error ? err.message : String(err)}`];
+      }
+    }
   }
 
   return report;

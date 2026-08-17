@@ -38,7 +38,8 @@ export function getToolDefinitions(): Tool[] {
       + 'restore、set、call(只读白名单,写方法需 GODOT_MCP_BRIDGE_EXTRA_METHODS)、'
       + 'assert(node_state/scene_structure/screen_text/perf)、screenshot、sleep。'
       + 'options：seed/fixed_delta_hz(确定性)、continue_on_failure、auto_install_bridge/'
-      + 'auto_run/stop_after、各超时预算。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。',
+      + 'auto_run/stop_after、record_on_failure(失败留录制)、各超时预算。'
+      + '报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -153,8 +154,12 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
     success: true,
     data: {
       run_id: report.run_id,
+      // CLI nightly（同套件上次基线 diff）与 audit 留痕需要；报告 json 内同源
+      suite_name: report.suite.name,
+      project_path: report.suite.project_path,
       summary: report.summary,
       setup_error: report.setup_error,
+      recording: report.recording_path,
       steps: stepsCondensed,
       report: paths,
     },
