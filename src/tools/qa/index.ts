@@ -4,9 +4,10 @@
 // "规范 → 执行 → 报告 → 回归 diff" 的闭环，对标商业 AI QA 工具（StraySpark 模式）
 // 的免费开源实现。五个 action：
 //   run    — 执行套件（inline spec / spec 文件），落盘 ~/.godot-mcp/qa-reports。
-//            mode:sync（默认，行为与 PR-1a 前一致）| async（注册 → 后台执行 → 立即返回
-//            run_id，长套件防客户端超时）。全局单 working 互斥（bridge 单连接），
-//            冲突返回 BUSY。
+//            mode:sync（同步等完整结果）| async（注册 → 后台执行 → 立即返回
+//            run_id，长套件防客户端超时）。显式 mode 优先；未显式指定时，客户端
+//            声明 tasks 能力则自动 async，否则 sync。全局单 working 互斥（bridge
+//            单连接），冲突返回 BUSY。
 //   report — 读报告（'latest'/'prev'/路径/文件名）
 //   diff   — 两份报告按用例对比（回归/修复/新增/移除）
 //   status — 查运行注册表（run_id 省略=列全部；内存态，server 重启即丢，
@@ -58,7 +59,7 @@ export function getToolDefinitions(): Tool[] {
         mode: {
           type: 'string',
           enum: ['sync', 'async'],
-          description: 'run: sync=同步等完整结果(默认,行为不变)；async=立即返回 run_id 后台执行(长套件防客户端超时),用 qa status 轮询、qa report 读结果、qa cancel 取消',
+          description: 'run: sync=同步等完整结果;async=立即返回 run_id 后台执行(用 qa status 轮询/qa cancel 取消)。默认:未显式指定时,客户端声明 MCP tasks 能力则自动 async,否则 sync',
         },
         run_id: { type: 'string', description: 'status/cancel: 目标 run_id(status 省略=列出全部注册 run)' },
         // assert 8 种(node_state/scene_structure/screen_text/perf/screenshot_diff/signal/errors/monitor)
@@ -158,10 +159,11 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
   }
 
   // PR-2 Task 4: 客户端声明 tasks 能力(ctx.taskAugmented,由 GodotServer tools/call handler
-  // 从 getClientCapabilities() 读出注入)时自动转 async——客户端经 _meta.relatedTask 回指
-  // + tasks/get 轮询,防长套件阻塞 tools/call。显式 mode:'sync' 不豁免(能力协商语义:
-  // 声明 tasks 即走 task-augmented 路径,要 sync 就不声明 tasks 能力)。
-  const mode = args.mode === 'async' || ctx.taskAugmented === true ? 'async' : 'sync';
+  // 从 getClientCapabilities() 读出注入)且未显式指定 mode 时自动转 async——客户端经
+  // _meta.relatedTask 回指 + tasks/get 轮询,防长套件阻塞 tools/call。显式 mode 优先
+  // (审查 Important-1 修复:能力协商只提供默认值,显式参数覆盖默认值——声明 tasks 能力
+  // 的客户端显式传 mode:'sync' 仍走同步路径)。
+  const mode = args.mode === 'sync' ? 'sync' : (args.mode === 'async' || ctx.taskAugmented === true ? 'async' : 'sync');
   const runId = makeRunId(suite.name);   // index 层生成，注册表 taskId 与报告 run_id 同一标识
   // BUSY 门：sync/async 一视同仁（bridge 单连接，全局同时仅 1 个 run）
   let record: RunRecord;

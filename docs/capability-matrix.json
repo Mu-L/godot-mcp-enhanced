@@ -3889,7 +3889,7 @@
               "sync",
               "async"
             ],
-            "description": "run: sync=同步等完整结果(默认,行为不变)；async=立即返回 run_id 后台执行(长套件防客户端超时),用 qa status 轮询、qa report 读结果、qa cancel 取消"
+            "description": "run: sync=同步等完整结果;async=立即返回 run_id 后台执行(用 qa status 轮询/qa cancel 取消)。默认:未显式指定时,客户端声明 MCP tasks 能力则自动 async,否则 sync"
           },
           "run_id": {
             "type": "string",
@@ -3972,8 +3972,8 @@
       },
       "size": {
         "descBytes": 469,
-        "schemaBytes": 1940,
-        "totalBytes": 2409
+        "schemaBytes": 1953,
+        "totalBytes": 2422
       },
       "annotations": {
         "readOnlyHint": false,

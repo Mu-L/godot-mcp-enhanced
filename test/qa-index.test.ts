@@ -467,20 +467,26 @@ describe('qa run taskAugmented 自动 async（PR-2 Task 4）', () => {
     expect(relatedTaskOf(r!)).toBeUndefined(); // sync 响应不挂 _meta.relatedTask
   });
 
-  it('行为锁定：taskAugmented:true + 显式 mode:sync → 仍 async（能力协商优先，brief 3d 表达式语义）', async () => {
+  it('审查 Important-1：taskAugmented:true + 显式 mode:sync → sync 响应（显式参数覆盖能力默认值）', async () => {
     vi.mocked(runQaSuite).mockImplementation(async (suite, _pp, _ctx, _src, _ctl, runIdOverride) => {
-      await sleep(100);
+      await sleep(100); // 模拟慢套件：sync 路径应等它完成才返回（区别于 async 的立即返回）
       return fakeReport(runIdOverride!, suite.name, allowedRoot, 'PASSED');
     });
+    const t0 = Date.now();
     const r = await handleTool('qa', {
       action: 'run', mode: 'sync',
-      spec: { name: 'explicit-sync-ignored', steps: [{ type: 'sleep', ms: 100 }] },
+      spec: { name: 'explicit-sync-wins', steps: [{ type: 'sleep', ms: 100 }] },
       project_path: allowedRoot,
     }, augCtx);
-    const d = parse(r!).data as Record<string, unknown>;
-    expect(d.status).toBe('working'); // mode==='async' || taskAugmented === true → async（显式 sync 不豁免）
-    expect(relatedTaskOf(r!)?.taskId).toBe(d.run_id);
-    await waitForTerminal(String(d.run_id));
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(90); // sync：等完整结果后才返回
+    const j = parse(r!);
+    expect(j.success).toBe(true);
+    const d = j.data as Record<string, unknown>;
+    // sync 响应结构（与 plainCtx + 缺省 mode 的 sync 回归同构）：summary/steps 在 data 上
+    expect(d.summary).toBeTruthy();
+    expect(Array.isArray(d.steps)).toBe(true);
+    expect(d.status).toBeUndefined(); // 无 async 响应的 status:'working' 快照
+    expect(relatedTaskOf(r!)).toBeUndefined(); // sync 响应不挂 _meta.relatedTask
   });
 
   it('taskAugmented:true 的 async 响应也适用于 spec_path 入口（分流在 source 解析之后）', async () => {
