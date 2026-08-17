@@ -14,7 +14,7 @@ description: "视觉验证闭环 截图对比 操作前后留证 take_screenshot
 - [ ] 2. 执行变更操作(edit_script / add_node / 材质修改等)
 - [ ] 3. `screenshot(action=capture)` — 操作后截图(同 viewport 同节点)
 - [ ] 4. `screenshot(action=analyze, detail=thumbnail)` — 分别 analyze 操作前/后两张图(thumbnail 省 token),人工或 AI 对比差异
-- [ ] 5. 若需断言:`runtime_assert(action=screenshot_diff, reference=<基线路径>, threshold=0.85)`(注:screenshot_diff 当前为 NOT_IMPLEMENTED 占位,真实相似度对比待实现,见 runtime-assert.ts)
+- [ ] 5. 若需程序化断言:`runtime_assert(action=screenshot_diff, reference=<基线路径>, project_path=<项目路径>, threshold=0.12, max_diff_ratio=0.05)`(threshold=像素差异容忍,per-pixel 归一化 RGB 距离严格大于此值才计差,值越小越严;max_diff_ratio=允许的差异像素占比上限,严格像素回归传 0;qa 套件可直接用 screenshot_diff 断言步骤)
 - [ ] 6. headless 模式警告:若 fileSize < 2048 或 BLANK_DETECTED,改用 bridge take_screenshot(GPU viewport)
 
 **常见偏离**:

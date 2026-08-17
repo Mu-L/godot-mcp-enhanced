@@ -9,9 +9,8 @@
 // 语义：FAILED = 断言未满足（测试失败）；ERROR = 基础设施失败（bridge 断连/超时/校验拒绝）。
 // 两者默认都中止剩余步骤（continue_on_failure=true 继续）；中止的剩余步骤记 SKIPPED。
 
-import { mkdirSync, readFileSync, copyFileSync, existsSync, writeFileSync } from 'fs';
+import { mkdirSync, copyFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import type { ToolContext, ToolResult } from '../../types.js';
 import {
   sendToBridge, setBridgeProjectDir, pollWaitCondition, computePlaytestTimeoutMs,
@@ -19,50 +18,14 @@ import {
 } from '../game-bridge.js';
 import * as gameBridge from '../game-bridge.js';
 import * as runtime from '../runtime.js';
-import { assertNodeState, assertSceneStructure, assertScreenText, assertPerf } from '../runtime-assert.js';
+import { assertNodeState, assertSceneStructure, assertScreenText, assertPerf, assertScreenshotDiff } from '../runtime-assert.js';
 import type { QaSuite, QaStep } from './spec.js';
 import { makeRunId, qaReportsDir, type QaReport, type StepRecord } from './report.js';
+import { resolveGameDataPath } from '../game-fs.js';
+// re-export:保 test/qa-runner.test.ts 既有 import 路径兼容
+export { resolveGameDataPath };
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
-
-/**
- * 把游戏侧 user:// URI 解析为本地绝对路径（Godot app_userdata 布局，三平台）。
- * 读 project.godot 的 config/name（use_custom_user_dir 时用 custom_user_dir_name）。
- * 解析不出/文件不存在返回 null（调用方诚实降级，只记录游戏侧路径）。
- */
-export function resolveGameDataPath(projectPath: string, userUri: string): string | null {
-  if (!userUri.startsWith('user://')) return null;
-  const rel = userUri.slice('user://'.length);
-  let projectName: string;
-  let customDir: string;
-  try {
-    const cfg = readFileSync(join(projectPath, 'project.godot'), 'utf-8');
-    const nameM = cfg.match(/^config\/name\s*=\s*"([^"]*)"/m);
-    projectName = nameM?.[1] ?? '';
-    const customM = cfg.match(/^config\/custom_user_dir_name\s*=\s*"([^"]*)"/m);
-    customDir = customM?.[1] ?? '';
-    if (/^config\/use_custom_user_dir\s*=\s*true/m.test(cfg)) {
-      // use_custom_user_dir: 目录 = <appdata>/<custom_user_dir_name>（Godot 用项目名兜底）
-      customDir = customDir || projectName;
-      projectName = '';
-    }
-  } catch {
-    return null;
-  }
-  const home = homedir();
-  let base: string;
-  if (process.platform === 'win32') {
-    base = join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Godot');
-  } else if (process.platform === 'darwin') {
-    base = join(home, 'Library', 'Application Support', 'Godot');
-  } else {
-    base = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'godot');
-  }
-  const dir = customDir ? join(base, customDir) : projectName ? join(base, 'app_userdata', projectName) : null;
-  if (!dir) return null;
-  const abs = join(dir, rel);
-  return existsSync(abs) ? abs : null;
-}
 
 /** 解析 ToolResult.content[0].text 为 JSON；失败返回 null（text 可能是纯文本错误） */
 function parseToolJson(res: ToolResult): Record<string, unknown> | null {
@@ -84,6 +47,19 @@ function condense(v: unknown, max = 200): string {
 export interface RunQaResult {
   report: QaReport;
   paths: { json_path: string; md_path: string };
+}
+
+/** 套件内跨步骤状态(watch/monitor 单订阅槽自管 + errors baseline;Task PR-1a) */
+interface RunState {
+  watchActive: boolean;
+  monitorActive: boolean;
+  watchEventsCache: WatchEvent[] | null;
+  errorsBaselineSeq: number | null;
+}
+type WatchEvent = { frame: number; time: number; args: unknown[] };
+
+function newRunState(): RunState {
+  return { watchActive: false, monitorActive: false, watchEventsCache: null, errorsBaselineSeq: null };
 }
 
 /**
@@ -125,6 +101,7 @@ export async function runQaSuite(
   // 断 bridge）前 stop；成功丢弃，失败落盘 qa-reports（与 screenshot 证据同目录）。
   let recordStarted = false;
   let pendingRecording: { version: 1; duration_ms: number; events: unknown[] } | null = null;
+  const runState = newRunState();
 
   // finalize 放外层 finally：早退（setup error）/正常结束/异常路径都统一结算 summary
   /** setup 失败统一出口：记 setup_error + 全部步骤标 SKIPPED('setup failed') */
@@ -179,6 +156,16 @@ export async function runQaSuite(
         if (resp.error) return failSetup(`playtest.fixed_delta 失败: ${resp.error.message}`);
       }
 
+      // errors baseline(I-2:仅含 errors 断言的套件采集;失败降级不 failSetup)
+      if (suite.steps.some(s => s.type === 'assert' && s.assert === 'errors')) {
+        const resp = await sendToBridge('get_errors', { since_seq: 0 }, o.step_timeout_ms);
+        if (resp.error) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `get_errors baseline 采集失败(errors 断言将判 ERROR,旧 bridge 可能无错误捕获): ${resp.error.message}`];
+        } else {
+          runState.errorsBaselineSeq = ((resp.result ?? {}) as { next_seq?: number }).next_seq ?? 0;
+        }
+      }
+
       if (o.record_on_failure) {
         // best-effort：旧 bridge 无此命令只记警告降级，不阻断套件（同 screenshot 降级哲学）
         const resp = await sendToBridge('recording.start', {}, o.step_timeout_ms);
@@ -208,7 +195,7 @@ export async function runQaSuite(
 
         ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
         const t0 = Date.now();
-        const outcome = await execStep(step, o, runId, i, projectPath);
+        const outcome = await execStep(step, o, runId, i, projectPath, runState);
         rec.elapsed_ms = Date.now() - t0;
         rec.status = outcome.status;
         rec.detail = outcome.detail;
@@ -221,6 +208,31 @@ export async function runQaSuite(
       }
     } finally {
       // ── teardown：尽力收尾，失败只记警告不影响报告判定 ──────────────────────
+      // watch/monitor 兜底收尾(防泄漏;失败只记警告)
+      if (runState.watchActive) {
+        try {
+          const resp = await sendToBridge('watch.stop', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `watch.stop 兜底失败: ${resp.error.message}`];
+          } else {
+            runState.watchActive = false;
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `watch.stop 兜底异常: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+      if (runState.monitorActive) {
+        try {
+          const resp = await sendToBridge('monitor.stop', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `monitor.stop 兜底失败: ${resp.error.message}`];
+          } else {
+            runState.monitorActive = false;
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `monitor.stop 兜底异常: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
       // 录制 stop 必须在 stop_project 之前（杀游戏即断 bridge，之后取不到 events）。
       if (recordStarted) {
         try {
@@ -294,7 +306,66 @@ interface StepOutcome {
 
 type ResolvedOptions = QaSuite['options'];
 
-async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string): Promise<StepOutcome> {
+// ─── watch/monitor 取数 helper(B-2 取数路径:poll 优先 → 非 active 补 stop 全量)───
+
+type MonitorSample = { frame: number; time: number; values?: Record<string, unknown>; error?: string; stopped_reason?: string };
+
+/** 取 watch 全量事件:缓存优先(空数组也是有效缓存,stop 后仍可用)→ poll →
+ * 未开启则拒绝消费(watching:true 即套件外订阅,消费=假绿)→ watching 取数 → 非 active 补 stop 全量。
+ * B-2:GD 侧 max_events 满后自动置 inactive,poll 返回空,必须补 stop 才能拿到事件。 */
+async function collectWatchEvents(runState: RunState, timeoutMs: number): Promise<{ events: WatchEvent[] } | { error: string }> {
+  // Important①:用 !== null 判缓存,不能用 truthy——0 事件的空缓存 [] 是 falsy,
+  // 误走 poll 会在已 stop 时报 ERROR('无活跃 watch'),而语义应为 FAILED(计数 0 < min_count)
+  if (runState.watchEventsCache !== null) return { events: runState.watchEventsCache };
+  const poll = await sendToBridge('watch.poll', {}, timeoutMs);
+  if (poll.error) return { error: `bridge: ${poll.error.message}` };
+  const r = (poll.result ?? {}) as { watching?: boolean; events?: unknown[] };
+  // Important②:铁律判定顺序——本套件未 watch_start 则拒绝取数(哪怕 bridge 侧
+  // watching:true,那是套件外订阅,消费会把别人的事件泄入断言造成假绿)
+  if (!runState.watchActive) {
+    return { error: r.watching === true
+      ? '本套件未 watch_start,拒绝消费套件外订阅(bridge 存在非本套件开启的活跃 watch)'
+      : '无活跃 watch 且无缓存事件,先 watch_start' };
+  }
+  if (r.watching === true) return { events: (Array.isArray(r.events) ? r.events : []) as WatchEvent[] };
+  const stop = await sendToBridge('watch.stop', {}, timeoutMs);
+  if (stop.error) return { error: `bridge: ${stop.error.message}` };
+  const sr = (stop.result ?? {}) as { events?: unknown[] };
+  runState.watchActive = false;
+  runState.watchEventsCache = (Array.isArray(sr.events) ? sr.events : []) as WatchEvent[];
+  return { events: runState.watchEventsCache };
+}
+
+/** 取 monitor 全量样本:poll → 未开启则拒绝消费(monitoring:true 即套件外订阅,消费=假绿)
+ * → monitoring 取数 → 非 active 补 stop 全量(B-2 同款)。 */
+async function collectMonitorSamples(runState: RunState, timeoutMs: number): Promise<{ samples: MonitorSample[]; stoppedReason?: string } | { error: string }> {
+  const poll = await sendToBridge('monitor.poll', {}, timeoutMs);
+  if (poll.error) return { error: `bridge: ${poll.error.message}` };
+  const r = (poll.result ?? {}) as { monitoring?: boolean; samples?: unknown[]; stopped_reason?: string };
+  // Important②:铁律判定顺序——本套件未 monitor_start 则拒绝取数(哪怕 bridge 侧
+  // monitoring:true,那是套件外订阅,消费会把别人的样本泄入断言造成假绿)
+  if (!runState.monitorActive) {
+    return { error: r.monitoring === true
+      ? '本套件未 monitor_start,拒绝消费套件外订阅(bridge 存在非本套件开启的活跃 monitor)'
+      : '无活跃 monitor,先 monitor_start' };
+  }
+  if (r.monitoring === true) return { samples: (Array.isArray(r.samples) ? r.samples : []) as MonitorSample[] };
+  const stop = await sendToBridge('monitor.stop', {}, timeoutMs);
+  if (stop.error) return { error: `bridge: ${stop.error.message}` };
+  const sr = (stop.result ?? {}) as { samples?: unknown[]; stopped_reason?: string };
+  runState.monitorActive = false;
+  return {
+    samples: (Array.isArray(sr.samples) ? sr.samples : []) as MonitorSample[],
+    stoppedReason: sr.stopped_reason || undefined,
+  };
+}
+
+/** JSON 深比较(键序不敏感不保证;与既有 node_state 的 JSON.stringify 比较同风格) */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string, runState: RunState): Promise<StepOutcome> {
   switch (step.type) {
     case 'input': {
       const pathErr = validateBridgePath(step.params);
@@ -359,29 +430,58 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       return { status: 'PASSED', detail: condense(resp.result, 120) || `${step.method} ok` };
     }
     case 'assert': {
-      const args: Record<string, unknown> = { action: step.assert };
-      for (const k of ['path', 'expect', 'tolerance', 'nodes', 'text', 'present', 'baseline'] as const) {
-        const v = step[k];
-        if (v !== undefined) args[k] = v;
-      }
+      // fn 选择表:可复用 runtime-assert 的 5 种(不依赖 RunState;含 Task 7 接线的 screenshot_diff);
+      // signal/errors/monitor 依赖 RunState 跨步骤状态,走套件内本地断言。
       const fn = step.assert === 'node_state' ? assertNodeState
         : step.assert === 'scene_structure' ? assertSceneStructure
         : step.assert === 'screen_text' ? assertScreenText
-        : assertPerf;
-      const res = await fn(args);
-      const json = parseToolJson(res);
-      if (!json) return err(`assert ${step.assert} 返回非 JSON: ${condense(res.content[0]?.type === 'text' ? res.content[0].text : '')}`);
-      if (json.success === false) {
-        return err(`assert ${step.assert}: ${condense(json.error)}`);
+        : step.assert === 'perf' ? assertPerf
+        : step.assert === 'screenshot_diff' ? assertScreenshotDiff
+        : null;
+      if (fn) {
+        // 原有 runtime-assert 复用流程(args 组装 → fn → parseToolJson 判定),原样保留
+        const args: Record<string, unknown> = { action: step.assert };
+        for (const k of ['path', 'expect', 'tolerance', 'nodes', 'text', 'present', 'baseline', 'reference', 'threshold', 'max_diff_ratio'] as const) {
+          const v = step[k];
+          if (v !== undefined) args[k] = v;
+        }
+        // screenshot_diff 专属注入:project_path(解析 user:// 截图)+ evidence_path(diff 染红图落 qa-reports)
+        if (step.assert === 'screenshot_diff') {
+          args.project_path = projectPath;
+          const dir = qaReportsDir();
+          mkdirSync(dir, { recursive: true });
+          args.evidence_path = join(dir, `${runId}-step${index}-diff.png`);
+        }
+        const res = await fn(args);
+        const json = parseToolJson(res);
+        if (!json) return err(`assert ${step.assert} 返回非 JSON: ${condense(res.content[0]?.type === 'text' ? res.content[0].text : '')}`);
+        if (json.success === false) {
+          return err(`assert ${step.assert}: ${condense(json.error)}`);
+        }
+        if (json.passed === true) {
+          // screenshot_diff PASSED 时回填染红图路径(details.evidence_path 由 Task 6 真实现
+          // 回显注入的报告路径;evidence 落盘是 best-effort,回填失败仅缺证据不影响判定)
+          const evidence = step.assert === 'screenshot_diff'
+            ? { screenshot_path: (json.details as Record<string, unknown> | undefined)?.evidence_path as string | undefined }
+            : undefined;
+          return { status: 'PASSED', detail: `assert ${step.assert} ok`, evidence };
+        }
+        return {
+          status: 'FAILED',
+          detail: `assert ${step.assert} mismatch`,
+          mismatch: json.mismatch as Record<string, { expected: unknown; actual: unknown }> | undefined,
+          // Task 7 审查 Minor①:FAILED 时也回填染红图(失败排错关键证据)——
+          // runtime-assert FAILED 分支同样在 details.evidence_path 回显注入路径,与 PASSED 同款取值
+          evidence: step.assert === 'screenshot_diff'
+            ? { screenshot_path: (json.details as Record<string, unknown> | undefined)?.evidence_path as string | undefined }
+            : undefined,
+        };
       }
-      if (json.passed === true) {
-        return { status: 'PASSED', detail: `assert ${step.assert} ok` };
-      }
-      return {
-        status: 'FAILED',
-        detail: `assert ${step.assert} mismatch`,
-        mismatch: json.mismatch as Record<string, { expected: unknown; actual: unknown }> | undefined,
-      };
+      // ── 套件内本地断言(signal/errors/monitor:依赖 RunState 跨步骤状态)──
+      if (step.assert === 'signal') return await execSignalAssert(step, runState, o);
+      if (step.assert === 'errors') return await execErrorsAssert(step, runState, o);
+      if (step.assert === 'monitor') return await execMonitorAssert(step, runState, o);
+      return err(`assert ${step.assert}: 未实现`);
     }
     case 'screenshot': {
       // 真 bridge 契约（v0.30 e2e 实测纠正）：take_screenshot 把 PNG 存游戏侧
@@ -409,11 +509,166 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
         detail: `screenshot 留在游戏侧 ${gameSide}（user:// 无法解析到本机路径，报告目录无副本）`,
       };
     }
+    case 'watch_start': {
+      if (runState.watchActive) return err('本套件已有活跃 watch,先 watch_stop');
+      // 探测是否替换套件外开启的既有 watch(GD 侧静默替换,qa 需在 detail 注明)
+      let replacedNote = '';
+      const probe = await sendToBridge('watch.poll', {}, o.step_timeout_ms);
+      const pr = (probe.result ?? {}) as { watching?: boolean };
+      if (!probe.error && pr.watching === true) replacedNote = ' (已替换套件外开启的既有 watch)';
+      const params: Record<string, unknown> = { node_path: step.node_path, signal_name: step.signal_name, push: false };
+      if (step.max_events !== undefined) params.max_events = step.max_events;
+      const resp = await sendToBridge('watch.start', params, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.watchActive = true;
+      runState.watchEventsCache = null;
+      return { status: 'PASSED', detail: `watch.start ${step.node_path}:${step.signal_name}${replacedNote}` };
+    }
+    case 'watch_stop': {
+      // Important① 姊妹:判据用 === null 而非 truthy——0 事件的空缓存 [] 是 falsy,
+      // 会让第二次 watch_stop 误报 ERROR 而到不了下方幂等 cached 分支
+      if (!runState.watchActive && runState.watchEventsCache === null) return err('无活跃 watch(未 watch_start 或已 stop)');
+      // Task 3 审查 Minor③:已 stop 且缓存就绪 → 直接复用缓存,不重发 bridge stop
+      // (GD 侧无活跃 watch 时 stop 仍返成功 result + 空 events,重发会把缓存覆盖为 [])
+      if (!runState.watchActive && runState.watchEventsCache !== null) {
+        return { status: 'PASSED', detail: `watch.stop ${runState.watchEventsCache.length} event(s) (cached)` };
+      }
+      const resp = await sendToBridge('watch.stop', {}, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      const r = (resp.result ?? {}) as { events?: unknown[] };
+      runState.watchActive = false;
+      runState.watchEventsCache = Array.isArray(r.events) ? (r.events as WatchEvent[]) : [];
+      return { status: 'PASSED', detail: `watch.stop ${runState.watchEventsCache.length} event(s)` };
+    }
+    case 'monitor_start': {
+      if (runState.monitorActive) return err('本套件已有活跃 monitor,先 monitor_stop');
+      const params: Record<string, unknown> = { node_path: step.node_path, properties: step.properties };
+      if (step.interval_frames !== undefined) params.interval_frames = step.interval_frames;
+      const resp = await sendToBridge('monitor.start', params, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.monitorActive = true;
+      return { status: 'PASSED', detail: `monitor.start ${step.node_path} [${step.properties.join(', ')}]` };
+    }
+    case 'monitor_stop': {
+      if (!runState.monitorActive) return err('无活跃 monitor(未 monitor_start 或已 stop)');
+      const resp = await sendToBridge('monitor.stop', {}, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.monitorActive = false;
+      const r = (resp.result ?? {}) as { sample_count?: number };
+      return { status: 'PASSED', detail: `monitor.stop ${r.sample_count ?? 0} sample(s)` };
+    }
     case 'sleep': {
       await sleep(step.ms);
       return { status: 'PASSED', detail: `slept ${step.ms}ms` };
     }
   }
+}
+
+// ─── 套件内本地断言(依赖 RunState 跨步骤状态)───────────────────────────────
+
+async function execSignalAssert(step: { min_count?: number; max_count?: number; args_match?: unknown }, runState: RunState, o: ResolvedOptions): Promise<StepOutcome> {
+  const collected = await collectWatchEvents(runState, o.step_timeout_ms);
+  if ('error' in collected) return err(collected.error);
+  const minCount = step.min_count ?? 1;
+  const maxCount = step.max_count ?? Number.POSITIVE_INFINITY;
+  const hasArgsMatch = step.args_match !== undefined;
+  const matched = collected.events.filter(e => !hasArgsMatch || jsonEqual(e.args, step.args_match));
+  if (matched.length >= minCount && matched.length <= maxCount) {
+    return { status: 'PASSED', detail: `signal ${matched.length}/${collected.events.length} event(s) matched${hasArgsMatch ? ' args_match' : ''}` };
+  }
+  const last = matched.at(-1) ?? collected.events.at(-1);
+  return {
+    status: 'FAILED',
+    detail: `signal count mismatch${last ? `(last event: ${condense(last)})` : ''}`,
+    mismatch: { count: { expected: `[${minCount}, ${maxCount === Number.POSITIVE_INFINITY ? '∞' : maxCount}]`, actual: matched.length } },
+  };
+}
+
+async function execErrorsAssert(step: { kinds?: string[]; max_count?: number }, runState: RunState, o: ResolvedOptions): Promise<StepOutcome> {
+  if (runState.errorsBaselineSeq === null) {
+    return err('errors 断言不可用:baseline 采集失败(见 teardown_warnings,旧 bridge 无 get_errors)');
+  }
+  const resp = await sendToBridge('get_errors', { since_seq: runState.errorsBaselineSeq }, o.step_timeout_ms);
+  if (resp.error) return err(`bridge: ${resp.error.message}`);
+  const r = (resp.result ?? {}) as { errors?: Array<{ seq: number; kind: string; message: string }> };
+  const kinds = step.kinds ?? ['error', 'script', 'shader'];   // 默认排除 warning(太吵)
+  const maxCount = step.max_count ?? 0;
+  const hits = (r.errors ?? []).filter(e => kinds.includes(e.kind));
+  if (hits.length <= maxCount) {
+    return { status: 'PASSED', detail: `errors ${hits.length} ≤ ${maxCount} [${kinds.join(',')}]` };
+  }
+  const entries = hits.slice(0, 5).map(e => `${e.kind}: ${e.message.slice(0, 80)}`).join(' | ');
+  return {
+    status: 'FAILED',
+    detail: `新增 ${hits.length} 条(前 5: ${entries.slice(0, 160)})`,
+    mismatch: { new_errors: { expected: `≤ ${maxCount}`, actual: hits.length } },
+  };
+}
+
+async function execMonitorAssert(step: { property?: string; min?: number; max?: number; monotonic?: 'increasing' | 'non_decreasing' | 'decreasing' | 'non_increasing' }, runState: RunState, o: ResolvedOptions): Promise<StepOutcome> {
+  // brief 签名为 property: string,但 QaStep 里 property 是 optional(zod 未按 assert 值差异化必填),
+  // TS strict 下不可赋值——改为 optional + 运行时守卫(spec 层漏配时给出可行动 ERROR)
+  const property = step.property;
+  if (!property) return err('monitor 断言需要 property');
+  const collected = await collectMonitorSamples(runState, o.step_timeout_ms);
+  if ('error' in collected) return err(collected.error);
+  const { samples, stoppedReason } = collected;
+  // 数据完整性(不假绿):非空 stopped_reason 或任一样本带 error 键(node_lost 等)
+  const badSample = samples.find(s => s.error !== undefined);
+  if (stoppedReason || badSample) {
+    return err(`monitor 数据不完整: stopped_reason=${stoppedReason || badSample?.stopped_reason || badSample?.error}`);
+  }
+  // 提取数值序列(样本缺属性=数据不完整,ERROR)
+  const series: Array<{ frame: number; value: number }> = [];
+  for (const s of samples) {
+    const v = s.values?.[property];
+    if (typeof v !== 'number') {
+      return err(`样本缺属性 ${property} 或非数值(frame ${s.frame}: ${condense(v)})`);
+    }
+    series.push({ frame: s.frame, value: v });
+  }
+  // 区间断言
+  if (step.min !== undefined || step.max !== undefined) {
+    const viol = series.find(p =>
+      (step.min !== undefined && p.value < step.min) || (step.max !== undefined && p.value > step.max));
+    if (viol) {
+      const range = `${step.min !== undefined ? `≥ ${step.min}` : ''}${step.min !== undefined && step.max !== undefined ? ' 且 ' : ''}${step.max !== undefined ? `≤ ${step.max}` : ''}`;
+      return {
+        status: 'FAILED',
+        detail: `monitor ${property} 越界(首个违规 frame ${viol.frame})`,
+        mismatch: { [property]: { expected: range, actual: viol.value } },
+      };
+    }
+  }
+  // 单调性断言
+  if (step.monotonic !== undefined && series.length >= 2) {
+    const ok = series.every((p, i) => {
+      if (i === 0) return true;
+      const prev = series[i - 1]!.value;
+      switch (step.monotonic) {
+        case 'increasing': return p.value > prev;
+        case 'non_decreasing': return p.value >= prev;
+        case 'decreasing': return p.value < prev;
+        case 'non_increasing': return p.value <= prev;
+      }
+    });
+    if (!ok) {
+      const violIdx = series.findIndex((p, i) => {
+        if (i === 0) return false;
+        const prev = series[i - 1]!.value;
+        return step.monotonic === 'increasing' ? p.value <= prev
+          : step.monotonic === 'non_decreasing' ? p.value < prev
+          : step.monotonic === 'decreasing' ? p.value >= prev
+          : p.value > prev;
+      });
+      return {
+        status: 'FAILED',
+        detail: `monitor ${property} 违反 ${step.monotonic}(首个违规 frame ${series[violIdx]?.frame})`,
+        mismatch: { [`${property}_monotonic`]: { expected: step.monotonic, actual: `frame ${series[violIdx! - 1]?.frame}=${series[violIdx! - 1]?.value} → frame ${series[violIdx]?.frame}=${series[violIdx]?.value}` } },
+      };
+    }
+  }
+  return { status: 'PASSED', detail: `monitor ${property} ${series.length} sample(s) ok` };
 }
 
 function err(message: string): StepOutcome {

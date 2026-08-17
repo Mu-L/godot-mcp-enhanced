@@ -9,7 +9,7 @@ vi.mock('../src/tools/qa/runner.js', () => ({
   runQaSuite: vi.fn(),
 }));
 
-import { handleTool } from '../src/tools/qa/index.js';
+import { handleTool, getToolDefinitions } from '../src/tools/qa/index.js';
 
 function parse(res: { content: Array<{ type: string; text?: string }> }): Record<string, unknown> {
   return JSON.parse(res.content[0]!.text!) as Record<string, unknown>;
@@ -76,6 +76,26 @@ describe('qa handleTool 入口校验', () => {
   it('TOOL_NAMES 导出（C-1 归组对账契约）', async () => {
     const { TOOL_NAMES } = await import('../src/tools/qa/index.js');
     expect([...TOOL_NAMES]).toEqual(['qa']);
+  });
+
+  it('qa description 收敛(Nit-3):<600B 且步骤细节移入 schema', () => {
+    const def = getToolDefinitions()[0]!;
+    const bytes = Buffer.byteLength(def.description!, 'utf8');
+    expect(bytes).toBeLessThan(600);
+    // 新 description 关键词锁定(改坏措辞时测试报警)
+    expect(def.description).toContain('QA 测试套件编排');
+    expect(def.description).toContain('回归 diff');
+    expect(def.description).toContain('watch_start');      // Task 2 新步骤类型已进索引级概述
+    expect(def.description).toContain('monitor_start');
+    expect(def.description).not.toContain('options:');     // 选项说明移入字段 description
+    expect(def.description).not.toContain('相似度');        // spec §0.5:screenshot_diff 一律"像素差异容忍"措辞
+    // 细节迁移落点:各 schema 字段 description 就位
+    const props = def.inputSchema.properties as Record<string, { description?: string }> | undefined;
+    expect(props?.spec_path?.description).toBeTruthy();
+    expect(props?.spec_path?.description).toContain('ALLOWED_PROJECT_PATHS');
+    expect(props?.spec?.description).toBeTruthy();
+    expect(props?.spec?.description).toContain('watch_start');
+    expect(props?.spec?.description).toContain('monitor_start');
   });
 
   it('负向：入口层不消费 ctx 之外的执行面（spec 校验失败时 runner 零调用）', async () => {

@@ -76,10 +76,10 @@ const callStep = z.object({
   label: labelField,
 });
 
-/** assert：复用 runtime_assert 的 4 种断言（screenshot_diff 未实现，不开放） */
+/** assert：8 种断言（4 种走 runtime_assert，4 种为 PR-1a 新增：screenshot_diff/signal/errors/monitor） */
 const assertStep = z.object({
   type: z.literal('assert'),
-  assert: z.enum(['node_state', 'scene_structure', 'screen_text', 'perf']),
+  assert: z.enum(['node_state', 'scene_structure', 'screen_text', 'perf', 'screenshot_diff', 'signal', 'errors', 'monitor']),
   // node_state
   path: z.string().optional(),
   expect: z.record(z.string(), z.unknown()).optional(),
@@ -95,6 +95,22 @@ const assertStep = z.object({
   present: z.boolean().optional(),
   // perf
   baseline: z.record(z.string(), z.number()).optional(),
+  // screenshot_diff（像素差异容忍语义，与 screenshot 工具 action=diff 同引擎）
+  reference: z.string().optional(),
+  threshold: z.number().min(0).max(1).optional(),
+  max_diff_ratio: z.number().min(0).max(1).optional(),
+  // signal（事件计数区间；args_match 按 GD _jsonify 后形态深比较：Vector2→{x,y}、Color→{r,g,b,a}）
+  min_count: z.number().int().min(0).optional(),
+  max_count: z.number().int().min(0).optional(),
+  args_match: z.unknown().optional(),
+  // errors（测试期间游戏侧新增错误计数）
+  kinds: z.array(z.enum(['error', 'script', 'shader', 'warning'])).optional(),
+  // monitor（属性时间线区间/单调性；min/max 为区间断言，Task 4 补——zod 默认 strip 未知键，
+  // 缺 schema 时 parse 后 step.min/max 为 undefined，区间断言静默失效）
+  property: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  monotonic: z.enum(['increasing', 'non_decreasing', 'decreasing', 'non_increasing']).optional(),
   label: labelField,
 });
 
@@ -108,14 +124,38 @@ const sleepStep = z.object({
   label: labelField,
 });
 
+/** watch_start：开始监听节点信号（bridge watch.start；每套件同时仅 1 个活跃 watch，重复→执行期 ERROR） */
+const watchStartStep = z.object({
+  type: z.literal('watch_start'),
+  node_path: z.string().min(1),
+  signal_name: z.string().min(1),
+  max_events: z.number().int().min(1).max(5000).optional(),
+  label: labelField,
+});
+
+const watchStopStep = z.object({ type: z.literal('watch_stop'), label: labelField });
+
+/** monitor_start：开始属性时间线采样（bridge monitor.start；每套件同时仅 1 个活跃 monitor） */
+const monitorStartStep = z.object({
+  type: z.literal('monitor_start'),
+  node_path: z.string().min(1),
+  properties: z.array(z.string().min(1)).min(1).max(10),
+  interval_frames: z.number().int().min(1).max(300).optional(),
+  label: labelField,
+});
+
+const monitorStopStep = z.object({ type: z.literal('monitor_stop'), label: labelField });
+
 export const QA_STEP_TYPES = [
   'input', 'wait', 'wait_frames', 'freeze', 'unfreeze', 'step_until',
   'snapshot', 'restore', 'set', 'call', 'assert', 'screenshot', 'sleep',
+  'watch_start', 'watch_stop', 'monitor_start', 'monitor_stop',
 ] as const;
 
 export const QaStepSchema = z.discriminatedUnion('type', [
   inputStep, waitStep, waitFramesStep, freezeStep, unfreezeStep, stepUntilStep,
   snapshotStep, restoreStep, setStep, callStep, assertStep, screenshotStep, sleepStep,
+  watchStartStep, watchStopStep, monitorStartStep, monitorStopStep,
 ]);
 
 // ─── 套件选项 ────────────────────────────────────────────────────────────────

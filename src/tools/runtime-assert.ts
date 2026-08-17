@@ -11,6 +11,13 @@ import type { ToolResult, ToolContext } from '../types.js';
 import type { Tool } from '@modelcontextprotocol/server';
 import { textResult } from '../types.js';
 import { sendToBridge } from './game-bridge.js';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { resolve, isAbsolute, dirname, sep } from 'path';
+import { PNG } from 'pngjs';
+import { diffPngBuffers } from './screenshot-detail.js';
+import { isPathInAllowedRoots } from '../core/path-utils.js';
+import { resolveGameDataPath } from './game-fs.js';
+import { qaReportsDir } from './qa/report.js';
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
@@ -27,7 +34,7 @@ export function getToolDefinitions(): Tool[] {
             enum: ['node_state', 'scene_structure', 'screen_text', 'perf', 'screenshot_diff'],
             description: '断言类型',
           },
-          project_path: { type: 'string', description: '项目路径（可选）' },
+          project_path: { type: 'string', description: '项目路径（screenshot_diff 必填：解析 user:// 截图落盘位置）' },
           // node_state
           path: { type: 'string', description: 'node_state: 节点路径（如 /root/Main/Player）' },
           expect: { type: 'object', description: 'node_state: 期望的属性键值对（如 {"health": 100, "position": {"x": 0}}）' },
@@ -50,9 +57,10 @@ export function getToolDefinitions(): Tool[] {
           present: { type: 'boolean', description: 'screen_text: true=断言文本存在（默认），false=断言不存在' },
           // perf
           baseline: { type: 'object', description: 'perf: 期望的性能基线（如 {"fps": 60}）' },
-          // screenshot_diff
-          reference: { type: 'string', description: 'screenshot_diff: 参考截图路径（res:// 或绝对路径）' },
-          threshold: { type: 'number', description: 'screenshot_diff: 相似度阈值（0-1，默认 0.85）' },
+          // screenshot_diff(B-1:差异容忍语义,禁用"相似度"措辞;引擎=screenshot 工具 action=diff)
+          reference: { type: 'string', description: 'screenshot_diff: 参考截图路径（res://、项目相对或绝对路径；须在白名单内）' },
+          threshold: { type: 'number', description: 'screenshot_diff: 像素差异容忍阈值（0-1，默认 0.12）。per-pixel 归一化 RGB 距离严格大于此值才计为差异像素；值越小越严格' },
+          max_diff_ratio: { type: 'number', description: 'screenshot_diff: 允许的差异像素占比上限（0-1，默认 0.05）。严格像素回归传 0；常规视觉回归建议以同布局好图对校准（本仓实测同布局好图对 ≈0.176，勿低于该量级）' },
         },
         required: ['action'],
       },
@@ -71,7 +79,7 @@ export const TOOL_META = {
       scene_structure: 'read' as const,
       screen_text: 'read' as const,
       perf: 'read' as const,
-      screenshot_diff: 'read' as const, // 写临时文件到 user://，但不改场景状态
+      screenshot_diff: 'read' as const, // 读参考图 + 截图；diff 染红图落盘已限制在 qa-reports 目录内（I-1 白名单校验），不改场景状态
     },
   },
 };
@@ -273,34 +281,93 @@ export async function assertPerf(args: Record<string, unknown>): Promise<ToolRes
     : fail('perf', mismatch, { actual });
 }
 
-/** screenshot_diff: 截图与参考图对比（相似度） */
-async function assertScreenshotDiff(args: Record<string, unknown>): Promise<ToolResult> {
-  const reference = args.reference as string;
-  const threshold = (args.threshold as number) ?? 0.85;
+/** screenshot_diff: 截图与参考图像素级对比(差异容忍语义)。PR-1a 真实现,导出供 qa 复用。
+ * 真契约(v0.30 e2e 实测):take_screenshot 把 PNG 存游戏侧 user:// 并返回 {success, path, size}——无 base64。
+ * 内部参数(schema 不暴露):evidence_path 落 diff 染红图(qa 传报告目录;工具级不传则只回数值)。 */
+export async function assertScreenshotDiff(args: Record<string, unknown>): Promise<ToolResult> {
+  const reference = args.reference as string | undefined;
+  const threshold = (args.threshold as number | undefined) ?? 0.12;
+  const maxDiffRatio = (args.max_diff_ratio as number | undefined) ?? 0.05;
+  const projectPathRaw = args.project_path as string | undefined;
   if (!reference) {
     return textResult(JSON.stringify({ success: false, error: 'reference is required for screenshot_diff', error_code: 'INVALID_PARAMS' }));
   }
+  if (!projectPathRaw) {
+    return textResult(JSON.stringify({ success: false, error: 'project_path is required for screenshot_diff (解析 user:// 截图路径)', error_code: 'INVALID_PARAMS' }));
+  }
+  const projAbs = resolve(projectPathRaw);
+  if (!isPathInAllowedRoots(projAbs)) {
+    return textResult(JSON.stringify({ success: false, error: `project_path 不在 ALLOWED_PROJECT_PATHS 白名单内: ${projAbs}`, error_code: 'INVALID_PATH' }));
+  }
+  // reference 解析:res:// → 项目内;相对 → 项目内;绝对直用;统一过白名单
+  let refAbs: string;
+  if (reference.startsWith('res://')) refAbs = resolve(projAbs, reference.slice('res://'.length));
+  else if (isAbsolute(reference)) refAbs = resolve(reference);
+  else refAbs = resolve(projAbs, reference);
+  if (!isPathInAllowedRoots(refAbs)) {
+    return textResult(JSON.stringify({ success: false, error: `reference 不在 ALLOWED_PROJECT_PATHS 白名单内: ${refAbs}`, error_code: 'INVALID_PATH' }));
+  }
 
-  // 截取当前画面
   const resp = await sendToBridge('take_screenshot', {});
   if (resp.error) {
     return textResult(JSON.stringify({ success: false, error: `Bridge error: ${resp.error.message}`, error_code: 'BRIDGE_ERROR' }));
   }
+  const shot = (resp.result ?? {}) as { success?: boolean; path?: string; size?: { x: number; y: number } };
+  if (shot.success !== true || typeof shot.path !== 'string') {
+    return textResult(JSON.stringify({ success: false, error: `take_screenshot 未成功: ${JSON.stringify(resp.result).slice(0, 200)}`, error_code: 'BRIDGE_ERROR' }));
+  }
+  const localShot = resolveGameDataPath(projAbs, shot.path);
+  if (!localShot) {
+    return textResult(JSON.stringify({ success: false, error: `user:// 截图无法解析到本机路径: ${shot.path}(user:// 布局异常或文件不存在)`, error_code: 'ASSERT_ERROR' }));
+  }
 
-  // screenshot_diff 需要图像对比逻辑——当前未实现真实相似度对比。
-  // 完整实现需复用 frame-verify/gdscripts.ts 的 referenceSimScript（余弦相似度），
-  // 但那需要 GDScript 执行器，超出当前 scope。
-  // 2026-08-06 审查 P0 修复：原占位返 pass()（success:true）会致 agent 视觉回归假阳性，
-  // 改返 NOT_IMPLEMENTED 让 agent 显式感知此断言不可信（不会假绿）。
-  const screenshotData = resp.result as { image?: string } | undefined;
-  return textResult(JSON.stringify({
-    success: false,
-    error: 'screenshot_diff similarity comparison is not implemented (Stage 0 placeholder). ' +
-      'Screenshot was captured successfully, but no pixel/similarity comparison is performed against the reference. ' +
-      'Do not rely on this assertion for visual regression until P1 implements referenceSimScript-based cosine similarity.',
-    error_code: 'NOT_IMPLEMENTED',
-    reference,
-    threshold,
-    screenshot_captured: !!screenshotData?.image,
-  }));
+  let refBuf: Buffer;
+  let actualBuf: Buffer;
+  try {
+    refBuf = readFileSync(refAbs);
+    actualBuf = readFileSync(localShot);
+  } catch (e) {
+    return textResult(JSON.stringify({ success: false, error: `读图失败: ${(e as Error).message}`, error_code: 'ASSERT_ERROR' }));
+  }
+
+  let diff;
+  try {
+    diff = diffPngBuffers(refBuf, actualBuf, threshold);
+  } catch (e) {
+    const diffErr = (e as Error).message;
+    // 尺寸不一致:FAILED(带双方尺寸),不是基础设施错误
+    if (diffErr.includes('dimensions mismatch')) {
+      return fail('screenshot_diff', { dimensions: { expected: '参考图与截图同尺寸', actual: diffErr } }, { reference: refAbs });
+    }
+    // 其余解码失败(非 PNG/损坏图):基础设施错误 ASSERT_ERROR——不再误报"尺寸不一致"误导排错(审查 Minor⑤)
+    return textResult(JSON.stringify({ success: false, error: `读图/解码失败: ${diffErr}`, error_code: 'ASSERT_ERROR' }));
+  }
+
+  // 可选证据落盘(失败不改变判定)
+  const evidencePath = args.evidence_path as string | undefined;
+  if (evidencePath) {
+    // 审查 I-1(schema 不暴露 ≠ 安全边界:args-validator 未知字段允许,handleTool 原样透传,
+    // evidence_path 可从外部 MCP args 注入任意路径写文件)。写面前校验:resolve 后必须位于
+    // qaReportsDir() 内(前缀比较与 qa/report.ts readReport 同款;qa runner 内部拼的路径
+    // 天然满足)。不可用 isPathInAllowedRoots——qa-reports 在 ~/.godot-mcp 下不在项目白名单。
+    const evAbs = resolve(evidencePath);
+    const reportsDir = qaReportsDir();
+    if (!(evAbs === reportsDir || evAbs.startsWith(reportsDir + sep))) {
+      return textResult(JSON.stringify({ success: false, error: `evidence_path 必须位于 qa-reports 目录内: ${reportsDir}(拒绝任意路径写入): ${evAbs}`, error_code: 'INVALID_PATH' }));
+    }
+    try {
+      mkdirSync(dirname(evAbs), { recursive: true });
+      const outPng = new PNG({ width: diff.width, height: diff.height });
+      outPng.data = diff.diffImageData;
+      writeFileSync(evAbs, PNG.sync.write(outPng));
+    } catch { /* 证据 best-effort */ }
+  }
+
+  if (diff.diffRatio <= maxDiffRatio) {
+    return pass('screenshot_diff', { diff_ratio: diff.diffRatio, diff_pixels: diff.diffPixels, threshold, max_diff_ratio: maxDiffRatio, evidence_path: evidencePath, size: shot.size });
+  }
+  return fail('screenshot_diff', {
+    diff_ratio: { expected: `≤ ${maxDiffRatio}`, actual: diff.diffRatio },
+    diff_pixels: { expected: `≤ ${Math.round(maxDiffRatio * diff.width * diff.height)}`, actual: diff.diffPixels },
+  }, { bbox: diff.bbox, size: shot.size, evidence_path: evidencePath });
 }
