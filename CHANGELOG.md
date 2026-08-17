@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`qa run mode:'async'` 应用级异步长跑（PR-1b）**：立即返回 run_id 后台执行（化解客户端 ~60s 工具超时）；新增 `qa status`（轮询进度/列表）/`qa cancel`（步骤间生效，teardown 照常）action；run 注册表（SEP-1686 词汇，单 working 互斥 BUSY，TTL 惰性清扫，PR-2 tasks 层单一事实源）；`CANCELLED` 终态（优先于 FAILED）且不作 nightly 基线；close 优雅收尾进行中 run。
 - **qa 工具描述重构**：descBytes 773→469（细节移入 schema 字段 description）。
 
+- **MCP Tasks 协议层(2025-11-25 wire,PR-2)**:`tasks/get|list|cancel|result` 四协议 method(单 working 注册表直读,wire 五字段校验)+ `notifications/tasks/status` 终态通知(客户端 tasks 能力门控,best-effort)+ capabilities.tasks 细粒度声明;客户端声明 tasks 能力时 `qa run` 自动 async(`_meta.relatedTask` 回指,显式 mode 优先);`tasks/cancel` audit 留痕(B-3:免二次 elicitation);`@modelcontextprotocol/core` 提升直接依赖(pnpm/PnP 兼容);makeRunId 加随机后缀防同秒覆盖(M-7)+ RunRecord.error 失败原因透传(M-8)。
 ### Fixed
 - **`evidence_path` 任意路径写入注入（PR-1a 终审 I-1，安全）**：内部参数可从 MCP args 注入（args-validator 未知字段允许）→ 前缀校验锁 qa-reports 目录内（含兄弟目录伪装防护）。
 - **`assertNodeState` 嵌套 shape 失真（PR-1a e2e 发现的既有缺陷，PR-1b 修）**：真 bridge `get_node_properties` 返回 `{properties:{...}, node}`，原平铺取值致 actual 恒 undefined——双 shape 兼容（嵌套优先）。
