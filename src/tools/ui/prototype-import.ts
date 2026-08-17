@@ -14,7 +14,7 @@
 
 import { z } from 'zod';
 import { CONTROL_TYPES } from './types.js';
-import type { UiNodeSpec } from './types.js';
+import type { StyleBoxFlatSpec, StyleBoxOverride, StyleBoxSlot, UiNodeSpec } from './types.js';
 import type { Rect } from './anchor-solver.js';
 import { flattenTargets } from './layout-diff.js';
 
@@ -31,6 +31,9 @@ export interface GeometryNode {
   fontSize?: number;
   color?: string | number[];
   bg?: string | number[];
+  fill?: string | number[];                                                    // PR-1:ProgressBar fill 槽色
+  borderRadius?: number | { tl?: number; tr?: number; br?: number; bl?: number };  // PR-1:四角
+  border?: { width: number; color: string | number[] };                        // PR-1:统一四边
   align?: ProtoAlign;
   value?: number;
   flow?: 'row' | 'column';
@@ -66,7 +69,12 @@ const Rgba01 = z.tuple([
   z.number().finite().min(0).max(1),
 ]);
 
-const ProtoColor = z.union([z.string(), Rgb255, Rgba01]);
+/**
+ * PR-1:颜色 string 分支收紧为 #rrggbb(原任意 string 在翻译层 normalizeColor 才拒)——
+ * bg/color/fill/border.color 在 schema 层早拒绝,坏颜色不进翻译层;normalizeColor 的
+ * 解析保留为深度防御(parse 后输入已保证格式)。
+ */
+const ProtoColor = z.union([z.string().regex(/^#([0-9a-fA-F]{6})$/), Rgb255, Rgba01]);
 
 /**
  * strict:未知字段拒绝(v2 N-1 "非法输入直接拒绝"精神)——AI 生产者拼错字段名
@@ -85,6 +93,20 @@ const NodeSchema = z.strictObject({
   fontSize: z.number().finite().positive().optional(),
   color: ProtoColor.optional(),
   bg: ProtoColor.optional(),
+  fill: ProtoColor.optional(),
+  borderRadius: z.union([
+    z.number().finite().min(0),
+    z.strictObject({
+      tl: z.number().finite().min(0).optional(),
+      tr: z.number().finite().min(0).optional(),
+      br: z.number().finite().min(0).optional(),
+      bl: z.number().finite().min(0).optional(),
+    }),
+  ]).optional(),
+  border: z.strictObject({
+    width: z.number().finite().min(0),
+    color: ProtoColor,
+  }).optional(),
   align: z.enum(['left', 'center', 'right']).optional(),
   value: z.number().finite().min(0).max(1).optional(),
   flow: z.enum(['row', 'column']).optional(),
@@ -226,6 +248,17 @@ function inferType(nd: GeometryNode, warnings: string[]): string {
   return 'Panel';
 }
 
+/** PR-1 规则:bg/border/radius → theme_override_styleboxes 槽位;undefined = 控件无映射槽(spec §3.4)。 */
+export function styleboxSlotFor(type: string): StyleBoxSlot | undefined {
+  switch (type) {
+    case 'Panel': return 'panel';
+    case 'ProgressBar': return 'background';
+    case 'Button':
+    case 'Label': return 'normal';
+    default: return undefined;
+  }
+}
+
 /** 在 taken 集合内生成唯一名(合成根与 _Flow 容器与输入清洗名隔离)。 */
 function uniqueName(base: string, taken: Set<string>): string {
   if (!taken.has(base)) { taken.add(base); return base; }
@@ -267,31 +300,54 @@ function buildSpec(
       warnings.push(`节点 "${node.cleanName}": rect.h=${rel.h} < fontSize*1.5=${nd.fontSize * 1.5},可能被字体最小行高钳制`);
     }
   }
-  // 规则 7 同族(引擎下限预警,与字体行高同性质):ProgressBar 默认主题 stylebox 最小高
-  // 会顶起 Control.minimum_size,rect.h 更小被引擎钳制(来源实测见 PROGRESS_BAR_MIN_HEIGHT 注释)。
-  if (type === 'ProgressBar' && rel.h < PROGRESS_BAR_MIN_HEIGHT) {
+  // PR-1 规则 9v2:样式三件套 → StyleBoxFlat(modulate 近似通道删除)。
+  // 段位置约定(规则 7 依赖 styleboxes 变量):本段必须在下方 ProgressBar 预警之前执行。
+  const hasBg = nd.bg !== undefined;
+  const hasBorderish = nd.border !== undefined || nd.borderRadius !== undefined;
+  const hasFill = nd.fill !== undefined;
+  const slot = styleboxSlotFor(type);
+  let styleboxes: StyleBoxOverride[] | undefined;
+  if (hasBg || hasBorderish || hasFill) {
+    const box: StyleBoxFlatSpec = {};
+    if (hasBg) {
+      box.bg_color = normalizeColor(nd.bg!, 'bg', nd.name);
+    } else if (hasBorderish) {
+      box.draw_center = false; // spec I-2:CSS「有边框无背景」是透明底,引擎默认灰底+draw_center=true 会翻转
+    }
+    if (nd.borderRadius !== undefined) box.corner_radius = nd.borderRadius;
+    if (nd.border !== undefined) {
+      box.border_width = nd.border.width;
+      box.border_color = normalizeColor(nd.border.color, 'border.color', nd.name);
+    }
+    if (slot !== undefined) {
+      const overrides: StyleBoxOverride[] = [];
+      // 仅 bg/border 至少其一才产主槽 override:空 StyleBoxFlat 覆盖控件默认主题样式
+      // (行为翻转);fill-only 的非 ProgressBar 按「fill 仅 ProgressBar」warning 完全忽略。
+      if (hasBg || hasBorderish) overrides.push({ slot, box });
+      if (hasFill && type === 'ProgressBar') {
+        overrides.push({ slot: 'fill', box: { bg_color: normalizeColor(nd.fill!, 'fill', nd.name) } });
+      }
+      if (overrides.length > 0) styleboxes = overrides;
+    } else {
+      warnings.push(`节点 "${node.cleanName}"(${type}): bg/fill/border 无该控件的样式槽位,已忽略(换 Panel/Button/Label/ProgressBar 或外包 Panel)`);
+    }
+    if (hasFill && type !== 'ProgressBar') {
+      warnings.push(`节点 "${node.cleanName}": fill 仅 ProgressBar 支持,已忽略`);
+    }
+  } else if (nd.flow !== undefined || (nd.type === undefined && nd.text === undefined && nd.value === undefined)) {
+    // 规则 4(final review I-1 收窄):只有**推断为布局壳 Panel**才设透明壳;禁 modulate(级联陷阱)。
+    props.self_modulate = [1, 1, 1, 0];
+    warnings.push(`node "${node.cleanName}" inferred as layout-only Panel and set transparent (self_modulate alpha 0); set bg or type to keep it visible`);
+  } else if (nd.type !== undefined && type === 'Panel') {
+    warnings.push(`node "${node.cleanName}" explicit Panel without bg renders with the Godot default theme gray panel stylebox (web prototype div is transparent by default); set bg to match the prototype or drop type to let it be inferred as a transparent layout shell`);
+  }
+  // 规则 7:仅无 stylebox override 的 ProgressBar 用 27px 阈值(spec I-3:有 override 时
+  // 钳制由 background+fill 两槽 override 的最小尺寸决定,不可静态预知)。
+  if (type === 'ProgressBar' && rel.h < PROGRESS_BAR_MIN_HEIGHT && styleboxes === undefined) {
     warnings.push(`节点 "${node.cleanName}": ProgressBar height below Godot 4.7 default theme minimum (~${PROGRESS_BAR_MIN_HEIGHT}px): will be clamped`);
   }
   if (nd.color !== undefined) {
     props['theme_override_colors/font_color'] = normalizeColor(nd.color, 'color', nd.name);
-  }
-  if (nd.bg !== undefined) {
-    props.modulate = normalizeColor(nd.bg, 'bg', nd.name);
-    warnings.push(`节点 "${node.cleanName}": bg 以 modulate 近似染色(非 StyleBox Flat,叠加子树与实际底色有偏差)`);
-  } else if (nd.flow !== undefined || (nd.type === undefined && nd.text === undefined && nd.value === undefined)) {
-    // 规则 4(final review I-1 收窄):只有**推断为布局壳 Panel**(flow 壳,或无显式
-    // type/text/value 的纯布局节点)才设透明壳;禁 modulate(级联陷阱)。自带视觉的控件
-    // 一律豁免——显式 type 给出者(含显式 Panel)说明有意为之;value 推断 ProgressBar、
-    // interactive+text 推断 Button 自带视觉,误设 self_modulate alpha 0 会让控件不可见
-    // (实测:RTS fixture HpBar 显式 ProgressBar 无 bg 曾被误设,HP 条消失而 diff 不查 visible)。
-    props.self_modulate = [1, 1, 1, 0];
-    warnings.push(`node "${node.cleanName}" inferred as layout-only Panel and set transparent (self_modulate alpha 0); set bg or type to keep it visible`);
-  } else if (nd.type !== undefined && type === 'Panel') {
-    // 审查遗留①(与规则 4 I-1 收窄对偶;N-5 扩展):显式 type 落到 Panel(显式 Panel,或非
-    // 白名单 type 降级)且无 bg → 落 Godot 默认 Panel 主题的灰底 stylebox,而 web 原型 div
-    // 默认透明——渲染行为翻转(灰底可见),声明式提示让生产者显式选择(补 bg 匹配原型,
-    // 或去掉 type 走推断透明壳)。判定用"最终 type==='Panel' 且显式给过 type"覆盖降级路径。
-    warnings.push(`node "${node.cleanName}" explicit Panel without bg renders with the Godot default theme gray panel stylebox (web prototype div is transparent by default); set bg to match the prototype or drop type to let it be inferred as a transparent layout shell`);
   }
   if (nd.text !== undefined) {
     // 规则 10 + spec §2.1 "默认 center":文本节点缺省 horizontal_alignment=1
@@ -299,7 +355,11 @@ function buildSpec(
   }
   if (type === 'Label') props.vertical_alignment = 1; // 规则 3
 
-  const spec: UiNodeSpec = { type, name: node.cleanName, rect: rel, ...(Object.keys(props).length > 0 ? { properties: props } : {}) };
+  const spec: UiNodeSpec = {
+    type, name: node.cleanName, rect: rel,
+    ...(Object.keys(props).length > 0 ? { properties: props } : {}),
+    ...(styleboxes !== undefined ? { styleboxes } : {}),
+  };
 
   if (nd.flow !== undefined) {
     // 规则 5:flow 壳 + _Flow 容器;直接子节点丢 rect、min_size 取原尺寸。
