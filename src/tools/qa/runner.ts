@@ -470,6 +470,11 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
           status: 'FAILED',
           detail: `assert ${step.assert} mismatch`,
           mismatch: json.mismatch as Record<string, { expected: unknown; actual: unknown }> | undefined,
+          // Task 7 审查 Minor①:FAILED 时也回填染红图(失败排错关键证据)——
+          // runtime-assert FAILED 分支同样在 details.evidence_path 回显注入路径,与 PASSED 同款取值
+          evidence: step.assert === 'screenshot_diff'
+            ? { screenshot_path: (json.details as Record<string, unknown> | undefined)?.evidence_path as string | undefined }
+            : undefined,
         };
       }
       // ── 套件内本地断言(signal/errors/monitor:依赖 RunState 跨步骤状态)──

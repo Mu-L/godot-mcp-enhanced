@@ -101,4 +101,24 @@ describe('qa runner screenshot_diff 步骤传参', () => {
     expect(report.steps[0]!.status).toBe('PASSED');
     expect(report.steps[0]!.evidence?.screenshot_path).toBe(join(qaReportsDir(), `${report.run_id}-step0-diff.png`));
   });
+
+  it('FAILED 时也回填染红图 evidence(Task 8 顺手修 Task 7 审查 Minor①)', async () => {
+    // mockResolvedValueOnce 优先于工厂 mockImplementation:单次切 FAILED 形态
+    vi.mocked(assertScreenshotDiff).mockResolvedValueOnce(textResult(JSON.stringify({
+      success: true, passed: false, action: 'screenshot_diff',
+      mismatch: { diff_ratio: { expected: '<=0.2', actual: 0.5 } },
+      details: { evidence_path: join(qaReportsDir(), 'fake-diff.png') },
+    })));
+    const s = suite({
+      steps: [
+        { type: 'assert', assert: 'screenshot_diff', reference: 'res://refs/a.png', threshold: 0.2 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+
+    expect(report.steps[0]!.status).toBe('FAILED');
+    // 失败时染红图是排错关键证据:FAILED 返回对象同样回填 evidence(与 PASSED 同款取值)
+    expect(report.steps[0]!.evidence?.screenshot_path).toBe(join(qaReportsDir(), 'fake-diff.png'));
+    expect(report.steps[0]!.mismatch).toEqual({ diff_ratio: { expected: '<=0.2', actual: 0.5 } });
+  });
 });
