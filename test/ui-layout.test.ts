@@ -288,3 +288,57 @@ describe('validateUiNodeSpec styleboxes 校验(PR-1)', () => {
     })).toThrow(/border_width must be a non-negative finite number/);
   });
 });
+
+// ─── PR-1 Task 3: genStyleboxLines 构造块 ──────────────────────────────────
+
+describe('genStyleboxLines 构造块(PR-1 Task 3)', () => {
+  // 注(brief Step 1 签名修正):实际签名 (scenePath, parentPath, tree, viewport?, persist?),
+  // brief 原文 genUiBuildLayoutScript(spec, {w,h}, true) 不成立,spec 落第 3 参。
+  const gen = (spec: unknown) =>
+    genUiBuildLayoutScript('res://scenes/t.tscn', 'root', spec as never, { w: 800, h: 600 });
+
+  it('bg+radius+border → 完整构造块(panel 槽)', () => {
+    const s = gen({
+      type: 'Panel', name: 'Card', rect: { x: 0, y: 0, w: 100, h: 50 },
+      styleboxes: [{
+        slot: 'panel',
+        box: { bg_color: [0.1, 0.12, 0.18, 1], corner_radius: 8, border_width: 2, border_color: [0.24, 0.86, 0.52, 1] },
+      }],
+    });
+    expect(s).toContain('var _sb_1 := StyleBoxFlat.new()');
+    expect(s).toContain('_sb_1.bg_color = Color(0.1, 0.12, 0.18, 1)');
+    expect(s).toContain('_sb_1.corner_radius_top_left = 8');
+    expect(s).toContain('_sb_1.corner_radius_bottom_right = 8');
+    expect(s).toContain('_sb_1.border_width_left = 2');
+    expect(s).toContain('_sb_1.border_color = Color(0.24, 0.86, 0.52, 1)');
+    expect(s).toContain('node.set("theme_override_styleboxes/panel", _sb_1)');
+  });
+
+  it('draw_center=false 与四角对象展开;两节点变量名递增不冲突', () => {
+    const s = gen({
+      type: 'Panel', name: 'P0', rect: { x: 0, y: 0, w: 50, h: 50 },
+      styleboxes: [{ slot: 'panel', box: { corner_radius: { tl: 8, br: 4 }, draw_center: false } }],
+      children: [{
+        type: 'Panel', name: 'P1', rect: { x: 10, y: 10, w: 20, h: 20 },
+        styleboxes: [{ slot: 'panel', box: { bg_color: [1, 0, 0, 1] } }],
+      }],
+    });
+    expect(s).toContain('_sb_1.draw_center = false');
+    expect(s).toContain('_sb_1.corner_radius_top_right = 0');   // 对象缺省角 = 0
+    expect(s).toContain('_sb_1.corner_radius_bottom_left = 0');
+    expect(s).toContain('var _sb_2 := StyleBoxFlat.new()');      // 变量名递增,无同名 var
+    expect(s.match(/var _sb_1 :=/g)).toHaveLength(1);
+  });
+
+  it('ProgressBar 双槽(background+fill)各产构造块', () => {
+    const s = gen({
+      type: 'ProgressBar', name: 'Hp', rect: { x: 0, y: 0, w: 120, h: 20 },
+      styleboxes: [
+        { slot: 'background', box: { bg_color: [0.13, 0.13, 0.13, 1] } },
+        { slot: 'fill', box: { bg_color: [0.24, 0.86, 0.52, 1] } },
+      ],
+    });
+    expect(s).toContain('node.set("theme_override_styleboxes/background", _sb_1)');
+    expect(s).toContain('node.set("theme_override_styleboxes/fill", _sb_2)');
+  });
+});
