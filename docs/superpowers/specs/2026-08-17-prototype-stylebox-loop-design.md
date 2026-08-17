@@ -1,7 +1,7 @@
 # 原型翻译层大迭代(StyleBox 通道 / 收敛闭环)设计文档
 
 - 日期:2026-08-17
-- 状态:**v2(已经独立第三方设计审查 + 专业再修正,待用户确认进 writing-plans)**
+- 状态:**v3(经两轮独立第三方审查:第一轮审设计思路(REVISE:1B+8I+10N)+ 设计者专业再修正 5 处;第二轮审落盘文档(REVISE:无 Blocking,4 Important)已消解,见 §11.2)**
 - 审查记录:本会话内派 code-reviewer 子代理独立审查(判定 REVISE:1 Blocking + 8 Important + 10 Nit),随后设计者对审查意见逐条专业复核——**其中 5 处对审查意见本身再修正**(见 §11),全部消解后形成本文。
 - 来源:用户立项「原型翻译层大迭代(StyleBox 通道/收敛闭环)」,四项收敛闭环含义全选 + 卡片三件套 + 三控件全盖 + 串行四批拆分(方案 A)
 - 版本目标:v0.32.0 起(PR-1 为 minor bump,依据见 §9 版本策略)
@@ -84,7 +84,7 @@ node.set("theme_override_styleboxes/panel", _sb_1)
 
 ### 3.3 slot 强制枚举白名单(安全)
 
-slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", …)` 键——**入口枚举拒绝比静默失效便宜**。`validateUiNodeSpec` 层校验(覆盖 `ui_build_layout` 手写树入口与翻译链两个入口)。白名单 7 值(§3.2);`focus`/`read_only` 等**显式不进**(YAGNI:每扩一槽须定义语义边界+测试面,首版四类映射用不到;后续需要时随测试面一起扩)。
+slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", …)` 键——**入口枚举拒绝比静默失效便宜**。`validateUiNodeSpec` 层校验(覆盖 `ui_build_layout` 手写树入口与翻译链两个入口)。白名单 7 值(§3.2);`focus`/`read_only` 等**显式不进**(YAGNI:每扩一槽须定义语义边界+测试面,首版四类映射用不到;后续需要时随测试面一起扩)。**白名单定位声明**:hover/pressed/disabled 仅供 `ui_build_layout` 手写树入口使用,翻译器永不产出(§1 明确排除交互态翻译)——白名单是入口校验不是翻译能力声明;slot×控件类型联合校验(如 fill 给 Label 时静默无效)留后续,首版由 §4.1 读回的 StyleBoxEmpty 类型字段部分暴露。
 
 现状安全交叉核实:`theme_override_styleboxes/*` 不在 BLOCKED_PROPS 精确集合内(properties 通道现状放行该键前缀,但 valueToGd 不支持资源对象传不进 StyleBox),新通道不构成对既有审计面的绕过。
 
@@ -96,7 +96,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 | ProgressBar | `background`(bg)+ `fill`(fill 字段) | HP 条 track/fill 两色 |
 | Button | `normal` | hover/pressed/disabled 留默认主题(静态原型够用);override 后丢默认主题 content margin,取舍见 §10 开放问题 1 |
 | Label | `normal` | CSS badge/chip:Godot 4 Label 主题有 normal stylebox 槽,text+bg 一比一映射,无需外包 Panel |
-| 显式 ColorRect | `color` 直属性 | 非 stylebox,天然映射,一行成本 |
+| ~~显式 ColorRect~~ | **不设映射** | 第二轮审阅修正:ColorRect 不在 CONTROL_TYPES(29 种)白名单,显式 `type: "ColorRect"` 走既有「降级 Panel + warning」,bg 落 `panel` 槽渲染等价。**不为此扩 CONTROL_TYPES**——涟漪面(node_type/child_type 的 MCP enum 与 validateUiNodeSpec 同源、ui_create_control/ui_container_add 连带、capability-matrix 与文档「29 种」措辞)远超一行收益,违背简约 |
 | **其余控件带 bg/fill/border** | **warning + 忽略** | 与规则 11(非白名单 type 降级 + warning)同哲学:降级不阻断,AI 从 warning 看见样式丢失自行决策(换映射控件/外包 Panel)。不 INVALID_PARAMS(一个 LineEdit 带 bg 就让整次导入失败,摩擦过大);不扩槽位表(LineEdit 多态槽族/CheckBox 是 texture 不是 color,映射质量差) |
 
 ### 3.5 翻译规则变更
@@ -116,6 +116,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 ### 4.1 style_verify
 
 - measure 脚本扩展:对每 Control **按需**读回样式生效值——仅「expect 树中该节点有 styleboxes 期望」或「槽位 override 非空」的节点(禁止全树盲读:2000 节点上限 × 4-7 槽 × 5 属性,返回体膨胀数倍);
+- **判定信息传递机制(第二轮审阅 I-B 拍板)**:两个判定输入分居两侧——期望在 TS 侧(expect 树),override 存在性在 GD 侧(运行时)。**期望清单(path→slots)由 TS 侧序列化内嵌进 measure 生成脚本**(沿 `nodePath` 内嵌生成先例,`ui-measure.ts:28-34`);运行时 `has_theme_stylebox_override` 仅作**补充并集条件**(手写树/手动 override 的节点无期望清单也能被读到)。**禁止**反向设计(GD 侧纯自判 override 存在性):「override 没设上」的节点——恰恰是最需要暴露的——`has_override` 为 false 就不读不 diff,§4.1 核心防线(「没设上 override 以默认主题数值 diff 暴露」)会被静默架空;
 - 读回 `get_theme_stylebox(slot)`:override 优先,回落默认主题——「没设上 override」以默认主题数值 diff 暴露(这正是 modulate 级联类问题的数字版防线);
 - **读回先判 `sb is StyleBoxFlat`**:非 Flat(Label 未 override 时 normal 槽返回 StyleBoxEmpty)输出类型字段、不进 diff(bg_color 读 null 会崩/误判);
 - 读回属性:bg_color / corner_radius×4 / border_width×4 / border_color;
@@ -125,7 +126,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 
 ### 4.2 flow_verify(消解上轮 B-2 盲区)
 
-- **载体机制(构建树与期望分离)**:`TranslateResult` 新增 `flow_expect: Array<{path, rect}>`——path 为最终树内路径(翻译时可算出,含 `_Flow` 容器层),rect 为**输入视口绝对坐标**。构建树维持现状(flow 直接子节点仍 `delete rect`)——若简单恢复 rect,生成器对「有 rect 但父为 Container」每节点发 warning(`src/tools/ui/ui-layout.ts:450-452`),污染 build_warnings;
+- **载体机制(构建树与期望分离)**:`TranslateResult` 新增 `flow_expect: Array<{path, rect}>`——path 为最终树内路径(翻译时可算出,含 `_Flow` 容器层;**path 必须用最终树 name——含 `_PrototypeRoot` 被 `uniqueName` 改名后的实际名字,禁止硬编码 `ROOT_NAME` 常量**),rect 为**输入视口绝对坐标**。构建树维持现状(flow 直接子节点仍 `delete rect`)——若简单恢复 rect,生成器对「有 rect 但父为 Container」每节点发 warning(`src/tools/ui/ui-layout.ts:450-452`),污染 build_warnings;
 - import 链:flow_expect 与 measure 实测(`global_position`,`src/tools/ui/ui-measure.ts:88` 确为视口绝对)直接 diff → `flow_verify: [{path, target, actual, delta, ok}]`;
 - **范围收窄:仅 flow 直接子节点层**(丢 rect 的那层,即现 `countDroppedRects` 统计层)。flow 孙层维持既有近似覆盖(「相对输入父原点」期望,容器排布后天然带偏移)——把孙层纳入 flow_expect 会产出稳定系统性偏差报警,是噪声不是缺陷信号。B-2 声明文案(`prototype-import.ts:368-374` warning / `ui/index.ts:676` `_note`)同步改为「flow 直接子层受 flow_verify 覆盖,孙层为近似覆盖」;
 - 挂载原点对齐前提显式继承既有约束(`parent_path` 须原点对齐,descHint 已声明);
@@ -143,6 +144,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 
 ## 6. PR-4:单进程优化
 
+- **实现形态拍板(第二轮审阅 N-2):新建独立脚本模板,不扩展 ui-measure**——build 走 `_initialize` 同步语义、measure 走 `process_frame` 异步稳定语义(`ui-measure.ts:23-47`),两种生命周期混进一个函数过载;PR-2 已给 ui-measure 加 style 读回,再叠 build 职责违反单一职责。`_mcp_load_scene` 共享模板(`gdscript-templates.ts`)**不动**——合成脚本自带 CACHE_MODE_IGNORE load 分支,不影响全部既有调用方;
 - 合成单 spawn:full-class SceneTree 脚本顺序 load → 建树 → pack→tmp→rename 原子写(复用 scene-commit 模式)→ **reload 用 `ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)`** → 等帧稳定 → measure 输出 → `_mcp_done`;
 - **B-1 依据(审查 Blocking)**:`_mcp_load_scene` 是裸 `load(sp)`(`src/core/shared/gdscript-templates.ts:102`),同进程内第二次 load 同路径命中 ResourceCache 返回旧实例(无新子树)→ verify 全红。全仓无 CACHE_MODE 处理先例。IGNORE 模式从磁盘取新实例且不接管缓存路径;依赖子资源(font 等)仍享缓存,对 measure 无影响反而更稳;
 - **验收断言含「篡改磁盘后 reload 测出差异」**(防 reload 假绿:确认真的绕过了缓存);
@@ -161,6 +163,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
   - **Label normal 槽 headless 实测命令附进验收**(AGENTS.md 验证优先:引擎事实虽有文档依据,spec 落盘附 `add_theme_stylebox_override("normal", StyleBoxFlat.new())` + `get_theme_stylebox` 读回的实测验证方式);
   - ProgressBar 钳制三组合(bg-only/fill-only/bg+fill)实测校准,同步 `:129-132` fixture 校准注释;
   - flow_verify:fixture flow 直接子层配错 spacer → flow_verify 红;配对 → 绿;集成用例 2 的 `targets===2` 断言(`:216-219`)随 ③ 改写;
+  - **跨批次测试演进声明**:PR-2 的测试改写(用例 2/fixture 断言)在 **PR-1 产出基础上**继续改写——plan 作者勿按 PR-1 时点的快照写 PR-2 断言,串行批次间同文件连续演进;
   - PR-4:篡改磁盘断言 + 耗时对比记录;
 - **ui_pixel_verify**:Windows-only skip + 同图全绿/构造差异 PNG 精确计数/路径白名单负向。
 
@@ -174,15 +177,16 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 | measure | `src/tools/ui/ui-measure.ts` | 样式按需读回(判 StyleBoxFlat) | PR-2 |
 | diff | `src/tools/ui/layout-diff.ts` | style diff / flow diff 推导函数 | PR-2 |
 | 工具接线 | `src/tools/ui/index.ts` | import 链返回 style_verify/flow_verify;ui_pixel_verify case + TOOL_META actionRisks `'write'`;`_note` 改写 | PR-2 / PR-3 |
-| 单 spawn | `src/tools/ui/`(新脚本模板或 ui-measure 扩展) | build+persist+reload(CACHE_MODE_IGNORE)+measure 合成 | PR-4 |
+| 单 spawn | `src/tools/ui/`(**新建独立脚本模板**,第二轮审阅拍板,不扩 ui-measure) | build+persist+reload(CACHE_MODE_IGNORE,自带 load 分支不动共享模板)+measure 合成 | PR-4 |
 | 像素采样 | `src/tools/ui/`(新文件)+ `src/screenshot.ts` 复用 | capture→decode→采样→判定 | PR-3 |
 | descHint | `src/tools/ui/index.ts` + `src/core/module-loader.ts` | 新字段/新 action 说明 + SLIM_CONFIG | PR-1~3 各自 |
-| 规则双副本 | `.claude/rules/godot-mcp-ui.md` **6 处段落**(`:133` 翻译规则要点 bg→modulate 措辞/`:139` verify_coverage+flow 盲区段/`:197` evaluate 要点 toHex)+ `src/tools/rule-templates.ts` 逐字镜像段(`:612` 字段清单加 fill/borderRadius/border/`:613` 颜色格式/`:615`/`:616` ProgressBar 27px 段联动/`:621`/`:679`;`:636-639` toHex→数组输出) | **每处两文件同步改** | PR-1 / PR-2 |
-| 测试改写 | `test/prototype-import.test.ts` 3 断言 + `test/integration/ui-import-integration.test.ts`(用例 2 改写/fixture 校准注释/.tscn 断言) | BREAKING 联动 | PR-1 / PR-2 |
+| 规则双副本 | **9+ 处段落,两文件逐字同步**:`.claude/rules/godot-mcp-ui.md`(`:133` 翻译规则要点 bg→modulate 措辞 / `:134` 引擎下限预警 ProgressBar 27px 段联动规则 7 修正 / `:139` verify_coverage+flow 盲区段 / `:197` evaluate 要点 toHex)+ `.claude/rules/godot-mcp-engine-quirks.md`(`:65` modulate 级联段「bg 近似染色除外」措辞成假话须改 / `:68` ProgressBar 27px 段「翻译器对 rect.h<27 发 warning」行为描述联动)+ `src/tools/rule-templates.ts` 对应镜像段(`:612` 字段清单加 fill/borderRadius/border / `:613` 颜色格式 / `:615` / `:616` / `:621` / `:679` / `:636-639` toHex→数组输出 / `:933-935` UI 渲染段 modulate 措辞镜像)。**engine-quirks 亦属双副本体系**(AGENTS.md `.claude/rules/godot-mcp-*.md` 通配),单侧修改会被 `STRICT=1 npm run check:rules-sync` 阻断(2026-07-27 同型踩坑) | PR-1 / PR-2 |
+| 测试改写 | `test/prototype-import.test.ts` 3 断言 + `test/integration/ui-import-integration.test.ts`(用例 2 改写/fixture 校准注释/.tscn 断言) | BREAKING 联动;PR-2 在 PR-1 产出基础上继续改写 | PR-1 / PR-2 |
 | fixture | `test/fixtures/prototype-geometry/rts-hud.json` + 新卡片 fixture | 三件套字段 | PR-1 |
-| claudemd-builder | — | 实测确认无 bg→modulate 措辞,**无需改**(审查 N-10 核实) | — |
+| claudemd-builder | — | 实测确认无 bg→modulate 措辞,**无需改**(两轮审查核实) | — |
 | matrix/budget | `npm run build-matrix` + `check:budget` | 工具/参数描述变更 | 各批 |
-| 完成门禁 | lint + build + test 全绿 | 每批提交前 | 各批 |
+| CHANGELOG | 各批独立版本段 | PR-1 含 BREAKING 标注 | 各批 |
+| 完成门禁 | lint + build + test 全绿 + **`STRICT=1 npm run check:rules-sync`(需先 build;本迭代为双副本改动密度最高批次,显式列进门禁而非隐含)** | 每批提交前 | 各批 |
 | 审查+memory | `docs/reviews/` + memory 登记 | 每 PR 交付物 | 各批 |
 
 ## 9. 版本策略
@@ -226,3 +230,15 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 **设计者自查新增 4 盲区**(审查与修订初稿均未覆盖):style 读回按需禁全树盲读(§4.1)、版本策略 minor 裁决(§9)、新 fixture 方法论声明(§7)、ui_pixel_verify 终验定位(§5)。
 
 **实测口径修正**:CONTROL_TYPES 实测 **29** 种(node 实数,审查报告记 28)。
+
+## 11.2 第二轮审阅消解记录(落盘文档审查)
+
+第二轮独立 code-reviewer 子代理审阅落盘 spec(不采信 §11 消解声明;查 Godot 官方文档 + master 源码 + 仓库实测 11 组引用)。判定 **REVISE(无 Blocking)**:B-1(ResourceLoader API 签名/CacheMode 枚举/篡改磁盘断言有效性)、I-3 再修正(ProgressBar `get_minimum_size()` 确为 background 与 fill 两 stylebox 取 max,master 源码 progress_bar.cpp 确认)、I-6 再修正(countDroppedRects 确统计直接子层)、11 组 file:line 引用零漂移、fixture 5 个 bg 节点属实——**核心声明全部独立成立**。消解 4 Important + 5 Nit:
+
+| 意见 | 处置 |
+|------|------|
+| I-A 双副本清单漏 3 处(消解部分不成立) | 采纳并实测核实行号:§8 补 `godot-mcp-ui.md:134`(ProgressBar 27px 段,首版只在 rule-templates 侧列 :616 造成单侧修改必被 STRICT 拦断)+ `engine-quirks.md:65`(modulate 段「bg 近似染色除外」措辞成假话)与 `:68`(will be clamped 行为描述)+ `rule-templates.ts:933-935` 镜像段;清单 6 处 → **9+ 处** |
+| I-B style_verify 按需读回判定信息分居两侧 | 采纳:§4.1 拍板「期望清单 TS 侧序列化内嵌进 measure 脚本(沿 nodePath 内嵌先例),运行时 override 存在性仅作补充并集条件;禁止 GD 纯自判(会架空『没设上 override 以默认主题 diff 暴露』防线)」 |
+| I-C 显式 ColorRect 映射不可达 | 采纳且拍板**删映射**:ColorRect 不在 CONTROL_TYPES(29 种),扩白名单涟漪(MCP enum/validate/matrix/文档联动)超一行收益;§3.4 改为诚实声明「走既有降级 Panel + bg stylebox,渲染等价」 |
+| I-D 门禁漏 check:rules-sync | 采纳:§8 门禁行显式补 `STRICT=1 npm run check:rules-sync`(本迭代双副本改动密度最高,历史踩坑直接针对对象) |
+| Nit:slot 定位/PR-4 二选一/CHANGELOG/path 硬编码/跨批次测试演进 | 全部采纳:§3.3 白名单定位声明、§6 拍板新独立模板(生命周期不混+不动共享 `_mcp_load_scene`)、§8 CHANGELOG 行、§4.2 path 用最终树名禁硬编码、§7 跨批次演进声明 |
