@@ -175,6 +175,11 @@ function validateUiNodeSpec(spec: UiNodeSpec, depth: number, warnings: string[] 
         throw new Error(`INVALID_PARAMS: styleboxes slot "${sb.slot}" is not whitelisted (allowed: ${STYLEBOX_SLOTS.join(', ')})`);
       }
       const b = sb.box;
+      // 审查 I-1:draw_center 在 genStyleboxLines 中裸内插进 GDScript,必须在 validate 层
+      // 堵死非布尔输入(字符串可携带换行注入任意 GD 语句,TS 类型标注对 MCP 运行时 JSON 无强制力)
+      if (b.draw_center !== undefined && typeof b.draw_center !== 'boolean') {
+        throw new Error('INVALID_PARAMS: styleboxes draw_center must be a boolean');
+      }
       const radii = typeof b.corner_radius === 'number'
         ? [b.corner_radius]
         : Object.values(b.corner_radius ?? {});

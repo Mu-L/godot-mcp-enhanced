@@ -287,6 +287,13 @@ describe('validateUiNodeSpec styleboxes 校验(PR-1)', () => {
       styleboxes: [{ slot: 'normal', box: { border_width: Number.POSITIVE_INFINITY } }],
     })).toThrow(/border_width must be a non-negative finite number/);
   });
+
+  it('draw_center 非布尔 → throw(注入防线,审查 I-1)', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'panel', box: { draw_center: 'false\n_mcp_output("error", "injected")' } }],
+    })).toThrow(/draw_center must be a boolean/);
+  });
 });
 
 // ─── PR-1 Task 3: genStyleboxLines 构造块 ──────────────────────────────────
