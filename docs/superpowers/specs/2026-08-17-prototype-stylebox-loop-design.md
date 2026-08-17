@@ -1,7 +1,7 @@
 # 原型翻译层大迭代(StyleBox 通道 / 收敛闭环)设计文档
 
 - 日期:2026-08-17
-- 状态:**v3(经两轮独立第三方审查:第一轮审设计思路(REVISE:1B+8I+10N)+ 设计者专业再修正 5 处;第二轮审落盘文档(REVISE:无 Blocking,4 Important)已消解,见 §11.2)**
+- 状态:**v4(经两轮独立第三方审查 + 实现期实测修订——Task 4 集成实测推翻 v3 三处声明,见 §11.3)**
 - 审查记录:本会话内派 code-reviewer 子代理独立审查(判定 REVISE:1 Blocking + 8 Important + 10 Nit),随后设计者对审查意见逐条专业复核——**其中 5 处对审查意见本身再修正**(见 §11),全部消解后形成本文。
 - 来源:用户立项「原型翻译层大迭代(StyleBox 通道/收敛闭环)」,四项收敛闭环含义全选 + 卡片三件套 + 三控件全盖 + 串行四批拆分(方案 A)
 - 版本目标:v0.32.0 起(PR-1 为 minor bump,依据见 §9 版本策略)
@@ -70,23 +70,25 @@ type StyleBoxFlatSpec = {
 };
 ```
 
-生成器(`src/tools/ui/ui-layout.ts`)为每节点拼构造块,变量名 **复用生成器既有 nextId 全局命名空间**(整树拼进单个 `_initialize()` 作用域,同名 var 是 GDScript 编译错):
+生成器(`src/tools/ui/ui-layout.ts`)为每节点拼构造块,变量名 **复用生成器既有 nextId 全局命名空间**(整树拼进单个 `_initialize()` 作用域,同名 var 是 GDScript 编译错;实现期落地为专属 1-based `_sb_N` 计数器——共享 nextId 是 0-based 且被 `_saved_N` 交错消耗,与测试序号断言矛盾,唯一性目标经机制达成):
 
 ```gdscript
 var _sb_1 := StyleBoxFlat.new()
 _sb_1.bg_color = Color(0.1, 0.12, 0.18, 1.0)
 _sb_1.corner_radius_top_left = 8
 _sb_1.border_width_left = 2
-node.set("theme_override_styleboxes/panel", _sb_1)
+node.add_theme_stylebox_override("panel", _sb_1)
 ```
+
+> **⚠️ 实测修订(v4,§11.3)**:stylebox 类 override 的序列化属性名是 `theme_override_styles/<slot>`(本 spec v1-v3 误写为 `theme_override_styleboxes/`,仓库 `src/tscn/tscn-parser.ts:316` 存量注释可佐证真名);且 `node.set("theme_override_styles/<slot>", sb)` 路径即使属性名正确,`PackedScene.pack()` 落盘也会丢 override(Task 4 A/B 实测)——**唯一可靠路径是 `add_theme_stylebox_override(slot, sb)` API**。
 
 `valueToGd` 完全不动(box 内全是基本类型,单值序列化照旧复用)。
 
 ### 3.3 slot 强制枚举白名单(安全)
 
-slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", …)` 键——**入口枚举拒绝比静默失效便宜**。`validateUiNodeSpec` 层校验(覆盖 `ui_build_layout` 手写树入口与翻译链两个入口)。白名单 7 值(§3.2);`focus`/`read_only` 等**显式不进**(YAGNI:每扩一槽须定义语义边界+测试面,首版四类映射用不到;后续需要时随测试面一起扩)。**白名单定位声明**:hover/pressed/disabled 仅供 `ui_build_layout` 手写树入口使用,翻译器永不产出(§1 明确排除交互态翻译)——白名单是入口校验不是翻译能力声明;slot×控件类型联合校验(如 fill 给 Label 时静默无效)留后续,首版由 §4.1 读回的 StyleBoxEmpty 类型字段部分暴露。
+slot 是 AI 可控字符串拼进生成的 GDScript(`add_theme_stylebox_override("<slot>", …)` 的 API 参数位,v1-v3 曾误写为 `node.set("theme_override_styleboxes/<slot>")` 键)——**入口枚举拒绝比静默失效便宜**。`validateUiNodeSpec` 层校验(覆盖 `ui_build_layout` 手写树入口与翻译链两个入口)。白名单 7 值(§3.2);`focus`/`read_only` 等**显式不进**(YAGNI:每扩一槽须定义语义边界+测试面,首版四类映射用不到;后续需要时随测试面一起扩)。**白名单定位声明**:hover/pressed/disabled 仅供 `ui_build_layout` 手写树入口使用,翻译器永不产出(§1 明确排除交互态翻译)——白名单是入口校验不是翻译能力声明;slot×控件类型联合校验(如 fill 给 Label 时静默无效)留后续,首版由 §4.1 读回的 StyleBoxEmpty 类型字段部分暴露。
 
-现状安全交叉核实:`theme_override_styleboxes/*` 不在 BLOCKED_PROPS 精确集合内(properties 通道现状放行该键前缀,但 valueToGd 不支持资源对象传不进 StyleBox),新通道不构成对既有审计面的绕过。
+现状安全交叉核实:`theme_override_styles/*` 不在 BLOCKED_PROPS 精确集合内(properties 通道现状放行该键前缀,但 valueToGd 不支持资源对象传不进 StyleBox),新通道不构成对既有审计面的绕过。
 
 ### 3.4 控件槽位映射
 
@@ -103,7 +105,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 
 - **规则 9(modulate 近似)删除**;modulate 从翻译层消失(properties 里用户显式给 modulate 仍可,BLOCKED_PROPS 之外不受影响);
 - **新规则:bg 缺省但 border/borderRadius 存在 → `draw_center=false`**(StyleBoxFlat 默认 `draw_center=true`+灰底,CSS「有边框无背景」是透明底,不处理则系统性渲染翻转且 style_verify 无从暴露——期望值没设,diff 无目标);
-- **规则 7(ProgressBar 27px 钳制预警)语义修正**:仅对「**无任何 stylebox override**」的 ProgressBar 用 `PROGRESS_BAR_MIN_HEIGHT=27` 阈值预警。依据:ProgressBar 的 minimum_size 取 background 与 fill **两个** stylebox 最小尺寸的最大值——只 override background(bg)时 fill 仍是默认主题 StyleBoxFlat,其 content margin 仍顶开(钳制部分存在);bg+fill 都 override 才完全消失。有 override 时阈值不可静态预知,不做静态预警,由集成测试三组合(bg-only/fill-only/bg+fill)实测校准(见 §8);
+- **规则 7(ProgressBar 27px 钳制预警)最终语义(v4 实测修订)**:**无条件预警**(h < `PROGRESS_BAR_MIN_HEIGHT=27` 一律警,文案分档)。实测依据(Task 4,Godot 4.7.1 headless):h=16 时无 override→27、bg-only→23、fill-only→27、bg+fill→23——**所有组合都被钳**,v3 的「有 override 不预警」收窄会静默漏掉带 override 的被钳场景。预警是所有情形的正确或保守信号(实测各组合钳制值写入 warning 文案)。
 - 规则 4(透明壳)判定不变:bg 缺省=透明壳契约不变(bg 现在走 stylebox,「有无 bg」判定输入相同);
 - 显式 Panel 无 bg 灰底翻转 warning(审查遗留①)不变。
 
@@ -198,7 +200,7 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 1. Button override normal 后丢默认主题 content margin → 文字贴边。实测若不可接受,翻译 Button 时补 `content_margin = border.width + 校准值`(校准值实测定,不编造 CSS 没有的数);可接受则仅文档声明取舍;
 2. 像素采样容差:中心点/角点阈值(抗锯齿底噪)集成实测校准;
 3. Label normal 槽 headless 实测(§7 已列验收命令)——若引擎行为与文档不符(如 override 不渲染),badge 映射降级为外包 Panel 方案;
-4. ProgressBar 有 override 时的实际钳制值(bg-only/fill-only/bg+fill 三组合)——集成实测后决定是否需要动态预警;
+4. ~~ProgressBar 有 override 时的实际钳制值~~ **已答(v4,Task 4 实测)**:no override→27 / bg-only→23 / fill-only→27 / bg+fill→23(所有组合都被钳);规则 7 已据此恢复无条件预警,实测数据写入 warning 文案与集成测试断言(`test/integration/ui-import-integration.test.ts` 三组合用例);
 5. flow_verify 容差:直接子层 Δ 的合理阈值(容器排布 vs flex 排布的固有数值差)实测校准,可能大于几何 verify 的 2px。
 
 ## 11. 审查消解记录(第三方审查 + 专业再修正)
@@ -230,6 +232,18 @@ slot 是 AI 可控字符串拼进 `node.set("theme_override_styleboxes/<slot>", 
 **设计者自查新增 4 盲区**(审查与修订初稿均未覆盖):style 读回按需禁全树盲读(§4.1)、版本策略 minor 裁决(§9)、新 fixture 方法论声明(§7)、ui_pixel_verify 终验定位(§5)。
 
 **实测口径修正**:CONTROL_TYPES 实测 **29** 种(node 实数,审查报告记 28)。
+
+## 11.3 实现期实测修订记录(Task 4,v4)
+
+Task 4 集成验收真跑 Godot 推翻 v3 三处声明,修正如下(全部有实测数据与仓库佐证):
+
+| v3 声明 | 实测事实 | 修正 |
+|---------|---------|------|
+| override 属性名 `theme_override_styleboxes/<slot>` | 真名 `theme_override_styles/<slot>`(`src/tscn/tscn-parser.ts:316` 存量注释佐证);且 `node.set()` 该路径即使名字正确,`PackedScene.pack()` 落盘也丢 override(A/B 实测) | 生成器改 `add_theme_stylebox_override(slot, sb)` API(commit 54a6e20);§3.2 示例已更正 |
+| §3.5/§11「有 override 不预警(钳制不可静态预知)」 | h=16:无 override→27 / bg-only→23 / fill-only→27 / bg+fill→23,**全组合被钳** | 规则 7 恢复无条件预警,文案分档含实测数据(commit c4f543d);§3.5 已重写 |
+| §11 I-3 再修正中「bg+fill 都 override 才完全消失」的推断 | bg+fill 仍钳到 23(StyleBoxFlat 默认 content_margin=-1 继承主题) | §11 I-3 行的推断链以此为准修正;开放问题 4 标记已答 |
+
+**过程教训**:三处全部是「单测/生成快照全绿、真跑引擎才暴露」——集成验收(真 Godot spawn)不可被生成快照替代,后继 PR-2(style_verify 读回)/PR-4(单进程 reload)同理。
 
 ## 11.2 第二轮审阅消解记录(落盘文档审查)
 
