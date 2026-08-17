@@ -205,7 +205,8 @@ describe('findPreviousReport 跳过 CANCELLED（PR-1b）', () => {
 describe('makeRunId 随机后缀与 findPreviousReport 适配(PR-2)', () => {
   it('同秒内两次 makeRunId 同名套件 → run_id 不同(随机后缀)', () => {
     const a = makeRunId('suiteX');
-    const b = makeRunId('suiteX');
+    let b = makeRunId('suiteX');
+    if (a === b) b = makeRunId('suiteX');   // rand4 碰撞重采样一次,残余概率 ~(1/65536)^2
     expect(a).not.toBe(b);
     expect(a).toMatch(/^\d{8}-\d{6}-suiteX-[0-9a-f]{4}$/); // 时间戳-sanitize-rand4 三段
     expect(b).toMatch(/-suiteX-[0-9a-f]{4}$/);
