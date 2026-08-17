@@ -1,5 +1,5 @@
 {
-  "version": "0.31.2",
+  "version": "0.31.3",
   "tools": [
     {
       "name": "analysis",
@@ -2008,7 +2008,7 @@
           },
           "node_path": {
             "type": "string",
-            "description": "monitor_start: 要监控的节点路径（如 root/Player）"
+            "description": "monitor_start: 要监控的节点路径（如 /root/Player）"
           },
           "properties": {
             "type": "array",
@@ -2126,8 +2126,8 @@
       },
       "size": {
         "descBytes": 1117,
-        "schemaBytes": 5367,
-        "totalBytes": 6484
+        "schemaBytes": 5368,
+        "totalBytes": 6485
       },
       "annotations": {
         "readOnlyHint": false,
@@ -3868,7 +3868,7 @@
     {
       "name": "qa",
       "group": "bridge",
-      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行（输入/等待/断言/确定性 playtest/截图证据）→ 聚合报告 + 回归 diff（夜间跑批用）。步骤 type：input(send_key/mouse_click/mouse_move/text/touch/drag)、wait(wait_for_node/wait_for_property)、wait_frames、freeze/unfreeze、step_until(结构化条件)、snapshot/restore、set、call(只读白名单,写方法需 GODOT_MCP_BRIDGE_EXTRA_METHODS)、assert(node_state/scene_structure/screen_text/perf)、screenshot、sleep。options：seed/fixed_delta_hz(确定性)、continue_on_failure、auto_install_bridge/auto_run/stop_after、各超时预算。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
+      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行（输入/等待/断言/确定性 playtest/截图证据）→ 聚合报告 + 回归 diff（夜间跑批用）。步骤 type：input(send_key/mouse_click/mouse_move/text/touch/drag)、wait(wait_for_node/wait_for_property)、wait_frames、freeze/unfreeze、step_until(结构化条件)、snapshot/restore、set、call(只读白名单,写方法需 GODOT_MCP_BRIDGE_EXTRA_METHODS)、assert(node_state/scene_structure/screen_text/perf)、screenshot、sleep。options：seed/fixed_delta_hz(确定性)、continue_on_failure、auto_install_bridge/auto_run/stop_after、record_on_failure(失败留录制)、各超时预算。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3955,9 +3955,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 736,
+        "descBytes": 773,
         "schemaBytes": 895,
-        "totalBytes": 1631
+        "totalBytes": 1668
       },
       "annotations": {
         "readOnlyHint": false,

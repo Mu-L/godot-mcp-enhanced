@@ -1,3 +1,8 @@
+---
+description: "安全编辑 edit_script search_and_replace validate_scripts 确认令牌 remove_node headless 改盘 editor 覆盖 沙箱 防误用 CRLF tab 缩进 —— 当你编辑 .gd/.tscn、删节点或执行危险操作时使用"
+alwaysApply: false
+---
+
 > 适用于 godot-mcp-enhanced v0.25.0+
 
 ## 安全编辑流
@@ -12,6 +17,7 @@
 - [ ] 3. headless 改盘 + editor 开同场景 → Ctrl+S 覆盖风险：建议 editor 内 Reload 场景或关闭该场景后再操作
 - [ ] 4. 危险操作（`remove_node` 等）需显式确认令牌
 - [ ] 5. GDScript 沙箱是**防误用层非防对抗**（间接构造可绕过；真正隔离须容器/VM + `GODOT_MCP_ALLOW_UNSAFE=false`）
+- [ ] 6. `write_script`/`edit_script` 写 .gd 前也走沙箱扫描（与 `execute_gdscript` 同威胁面，发现已知危险 API 模式（含 @tool 加载即执行等，清单不列举防被侦察）阻断 SANDBOX_VIOLATION；双 opt-in 旁路 `UNRESTRICTED + DISABLE_SAFETY`）
 
 **常见偏离**：
 - 用内置 Edit 工具改 `.gd`（tab 缩进失败）

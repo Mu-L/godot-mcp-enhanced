@@ -1,3 +1,8 @@
+---
+description: "bridge e2e 运行时验证 game_bridge_install run_project wait_for_bridge game_query ping game_input game_wait take_screenshot frame-verify 录制 回归测试 输入模拟 —— 当你需要验证运行时行为、做 E2E 测试、模拟输入或回归测试时使用"
+alwaysApply: false
+---
+
 > 适用于 godot-mcp-enhanced v0.25.0+
 
 ## 运行时验证 / E2E 流程

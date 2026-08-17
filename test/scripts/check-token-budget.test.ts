@@ -43,7 +43,9 @@ describe('checkBudget', () => {
     expect(THRESHOLDS.perToolSchema.error).toBe(12000);
     expect(THRESHOLDS.perToolTotal.warn).toBe(7000);
     expect(THRESHOLDS.perToolTotal.error).toBe(14000);
-    expect(THRESHOLDS.totalSum.warn).toBe(80 * 1024);
+    // totalSum warn 2026-08-16 校准 80KB→90KB(实测 86412B 超旧线 5.5%,对齐覆盖率阈值
+    // ">4% 持续超额应上调"惯例);error 120KB 硬线不变。见 check-token-budget.mjs 注释。
+    expect(THRESHOLDS.totalSum.warn).toBe(90 * 1024);
     expect(THRESHOLDS.totalSum.error).toBe(120 * 1024);
   });
 });

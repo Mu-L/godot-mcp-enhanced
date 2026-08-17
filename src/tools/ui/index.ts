@@ -613,11 +613,14 @@ async function handleUiImportPrototype(
   // build_warnings:输入消歧 + 翻译 warnings 透传 + 容差模糊带使用提示 + 生成器 warnings。
   // I-2(声明式修复):parent_path 非 root 时根级 diff 参照系限制提示(diff 算法不改——
   // measure 根级 target 的期望 rect 按视口原点求解,挂载父非原点对齐时恒误报)。
+  // 审查遗留②:归一化判定(去尾斜杠)——'root/'/'/root/' 与 '/root' 语义等价,字符串全等
+  // 会假阳性多弹 warning;场景根名(如 '/Main')仍保守提示(无害——原点对齐理论差异仍在)。
+  const parentIsRoot = parentPath.replace(/\/+$/, '') === '/root';
   const buildWarnings = [
     ...preWarnings,
     ...translated.warnings,
     '使用提示: 避免构造 ≤2px 宽的相邻独立节点(容差模糊带)——verify 容差内兄弟关系与偏移不可区分',
-    ...(parentPath !== '/root' ? [
+    ...(!parentIsRoot ? [
       `parent_path="${parentPath}" 非 root: layout_verify 根级条目期望 rect 按视口原点求解,挂载父非原点对齐(global_position≈0,0)时根级 diff 恒误报——请确认挂载父原点对齐,或忽略根级条目的 diff 结果`,
     ] : []),
   ];

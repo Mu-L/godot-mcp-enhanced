@@ -1,30 +1,34 @@
 #!/usr/bin/env node
 // scripts/check-rules-content-sync.mjs
-// 2026-08-07 审查 P2: rules↔rule-templates 内容 drift CI 守门
+// 2026-08-07 审查 P2 建立;2026-08-16 原型翻译层审查遗留③升级:
+// .claude/rules/godot-mcp-*.md 与 src/tools/rule-templates.ts 的 DETAILED_RULE_TEMPLATES
+// 是两份独立副本(非生成关系,见 rule-templates.ts 头注释),check-rules-version-bump.mjs
+// 只校验版本 bump 不校验内容——内容 drift 静默放过(2026-07-27 get_node_layout PR
+// 第三方审查才发现 B-1 BLOCKING drift 的根因)。本脚本机械归一化 diff 堵此盲区。
 //
-// AGENTS.md「独立副本同步约束」声明 .claude/rules/godot-mcp-*.md 与
-// src/tools/rule-templates.ts 的 DETAILED_RULE_TEMPLATES 是两份独立副本（非生成关系），
-// 改动时必须手动同步。现有 check-rules-version-bump.mjs 只校验 version bump，
-// 不校验内容一致性——drift 静默放过（源于 2026-07-27 get_node_layout PR 教训）。
+// 2026-08-16 升级(历史 drift 已清零,本批启用 STRICT):
+// 1. 归一化收紧:旧版把全文所有 semver 抹成 VERSION(会掩盖 Godot 4.6/4.7 等真实版本
+//    差异)+压缩全部空白(diff 粒度退化)。现改为:CRLF→LF + 仅锚定版本行
+//    "godot-mcp-enhanced v0.17.0+"(文件侧)↔"godot-mcp-enhanced {{MCP_VERSION}}+"(模板侧)
+//    互抹(支持两段版本号如 v0.19),其余内容逐字比对。
+// 2. 双向对账:模板键↔.claude/rules/godot-mcp-*.md 文件名双向(旧版只查单向且 WARN 不计)。
+// 3. 差异定位改行级(旧版压缩后 char 定位难读)。
 //
-// 本脚本对每个 key 做 normalize（去版本号 + 压缩空白）后 diff。
+// 模式:
+//   默认(advisory) = drift 时 exit 0 + stderr WARN(本地快速查)
+//   STRICT=1        = drift 时 exit 1(CI 阻断,2026-08-16 起接入,新 drift 防护)
 //
-// 模式：
-//   默认（advisory）= drift 时 exit 0 + stderr WARN（不阻断 CI，因历史 drift 待统一同步）
-//   STRICT=1        = drift 时 exit 1（阻断 CI，用于新 drift 防护，待历史 drift 清零后启用）
-//
-// 用法：node scripts/check-rules-content-sync.mjs
-// 退出码：advisory 模式恒 0 / STRICT 模式 0=一致 1=drift
+// 用法: node scripts/check-rules-content-sync.mjs(需先 npm run build)
+// 退出码: advisory 恒 0 / STRICT 0=一致 1=drift 或 build 产物不可加载
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
 
-// 动态 import rule-templates.ts 编译产物（build/tools/rule-templates.js）
-// 若 build 不存在则提示先 npm run build
+// 动态 import rule-templates.ts 编译产物(build/tools/rule-templates.js)
 const templatesPath = join(repoRoot, 'build', 'tools', 'rule-templates.js');
 if (!existsSync(templatesPath)) {
   console.error('[check-rules-content-sync] build/tools/rule-templates.js 不存在，请先 npm run build');
@@ -34,46 +38,52 @@ const { DETAILED_RULE_TEMPLATES } = await import(pathToFileURL(templatesPath).hr
 
 const rulesDir = join(repoRoot, '.claude', 'rules');
 
-/** normalize：去版本号差异（template 占位 vs rules 真值）+ 压缩空白 + trim，让 diff 只看内容 */
+/**
+ * normalize:CRLF→LF + 版本行互抹。锚定 "> 适用于 godot-mcp-enhanced " 前缀(审查 N-4 收紧:
+ * 防误抹正文叙述性版本引用),支持 v0.19 两段式与 pre-release/build 后缀;不触碰 Godot 4.x
+ * 等其他版本号。已知限制:版本行互抹会掩盖"最低适用版本"语义变更(如 v0.17.0+→v0.25.0+),
+ * 属有意归一(分发模板恒为 {{MCP_VERSION}} 占位,真值只在 rules 侧)。
+ */
 function normalize(s) {
   return s
-    // template 端：{{MCP_VERSION}} → VERSION
-    .replace(/\{\{MCP_VERSION\}\}/g, 'VERSION')
-    // rules 端：v0.X.Y / vX.Y.Z / 0.X.Y → VERSION（对齐 template 的 VERSION 占位）
-    .replace(/\bv?\d+\.\d+\.\d+(?:-[a-z0-9.]+)?\b/g, 'VERSION')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/\r\n/g, '\n')
+    .replace(/> 适用于 godot-mcp-enhanced v[\d.]+(?:[-+][\w.+-]*)?/g, '> 适用于 godot-mcp-enhanced VER')
+    .replace(/> 适用于 godot-mcp-enhanced \{\{MCP_VERSION\}\}(?:\+)?/g, '> 适用于 godot-mcp-enhanced VER');
 }
 
-let driftCount = 0;
+/** 行级首个差异描述(两侧已 normalize)。 */
+function lineDiff(a, b) {
+  const al = a.split('\n');
+  const bl = b.split('\n');
+  let i = 0;
+  while (i < al.length && i < bl.length && al[i] === bl[i]) i++;
+  return `首个差异在第 ${i + 1} 行\n    模板: ${JSON.stringify(al[i] ?? '(EOF)')}\n    文件: ${JSON.stringify(bl[i] ?? '(EOF)')}`;
+}
 
-for (const [filename, templateContent] of Object.entries(DETAILED_RULE_TEMPLATES)) {
+const templateKeys = Object.keys(DETAILED_RULE_TEMPLATES);
+const ruleFiles = readdirSync(rulesDir).filter(f => /^godot-mcp-[^/]*\.md$/.test(f));
+
+const problems = [];
+for (const filename of templateKeys) {
   const rulesPath = join(rulesDir, filename);
   if (!existsSync(rulesPath)) {
-    console.warn(`[check-rules-content-sync] WARN: .claude/rules/${filename} 不存在（template 有但 rules 缺，可能尚未分发）`);
+    problems.push(`模板有而 .claude/rules/ 缺文件: ${filename}`);
     continue;
   }
-  const rulesContent = readFileSync(rulesPath, 'utf-8');
-  const a = normalize(templateContent);
-  const b = normalize(rulesContent);
-  if (a !== b) {
-    driftCount++;
-    // 找首个差异位置辅助定位
-    let i = 0;
-    while (i < Math.min(a.length, b.length) && a[i] === b[i]) i++;
-    const ctx = 40;
-    console.error(`[check-rules-content-sync] DRIFT: ${filename}`);
-    console.error(`  template  (rule-templates.ts): ...${a.slice(Math.max(0, i - ctx), i + ctx)}...`);
-    console.error(`  rules     (.claude/rules/):     ...${b.slice(Math.max(0, i - ctx), i + ctx)}...`);
-    console.error(`  首个差异位置（normalize 后）：char ${i}`);
-    console.error(`  修复：同步两处内容（AGENTS.md「独立副本同步约束」），或确认差异是预期的（如 template 用占位、rules 用真值）`);
-  }
+  const a = normalize(DETAILED_RULE_TEMPLATES[filename]);
+  const b = normalize(readFileSync(rulesPath, 'utf8'));
+  if (a !== b) problems.push(`${filename} 内容不一致(归一化后): ${lineDiff(a, b)}`);
+}
+for (const f of ruleFiles) {
+  if (!templateKeys.includes(f)) problems.push(`.claude/rules/ 有而模板缺键: ${f}`);
 }
 
-if (driftCount > 0) {
+if (problems.length > 0) {
   const mode = process.env.STRICT === '1' ? 'STRICT' : 'advisory';
-  console.error(`[check-rules-content-sync] ${mode}: ${driftCount} 个文件 drift 检出（历史 drift 待统一同步，advisory 不阻断；STRICT=1 阻断）`);
+  console.error(`[check-rules-content-sync] ${mode}: ${problems.length} 处不一致:`);
+  for (const p of problems) console.error(`  - ${p}`);
+  console.error('  修复：双向同步两处内容(AGENTS.md「独立副本同步约束」)；归一化仅抹版本行，其余须逐字一致');
   if (process.env.STRICT === '1') process.exit(1);
 } else {
-  console.log('[check-rules-content-sync] OK: 所有 DETAILED_RULE_TEMPLATES 与 .claude/rules/ 内容一致');
+  console.log(`[check-rules-content-sync] OK: ${templateKeys.length} 个模板与 .claude/rules/ 双向对账一致(归一化: 换行/版本行)`);
 }

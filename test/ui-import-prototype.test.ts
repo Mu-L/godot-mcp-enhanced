@@ -200,6 +200,21 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     expect(w2).not.toContain('根级 diff 恒误报');
   });
 
+  // 审查遗留②:尾斜杠变体('root/' → 归一化为 '/root/')与 '/root' 语义等价,
+  // 归一化判定(去尾斜杠)后不触发假阳性 warning;真子路径仍触发。
+  it('parent_path 尾斜杠变体("root/","/root/")→ 不触发根级 diff 限制提示(假阳性修复)', async () => {
+    for (const variant of ['root/', '/root/']) {
+      mockTwoPhase();
+      const r = await handleTool('ui', {
+        action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+        geometry: GEO, parent_path: variant,
+      }, createCtx());
+      expect(r!.isError).toBeFalsy();
+      const w = JSON.parse(textOf(r)).data.build_warnings.join('\n');
+      expect(w).not.toContain('根级 diff 恒误报');
+    }
+  });
+
   it('measure 阶段失败:错误信息附 "build 已持久化,可重跑 ui_measure_layout" 提示', async () => {
     execMock.mockReset();
     execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));

@@ -35,6 +35,8 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | `get_performance` | 获取性能统计（FPS/内存等） |
 | `get_viewport_info` | 获取视口信息 |
 | `take_screenshot` | 从运行中的游戏截图 |
+| `get_errors` | 查询游戏运行时错误（push_error/脚本报错/引擎错误），支持 `since_seq` 增量 + `clear` 读即焚 |
+| `clear_errors` | 清空错误 buffer |
 
 ### 输入 — game_input
 
@@ -50,7 +52,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | method | 说明 |
 |--------|------|
 | `set_node_property` | 设置节点属性值（path + property + value） |
-| `call_method` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单,env `GODOT_MCP_BRIDGE_EXTRA_METHODS` 可扩展(含写方法);`EXTRA_METHODS_BLOCKLIST` 硬底线不可覆盖;args 按声明类型自动强转;方法不存在返 did-you-mean;response 含 undoable=false |
+| `call_method` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单(get/has_*/get_meta 等),env `GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2` 可扩展(含写方法如 take_damage);`EXTRA_METHODS_BLOCKLIST`(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线;args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数正确转换);方法不存在时返回 did-you-mean 建议;response 含 undoable=false(call 不可 undo) |
 
 ### 等待 — game_wait
 
@@ -140,7 +142,7 @@ game_query(method="get_tree")
 // → { root: "Node3D", child_count: 15 }
 
 game_query(method="find_nodes", params={ "pattern": "Player" })
-// → { nodes: [{ path: "root/Player", type: "CharacterBody3D" }] }
+// → { nodes: [{ path: "/root/Player", type: "CharacterBody3D" }] }
 ```
 
 ### 模拟输入并等待
@@ -163,8 +165,8 @@ game_write(method="call_method", params={ "path": "/root/Player", "method": "tak
 ### 属性监控
 
 ```
-game(action="monitor_start", node_path="root/Player", properties=["position", "health"], interval_frames=5)
-// → { monitoring: true, node_path: "root/Player", properties: [...], interval_frames: 5 }
+game(action="monitor_start", node_path="/root/Player", properties=["position", "health"], interval_frames=5)
+// → { monitoring: true, node_path: "/root/Player", properties: [...], interval_frames: 5 }
 
 game(action="monitor_poll")
 // → { monitoring: true, samples: [{frame: 100, time: 1.667, values: {position: {x:10,y:0}}}], sample_count: 1 }
@@ -176,8 +178,8 @@ game(action="monitor_stop")
 ### 信号监听
 
 ```
-game(action="watch_start", node_path="root/Button", signal_name="pressed", max_events=100)
-// → { watching: true, node_path: "root/Button", signal_name: "pressed", max_events: 100 }
+game(action="watch_start", node_path="/root/Button", signal_name="pressed", max_events=100)
+// → { watching: true, node_path: "/root/Button", signal_name: "pressed", max_events: 100 }
 
 game(action="watch_poll")
 // → { watching: true, events: [{frame: 150, time: 2.5, args: []}], event_count: 1 }
@@ -190,10 +192,10 @@ game(action="watch_stop")
 
 ```
 game(action="find_ui_elements", type="Button", visible_only=true)
-// → { elements: [{path: "root/Menu/StartBtn", type: "Button", text: "Start", ...}], count: 3 }
+// → { elements: [{path: "/root/Menu/StartBtn", type: "Button", text: "Start", ...}], count: 3 }
 
 game(action="click_button", text="Start")
-// → { clicked: true, button_path: "root/Menu/StartBtn", button_text: "Start" }
+// → { clicked: true, button_path: "/root/Menu/StartBtn", button_text: "Start" }
 ```
 
 ### 错误：Bridge 未连接

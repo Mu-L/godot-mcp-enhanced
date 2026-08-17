@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.3] - 2026-08-16
+
+### Added — QA 编排收尾（v0.30 方向 B 收口：nightly diff + 录制集成 + 审查 NIT-7/8 处置）
+
+- **`qa nightly <spec-dir>` CLI（夜间跑批）**：跑目录下全部 `*.json`/`*.md` spec，每套件自动与**上次同套件**结果 diff（按报告时间序查基线，首次运行跳过 diff），汇总回归/修复清单 + 退出码（任一套件 FAILED → 1）。`report.ts` 新增 `findPreviousReport`；`qa run` 响应补 `suite_name`/`project_path`。
+- **`record_on_failure` 套件选项（失败自动留录制）**：setup 就绪后 `recording.start`，teardown（stop_project 杀游戏断 bridge 前）`recording.stop`；结果非 PASSED 时 events 落盘 `qa-reports/<run_id>-recording.json`（格式与 `recording_play` 的 events_json 兼容，可离线回放复现），成功丢弃。旧 bridge 无录制命令仅记 `teardown_warning` 降级不阻断（同 screenshot 降级哲学）。
+- **CLI audit 留痕（v0.30 审查 NIT-7）**：`qa run`/`qa nightly` 直调 `handleTool` 不经 dispatcher 确认/审计门，CLI 层手动 `appendAuditLine`（best-effort），夜间跑批操作审计可追溯。
+- **测试补全（v0.30 审查 NIT-8 收口）**：freeze/unfreeze/snapshot/restore 分支 + suite budget 耗尽路径 + record_on_failure 四场景（失败落盘含 recording.stop 先于 stop_project 顺序断言/成功不落盘/start 失败降级/默认关闭负例）+ nightly CLI 四场景（回归检出+汇总+exit 码/多套件无基线/spec 错误不中断/空目录）+ findPreviousReport。
+
+### Fixed — 原型翻译层迭代小修批(2026-08-16 实施审查遗留 ①②⑤)
+
+- **显式 `type:'Panel'` 无 bg 行为翻转无提示**:HTML div 默认透明而 Godot 默认 Panel 主题灰底 stylebox,渲染行为翻转(灰底可见)此前静默——翻译器补 declaration warning(建议补 bg 匹配原型或去掉 type 走推断透明壳),正负测试锁定。
+- **`ui_import_prototype` 根级 diff 限制提示假阳性**:`parent_path` 尾斜杠变体(`root/`/`/root/`)与 `/root` 语义等价,字符串全等比较会多弹 warning——改归一化判定(去尾斜杠);场景根名(如 `/Main`)仍保守提示(原点对齐理论差异仍在)。
+- **token budget totalSum warn 基线校准**:实测 86412B 超旧线 80KB 达 5.5%,按"覆盖率阈值持续超 4% 应上调"惯例上调至 90KB,消除长期恒 warn 噪声;error 120KB 硬线与单工具 desc warn(有意义的瘦身提醒)不动。
+
+### Changed — 双副本内容一致性 STRICT 门禁(遗留 ③)
+
+- **`.claude/rules/` ↔ `rule-templates.ts` 历史 drift 全量清零 + CI 启用 STRICT**:8/9 文件存在双向内容 drift(core 模板缺 13 行陷阱知识/bridge 模板缺 monitor/watch/UI 发现/manage_tools 四节与 10 条陷阱且示例节点路径用相对形态[GD 侧 `get_node_or_null` 从 autoload 解析,相对路径必失败]/recording 模板字段 `timestamp_ms`+`x,y` 与 GD 权威产物 `time_offset`+`position` 不符且缺自动命名语义/editor 双向缺段/workflow 三件套 rules 侧缺 frontmatter)。逐处仲裁权威侧(GD 实现/工具真实行为)双向合并。
+- **校验脚本升级**:`check-rules-content-sync.mjs` 归一化收紧(旧版全 semver 抹平会掩盖 Godot 4.x 真实差异+压缩空白使 diff 粒度退化;新版仅抹版本行锚定 `godot-mcp-enhanced` 前缀+换行归一)+ 双向对账(文件↔模板键)+ 行级差异定位;`ci.yml` 传 `STRICT=1` 阻断(去掉 `continue-on-error` 假接线)。
+
+### Fixed — CI Linux 平台债(2026-08-15 run#122 三 job 全红根因修复)
+
+- **check job 4 文件 23 用例稳定超时/输出丢失**:CI 的 vitest 步骤跑在 `check:gdscript` 之前,而 gdscript-check fixture 的 `src/scripts/`+`addons/` 是被 .gitignore 的运行时拷贝产物 → CI checkout 后 fixture 是空壳,Godot `load()` 得 null → SCRIPT ERROR → `extends SceneTree` 脚本 `_init` 中断、`quit()` 不执行 → headless 进程无限挂 → vitest 10s 超时(本地 Windows 绿是因开发机留有旧拷贝残留,属环境假绿)。修复:`check-gdscript.ts` 抽出 `syncCheckProjectFixture()` 导出函数,vitest 新增 `globalSetup`(`test/global-setup.ts`)在所有测试 worker 启动前填充 fixture——本地/CI 任意 vitest 入口统一就绪,ci.yml 零改动。
+- **screenshot-structured-content 3 用例挂(analyze 路径)**:依赖被 `test/fixtures/**/*.png` gitignore 规则忽略的 E2E 运行产物 `e2e-project/screenshot.png`,CI 缺文件。修复:pngjs 自生成 64×64 渐变 PNG 写入测试临时目录,零磁盘 fixture 依赖。
+- **matrix job L2 2 用例挂(bridge 正路径/recording)+ `e2e-bridge-get-node-layout` 整 suite 静默 skip**:`buildSafeEnv()` 环境白名单缺 `XAUTHORITY` → xvfb-run 环境下 spawn 的 Godot 游戏进程无法认证 X11 连接秒退(实测:unset XAUTHORITY exit=1 秒退,保留则存活)→ `run_project` 报 `Bridge not ready (process exited during probe)`。修复:白名单补 `XAUTHORITY`(与已透传的 `DISPLAY` 配对的 X11 凭证文件路径)+ `helpers.test.js` 断言防回归。
+
 ## [0.31.2] - 2026-08-16
 
 > prototype-import final review 修复波（P2：透明壳误伤 / parent_path 参照系声明 / 坏图可区分性补证据 / screenshot 两处 Minor）。
@@ -154,14 +180,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - D 批：`godot-server-oninitialized.test.ts`（接线 + 负向断言）替换随功能删除的 8 个 roots 注入用例。
 - 契约更新：LITE_TOOLS 补 `qa`/`analysis`；GUARDED_KEYS 补 `qa`（run=process 有意设计）；tool-count 20 处文档同步 43 工具/235 action（含 rule-templates.ts + godot-mcp-core.md 独立双副本）。
 - 新增 L2 e2e：`test/e2e-qa-suite.test.ts`（真 Godot + 真 bridge 的 qa.run 端到端，`GODOT_MCP_E2E_L2=1` opt-in）。
-
-## [Unreleased]
-
-### Fixed — CI Linux 平台债(2026-08-15 run#122 三 job 全红根因修复)
-
-- **check job 4 文件 23 用例稳定超时/输出丢失**:CI 的 vitest 步骤跑在 `check:gdscript` 之前,而 gdscript-check fixture 的 `src/scripts/`+`addons/` 是被 .gitignore 的运行时拷贝产物 → CI checkout 后 fixture 是空壳,Godot `load()` 得 null → SCRIPT ERROR → `extends SceneTree` 脚本 `_init` 中断、`quit()` 不执行 → headless 进程无限挂 → vitest 10s 超时(本地 Windows 绿是因开发机留有旧拷贝残留,属环境假绿)。修复:`check-gdscript.ts` 抽出 `syncCheckProjectFixture()` 导出函数,vitest 新增 `globalSetup`(`test/global-setup.ts`)在所有测试 worker 启动前填充 fixture——本地/CI 任意 vitest 入口统一就绪,ci.yml 零改动。
-- **screenshot-structured-content 3 用例挂(analyze 路径)**:依赖被 `test/fixtures/**/*.png` gitignore 规则忽略的 E2E 运行产物 `e2e-project/screenshot.png`,CI 缺文件。修复:pngjs 自生成 64×64 渐变 PNG 写入测试临时目录,零磁盘 fixture 依赖。
-- **matrix job L2 2 用例挂(bridge 正路径/recording)+ `e2e-bridge-get-node-layout` 整 suite 静默 skip**:`buildSafeEnv()` 环境白名单缺 `XAUTHORITY` → xvfb-run 环境下 spawn 的 Godot 游戏进程无法认证 X11 连接秒退(实测:unset XAUTHORITY exit=1 秒退,保留则存活)→ `run_project` 报 `Bridge not ready (process exited during probe)`。修复:白名单补 `XAUTHORITY`(与已透传的 `DISPLAY` 配对的 X11 凭证文件路径)+ `helpers.test.js` 断言防回归。
 
 ## [0.29.0] - 2026-08-15
 

@@ -1,3 +1,8 @@
+---
+description: "验证闭环 run_and_verify validate_scripts verify_delivery read_scene edit_script 交付门禁 编译 跨文件依赖 parse error 场景树完整性 —— 当你改完代码/场景需要验证或交付前自检时使用"
+alwaysApply: false
+---
+
 > 适用于 godot-mcp-enhanced v0.25.0+
 
 ## 改 → 跑 → 验证闭环

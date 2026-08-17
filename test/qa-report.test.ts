@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  writeReport, readReport, listReports, diffReports, sanitizeSuiteName,
+  writeReport, readReport, listReports, diffReports, sanitizeSuiteName, findPreviousReport,
   type QaReport, type StepRecord,
 } from '../src/tools/qa/report.js';
 
@@ -133,5 +133,44 @@ describe('sanitizeSuiteName', () => {
     expect(sanitizeSuiteName('save-load_smoke v1')).toBe('save-load_smoke_v1');
     expect(sanitizeSuiteName('!!!')).toBe('_');
     expect(sanitizeSuiteName('')).toBe('suite');
+  });
+});
+
+// ═══ QA 收尾批②（2026-08-16）：nightly 基线查找 ═══
+
+describe('findPreviousReport（nightly 同套件基线）', () => {
+  it('跳过当前 run，取同套件名最近一次；跨套件名跳过', () => {
+    writeReport(report('20260815-100000-smoke', 'smoke', [step(0, 'a', 'sleep', 'PASSED')]));
+    writeReport(report('20260815-110000-other', 'other', [step(0, 'b', 'sleep', 'PASSED')]));
+    writeReport(report('20260815-120000-smoke', 'smoke', [step(0, 'a', 'sleep', 'FAILED')]));
+    const cur = writeReport(report('20260816-090000-smoke', 'smoke', [step(0, 'a', 'sleep', 'PASSED')]));
+
+    const prev = findPreviousReport('20260816-090000-smoke', 'smoke');
+    expect(prev?.run_id).toBe('20260815-120000-smoke'); // 不是 other，也不是更早的 100000
+
+    // 首次运行（无同套件历史）→ null
+    expect(findPreviousReport('20260816-090001-newbie', 'newbie')).toBeNull();
+    // 中文套件名 sanitize 后仍可对齐
+    void cur;
+    writeReport(report('20260816-091000-_smoke', '冒烟', [step(0, 'a', 'sleep', 'PASSED')]));
+    const prev2 = findPreviousReport('20260816-091000-_smoke', '冒烟');
+    expect(prev2).toBeNull(); // '冒烟'→'_'，之前无同后缀
+  });
+});
+
+describe('findPreviousReport 碰撞防护（审查 Important-2）', () => {
+  it('sanitize 后缀碰撞（"冒烟"→"_" vs 字面 "_"）：不误拿他套件当基线，跨碰撞命中同名', () => {
+    // 注意 run_id 后缀 = sanitize(套件名)："冒烟"→"_"，与字面 "_" 套件完全同后缀（碰撞）
+    writeReport(report('20260815-130000-_', '_', [step(0, 'other-case', 'PASSED')]));
+    writeReport(report('20260816-100000-_', '冒烟', [step(0, 'case-a', 'PASSED')]));
+    // 冒烟无同名历史：唯一同后缀候选是字面 _ 套件 → name 校验拒绝 → null（不误拿）
+    expect(findPreviousReport('20260816-100000-_', '冒烟')).toBeNull();
+    // 字面 _ 查询自己的历史 → 正常命中
+    writeReport(report('20260816-100001-_', '_', [step(0, 'other-case', 'PASSED')]));
+    expect(findPreviousReport('20260816-100001-_', '_')?.run_id).toBe('20260815-130000-_');
+    // 冒烟补历史后再跑：候选倒序跨过字面 _（100001）命中最近的同名冒烟（100000）
+    writeReport(report('20260816-090000-_', '冒烟', [step(0, 'case-a', 'FAILED')]));
+    writeReport(report('20260816-100002-_', '冒烟', [step(0, 'case-a', 'PASSED')]));
+    expect(findPreviousReport('20260816-100002-_', '冒烟')?.run_id).toBe('20260816-100000-_',);
   });
 });

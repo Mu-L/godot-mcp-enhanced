@@ -230,7 +230,7 @@ ui_build_layout(
 ui_draw_recipe(
   project_path="D:/game",
   scene_path="res://scenes/main.tscn",
-  node_path="root/HUD/HealthBar",
+  node_path="/root/HUD/HealthBar",
   ops=[
     { "kind": "rect", "position": [0, 0], "size": [200, 20], "color": [0.2, 0.2, 0.2] },
     { "kind": "rect", "position": [0, 0], "size": [140, 20], "color": [0, 0.8, 0] },
