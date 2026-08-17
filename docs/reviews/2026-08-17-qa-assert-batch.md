@@ -129,3 +129,17 @@ spec §4 明列"signal 计数区间、monitor 单调四档、min/max 越界首�
 **遗留(留档不修)**:①`qaReportsDir()` 参与 evidence 前缀比较未 resolve 归一化——与 `readReport` 同款既有模式,默认路径不触发,后续统一收紧时两处一起改;②Minor ①②⑦⑧与新 A(monitor 空样本 vacuous PASS)按 triage 留档。
 
 **判定升级:SHIPPED WITH NITS → 修复后收口(0 Blocking / 0 Important 未处置)。**
+
+---
+
+## push 前全面复审(2026-08-17,第二轮,独立复跑)
+
+用户要求的 push 前最后一道门:全新审查者(带命令执行能力)对最终全量(16 commits,722f74f..b2c8777)完整视角复审,独立复跑门禁而非采信既往声明。完整报告:`.superpowers/sdd/pre-push-full-review-report.md`(本地)。
+
+**总体判定:PUSH_READY(0 Blocking / 0 Important / 3 Nit)**
+
+- **门禁七项独立复跑全绿**:lint 0 错 / tsc --noEmit 0 错 / npm test 5598 passed 0 failed / check:budget 0 error / diff-matrix no drift / `STRICT=1 check:rules-sync` 9 模板一致 / L2 e2e 真 Godot v4.6.3 复现 1 passed。
+- **上轮 3 Important 完整视角复核全成立**:I-1 攻击者视角实测 13 种路径变体(`..` 逃逸/兄弟目录/大小写盘符/UNC/后缀点伪装等)全部 DENIED 无绕过,qa 内部不自伤根因双重确认(runId 经 sanitizeSuiteName 清理 + 校验兜底);I-2 e2e 四断言真链核对无误且独立复现;I-3 单调四档 mutation 推演证实精确锁定。
+- **逐 commit 核对**:16 commits 全部 Conventional Commits、无大文件、无敏感信息、GDScript 与 `.claude/rules/` 零改动;skill 双副本同步一致;game-fs.ts 上移纯移动;清单外缺陷(assertNodeState 嵌套 shape)确实未动、PR-1b 登记在案。
+- **新 3 Nit(不阻断,留档)**:①monotonic fail 用例 mismatch 未锁具体数值对(findIndex 段误改只影响报告质量);②evidence_path 尾斜杠变体 ALLOWED 但写目录 EISDIR 被吞(无实害);③小写盘符假拒绝(fail-safe 方向)。
+- **上轮 6 项留档 Minor 复议全部维持**(新 A vacuous PASS 最值得修但属语义变更需 spec 定义,push 前抢改反违流程,归 PR-1b spec 补定义)。
