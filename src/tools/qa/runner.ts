@@ -156,6 +156,16 @@ export async function runQaSuite(
         if (resp.error) return failSetup(`playtest.fixed_delta 失败: ${resp.error.message}`);
       }
 
+      // errors baseline(I-2:仅含 errors 断言的套件采集;失败降级不 failSetup)
+      if (suite.steps.some(s => s.type === 'assert' && s.assert === 'errors')) {
+        const resp = await sendToBridge('get_errors', { since_seq: 0 }, o.step_timeout_ms);
+        if (resp.error) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `get_errors baseline 采集失败(errors 断言将判 ERROR,旧 bridge 可能无错误捕获): ${resp.error.message}`];
+        } else {
+          runState.errorsBaselineSeq = ((resp.result ?? {}) as { next_seq?: number }).next_seq ?? 0;
+        }
+      }
+
       if (o.record_on_failure) {
         // best-effort：旧 bridge 无此命令只记警告降级，不阻断套件（同 screenshot 降级哲学）
         const resp = await sendToBridge('recording.start', {}, o.step_timeout_ms);
@@ -558,9 +568,25 @@ async function execSignalAssert(step: { min_count?: number; max_count?: number; 
   };
 }
 
-/** Task 5 实现真取数(errors baseline diff);当前最小占位让 spec 可跑通到明确 ERROR */
-async function execErrorsAssert(_step: { kinds?: Array<'error' | 'script' | 'shader' | 'warning'> }, _runState: RunState, _o: ResolvedOptions): Promise<StepOutcome> {
-  return err('assert errors: Task 5 未接线');
+async function execErrorsAssert(step: { kinds?: string[]; max_count?: number }, runState: RunState, o: ResolvedOptions): Promise<StepOutcome> {
+  if (runState.errorsBaselineSeq === null) {
+    return err('errors 断言不可用:baseline 采集失败(见 teardown_warnings,旧 bridge 无 get_errors)');
+  }
+  const resp = await sendToBridge('get_errors', { since_seq: runState.errorsBaselineSeq }, o.step_timeout_ms);
+  if (resp.error) return err(`bridge: ${resp.error.message}`);
+  const r = (resp.result ?? {}) as { errors?: Array<{ seq: number; kind: string; message: string }> };
+  const kinds = step.kinds ?? ['error', 'script', 'shader'];   // 默认排除 warning(太吵)
+  const maxCount = step.max_count ?? 0;
+  const hits = (r.errors ?? []).filter(e => kinds.includes(e.kind));
+  if (hits.length <= maxCount) {
+    return { status: 'PASSED', detail: `errors ${hits.length} ≤ ${maxCount} [${kinds.join(',')}]` };
+  }
+  const entries = hits.slice(0, 5).map(e => `${e.kind}: ${e.message.slice(0, 80)}`).join(' | ');
+  return {
+    status: 'FAILED',
+    detail: `新增 ${hits.length} 条(前 5: ${entries.slice(0, 160)})`,
+    mismatch: { new_errors: { expected: `≤ ${maxCount}`, actual: hits.length } },
+  };
 }
 
 async function execMonitorAssert(step: { property?: string; min?: number; max?: number; monotonic?: 'increasing' | 'non_decreasing' | 'decreasing' | 'non_increasing' }, runState: RunState, o: ResolvedOptions): Promise<StepOutcome> {

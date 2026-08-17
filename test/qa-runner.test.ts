@@ -881,3 +881,90 @@ describe('qa runner: Task 4 审查 Important 修复(空缓存/套件外拒绝)',
     expect(report.steps[0]!.detail).toContain('套件外');
   });
 });
+
+// ═══ PR-1a Task 5:errors baseline 按需采集 + errors 断言 ═══
+// (brief 原文套件字面量 `as never as QaSuite` 绕过 parseQaSuite → 运行时无 options,
+//  runner.ts:117 `o.auto_install_bridge` 即 TypeError——已适配本文件 suite() helper 惯例,断言逐字保留)
+
+describe('qa runner: errors 断言(Task PR-1a)', () => {
+  it('含 errors 断言的套件:setup 后采 baseline,期间零新错误 → PASSED', async () => {
+    const calls: Array<{ m: string; p: unknown }> = [];
+    vi.mocked(sendToBridge).mockImplementation(async (method: string, params: unknown) => {
+      calls.push({ m: method, p: params });
+      if (method === 'get_errors') return { id: 20, result: { errors: [], next_seq: 0 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({ steps: [
+      { type: 'assert', assert: 'errors' },
+    ] });
+    const report = await runQaSuite(s, 'D:/proj', makeCtx(), 'inline');
+    expect(report.summary.status).toBe('PASSED');
+    // baseline 采集 + 断言查询,两次 get_errors 都带 since_seq
+    const ge = calls.filter(c => c.m === 'get_errors');
+    expect(ge.length).toBe(2);
+  });
+
+  it('期间新增 2 条 error → FAILED,mismatch 带实际计数', async () => {
+    let seq = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'get_errors') {
+        if (seq++ === 0) return { id: 20, result: { errors: [], next_seq: 0 } };
+        return { id: 21, result: { errors: [
+          { seq: 1, kind: 'error', message: 'null instance', code: '', function: 'f', file: 'a.gd', line: 1 },
+          { seq: 2, kind: 'script', message: 'script err', code: '', function: 'g', file: 'b.gd', line: 2 },
+          { seq: 3, kind: 'warning', message: 'warn should be excluded', code: '', function: 'h', file: 'c.gd', line: 3 },
+        ], next_seq: 3 } };
+      }
+      return { id: 5, result: {} };
+    });
+    const s = suite({ steps: [
+      { type: 'assert', assert: 'errors' },
+    ] });
+    const report = await runQaSuite(s, 'D:/proj', makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('FAILED');
+    expect(report.steps[0]!.mismatch?.new_errors).toEqual({ expected: '≤ 0', actual: 2 }); // warning 排除
+  });
+
+  it('kinds 含 warning 时 warning 计入', async () => {
+    let seq = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'get_errors') {
+        if (seq++ === 0) return { id: 20, result: { errors: [], next_seq: 0 } };
+        return { id: 21, result: { errors: [{ seq: 1, kind: 'warning', message: 'w', code: '', function: '', file: '', line: 1 }], next_seq: 1 } };
+      }
+      return { id: 5, result: {} };
+    });
+    const s = suite({ steps: [
+      { type: 'assert', assert: 'errors', kinds: ['error', 'warning'], max_count: 0 },
+    ] });
+    const report = await runQaSuite(s, 'D:/proj', makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('FAILED');
+  });
+
+  it('baseline 采集失败(旧 bridge)→ 降级 warning + 断言 ERROR,不 failSetup', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'get_errors') return { id: 22, error: { code: -32003, message: 'Error capture not initialized' } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({ steps: [
+      { type: 'assert', assert: 'errors' },
+    ] });
+    const report = await runQaSuite(s, 'D:/proj', makeCtx(), 'inline');
+    expect(report.setup_error).toBeUndefined();           // 不 failSetup
+    expect(report.teardown_warnings?.some(w => w.includes('get_errors baseline'))).toBe(true);
+    expect(report.steps[0]!.status).toBe('ERROR');
+  });
+
+  it('不含 errors 断言的套件:setup 不采 baseline(零多余 bridge 调用)', async () => {
+    const calls: string[] = [];
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      calls.push(method);
+      return { id: 5, result: {} };
+    });
+    const s = suite({ steps: [
+      { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+    ] });
+    await runQaSuite(s, 'D:/proj', makeCtx(), 'inline');
+    expect(calls).not.toContain('get_errors');
+  });
+});
