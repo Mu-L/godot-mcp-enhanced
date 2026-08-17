@@ -7,14 +7,16 @@
 import type { RunRecord } from './registry.js';
 import { TaskSchema } from '@modelcontextprotocol/core/internal';
 
-export interface WireTask {
+// type alias 而非 interface:TS 对象字面量 type 有隐式 index signature,可赋给 SDK
+// 3 参 schema 重载 handler 的 Result 返回类型 {[x: string]: unknown}(interface 不行)。
+export type WireTask = {
   taskId: string;
   status: 'working' | 'completed' | 'failed' | 'cancelled';
   ttl: number;              // 秒(wire 单位;registry 内部 ms)
   createdAt: string;
   lastUpdatedAt: string;
   statusMessage?: string;   // working 进度文本(TaskSchema 无结构化 progress 字段,I-8)
-}
+};
 
 /** RunRecord → wire Task。ttl ms→s;working 时经 statusMessage 承载进度。 */
 export function toWireTask(r: RunRecord): WireTask {

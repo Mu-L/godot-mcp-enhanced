@@ -192,7 +192,8 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
       // failed，防 record 永远 working 死锁 BUSY。rethrow 由两条路径消化——sync 的 await
       // （→ 外层 catch → QA_ERROR，行为与 PR-1a 前一致）；async 调用方已离开，由下方
       // record.done 的吞错 handler 接住（同时防 unhandled rejection）。
-      finishRun(runId, 'failed');
+      // T2 审查 Minor-2：兜底也带 error（否则 tasks/result payload 只剩 run_id，不可诊断）。
+      finishRun(runId, 'failed', undefined, undefined, `suite 执行异常: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     });
   record.done = exec.then(() => undefined, () => undefined);
