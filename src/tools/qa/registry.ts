@@ -113,3 +113,28 @@ export function updateProgress(runId: string, step: number, total: number, curre
 export function clearRegistry(): void {
   registry.clear();
 }
+
+/**
+ * close 优雅收尾:对 working run 置取消并等待 settle(报告落 CANCELLED + 录制证据落盘),
+ * 供 GodotServer.close 的 safeStep 序列调用。超时放弃等——killProcess 进程级兜底已有,不重复。
+ *
+ * 等待上限:spec §2.4 原文 = suite_budget_ms,registry 无 budget 字段,近似取 min(maxWaitMs, ttl)。
+ * settled 判定可靠性:done settle 意味着 finishRun 已执行(done = exec.then(...),finishRun
+ * 在 exec 的 then/catch 回调内、先于 done resolve),故 await 返回后 status 必已更新。
+ */
+export async function cancelAndAwaitWorkingRun(
+  maxWaitMs = 60_000,
+): Promise<{ cancelled: string | null; settled: boolean }> {
+  const rec = activeWorkingRun();
+  if (!rec) return { cancelled: null, settled: true };
+  requestCancel(rec.taskId);
+  try {
+    await Promise.race([
+      rec.done ?? Promise.resolve(),
+      new Promise(r => setTimeout(r, Math.min(maxWaitMs, rec.ttl))),
+    ]);
+    return { cancelled: rec.taskId, settled: rec.status !== 'working' };
+  } catch {
+    return { cancelled: rec.taskId, settled: false };
+  }
+}
