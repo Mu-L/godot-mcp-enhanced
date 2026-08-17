@@ -30,6 +30,7 @@ vi.mock('../src/tools/runtime.js', () => ({
 import { sendToBridge, setBridgeProjectDir, handleTool as bridgeHandleTool } from '../src/tools/game-bridge.js';
 import { handleTool as runtimeHandleTool } from '../src/tools/runtime.js';
 import { runQaSuite } from '../src/tools/qa/runner.js';
+import { renderMarkdown } from '../src/tools/qa/report.js';
 import { parseQaSuite, type QaSuite } from '../src/tools/qa/spec.js';
 
 const PROJECT = 'D:/proj/demo';
@@ -1059,5 +1060,90 @@ describe('qa runner: screenshot_diff 断言步骤(Task PR-1a)', () => {
     const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
     expect(['ERROR', 'FAILED']).toContain(report.steps[0]!.status);
     expect(report.steps[0]!.detail).toContain('screenshot_diff');
+  });
+});
+
+// ═══ PR-1b Task 2:取消信号与进度钩子 + CANCELLED 终态 ═══
+// (brief 的 suiteOf helper 不存在于本文件,按现有 suite(overrides) 惯例适配——
+//  options 覆盖即 overrides 的一等用法;mock 返回值带 id 符合 BridgeResponse 契约)
+
+describe('qa runner: 取消信号与 CANCELLED 终态(PR-1b)', () => {
+  it('第 2 步后取消:剩余步骤 SKIPPED(cancelled by user),summary CANCELLED,前 2 步状态保留', async () => {
+    let stepsExecuted = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'send_key') stepsExecuted++;
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+      ],
+    });
+    const ctl = { cancelRequested: () => stepsExecuted >= 2 };  // 第 3 步前生效
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline', ctl);
+    expect(report.summary.status).toBe('CANCELLED');
+    expect(report.steps[2]!.skip_reason).toBe('cancelled by user');
+    expect(report.steps[0]!.status).toBe('PASSED');
+    expect(report.steps[1]!.status).toBe('PASSED');
+  });
+
+  it('取消优先于 FAILED:取消前已有失败步骤,summary 仍 CANCELLED(半途报告不作基线)', async () => {
+    let executed = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      executed++;
+      if (method === 'get_node_properties') return { id: 1, result: { health: 50 } };
+      return { id: 5, result: {} };
+    });
+    // continue_on_failure: true 让 FAILED 后继续到第 2 步,再在取消检查处终止——
+    // 验证 cancelled 判定优先于 failed(取消的半途报告不作 FAILED 基线)
+    const s = suite({
+      options: { continue_on_failure: true },
+      steps: [
+        { type: 'assert', assert: 'node_state', path: '/root/P', expect: { health: 999 } },  // FAILED(50≠999)
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+      ],
+    });
+    const ctl = { cancelRequested: () => executed >= 1 };
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline', ctl);
+    expect(report.summary.status).toBe('CANCELLED');
+    expect(report.summary.failed).toBe(1);
+  });
+
+  it('onProgress 回调随步骤推进上报(与 ctx.progress 同点位)', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue({ id: 5, result: {} });
+    const calls: string[] = [];
+    const s = suite({
+      steps: [
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+        { type: 'sleep', ms: 100 },
+      ],
+    });
+    await runQaSuite(s, PROJECT, makeCtx(), 'inline', {
+      cancelRequested: () => false,
+      onProgress: (step, total, current) => calls.push(`${step}/${total}:${current}`),
+    });
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toContain('input');
+  });
+
+  it('runIdOverride:报告 run_id 用外部传入值(注册表 taskId 与报告一致)', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue({ id: 5, result: {} });
+    const s = suite({ steps: [{ type: 'sleep', ms: 100 }] });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline', undefined, '20260817-120000-myid');
+    expect(report.run_id).toBe('20260817-120000-myid');
+  });
+
+  it('renderMarkdown 显示 CANCELLED 结果行', () => {
+    const md = renderMarkdown({
+      version: 1,
+      run_id: 'r',
+      suite: { name: 's', project_path: 'p', started_at: '', spec_source: 'inline' },
+      options: {},
+      summary: { total: 1, passed: 0, failed: 0, errors: 0, skipped: 1, status: 'CANCELLED', duration_ms: 5 },
+      steps: [],
+    });
+    expect(md).toContain('CANCELLED');
   });
 });

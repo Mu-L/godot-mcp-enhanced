@@ -58,6 +58,12 @@ interface RunState {
 }
 type WatchEvent = { frame: number; time: number; args: unknown[] };
 
+/** 外部控制钩子(PR-1b):cancelRequested 步骤间轮询;onProgress 与 ctx.progress 同点位 */
+export interface QaRunControl {
+  cancelRequested(): boolean;
+  onProgress?(step: number, total: number, current: string): void;
+}
+
 function newRunState(): RunState {
   return { watchActive: false, monitorActive: false, watchEventsCache: null, errorsBaselineSeq: null };
 }
@@ -67,15 +73,19 @@ function newRunState(): RunState {
  * @param suite 已校验的套件
  * @param projectPath 已通过白名单校验的绝对路径（index/CLI 层解析）
  * @param ctx 工具上下文（install 用 opsScript；run/stop 用进程槽；progress 可选）
+ * @param ctl 外部控制钩子（PR-1b）：cancelRequested 步骤间轮询取消；onProgress 同步进度
+ * @param runIdOverride 外部注入的 run_id（PR-1b 异步注册表 taskId 与报告保持一致）；缺省按套件名生成
  */
 export async function runQaSuite(
   suite: QaSuite,
   projectPath: string,
   ctx: ToolContext,
   specSource: QaReport['suite']['spec_source'],
+  ctl?: QaRunControl,
+  runIdOverride?: string,
 ): Promise<QaReport> {
   const o = suite.options;
-  const runId = makeRunId(suite.name);
+  const runId = runIdOverride ?? makeRunId(suite.name);
   const startedAt = new Date();
   const startedMs = Date.now();
 
@@ -97,6 +107,8 @@ export async function runQaSuite(
   };
 
   let gameStarted = false;
+  // aborted 提升到外层(原内层 try 块级):外层 finally 需读它判定 CANCELLED(PR-1b)
+  let aborted: string | undefined;
   // record_on_failure（QA 收尾批①）：setup 就绪后 start，teardown（stop_project 杀游戏
   // 断 bridge）前 stop；成功丢弃，失败落盘 qa-reports（与 screenshot 证据同目录）。
   let recordStarted = false;
@@ -177,7 +189,6 @@ export async function runQaSuite(
       }
 
       // ── steps ──────────────────────────────────────────────────────────────
-      let aborted: string | undefined;
       for (let i = 0; i < suite.steps.length; i++) {
         const step = suite.steps[i]!;
         const rec = steps[i]!;
@@ -192,8 +203,15 @@ export async function runQaSuite(
           aborted = 'suite budget exhausted';
           continue;
         }
+        // 取消检查(PR-1b):步骤间轮询,复用 aborted 的 SKIPPED 机制标记剩余步骤
+        if (!aborted && ctl?.cancelRequested()) {
+          aborted = 'cancelled by user';
+          rec.skip_reason = 'cancelled by user';
+          continue;
+        }
 
         ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
+        ctl?.onProgress?.(i + 1, suite.steps.length, `${step.type}${step.label ? ` (${step.label})` : ''}`);
         const t0 = Date.now();
         const outcome = await execStep(step, o, runId, i, projectPath, runState);
         rec.elapsed_ms = Date.now() - t0;
@@ -259,7 +277,7 @@ export async function runQaSuite(
       }
     }
   } finally {
-    finalizeSummary(report, startedMs);
+    finalizeSummary(report, startedMs, aborted === 'cancelled by user');
     // 失败落盘录制（成功丢弃）：格式与 recording_play 的 events_json 兼容，可离线回放复现。
     if (o.record_on_failure && pendingRecording && report.summary.status !== 'PASSED') {
       try {
@@ -277,8 +295,8 @@ export async function runQaSuite(
   return report;
 }
 
-/** 统计 steps 状态 → summary（status = failed/errors/skipped>0 或 setup_error ? FAILED : PASSED） */
-function finalizeSummary(report: QaReport, startedMs: number): void {
+/** 统计 steps 状态 → summary（cancelled 优先；否则 failed/errors/skipped>0 或 setup_error ? FAILED : PASSED） */
+function finalizeSummary(report: QaReport, startedMs: number, cancelled: boolean): void {
   let passed = 0, failed = 0, errors = 0, skipped = 0;
   for (const s of report.steps) {
     if (s.status === 'PASSED') passed++;
@@ -290,7 +308,7 @@ function finalizeSummary(report: QaReport, startedMs: number): void {
   report.summary = {
     total: report.steps.length,
     passed, failed, errors, skipped,
-    status: anyNotPassed || report.setup_error ? 'FAILED' : 'PASSED',
+    status: cancelled ? 'CANCELLED' : (anyNotPassed || report.setup_error ? 'FAILED' : 'PASSED'),
     duration_ms: Date.now() - startedMs,
   };
 }

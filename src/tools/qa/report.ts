@@ -44,7 +44,7 @@ export interface QaReport {
     failed: number;
     errors: number;
     skipped: number;
-    status: 'PASSED' | 'FAILED';
+    status: 'PASSED' | 'FAILED' | 'CANCELLED';
     duration_ms: number;
   };
   steps: StepRecord[];
