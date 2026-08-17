@@ -1,0 +1,11 @@
+{
+  "viewport": { "w": 800, "h": 600 },
+  "nodes": [
+    { "name": "CardBg",   "rect": {"x":40,"y":40,"w":320,"h":200},  "type":"Panel", "bg":"#1a1f2e", "borderRadius": 12, "border": {"width": 2, "color": "#3ddc84"} },
+    { "name": "Title",    "rect": {"x":56,"y":56,"w":200,"h":28},   "text":"卡片标题", "fontSize":18, "color":"#e8ecf5", "bg":"#2a3040", "borderRadius": 6 },
+    { "name": "TagChip",  "rect": {"x":56,"y":92,"w":48,"h":22},    "text":"NEW", "fontSize":12, "bg":"#3ddc84", "color":"#102015", "borderRadius": 10 },
+    { "name": "Desc",     "rect": {"x":56,"y":124,"w":280,"h":20},  "text":"说明文本", "fontSize":13, "color":"#99aabb" },
+    { "name": "BorderOnly","rect": {"x":40,"y":260,"w":320,"h":80}, "type":"Panel", "borderRadius": 8, "border": {"width": 1, "color": "#7a8aab"} },
+    { "name": "HpBar",    "rect": {"x":56,"y":290,"w":280,"h":27},  "type":"ProgressBar", "value": 0.72, "bg": "#223022", "fill": "#3ddc84" }
+  ]
+}
