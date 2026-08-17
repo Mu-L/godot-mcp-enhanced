@@ -1,5 +1,5 @@
 {
-  "version": "0.31.3",
+  "version": "0.31.4",
   "tools": [
     {
       "name": "analysis",
@@ -3868,7 +3868,7 @@
     {
       "name": "qa",
       "group": "bridge",
-      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行 → 聚合报告 + 回归 diff。步骤类型：input/wait/wait_frames/freeze/unfreeze/step_until/snapshot/restore/set/call/watch_start|stop/monitor_start|stop/assert/screenshot/sleep；断言 8 种与各字段语义见 schema 字段 description。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
+      "description": "QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行 → 聚合报告 + 回归 diff。步骤类型：input/wait/wait_frames/freeze/unfreeze/step_until/snapshot/restore/set/call/watch_start|stop/monitor_start|stop/assert/screenshot/sleep；断言 8 种与各字段语义见 schema 字段 description。run 支持 mode:async 后台执行(qa status/cancel 管理)。报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3877,9 +3877,23 @@
             "enum": [
               "run",
               "report",
-              "diff"
+              "diff",
+              "status",
+              "cancel"
             ],
-            "description": "run=执行套件；report=读报告；diff=对比两份报告找回归"
+            "description": "run=执行套件；report=读报告；diff=对比两份报告找回归；status=查运行注册表(进度/终态)；cancel=取消进行中的 run"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "sync",
+              "async"
+            ],
+            "description": "run: sync=同步等完整结果(默认,行为不变)；async=立即返回 run_id 后台执行(长套件防客户端超时),用 qa status 轮询、qa report 读结果、qa cancel 取消"
+          },
+          "run_id": {
+            "type": "string",
+            "description": "status/cancel: 目标 run_id(status 省略=列出全部注册 run)"
           },
           "spec": {
             "type": "object",
@@ -3914,6 +3928,8 @@
         "action"
       ],
       "optionalParams": [
+        "mode",
+        "run_id",
         "spec",
         "spec_path",
         "project_path",
@@ -3926,10 +3942,10 @@
       "guarded": true,
       "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 2,
+        "read": 3,
         "write": 0,
         "destructive": 0,
-        "process": 1
+        "process": 2
       },
       "groupRequires": [
         "bridge"
@@ -3955,9 +3971,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 407,
-        "schemaBytes": 1487,
-        "totalBytes": 1894
+        "descBytes": 469,
+        "schemaBytes": 1940,
+        "totalBytes": 2409
       },
       "annotations": {
         "readOnlyHint": false,

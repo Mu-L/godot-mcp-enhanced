@@ -2,6 +2,7 @@
 //
 // 审查 I-2(spec §5.2 验收缺口):PR-1a 的 4 个新断言(signal/errors/monitor/screenshot_diff)
 // 此前仅有 mock 单测。本文件在真 bridge 全链上各跑至少一条步骤 + 一次人为破坏(FAILED 带 mismatch)。
+// PR-1b 追加:node_state 真 bridge 嵌套 shape 回归(修复前 actual 恒 undefined 必 FAILED)。
 // 契约同 e2e-qa-suite.test.ts:本地默认 skip,需 GODOT_MCP_E2E_L2=1 + GODOT_PATH;
 // fixture test/fixtures/e2e-project(Root/Node3D,无 autoload)。
 // ⚠️ 并发:bridge 单端口 9081——勿与 e2e-qa-suite / e2e-full-tool-verification 的 L2 describe
@@ -121,15 +122,17 @@ describe('L2 e2e: qa 断言四件套 + 人为破坏（真 Godot）', () => {
             { type: 'sleep', ms: 300, label: '采样窗口' },
             { type: 'assert', assert: 'monitor', property: 'rotation_edit_mode', min: -1000, max: 1000, label: 'monitor 区间断言' },
             // 人为破坏:实际值恒 0,期望 ≥99999 必不符 → FAILED + mismatch 带真实 actual
-            // (用 monitor 而非 node_state:真 bridge get_node_properties 返回嵌套
-            // {properties:{...}} shape,assertNodeState 按平铺取值 actual 恒 undefined——
-            // 清单外既有缺陷,见 final-fix-report concerns;monitor 断言 TS 侧解析 samples 无此问题)
+            // (破坏仍用 monitor;node_state 的平铺假设缺陷已于 PR-1b 修复——见下方
+            // 'node_state 真 bridge shape' 步骤,修复前该步 actual 恒 undefined 必 FAILED)
             { type: 'assert', assert: 'monitor', property: 'rotation_edit_mode', min: 99999, label: '人为破坏' },
             { type: 'monitor_stop', label: '停监控' },
             { type: 'watch_start', node_path: '/root/Root', signal_name: 'ready', label: '监听 ready' },
             { type: 'watch_stop', label: '停监听' },
             { type: 'assert', assert: 'signal', min_count: 0, label: 'signal 零事件合法' },
             { type: 'assert', assert: 'errors', max_count: 10, label: 'errors 宽松上限' },
+            // PR-1b 修复回归:真 bridge get_node_properties 返回嵌套 {properties:{...}, node},
+            // 修复前 assertNodeState 按平铺取值 → actual 恒 undefined 必 FAILED;修复后期望 PASSED
+            { type: 'assert', assert: 'node_state', path: '/root/Root', expect: { rotation_edit_mode: 0 }, label: 'node_state 真 bridge shape' },
             { type: 'assert', assert: 'screenshot_diff', reference: 'screenshot.png', max_diff_ratio: 1, label: '截图对比全链' },
           ],
         },
@@ -156,12 +159,13 @@ describe('L2 e2e: qa 断言四件套 + 人为破坏（真 Godot）', () => {
       report: { json_path: string; md_path: string };
     };
 
-    // 破坏断言 FAILED、其余 10 步全 PASSED、summary.failed ≥ 1
-    expect(data.summary).toMatchObject({ total: 11, passed: 10, failed: 1, errors: 0, skipped: 0, status: 'FAILED' });
+    // 破坏断言 FAILED、其余 11 步全 PASSED(含 PR-1b node_state 嵌套 shape 回归)、summary.failed ≥ 1
+    expect(data.summary).toMatchObject({ total: 12, passed: 11, failed: 1, errors: 0, skipped: 0, status: 'FAILED' });
     expect(data.steps.map(s => s.status)).toEqual([
-      'PASSED', 'PASSED', 'PASSED', 'PASSED', 'FAILED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED',
+      'PASSED', 'PASSED', 'PASSED', 'PASSED', 'FAILED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED',
     ]);
     expect(data.steps[4]).toMatchObject({ label: '人为破坏', status: 'FAILED' });
+    expect(data.steps[10]).toMatchObject({ label: 'node_state 真 bridge shape', status: 'PASSED' });
 
     // 完整 mismatch 在报告 json(响应 stepsCondensed 不带 mismatch)——FAILED 证据非空
     expect(existsSync(data.report.json_path)).toBe(true);

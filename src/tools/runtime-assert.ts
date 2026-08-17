@@ -6,6 +6,8 @@
 //
 // 与 workflow.dev_loop 的关系：workflow 保持向后兼容（内部 acceptance 仍工作）；
 // runtime_assert 是独立的、可任意时刻调用的验证工具。
+// PR-1b 修复：node_state 兼容真 bridge 嵌套 shape（{properties:{...}, node}），修 PR-1a e2e 发现的
+// 平铺假设缺陷（原实现下真 bridge 的 actual 恒 undefined，断言恒误判）。
 
 import type { ToolResult, ToolContext } from '../types.js';
 import type { Tool } from '@modelcontextprotocol/server';
@@ -145,7 +147,11 @@ export async function assertNodeState(args: Record<string, unknown>): Promise<To
     return textResult(JSON.stringify({ success: false, error: `Bridge error: ${resp.error.message}`, error_code: 'BRIDGE_ERROR' }));
   }
 
-  const actual = (resp.result as Record<string, unknown>) ?? {};
+  const raw = (resp.result ?? {}) as Record<string, unknown>;
+  // 真 bridge 返回嵌套 {properties:{...}, node}(PR-1a e2e 实测);历史形态平铺。兼容双 shape,嵌套优先。
+  const actual = (raw.properties !== undefined && raw.properties !== null && typeof raw.properties === 'object')
+    ? raw.properties as Record<string, unknown>
+    : raw;
   const mismatch: Record<string, { expected: unknown; actual: unknown }> = {};
 
   for (const [key, expectedVal] of Object.entries(expect)) {

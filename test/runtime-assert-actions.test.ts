@@ -63,6 +63,24 @@ describe('runtime-assert node_state (P0-1)', () => {
     expect(p.success).toBe(false);
     expect(p.error_code).toBe('INVALID_PARAMS');
   });
+
+  // PR-1b 修复(PR-1a e2e 发现): 真 bridge get_node_properties 返回嵌套
+  // {properties:{...}, node},原实现按平铺读 → actual 恒 undefined(断言恒误判)。
+  // 此前单测全部 mock 平铺形态,真实 shape 从未被覆盖。
+  it('node_state 兼容真 bridge 嵌套 shape {properties:{...}, node}(PR-1a e2e 发现)', async () => {
+    mockedBridge.mockResolvedValueOnce({ result: { properties: { health: 100 }, node: '/root/P' } });
+    const r = await handleTool('runtime_assert', { action: 'node_state', path: '/root/P', expect: { health: 100 } }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(true);
+  });
+
+  it('嵌套 shape 属性不匹配 → FAILED mismatch actual 为真值(非 undefined)', async () => {
+    mockedBridge.mockResolvedValueOnce({ result: { properties: { health: 50 }, node: '/root/P' } });
+    const r = await handleTool('runtime_assert', { action: 'node_state', path: '/root/P', expect: { health: 100 } }, {} as never);
+    const p = parse(r);
+    expect(p.passed).toBe(false);
+    expect((p.mismatch as Record<string, { actual: unknown }>).health!.actual).toBe(50);
+  });
 });
 
 // ── scene_structure ─────────────────────────────────────────────────────────

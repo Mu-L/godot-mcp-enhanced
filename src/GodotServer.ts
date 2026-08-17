@@ -42,6 +42,7 @@ import { setGetContextConnectionProvider, setEditorSceneProvider } from './tools
 import { InstanceManager, buildInstanceInfo } from './core/instance-manager.js';
 import { InstanceRouter, type RouterDependencies } from './core/instance-router.js';
 import { setInstanceManager, setInstanceRouter } from './tools/instance-tools.js';
+import { cancelAndAwaitWorkingRun } from './tools/qa/registry.js';
 import { buildAuthHeaders } from './core/instance-api-auth.js';
 import { InstanceHttpServer } from './core/instance-http-server.js';
 import { isFeatureEnabled } from './core/feature-flags.js';
@@ -562,6 +563,13 @@ export class GodotServer {
           if (n > 0) getLogger().info('godot-mcp', `Auto-uninstalled ${n} overrides from ${editorProjectPath}`);
         });
       }
+      // Task 5(PR-1b): 优雅收尾进行中 QA run——置取消并等待 settle(报告落 CANCELLED +
+      // 录制证据落盘)。须在 killProcess 前:run loop 收尾依赖 bridge/游戏进程仍活着;
+      // 等待上限 min(60s, ttl) 见 cancelAndAwaitWorkingRun;超时放弃等,killProcess 兜底。
+      await safeStep('cancel running qa run', async () => {
+        const { cancelled, settled } = await cancelAndAwaitWorkingRun();
+        if (cancelled && !settled) getLogger().warn('godot-mcp', `qa run ${cancelled} 未在收尾窗口内 settle(进程级兜底兜住)`);
+      });
       // 报告②P0：先停周期扫描，防与下方 kill 逻辑竞争。
       if (this.orphanScanTimer) {
         clearInterval(this.orphanScanTimer);
