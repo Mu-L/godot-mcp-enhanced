@@ -91,7 +91,8 @@ export interface FlexChild {
 
 // ─── PR-1: StyleBox 通道类型 ────────────────────────────────────────────────
 
-/** theme_override_styleboxes 槽位白名单(spec §3.3)。
+/** stylebox 类 theme override 槽位白名单(spec §3.3;Godot 4.7 序列化属性名
+ * theme_override_styles/<slot>,spec 原文 styleboxes 系误写——Task 4 集成实测)。
  * hover/pressed/disabled 仅供 ui_build_layout 手写树入口,翻译器永不产出;
  * focus/read_only 等显式不进(YAGNI:每扩一槽须定义语义边界+测试面)。 */
 export type StyleBoxSlot = 'panel' | 'normal' | 'background' | 'fill' | 'hover' | 'pressed' | 'disabled';

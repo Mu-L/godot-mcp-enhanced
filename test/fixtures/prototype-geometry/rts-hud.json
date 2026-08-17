@@ -7,9 +7,9 @@
     { "name": "ResPower", "rect": {"x":160,"y":16,"w":90,"h":24}, "text":"电力 240", "fontSize":16 },
     { "name": "ResSupply", "rect": {"x":280,"y":16,"w":100,"h":24}, "text":"人口 8/10", "fontSize":16 },
     { "name": "GameTime", "rect": {"x":1160,"y":16,"w":96,"h":24}, "text":"12:34", "fontSize":16 },
-    { "name": "Minimap", "rect": {"x":16,"y":568,"w":176,"h":136}, "type":"Panel", "bg":"#10141f" },
+    { "name": "Minimap", "rect": {"x":16,"y":568,"w":176,"h":136}, "type":"Panel", "bg":"#10141f", "borderRadius": 8 },
     { "name": "MinimapTag", "rect": {"x":46,"y":620,"w":116,"h":24}, "text":"雷达 MAP", "fontSize":14, "color":"#7a8aab" },
-    { "name": "CmdPanel", "rect": {"x":640,"y":552,"w":288,"h":152}, "type":"Panel", "bg":"#10141f" },
+    { "name": "CmdPanel", "rect": {"x":640,"y":552,"w":288,"h":152}, "type":"Panel", "bg":"#10141f", "borderRadius": 6, "border": {"width": 1, "color": "#3a4a5a"} },
     { "name": "BtnAttack", "rect": {"x":656,"y":568,"w":72,"h":36}, "type":"Button", "text":"攻击", "interactive": true },
     { "name": "BtnMove", "rect": {"x":736,"y":568,"w":72,"h":36}, "type":"Button", "text":"移动", "interactive": true },
     { "name": "BtnStop", "rect": {"x":816,"y":568,"w":72,"h":36}, "type":"Button", "text":"停止", "interactive": true },
@@ -19,9 +19,9 @@
     { "name": "BtnRepair", "rect": {"x":656,"y":656,"w":72,"h":36}, "type":"Button", "text":"修理", "interactive": true },
     { "name": "BtnRally", "rect": {"x":736,"y":656,"w":72,"h":36}, "type":"Button", "text":"集结", "interactive": true },
     { "name": "BtnRetreat", "rect": {"x":816,"y":656,"w":72,"h":36}, "type":"Button", "text":"撤退", "interactive": true },
-    { "name": "UnitPanel", "rect": {"x":976,"y":552,"w":288,"h":152}, "type":"Panel", "bg":"#10141f" },
+    { "name": "UnitPanel", "rect": {"x":976,"y":552,"w":288,"h":152}, "type":"Panel", "bg":"#10141f", "borderRadius": 6 },
     { "name": "UnitName", "rect": {"x":992,"y":568,"w":200,"h":28}, "text":"战斗步兵 ×5", "fontSize":20, "color":"#ffd76e", "align":"left" },
-    { "name": "HpBar", "rect": {"x":992,"y":599,"w":240,"h":27}, "type":"ProgressBar", "value": 0.72 },
+    { "name": "HpBar", "rect": {"x":992,"y":599,"w":240,"h":27}, "type":"ProgressBar", "value": 0.72, "bg": "#223022", "fill": "#3ddc84" },
     { "name": "HpText", "rect": {"x":992,"y":628,"w":120,"h":20}, "text":"HP 72/100", "fontSize":13, "align":"left" },
     { "name": "StatText", "rect": {"x":992,"y":652,"w":240,"h":20}, "text":"护甲 3 · 攻击 12 · 射程 5", "fontSize":13, "align":"left", "color":"#99aabb" }
   ]

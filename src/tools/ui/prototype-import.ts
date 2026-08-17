@@ -248,7 +248,8 @@ function inferType(nd: GeometryNode, warnings: string[]): string {
   return 'Panel';
 }
 
-/** PR-1 规则:bg/border/radius → theme_override_styleboxes 槽位;undefined = 控件无映射槽(spec §3.4)。 */
+/** PR-1 规则:bg/border/radius → stylebox theme override 槽位(Godot 4.7 序列化名
+ * theme_override_styles/<slot>);undefined = 控件无映射槽(spec §3.4)。 */
 export function styleboxSlotFor(type: string): StyleBoxSlot | undefined {
   switch (type) {
     case 'Panel': return 'panel';

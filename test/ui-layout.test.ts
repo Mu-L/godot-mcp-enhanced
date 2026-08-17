@@ -318,7 +318,9 @@ describe('genStyleboxLines 构造块(PR-1 Task 3)', () => {
     expect(s).toContain('_sb_1.corner_radius_bottom_right = 8');
     expect(s).toContain('_sb_1.border_width_left = 2');
     expect(s).toContain('_sb_1.border_color = Color(0.24, 0.86, 0.52, 1)');
-    expect(s).toContain('node.set("theme_override_styleboxes/panel", _sb_1)');
+    // Task 4 集成实测修正:node.set 属性路径在 Godot 4.7 pack 时丢 override,
+    // 生成器改用 add_theme_stylebox_override API(落盘属性名 theme_override_styles/)
+    expect(s).toContain('node.add_theme_stylebox_override("panel", _sb_1)');
   });
 
   it('draw_center=false 与四角对象展开;两节点变量名递增不冲突', () => {
@@ -345,7 +347,7 @@ describe('genStyleboxLines 构造块(PR-1 Task 3)', () => {
         { slot: 'fill', box: { bg_color: [0.24, 0.86, 0.52, 1] } },
       ],
     });
-    expect(s).toContain('node.set("theme_override_styleboxes/background", _sb_1)');
-    expect(s).toContain('node.set("theme_override_styleboxes/fill", _sb_2)');
+    expect(s).toContain('node.add_theme_stylebox_override("background", _sb_1)');
+    expect(s).toContain('node.add_theme_stylebox_override("fill", _sb_2)');
   });
 });

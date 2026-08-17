@@ -490,7 +490,12 @@ function genStyleboxLines(spec: UiNodeSpec, indent: string, nextSbId: () => numb
       );
     }
     if (b.border_color !== undefined) lines.push(`${v}.border_color = ${colorToGd(b.border_color)}`);
-    lines.push(`node.set("theme_override_styleboxes/${sb.slot}", ${v})`);
+    // 引擎事实(Task 4 集成实测 2026-08-17):Godot 4.7 中 stylebox 类 theme override 的
+    // 属性路径是 theme_override_styles/<slot>(非 theme_override_styleboxes/——spec 原文
+    // 误写),且经 node.set("theme_override_styles/…") 设值后 PackedScene.pack 照样丢
+    // override;唯一实测落盘可靠路径是 add_theme_stylebox_override API(落盘产出
+    // theme_override_styles/<slot> = SubResource("StyleBoxFlat_…"))。
+    lines.push(`node.add_theme_stylebox_override("${sb.slot}", ${v})`);
     blocks.push(lines.map(l => `${indent}${l}`).join('\n'));
   }
   return '\n' + blocks.join('\n');
