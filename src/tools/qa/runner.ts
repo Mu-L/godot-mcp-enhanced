@@ -376,6 +376,11 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       await sleep(step.ms);
       return { status: 'PASSED', detail: `slept ${step.ms}ms` };
     }
+    default: {
+      // PR-1a Task 2 已扩 spec union（watch/monitor 控制步骤），执行逻辑待后续任务实现；
+      // 此兜底保证 schema 先行合入时 runner 编译通过且运行期显式报错而非静默。
+      return err(`步骤类型 ${step.type} 暂未实现（PR-1a 后续任务）`);
+    }
   }
 }
 

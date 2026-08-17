@@ -113,11 +113,6 @@ describe('parseQaSuite 负向（非法必须拒绝且错误可读）', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('assert kind 不含 screenshot_diff（未实现不开放）', () => {
-    const r = parseQaSuite({ name: 'x', steps: [{ type: 'assert', assert: 'screenshot_diff', reference: 'a.png' }] });
-    expect(r.ok).toBe(false);
-  });
-
   it('非 JSON 非 围栏 的字符串 → 源格式错误', () => {
     const r = parseQaSuite('就是一段普通中文');
     expect(r.ok).toBe(false);
@@ -128,5 +123,58 @@ describe('parseQaSuite 负向（非法必须拒绝且错误可读）', () => {
     const r = parseQaSuite('```qa-spec\n{"name": }\n```');
     expect(r.ok).toBe(false);
     expect(r.error).not.toContain('校验失败'); // 是 JSON.parse 的错误，不是 schema 错误
+  });
+});
+
+describe('QA spec: watch/monitor 控制步骤 + 新断言（Task PR-1a）', () => {
+  const base = { name: 's', steps: [{ type: 'input', method: 'send_key', params: { key: 'ui_accept' } }] };
+
+  it('watch_start/watch_stop/monitor_start/monitor_stop 四控制步骤合法', () => {
+    const r = parseQaSuite({
+      ...base,
+      steps: [
+        { type: 'watch_start', node_path: '/root/Main', signal_name: 'pressed' },
+        { type: 'watch_stop' },
+        { type: 'monitor_start', node_path: '/root/Main/Player', properties: ['health'], interval_frames: 5 },
+        { type: 'monitor_stop' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.suite?.steps.map(s => s.type)).toEqual(['watch_start', 'watch_stop', 'monitor_start', 'monitor_stop']);
+  });
+
+  it('watch_start 缺 signal_name → 校验失败且错误可读', () => {
+    const r = parseQaSuite({ ...base, steps: [{ type: 'watch_start', node_path: '/root/Main' }] });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('signal_name');
+  });
+
+  it('monitor_start 空 properties 数组 → 校验失败', () => {
+    const r = parseQaSuite({ ...base, steps: [{ type: 'monitor_start', node_path: '/root/M', properties: [] }] });
+    expect(r.ok).toBe(false);
+  });
+
+  it('assert 扩展 4 值合法 + 新字段解析', () => {
+    const r = parseQaSuite({
+      ...base,
+      steps: [
+        { type: 'assert', assert: 'screenshot_diff', reference: 'D:/ref/x.png', threshold: 0.12, max_diff_ratio: 0.05 },
+        { type: 'assert', assert: 'signal', min_count: 2, max_count: 5, args_match: [{ x: 1, y: 2 }] },
+        { type: 'assert', assert: 'errors', kinds: ['error', 'script'], max_count: 0 },
+        { type: 'assert', assert: 'monitor', property: 'fps', min: 30, monotonic: 'non_decreasing' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.suite?.steps[3]).toMatchObject({ assert: 'monitor', property: 'fps', monotonic: 'non_decreasing' });
+  });
+
+  it('assert 未知值仍被拒', () => {
+    const r = parseQaSuite({ ...base, steps: [{ type: 'assert' as never, assert: 'nope' as never }] });
+    expect(r.ok).toBe(false);
+  });
+
+  it('monotonic 非法值被拒', () => {
+    const r = parseQaSuite({ ...base, steps: [{ type: 'assert', assert: 'monitor', property: 'x', monotonic: 'faster' as never }] });
+    expect(r.ok).toBe(false);
   });
 });
