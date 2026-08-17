@@ -11,9 +11,11 @@
 //    safeRealPath 抛 PathError → ASSERT_ERROR。tmpdir() 祖先必存在,双平台确定性拒绝。
 // 4. 断言 error_code 为 INVALID_PATH(非 INVALID_PARAMS):brief 自身测试与实现矛盾,
 //    实现侧 INVALID_PATH 与仓库路径拒绝惯例一致(qa/index.ts、scene/index.ts 等十余处)。
+// 5. I-1 修复:evidence_path 必须位于 qaReportsDir() 内(本文件把 GODOT_MCP_QA_REPORTS_DIR
+//    重定向到 tmp 内子目录),越界(哪怕在项目白名单 ALLOWED_PROJECT_PATHS 内)→ INVALID_PATH。
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { PNG } from 'pngjs';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -37,6 +39,11 @@ mkdirSync(gameDir, { recursive: true });
 const refPath = join(projDir, 'ref.png');
 // 白名单外路径(祖先 tmpdir() 必存在,双平台 isAbsolute 均真)
 const outsidePath = join(tmpdir(), 'radiff-outside', 'x.png');
+
+// I-1:qa-reports 目录重定向到 tmp 内子目录(evidence_path 落盘白名单)
+const qaReports = join(tmp, 'qa-reports');
+const prevQaReportsDir = process.env.GODOT_MCP_QA_REPORTS_DIR;
+process.env.GODOT_MCP_QA_REPORTS_DIR = qaReports;
 
 // 白名单:让 tmp 进 ALLOWED_PROJECT_PATHS(brief 注记;isPathInAllowedRoots 运行时读 env)。
 // 同时清掉 GODOT_MCP_UNRESTRICTED 防环境泄漏放行一切(旧版本文件同款护栏)。
@@ -72,6 +79,8 @@ for (let i = 0; i < 32 * 32; i++) {
 writeFileSync(join(gameDir, 'shot-halfblue.png'), PNG.sync.write(halfDiff));
 // 截图(游戏侧):尺寸不一致
 writeFileSync(join(gameDir, 'shot-16x16.png'), makePng(16, 16, [200, 30, 30]));
+// 参考(非 PNG 文本文件):白名单内但解码必失败(审查 Minor⑤ 用例)
+writeFileSync(join(projDir, 'ref-not-png.txt'), 'this is not a png file at all');
 
 const shotResult = (file: string) => ({ result: { success: true, path: `user://${file}`, size: { x: 32, y: 32 } } });
 
@@ -80,6 +89,8 @@ afterAll(() => {
   if (prevAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
   else process.env.ALLOWED_PROJECT_PATHS = prevAllowed;
   if (prevUnrestricted !== undefined) process.env.GODOT_MCP_UNRESTRICTED = prevUnrestricted;
+  if (prevQaReportsDir === undefined) delete process.env.GODOT_MCP_QA_REPORTS_DIR;
+  else process.env.GODOT_MCP_QA_REPORTS_DIR = prevQaReportsDir;
 });
 
 describe('runtime-assert screenshot_diff 真实现(PR-1a)', () => {
@@ -103,6 +114,8 @@ describe('runtime-assert screenshot_diff 真实现(PR-1a)', () => {
     const p = JSON.parse((r!.content[0] as { text: string }).text);
     expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PATH');
     expect(p.error).toContain('ALLOWED_PROJECT_PATHS');
+    // Minor⑥:锁"先校验后截图"顺序——白名单拒绝时不得触碰 bridge(防未来重排产生副作用)
+    expect(sendToBridge).not.toHaveBeenCalled();
   });
 
   it('同图 → passed:true,diff_ratio=0(B-1:threshold 语义=差异容忍,默认 0.12)', async () => {
@@ -139,11 +152,42 @@ describe('runtime-assert screenshot_diff 真实现(PR-1a)', () => {
 
   it('evidence_path 内部参数 → diff 染红图落盘', async () => {
     vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-halfblue.png') as never);
-    const ev = join(tmp, 'ev-diff.png');
+    const ev = join(qaReports, 'ev-diff.png');
     const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir, evidence_path: ev }, {} as never);
     const p = JSON.parse((r!.content[0] as { text: string }).text);
     expect(p.details.evidence_path).toBe(ev);
     const buf = readFileSync(ev);
     expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it('I-1:evidence_path 位于 qa-reports 外(哪怕在项目白名单内)→ INVALID_PATH 且不写文件', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-identical.png') as never);
+    // projDir 在 ALLOWED_PROJECT_PATHS(=tmp)内——证明"项目白名单内"不足以放行,必须在 qa-reports 内
+    const evil = join(projDir, 'escape-diff.png');
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir, evidence_path: evil }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PATH');
+    expect(p.error).toContain('qa-reports');
+    expect(existsSync(evil)).toBe(false); // 未写盘
+    expect(existsSync(join(projDir, 'escape-diff'))).toBe(false);
+  });
+
+  it('I-1:相对路径前缀伪装(qa-reports 开头但实为兄弟目录)→ INVALID_PATH', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-identical.png') as never);
+    // resolve 后 = tmp/qa-reports-evil/x.png,不以 qaReports + sep 开头 → 拒
+    const evil = join(tmp, 'qa-reports-evil', 'x.png');
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir, evidence_path: evil }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PATH');
+    expect(existsSync(evil)).toBe(false);
+  });
+
+  it('Minor⑤:reference 为白名单内非 PNG 文本文件 → ASSERT_ERROR(读图/解码失败),非 dimensions FAILED', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-identical.png') as never);
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: join(projDir, 'ref-not-png.txt'), project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('ASSERT_ERROR');
+    expect(p.error).toContain('读图/解码失败');
+    expect(p.mismatch).toBeUndefined(); // 不再误报尺寸不一致(dimensions FAILED)
   });
 });

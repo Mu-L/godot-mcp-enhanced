@@ -12,11 +12,12 @@ import type { Tool } from '@modelcontextprotocol/server';
 import { textResult } from '../types.js';
 import { sendToBridge } from './game-bridge.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, isAbsolute, dirname } from 'path';
+import { resolve, isAbsolute, dirname, sep } from 'path';
 import { PNG } from 'pngjs';
 import { diffPngBuffers } from './screenshot-detail.js';
 import { isPathInAllowedRoots } from '../core/path-utils.js';
 import { resolveGameDataPath } from './game-fs.js';
+import { qaReportsDir } from './qa/report.js';
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export const TOOL_META = {
       scene_structure: 'read' as const,
       screen_text: 'read' as const,
       perf: 'read' as const,
-      screenshot_diff: 'read' as const, // 写临时文件到 user://，但不改场景状态
+      screenshot_diff: 'read' as const, // 读参考图 + 截图；diff 染红图落盘已限制在 qa-reports 目录内（I-1 白名单校验），不改场景状态
     },
   },
 };
@@ -333,18 +334,32 @@ export async function assertScreenshotDiff(args: Record<string, unknown>): Promi
   try {
     diff = diffPngBuffers(refBuf, actualBuf, threshold);
   } catch (e) {
+    const diffErr = (e as Error).message;
     // 尺寸不一致:FAILED(带双方尺寸),不是基础设施错误
-    return fail('screenshot_diff', { dimensions: { expected: '参考图与截图同尺寸', actual: (e as Error).message } }, { reference: refAbs });
+    if (diffErr.includes('dimensions mismatch')) {
+      return fail('screenshot_diff', { dimensions: { expected: '参考图与截图同尺寸', actual: diffErr } }, { reference: refAbs });
+    }
+    // 其余解码失败(非 PNG/损坏图):基础设施错误 ASSERT_ERROR——不再误报"尺寸不一致"误导排错(审查 Minor⑤)
+    return textResult(JSON.stringify({ success: false, error: `读图/解码失败: ${diffErr}`, error_code: 'ASSERT_ERROR' }));
   }
 
   // 可选证据落盘(失败不改变判定)
   const evidencePath = args.evidence_path as string | undefined;
   if (evidencePath) {
+    // 审查 I-1(schema 不暴露 ≠ 安全边界:args-validator 未知字段允许,handleTool 原样透传,
+    // evidence_path 可从外部 MCP args 注入任意路径写文件)。写面前校验:resolve 后必须位于
+    // qaReportsDir() 内(前缀比较与 qa/report.ts readReport 同款;qa runner 内部拼的路径
+    // 天然满足)。不可用 isPathInAllowedRoots——qa-reports 在 ~/.godot-mcp 下不在项目白名单。
+    const evAbs = resolve(evidencePath);
+    const reportsDir = qaReportsDir();
+    if (!(evAbs === reportsDir || evAbs.startsWith(reportsDir + sep))) {
+      return textResult(JSON.stringify({ success: false, error: `evidence_path 必须位于 qa-reports 目录内: ${reportsDir}(拒绝任意路径写入): ${evAbs}`, error_code: 'INVALID_PATH' }));
+    }
     try {
-      mkdirSync(dirname(evidencePath), { recursive: true });
+      mkdirSync(dirname(evAbs), { recursive: true });
       const outPng = new PNG({ width: diff.width, height: diff.height });
       outPng.data = diff.diffImageData;
-      writeFileSync(evidencePath, PNG.sync.write(outPng));
+      writeFileSync(evAbs, PNG.sync.write(outPng));
     } catch { /* 证据 best-effort */ }
   }
 
