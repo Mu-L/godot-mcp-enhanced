@@ -45,11 +45,9 @@ function isTerminal(r: RunRecord): boolean {
 }
 
 function sweepExpired(): void {
-  const now = Date.now();
   for (const [id, r] of registry) {
     if (isTerminal(r) && Date.now() - Date.parse(r.lastUpdatedAt) > r.ttl) registry.delete(id);
   }
-  void now;
 }
 
 export function registerRun(runId: string, suiteName: string, projectPath: string, stepsTotal: number): RunRecord {
