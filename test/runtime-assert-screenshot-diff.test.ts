@@ -1,60 +1,149 @@
-// 2026-08-06 审查 P0/P1：runtime_assert screenshot_diff 占位返 NOT_IMPLEMENTED（非假阳性 pass）
-// 锁定 known-limitation 行为，防回归到 success:true 假阳性占位。
+// PR-1a:screenshot_diff 真实现(像素差异容忍,复用 screenshot-detail diffPngBuffers)。
+// 真契约 mock:take_screenshot → {success:true, path:'user://…', size:{x,y}}(无 base64)。
+// 占位时代(2026-08-06 NOT_IMPLEMENTED)行为测试全部废弃,本文件锁定真实现。
 //
-// 背景：screenshot_diff 当前未实现真实相似度对比（需 frame-verify/gdscripts.ts referenceSimScript，
-// 依赖 GDScript 执行器，超当前 scope）。2026-08-06 修复前返 pass()（success:true）致 agent 假阳性。
-// 现改返 { success: false, error_code: 'NOT_IMPLEMENTED' }。
-//
-// 注：bridge action 走 mock，不真起 Godot。通过 handleTool 公开入口测（真实调用路径）。
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// 相对 brief 原文的修正(详见 .superpowers/sdd/task-6-assert-batch-report.md):
+// 1. vi.mock hoisting:brief 原文 mock factory 闭包引用 factory 外的 gameDir(const,TDZ)→
+//    ReferenceError。改为 mock 空 vi.fn() + 模块级 mockImplementation(test/qa-runner.test.ts 同款范式)。
+// 2. brief 原文未 mkdirSync projDir/gameDir → 模块级 writeFileSync 直接 ENOENT,补 recursive mkdir。
+// 3. 白名单用例 reference 由 'Z:/elsewhere/x.png' 改为 tmpdir() 下白名单外路径:
+//    Linux CI 上 isAbsolute('Z:/…') === false 会走相对分支假白名单内;Windows 无 Z: 盘时
+//    safeRealPath 抛 PathError → ASSERT_ERROR。tmpdir() 祖先必存在,双平台确定性拒绝。
+// 4. 断言 error_code 为 INVALID_PATH(非 INVALID_PARAMS):brief 自身测试与实现矛盾,
+//    实现侧 INVALID_PATH 与仓库路径拒绝惯例一致(qa/index.ts、scene/index.ts 等十余处)。
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { PNG } from 'pngjs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
-// runtime-assert 依赖 game-bridge 的 sendToBridge，需 mock
 vi.mock('../src/tools/game-bridge.js', () => ({
-  sendToBridge: vi.fn().mockResolvedValue({ result: { image: 'base64-mock-screenshot-data' } }),
+  sendToBridge: vi.fn(),
   setBridgeProjectDir: vi.fn(),
 }));
+vi.mock('../src/tools/game-fs.js', () => ({
+  resolveGameDataPath: vi.fn(),
+}));
 
+import { sendToBridge } from '../src/tools/game-bridge.js';
+import { resolveGameDataPath } from '../src/tools/game-fs.js';
 import { handleTool } from '../src/tools/runtime-assert.js';
 
-describe('runtime-assert screenshot_diff (P1 known-limitation, 2026-08-06 审查)', () => {
-  const origPriv = process.env.GODOT_MCP_PRIVILEGED_GROUPS;
-  beforeEach(() => { delete process.env.GODOT_MCP_PRIVILEGED_GROUPS; });
-  afterEach(() => {
-    if (origPriv === undefined) delete process.env.GODOT_MCP_PRIVILEGED_GROUPS;
-    else process.env.GODOT_MCP_PRIVILEGED_GROUPS = origPriv;
-  });
+const tmp = mkdtempSync(join(tmpdir(), 'radiff-'));
+const projDir = join(tmp, 'proj');
+const gameDir = join(tmp, 'gamedata');
+mkdirSync(projDir, { recursive: true });
+mkdirSync(gameDir, { recursive: true });
+const refPath = join(projDir, 'ref.png');
+// 白名单外路径(祖先 tmpdir() 必存在,双平台 isAbsolute 均真)
+const outsidePath = join(tmpdir(), 'radiff-outside', 'x.png');
+
+// 白名单:让 tmp 进 ALLOWED_PROJECT_PATHS(brief 注记;isPathInAllowedRoots 运行时读 env)。
+// 同时清掉 GODOT_MCP_UNRESTRICTED 防环境泄漏放行一切(旧版本文件同款护栏)。
+const prevAllowed = process.env.ALLOWED_PROJECT_PATHS;
+const prevUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
+process.env.ALLOWED_PROJECT_PATHS = tmp;
+delete process.env.GODOT_MCP_UNRESTRICTED;
+
+// user:// → 测试临时目录内的实际 PNG(绕开 APPDATA 布局)
+vi.mocked(resolveGameDataPath).mockImplementation((_proj: string, uri: string): string | null =>
+  uri.startsWith('user://') ? join(gameDir, uri.slice('user://'.length)) : null);
+
+function makePng(width: number, height: number, fill: [number, number, number]): Buffer {
+  const png = new PNG({ width, height });
+  for (let i = 0; i < width * height; i++) {
+    const idx = i << 2;
+    png.data[idx] = fill[0]; png.data[idx + 1] = fill[1]; png.data[idx + 2] = fill[2]; png.data[idx + 3] = 255;
+  }
+  return PNG.sync.write(png);
+}
+
+// 参考图:32x32 纯红;同款截图 → diffRatio 0
+writeFileSync(refPath, makePng(32, 32, [200, 30, 30]));
+// 截图(游戏侧):同尺寸纯红
+writeFileSync(join(gameDir, 'shot-identical.png'), makePng(32, 32, [200, 30, 30]));
+// 截图(游戏侧):右半纯蓝(一半像素差异)
+const halfDiff = new PNG({ width: 32, height: 32 });
+for (let i = 0; i < 32 * 32; i++) {
+  const idx = i << 2;
+  const blue = (i % 32) >= 16;
+  halfDiff.data[idx] = blue ? 30 : 200; halfDiff.data[idx + 1] = 30; halfDiff.data[idx + 2] = blue ? 200 : 30; halfDiff.data[idx + 3] = 255;
+}
+writeFileSync(join(gameDir, 'shot-halfblue.png'), PNG.sync.write(halfDiff));
+// 截图(游戏侧):尺寸不一致
+writeFileSync(join(gameDir, 'shot-16x16.png'), makePng(16, 16, [200, 30, 30]));
+
+const shotResult = (file: string) => ({ result: { success: true, path: `user://${file}`, size: { x: 32, y: 32 } } });
+
+afterAll(() => {
+  rmSync(tmp, { recursive: true, force: true });
+  if (prevAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
+  else process.env.ALLOWED_PROJECT_PATHS = prevAllowed;
+  if (prevUnrestricted !== undefined) process.env.GODOT_MCP_UNRESTRICTED = prevUnrestricted;
+});
+
+describe('runtime-assert screenshot_diff 真实现(PR-1a)', () => {
+  beforeEach(() => { vi.mocked(sendToBridge).mockReset(); });
 
   it('reference 缺失 → INVALID_PARAMS', async () => {
-    const result = await handleTool('runtime_assert', { action: 'screenshot_diff' }, {} as never);
-    expect(result).not.toBeNull();
-    const parsed = JSON.parse((result!.content[0] as { text: string }).text);
-    expect(parsed.success).toBe(false);
-    expect(parsed.error_code).toBe('INVALID_PARAMS');
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PARAMS');
   });
 
-  it('截图成功后返 NOT_IMPLEMENTED（非 success:true 假阳性 pass）', async () => {
-    // 注：P1 修复后即使截图成功，也不做相似度对比，返 NOT_IMPLEMENTED 让 agent 显式感知
-    const result = await handleTool('runtime_assert', {
-      action: 'screenshot_diff',
-      reference: '/tmp/ref.png',
-      threshold: 0.9,
-    }, {} as never);
-    expect(result).not.toBeNull();
-    const parsed = JSON.parse((result!.content[0] as { text: string }).text);
-    expect(parsed.success).toBe(false);
-    expect(parsed.error_code).toBe('NOT_IMPLEMENTED');
-    expect(parsed.screenshot_captured).toBe(true); // 截图本身成功
-    // 确保不再返假阳性 pass
-    expect(parsed.passed).not.toBe(true);
+  it('project_path 缺失 → INVALID_PARAMS(I-1:解析 user:// 必需)', async () => {
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PARAMS');
+    expect(p.error).toContain('project_path');
   });
 
-  it('NOT_IMPLEMENTED 消息提示 P1 待实现', async () => {
-    const result = await handleTool('runtime_assert', {
-      action: 'screenshot_diff',
-      reference: '/tmp/ref.png',
-    }, {} as never);
-    expect(result).not.toBeNull();
-    const parsed = JSON.parse((result!.content[0] as { text: string }).text);
-    expect(parsed.error).toMatch(/not implemented|Stage 0 placeholder/i);
+  it('reference 越出白名单 → INVALID_PATH(不读文件)', async () => {
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: outsidePath, project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(false); expect(p.error_code).toBe('INVALID_PATH');
+    expect(p.error).toContain('ALLOWED_PROJECT_PATHS');
+  });
+
+  it('同图 → passed:true,diff_ratio=0(B-1:threshold 语义=差异容忍,默认 0.12)', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-identical.png') as never);
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(true); expect(p.passed).toBe(true);
+    expect(p.details.diff_ratio).toBe(0);
+  });
+
+  it('半图差异(≈0.5)> max_diff_ratio 默认 0.05 → FAILED,mismatch 带实际 ratio', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-halfblue.png') as never);
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(true); expect(p.passed).toBe(false);
+    expect(p.mismatch.diff_ratio.actual).toBeGreaterThan(0.4);
+    expect(p.mismatch.diff_ratio.expected).toContain('≤ 0.05');
+  });
+
+  it('max_diff_ratio=0.6 时半图差异 → passed(阈值校准语义,I-3)', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-halfblue.png') as never);
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir, max_diff_ratio: 0.6 }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.passed).toBe(true);
+  });
+
+  it('尺寸不一致 → FAILED(非 success:false),detail 带双方尺寸', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-16x16.png') as never);
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.success).toBe(true); expect(p.passed).toBe(false);
+    expect(JSON.stringify(p.mismatch)).toContain('dimensions');
+  });
+
+  it('evidence_path 内部参数 → diff 染红图落盘', async () => {
+    vi.mocked(sendToBridge).mockResolvedValue(shotResult('shot-halfblue.png') as never);
+    const ev = join(tmp, 'ev-diff.png');
+    const r = await handleTool('runtime_assert', { action: 'screenshot_diff', reference: refPath, project_path: projDir, evidence_path: ev }, {} as never);
+    const p = JSON.parse((r!.content[0] as { text: string }).text);
+    expect(p.details.evidence_path).toBe(ev);
+    const buf = readFileSync(ev);
+    expect(buf.length).toBeGreaterThan(0);
   });
 });
