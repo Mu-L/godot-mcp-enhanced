@@ -49,6 +49,19 @@ export interface RunQaResult {
   paths: { json_path: string; md_path: string };
 }
 
+/** 套件内跨步骤状态(watch/monitor 单订阅槽自管 + errors baseline;Task PR-1a) */
+interface RunState {
+  watchActive: boolean;
+  monitorActive: boolean;
+  watchEventsCache: WatchEvent[] | null;
+  errorsBaselineSeq: number | null;
+}
+type WatchEvent = { frame: number; time: number; args: unknown[] };
+
+function newRunState(): RunState {
+  return { watchActive: false, monitorActive: false, watchEventsCache: null, errorsBaselineSeq: null };
+}
+
 /**
  * 执行 QA 套件并落盘报告。
  * @param suite 已校验的套件
@@ -88,6 +101,7 @@ export async function runQaSuite(
   // 断 bridge）前 stop；成功丢弃，失败落盘 qa-reports（与 screenshot 证据同目录）。
   let recordStarted = false;
   let pendingRecording: { version: 1; duration_ms: number; events: unknown[] } | null = null;
+  const runState = newRunState();
 
   // finalize 放外层 finally：早退（setup error）/正常结束/异常路径都统一结算 summary
   /** setup 失败统一出口：记 setup_error + 全部步骤标 SKIPPED('setup failed') */
@@ -171,7 +185,7 @@ export async function runQaSuite(
 
         ctx.progress?.(i + 1, suite.steps.length, `qa step ${i + 1}/${suite.steps.length}: ${step.type}${step.label ? ` (${step.label})` : ''}`);
         const t0 = Date.now();
-        const outcome = await execStep(step, o, runId, i, projectPath);
+        const outcome = await execStep(step, o, runId, i, projectPath, runState);
         rec.elapsed_ms = Date.now() - t0;
         rec.status = outcome.status;
         rec.detail = outcome.detail;
@@ -184,6 +198,31 @@ export async function runQaSuite(
       }
     } finally {
       // ── teardown：尽力收尾，失败只记警告不影响报告判定 ──────────────────────
+      // watch/monitor 兜底收尾(防泄漏;失败只记警告)
+      if (runState.watchActive) {
+        try {
+          const resp = await sendToBridge('watch.stop', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `watch.stop 兜底失败: ${resp.error.message}`];
+          } else {
+            runState.watchActive = false;
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `watch.stop 兜底异常: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+      if (runState.monitorActive) {
+        try {
+          const resp = await sendToBridge('monitor.stop', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `monitor.stop 兜底失败: ${resp.error.message}`];
+          } else {
+            runState.monitorActive = false;
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `monitor.stop 兜底异常: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
       // 录制 stop 必须在 stop_project 之前（杀游戏即断 bridge，之后取不到 events）。
       if (recordStarted) {
         try {
@@ -257,7 +296,7 @@ interface StepOutcome {
 
 type ResolvedOptions = QaSuite['options'];
 
-async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string): Promise<StepOutcome> {
+async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string, runState: RunState): Promise<StepOutcome> {
   switch (step.type) {
     case 'input': {
       const pathErr = validateBridgePath(step.params);
@@ -372,14 +411,50 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
         detail: `screenshot 留在游戏侧 ${gameSide}（user:// 无法解析到本机路径，报告目录无副本）`,
       };
     }
+    case 'watch_start': {
+      if (runState.watchActive) return err('本套件已有活跃 watch,先 watch_stop');
+      // 探测是否替换套件外开启的既有 watch(GD 侧静默替换,qa 需在 detail 注明)
+      let replacedNote = '';
+      const probe = await sendToBridge('watch.poll', {}, o.step_timeout_ms);
+      const pr = (probe.result ?? {}) as { watching?: boolean };
+      if (!probe.error && pr.watching === true) replacedNote = ' (已替换套件外开启的既有 watch)';
+      const params: Record<string, unknown> = { node_path: step.node_path, signal_name: step.signal_name, push: false };
+      if (step.max_events !== undefined) params.max_events = step.max_events;
+      const resp = await sendToBridge('watch.start', params, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.watchActive = true;
+      runState.watchEventsCache = null;
+      return { status: 'PASSED', detail: `watch.start ${step.node_path}:${step.signal_name}${replacedNote}` };
+    }
+    case 'watch_stop': {
+      if (!runState.watchActive && !runState.watchEventsCache) return err('无活跃 watch(未 watch_start 或已 stop)');
+      const resp = await sendToBridge('watch.stop', {}, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      const r = (resp.result ?? {}) as { events?: unknown[] };
+      runState.watchActive = false;
+      runState.watchEventsCache = Array.isArray(r.events) ? (r.events as WatchEvent[]) : [];
+      return { status: 'PASSED', detail: `watch.stop ${runState.watchEventsCache.length} event(s)` };
+    }
+    case 'monitor_start': {
+      if (runState.monitorActive) return err('本套件已有活跃 monitor,先 monitor_stop');
+      const params: Record<string, unknown> = { node_path: step.node_path, properties: step.properties };
+      if (step.interval_frames !== undefined) params.interval_frames = step.interval_frames;
+      const resp = await sendToBridge('monitor.start', params, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.monitorActive = true;
+      return { status: 'PASSED', detail: `monitor.start ${step.node_path} [${step.properties.join(', ')}]` };
+    }
+    case 'monitor_stop': {
+      if (!runState.monitorActive) return err('无活跃 monitor(未 monitor_start 或已 stop)');
+      const resp = await sendToBridge('monitor.stop', {}, o.step_timeout_ms);
+      if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.monitorActive = false;
+      const r = (resp.result ?? {}) as { sample_count?: number };
+      return { status: 'PASSED', detail: `monitor.stop ${r.sample_count ?? 0} sample(s)` };
+    }
     case 'sleep': {
       await sleep(step.ms);
       return { status: 'PASSED', detail: `slept ${step.ms}ms` };
-    }
-    default: {
-      // PR-1a Task 2 已扩 spec union（watch/monitor 控制步骤），执行逻辑待后续任务实现；
-      // 此兜底保证 schema 先行合入时 runner 编译通过且运行期显式报错而非静默。
-      return err(`步骤类型 ${step.type} 暂未实现（PR-1a 后续任务）`);
     }
   }
 }

@@ -481,3 +481,95 @@ describe('record_on_failure（QA 收尾批①）', () => {
     expect(order).not.toContain('recording.start');
   });
 });
+
+// ═══ PR-1a Task 3：watch/monitor 控制步骤 + RunState + teardown 兜底 stop ═══
+
+describe('qa runner: watch/monitor 控制步骤(Task PR-1a)', () => {
+  it('watch_start→watch_stop 正常执行,stop 后 detail 带事件数', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.stop') return { id: 2, result: { watching: false, events: [{ frame: 10, time: 1.5, args: [42] }], event_count: 1 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/Main', signal_name: 'pressed' },
+        { type: 'watch_stop' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.summary.status).toBe('PASSED');
+    expect(report.steps[1]!.detail).toContain('1 event');
+  });
+
+  it('本套件重复 watch_start → 第二个 ERROR', async () => {
+    // watch.poll 探测返回非 watching(无套件外 watch)
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 3, result: { watching: false, events: [] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/A', signal_name: 'x' },
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'y' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('ERROR');
+    expect(report.steps[1]!.detail).toContain('已有活跃 watch');
+  });
+
+  it('watch_start 时探测到套件外既有 watch → detail 注明已替换', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.poll') return { id: 3, result: { watching: true, events: [{ frame: 1, time: 0.1, args: [] }] } };
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/A', signal_name: 'x' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('PASSED');
+    expect(report.steps[0]!.detail).toContain('已替换');
+  });
+
+  it('步骤中断后(aborted)teardown 对未 stop 的 watch 兜底补 stop', async () => {
+    const stopCalls: string[] = [];
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'send_key') return { id: 4, result: {} };
+      if (method === 'watch.stop') { stopCalls.push(method); return { id: 2, result: { watching: false, events: [], event_count: 0 } }; }
+      if (method === 'monitor.stop') { stopCalls.push(method); return { id: 6, result: { monitoring: false, samples: [], stopped_reason: '' } }; }
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/A', signal_name: 'x' },
+        { type: 'input', method: 'send_key', params: { key: 'ui_accept' } },
+      ],
+    });
+    // input 会 PASSED,teardown 兜底仍应触发(套件结束时 watch 仍 active)
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.summary.status).toBe('PASSED');
+    expect(stopCalls).toContain('watch.stop');
+  });
+
+  it('monitor_start→monitor_stop 正常执行', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.stop') return { id: 8, result: { monitoring: false, samples: [{ frame: 5, time: 0.5, values: { health: 80 } }], sample_count: 1, stopped_reason: '' } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'], interval_frames: 5 },
+        { type: 'monitor_stop' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.summary.status).toBe('PASSED');
+  });
+});
