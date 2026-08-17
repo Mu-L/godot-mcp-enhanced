@@ -648,6 +648,8 @@ describe('qa runner: signal/monitor 断言(Task PR-1a)', () => {
     });
     const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
     expect(report.steps[0]!.status).toBe('ERROR');
+    // Minor③(s4 弱断言补 detail):错误消息可行动——指引用户先 watch_start
+    expect(report.steps[0]!.detail).toContain('watch_start');
   });
 
   it('monitor 断言:min/max 区间 + non_increasing 单调判定 PASSED', async () => {
@@ -729,6 +731,75 @@ describe('qa runner: signal/monitor 断言(Task PR-1a)', () => {
     });
     const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
     expect(report.steps[1]!.status).toBe('ERROR');
+    // Minor③(m5 弱断言补 detail):错误消息指明缺失的属性名(可行动)
+    expect(report.steps[1]!.detail).toContain('缺属性');
+  });
+});
+
+describe('qa runner: monitor 单调四档(审查 I-3:每档满足→PASSED/违反→FAILED)', () => {
+  // 审查 I-3:execMonitorAssert 单调判定是 every+findIndex 双段逻辑,此前手写用例仅覆盖
+  // non_increasing 满足侧一档——`>` 误写为 `>=` 之类回归现有测试全绿。此处四档正反全锁。
+  const modes: Array<{ mode: 'increasing' | 'non_decreasing' | 'decreasing' | 'non_increasing'; passSeq: number[]; failSeq: number[]; desc: string }> = [
+    { mode: 'increasing', passSeq: [10, 20, 40], failSeq: [10, 20, 20], desc: '严格递增:相等即违反' },
+    { mode: 'non_decreasing', passSeq: [10, 20, 20, 30], failSeq: [10, 30, 20], desc: '非降:下降违反,相等合法' },
+    { mode: 'decreasing', passSeq: [50, 30, 10], failSeq: [50, 30, 30], desc: '严格递减:相等即违反' },
+    { mode: 'non_increasing', passSeq: [50, 30, 30, 10], failSeq: [10, 20], desc: '非增:上升违反,相等合法' },
+  ];
+
+  function monitorMocks(seq: number[]) {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.poll') return {
+        id: 9,
+        result: { monitoring: true, sample_count: seq.length, samples: seq.map((v, i) => ({ frame: i + 1, time: 0.1 * (i + 1), values: { health: v } })) },
+      };
+      return { id: 5, result: {} };
+    });
+  }
+
+  for (const { mode, passSeq, failSeq, desc } of modes) {
+    it(`${mode} 满足序列 [${passSeq}] → PASSED(${desc})`, async () => {
+      monitorMocks(passSeq);
+      const s = suite({
+        steps: [
+          { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+          { type: 'assert', assert: 'monitor', property: 'health', monotonic: mode },
+        ],
+      });
+      const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+      expect(report.steps[1]!.status).toBe('PASSED');
+    });
+
+    it(`${mode} 违反序列 [${failSeq}] → FAILED 且 mismatch 带 ${mode} 与首违规对`, async () => {
+      monitorMocks(failSeq);
+      const s = suite({
+        steps: [
+          { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+          { type: 'assert', assert: 'monitor', property: 'health', monotonic: mode },
+        ],
+      });
+      const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+      expect(report.steps[1]!.status).toBe('FAILED');
+      expect(report.steps[1]!.mismatch?.health_monotonic).toMatchObject({ expected: mode });
+      // 首违规对:frame 前值→后值(违反该档判据的相邻样本对)
+      expect(String(report.steps[1]!.mismatch?.health_monotonic?.actual)).toContain('→');
+    });
+  }
+
+  it('min/max 两处越界(一低一高)→ mismatch 定位首个违规样本(审查 I-3)', async () => {
+    // 序列 [90(ok), 200(>max), 40(<min)],区间 [60,100]:首违规是 frame2=200,
+    // 非 frame3=40——锁 findIndex 语义(取第一个,不是任意/最后一个越界样本)
+    monitorMocks([90, 200, 40]);
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'assert', assert: 'monitor', property: 'health', min: 60, max: 100 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('FAILED');
+    expect(report.steps[1]!.mismatch?.health).toEqual({ expected: '≥ 60 且 ≤ 100', actual: 200 });
+    expect(report.steps[1]!.detail).toContain('frame 2');
   });
 });
 
@@ -891,7 +962,8 @@ describe('qa runner: errors 断言(Task PR-1a)', () => {
     const calls: Array<{ m: string; p: unknown }> = [];
     vi.mocked(sendToBridge).mockImplementation(async (method: string, params: unknown) => {
       calls.push({ m: method, p: params });
-      if (method === 'get_errors') return { id: 20, result: { errors: [], next_seq: 0 } };
+      // next_seq=5 模拟游戏已有 5 条历史错误(baseline 锚点非 0,恒传 0 会把历史错误计入→假红)
+      if (method === 'get_errors') return { id: 20, result: { errors: [], next_seq: 5 } };
       return { id: 5, result: {} };
     });
     const s = suite({ steps: [
@@ -902,6 +974,10 @@ describe('qa runner: errors 断言(Task PR-1a)', () => {
     // baseline 采集 + 断言查询,两次 get_errors 都带 since_seq
     const ge = calls.filter(c => c.m === 'get_errors');
     expect(ge.length).toBe(2);
+    // Minor④:e1 弱断言补强——首调用(baseline)since_seq=0;次调用(断言查询)
+    // since_seq=首次返回的 next_seq(=5)。恒传 0 时历史错误计入 → 本用例假红,可抓锚点回归。
+    expect((ge[0]!.p as { since_seq?: number }).since_seq).toBe(0);
+    expect((ge[1]!.p as { since_seq?: number }).since_seq).toBe(5);
   });
 
   it('期间新增 2 条 error → FAILED,mismatch 带实际计数', async () => {
