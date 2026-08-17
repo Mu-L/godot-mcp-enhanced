@@ -143,8 +143,9 @@ export class GodotServer {
           // PR-2 (2025-11-25 tasks wire):tasks 族协议 method 上线(qa run 注册表 → wire Task)。
           // era-gated——2026 era 客户端在 SDK 分发层即 METHOD_NOT_FOUND,无害(spec §3.2);
           // SDK 无 task 运行时(类型层将 tasks 词汇从 RequestMethod 排除),handler 自建。
-          // 声明后 server.notification('notifications/tasks/status') 才不被 SDK
-          // assertNotificationCapability 拦(P1-7 notifications/message 同款教训)。
+          // 通知能否真正发出由 _notificationViaCodec 的协商 era 检查决定(2024 era 客户端连
+          // tasks/status 通知也收不到,codec 拒后由外层 catch 吞);assertNotificationCapability
+          // 的 switch 无该 case,不构成门控(T3 审查 Minor-1 纠偏)。声明本身是协议正确性要求。
           tasks: { list: {}, cancel: {}, requests: { tools: { call: {} } } },
           // P2-5 (SEP-2133): extensions 声明让 modern-era 客户端发现 enhanced 的 runtime-bridge 能力。
           // ⚠️ era-gated:extensions 是 2026-07-28 引入,legacy-era 客户端不认识 → SDK encode 时 strip,对 legacy 无害。
@@ -206,7 +207,7 @@ export class GodotServer {
             ttl: Math.round(r.ttl / 1000),
             createdAt: r.createdAt, lastUpdatedAt: r.lastUpdatedAt,
           },
-        } as never);
+        } as never).catch(() => { /* best-effort:transport send 中途失败(如对端刚断)静默 */ });
       } catch { /* best-effort:通知失败不影响注册表状态写入 */ }
     });
 
