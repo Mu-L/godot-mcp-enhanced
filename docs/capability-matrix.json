@@ -5534,7 +5534,7 @@
     {
       "name": "ui",
       "group": "ui",
-      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)",
+      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一;bg/fill/borderRadius/border→StyleBoxFlat)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5857,9 +5857,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 969,
+        "descBytes": 1091,
         "schemaBytes": 4666,
-        "totalBytes": 5635
+        "totalBytes": 5757
       },
       "annotations": {
         "readOnlyHint": false,

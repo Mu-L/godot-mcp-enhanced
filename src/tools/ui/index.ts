@@ -27,7 +27,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'ui',
-      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
+      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -160,7 +160,7 @@ export function getToolDefinitions(): Tool[] {
           expect_tree: { type: 'object', description: 'ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界', additionalProperties: true },
           geometry: {
             type: 'object',
-            description: 'ui_import_prototype: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先)',
+            description: 'ui_import_prototype: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先;样式字段:bg/fill(ProgressBar fill 槽色)/borderRadius(number 或 {tl,tr,br,bl})/border({width,color})→StyleBoxFlat 四控件槽位(Panel/ProgressBar/Button/Label))',
             additionalProperties: true,
           },
           geometry_path: { type: 'string', description: 'ui_import_prototype: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)' },
@@ -168,7 +168,7 @@ export function getToolDefinitions(): Tool[] {
           parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报' },
           tree: {
             type: 'object',
-            description: 'ui_build_layout: UI 节点树（最大深度 10）',
+            description: 'ui_build_layout: UI 节点树（最大深度 10）;节点可带 styleboxes: [{slot: panel|normal|background|fill|hover|pressed|disabled, box: {bg_color:[r,g,b,a]0-1, corner_radius: 数值或{tl,tr,br,bl}, border_width, border_color, draw_center}}]→add_theme_stylebox_override(StyleBoxFlat)',
             properties: {
               type: { type: 'string', enum: [...CONTROL_TYPES], description: 'Control 子类' },
               name: { type: 'string', description: '节点名称' },

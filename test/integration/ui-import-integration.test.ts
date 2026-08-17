@@ -370,8 +370,9 @@ func _initialize():
 
   it('ProgressBar 三组合(h=16)钳制实测:bg-only / fill-only / bg+fill', { timeout: 240000 }, async () => {
     // 规则 7 修正(spec §3.5 I-3):ProgressBar minimum_size 取 background+fill 两槽
-    // stylebox 最小尺寸的最大值;有 override 时钳制值不可静态预知 → 本用例落三组合
-    // h=16(< 默认主题 27)的实测数据(spec 开放问题 4 的决策输入)。
+    // stylebox 最小尺寸的最大值;实测四组合钳制 27/23/27/23 已落 warning 文案与规则
+    // 文件(规则 7 无条件预警),本用例固化三组合 h=16(< 默认主题 27)数值(spec
+    // 开放问题 4 的决策输入)。
     // 首跑校准循环:先 console.log 观察 dh 再固化为断言——本 fixture 无程序化真值,
     // 跑红→修绿的实测记录就是期望值来源(不伪装有真值)。
     interface HpDiff { dh: number; actualH: number; sceneText: string }
