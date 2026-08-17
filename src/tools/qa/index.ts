@@ -44,6 +44,7 @@ export function getToolDefinitions(): Tool[] {
     description: 'QA 测试套件编排：结构化测试规范 → 自动安装 bridge → 运行游戏 → 逐步执行 → 聚合报告 + 回归 diff。'
       + '步骤类型：input/wait/wait_frames/freeze/unfreeze/step_until/snapshot/restore/set/call/'
       + 'watch_start|stop/monitor_start|stop/assert/screenshot/sleep；断言 8 种与各字段语义见 schema 字段 description。'
+      + 'run 支持 mode:async 后台执行(qa status/cancel 管理)。'
       + '报告落 ~/.godot-mcp/qa-reports/<run_id>.{json,md}。',
     inputSchema: {
       type: 'object' as const,
