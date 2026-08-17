@@ -66,7 +66,9 @@ function parseFlag(rest: string[], name: string): { value?: string; positional: 
       out.push(rest[i]!);
     }
   }
-  return { value, positional: out };
+  // 审查 Important-2：--json 是无值 flag，前置形态（qa run --json spec.json）不得混入
+  // positional（否则 spec_path 被取成 '--json'）。统一在此剥除，各调用点免重复处理。
+  return { value, positional: out.filter(a => a !== '--json') };
 }
 
 /** 解析 handleTool 的 textResult JSON；返回 {json, isError} */
@@ -151,6 +153,9 @@ export async function runQa(args: string[]): Promise<void> {
       usage();
       process.exit(2);
     }
+    // 安全裁决（审查 Nit-1，对齐 project.ts list_projects search_dir 先例）：specDir 为本地
+    // CLI 用户自定目录，不做前置白名单（仅目录文件名元数据枚举，且 CLI 为本地主动运行非
+    // MCP 远程面）；每个 spec 的**内容**仍经 handleRun 的 spec_path 白名单校验才执行。
     let files: string[];
     try {
       files = readdirSync(specDir).filter(f => f.endsWith('.json') || f.endsWith('.md')).sort();
@@ -196,7 +201,8 @@ export async function runQa(args: string[]): Promise<void> {
           fixed += diff.fixed.length;
         }
       } catch {
-        // Nit-2（审查）：基线文件读得到但损坏（parse 失败）≠ 首次运行，区分提示避免误导排障
+        // Nit-2（审查）：基线读取链（findPreviousReport/基线 JSON/head JSON）失败 ≠ 首次运行；
+        // 措辞保持中性（不预设是基线坏还是 head 坏，概率都极窄）
         baselineBroken = true;
       }
 
@@ -218,7 +224,7 @@ export async function runQa(args: string[]): Promise<void> {
             console.log(`    REGRESSION  ${r.case}${r.head_detail ? ` — ${r.head_detail.slice(0, 120)}` : ''}`);
           }
         } else if (baselineBroken) {
-          console.error(`  vs 上次: (基线报告存在但不可读，跳过 diff——检查 qa-reports 目录 JSON 完整性)`);
+          console.error(`  vs 上次: (基线/head 报告读取失败，跳过 diff——检查 qa-reports 目录 JSON 完整性)`);
         } else {
           console.log('  vs 上次: (首次运行，无基线)');
         }

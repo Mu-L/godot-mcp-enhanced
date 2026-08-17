@@ -184,3 +184,13 @@ describe('cli qa audit 开关（审查 Important-1）', () => {
     expect(appendAuditLine).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CLI flag 前置形态（审查 Important-2）', () => {
+  it('qa nightly --json <dir>：--json 前置不混入 positional（specDir 正确解析）', async () => {
+    arrange([{ specFile: 'ok.json', runId: '20991231-010020-ok', name: 'ok', head: report('20991231-010020-ok', 'ok', [step(0, 'k1', 'PASSED')]) }]);
+    // --json 前置 + --project 后置混合形态
+    await expect(runQa(['nightly', '--json', specDir, '--project', PROJECT])).rejects.toMatchObject({ code: 0 });
+    // spec_path 仍正确传递（非 '--json'）
+    expect(qaHandleTool).toHaveBeenCalledWith('qa', expect.objectContaining({ action: 'run', spec_path: join(specDir, 'ok.json'), project_path: PROJECT }), expect.anything());
+  });
+});
