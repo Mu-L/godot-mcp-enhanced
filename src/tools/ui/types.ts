@@ -89,6 +89,31 @@ export interface FlexChild {
   max_height?: number;
 }
 
+// ─── PR-1: StyleBox 通道类型 ────────────────────────────────────────────────
+
+/** theme_override_styleboxes 槽位白名单(spec §3.3)。
+ * hover/pressed/disabled 仅供 ui_build_layout 手写树入口,翻译器永不产出;
+ * focus/read_only 等显式不进(YAGNI:每扩一槽须定义语义边界+测试面)。 */
+export type StyleBoxSlot = 'panel' | 'normal' | 'background' | 'fill' | 'hover' | 'pressed' | 'disabled';
+
+export const STYLEBOX_SLOTS: readonly StyleBoxSlot[] = [
+  'panel', 'normal', 'background', 'fill', 'hover', 'pressed', 'disabled',
+];
+
+/** StyleBoxFlat 描述(spec §3.2);corner_radius 支持统一值或四角对象。 */
+export interface StyleBoxFlatSpec {
+  bg_color?: [number, number, number, number];        // 0-1
+  corner_radius?: number | { tl?: number; tr?: number; br?: number; bl?: number };
+  border_width?: number;                               // 统一四边
+  border_color?: [number, number, number, number];
+  draw_center?: boolean;
+}
+
+export interface StyleBoxOverride {
+  slot: StyleBoxSlot;
+  box: StyleBoxFlatSpec;
+}
+
 export type UiNodeSpec = {
   type: string;
   name: string;
@@ -97,6 +122,7 @@ export type UiNodeSpec = {
   rect?: Rect;
   layout?: FlexLayout;
   flex?: FlexChild;
+  styleboxes?: StyleBoxOverride[];   // PR-1:样式槽位(spec §3.2)
   children?: UiNodeSpec[];
 };
 

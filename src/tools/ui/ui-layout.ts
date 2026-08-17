@@ -1,7 +1,7 @@
 // UI layout operations: ui_set_layout, ui_get_layout, ui_build_layout.
 
 import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
-import { CONTROL_TYPES, ANCHOR_PRESETS } from './types.js';
+import { CONTROL_TYPES, ANCHOR_PRESETS, STYLEBOX_SLOTS } from './types.js';
 import { solveAnchors, CONTAINER_CONTROL_TYPES } from './anchor-solver.js';
 import type { Rect } from './anchor-solver.js';
 import { BLOCKED_PROPS } from '../scene/helpers.js';
@@ -168,6 +168,23 @@ function validateUiNodeSpec(spec: UiNodeSpec, depth: number, warnings: string[] 
   }
   if (spec.flex) {
     validateFlexChild(spec.flex, warnings);
+  }
+  if (spec.styleboxes) {
+    for (const sb of spec.styleboxes) {
+      if (!STYLEBOX_SLOTS.includes(sb.slot)) {
+        throw new Error(`INVALID_PARAMS: styleboxes slot "${sb.slot}" is not whitelisted (allowed: ${STYLEBOX_SLOTS.join(', ')})`);
+      }
+      const b = sb.box;
+      const radii = typeof b.corner_radius === 'number'
+        ? [b.corner_radius]
+        : Object.values(b.corner_radius ?? {});
+      if (radii.some(v => typeof v !== 'number' || v < 0 || !Number.isFinite(v))) {
+        throw new Error('INVALID_PARAMS: styleboxes corner_radius must be non-negative finite number(s)');
+      }
+      if (b.border_width !== undefined && (typeof b.border_width !== 'number' || b.border_width < 0 || !Number.isFinite(b.border_width))) {
+        throw new Error('INVALID_PARAMS: styleboxes border_width must be a non-negative finite number');
+      }
+    }
   }
   if (spec.children) {
     for (const child of spec.children) {

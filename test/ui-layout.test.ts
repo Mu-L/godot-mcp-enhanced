@@ -249,3 +249,42 @@ describe('ui_build_layout persist 与运行时丢失 warning 合并', () => {
     expect(warning!.text).toContain('ui_build_layout');
   });
 });
+
+// ─── PR-1 Task 1: styleboxes 类型层校验 ────────────────────────────────────
+
+describe('validateUiNodeSpec styleboxes 校验(PR-1)', () => {
+  // 走公共入口间接触发 validateUiNodeSpec(其非导出,经 genUiBuildLayoutScript 调用);
+  // 实际签名 (scenePath, parentPath, tree, viewport?, persist?)——spec 落 tree 位(第 3 参)。
+  const call = (spec: unknown) =>
+    genUiBuildLayoutScript('res://scenes/t.tscn', 'root', spec as never, { w: 1280, h: 720 });
+
+  // 裁定(Task-1 brief Step 5):StyleBoxFlat.new() 构造块属 Task 3,本任务第 1 例仅断言
+  // 校验通过不 throw;Task 3 完成后保留此形式,无需改回断言 StyleBoxFlat.new()。
+  it('合法 styleboxes(panel 槽 + bg_color + corner_radius 对象)通过', () => {
+    expect(() => call({
+      type: 'Panel', name: 'Card', rect: { x: 0, y: 0, w: 100, h: 50 },
+      styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.12, 0.18, 1], corner_radius: { tl: 8, br: 4 } } }],
+    })).not.toThrow();
+  });
+
+  it('slot 白名单外 → throw(INVALID_PARAMS)', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'focus', box: { bg_color: [1, 0, 0, 1] } }],
+    })).toThrow(/styleboxes slot "focus" is not whitelisted/);
+  });
+
+  it('corner_radius 负值 → throw', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'panel', box: { corner_radius: -1 } }],
+    })).toThrow(/corner_radius must be non-negative/);
+  });
+
+  it('border_width 非有限数 → throw', () => {
+    expect(() => call({
+      type: 'Button', name: 'B', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'normal', box: { border_width: Number.POSITIVE_INFINITY } }],
+    })).toThrow(/border_width must be a non-negative finite number/);
+  });
+});
