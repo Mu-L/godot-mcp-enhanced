@@ -9,9 +9,8 @@
 // 语义：FAILED = 断言未满足（测试失败）；ERROR = 基础设施失败（bridge 断连/超时/校验拒绝）。
 // 两者默认都中止剩余步骤（continue_on_failure=true 继续）；中止的剩余步骤记 SKIPPED。
 
-import { mkdirSync, readFileSync, copyFileSync, existsSync, writeFileSync } from 'fs';
+import { mkdirSync, copyFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import type { ToolContext, ToolResult } from '../../types.js';
 import {
   sendToBridge, setBridgeProjectDir, pollWaitCondition, computePlaytestTimeoutMs,
@@ -22,47 +21,11 @@ import * as runtime from '../runtime.js';
 import { assertNodeState, assertSceneStructure, assertScreenText, assertPerf } from '../runtime-assert.js';
 import type { QaSuite, QaStep } from './spec.js';
 import { makeRunId, qaReportsDir, type QaReport, type StepRecord } from './report.js';
+import { resolveGameDataPath } from '../game-fs.js';
+// re-export:保 test/qa-runner.test.ts 既有 import 路径兼容
+export { resolveGameDataPath };
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
-
-/**
- * 把游戏侧 user:// URI 解析为本地绝对路径（Godot app_userdata 布局，三平台）。
- * 读 project.godot 的 config/name（use_custom_user_dir 时用 custom_user_dir_name）。
- * 解析不出/文件不存在返回 null（调用方诚实降级，只记录游戏侧路径）。
- */
-export function resolveGameDataPath(projectPath: string, userUri: string): string | null {
-  if (!userUri.startsWith('user://')) return null;
-  const rel = userUri.slice('user://'.length);
-  let projectName: string;
-  let customDir: string;
-  try {
-    const cfg = readFileSync(join(projectPath, 'project.godot'), 'utf-8');
-    const nameM = cfg.match(/^config\/name\s*=\s*"([^"]*)"/m);
-    projectName = nameM?.[1] ?? '';
-    const customM = cfg.match(/^config\/custom_user_dir_name\s*=\s*"([^"]*)"/m);
-    customDir = customM?.[1] ?? '';
-    if (/^config\/use_custom_user_dir\s*=\s*true/m.test(cfg)) {
-      // use_custom_user_dir: 目录 = <appdata>/<custom_user_dir_name>（Godot 用项目名兜底）
-      customDir = customDir || projectName;
-      projectName = '';
-    }
-  } catch {
-    return null;
-  }
-  const home = homedir();
-  let base: string;
-  if (process.platform === 'win32') {
-    base = join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Godot');
-  } else if (process.platform === 'darwin') {
-    base = join(home, 'Library', 'Application Support', 'Godot');
-  } else {
-    base = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'godot');
-  }
-  const dir = customDir ? join(base, customDir) : projectName ? join(base, 'app_userdata', projectName) : null;
-  if (!dir) return null;
-  const abs = join(dir, rel);
-  return existsSync(abs) ? abs : null;
-}
 
 /** 解析 ToolResult.content[0].text 为 JSON；失败返回 null（text 可能是纯文本错误） */
 function parseToolJson(res: ToolResult): Record<string, unknown> | null {
