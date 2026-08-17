@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.0] - 2026-08-17
+
+### Changed — 原型翻译层 StyleBox 通道（bg/fill/borderRadius/border → StyleBoxFlat，PR-1，bg 为 BREAKING）
+
+- **样式翻译从 modulate 近似染色迁移到真 StyleBoxFlat（BREAKING）**：`ui_import_prototype` 的 `bg` 不再产 `modulate` 近似染色（warning 声明偏差的旧行为移除），与新增 `fill`/`borderRadius`/`border` 三字段统一翻译为 StyleBoxFlat override——经 `add_theme_stylebox_override` API 写入（落盘属性名 `theme_override_styles/<slot>`；`node.set()` 该路径 pack 落盘会丢 override，勿手写）。槽位映射：Panel→panel、ProgressBar→background+fill、Button/Label→normal；其余控件 warning+忽略；bg 缺省而 border/radius 存在→`draw_center=false` 保 CSS 透明底。
+- **类型层**：StyleBoxSlot 白名单 + StyleBoxFlatSpec 校验（`src/tools/ui/styleboxes` 校验层）。
+- **GD 生成器**：StyleBoxFlat 构造块 `_sb_N`（1-based 专属计数防同名 var）；`draw_center` 布尔校验（堵 GD 注入向量，审查 I-1）。
+- **规则 7 钳制预警恢复无条件（实测推翻条件化）**：实测 Godot 4.7.1 rect.h=16 时无 override→27、bg-only→23、fill-only→27、bg+fill→23，全组合被钳——override 只改变钳制值不消除钳制，故 `rect.h < 27 → "will be clamped"` warning 无条件发出（具名常量 `PROGRESS_BAR_MIN_HEIGHT=27`）。
+- **evaluate 取数脚本模板升级**：`toHex`（`#rrggbb` 丢 alpha）→ `toRgba`（`[r,g,b,a]` 0-1 数组保留 alpha；fg/bg 消费点改数组判定跳过浏览器默认黑）；循环体尾部追加三件套采集——`borderRadius`（四角统一 number 或 `{tl,tr,br,bl}`）/ `border`（CSS 四边不同时取 top 的 width+color）/ `fill`（`[data-fill]` 子元素背景，ProgressBar fill 槽色）。
+- **规则双副本同步**：`godot-mcp-ui.md`（字段清单 +3 字段 / 翻译规则 StyleBox 槽位映射 / 引擎预警无条件表述 / evaluate 要点 toRgba / 模板本体）与 `godot-mcp-engine-quirks.md`（modulate 段「bg 走 StyleBoxFlat 通道」/ ProgressBar 27px 段无条件预警）↔ `rule-templates.ts` 镜像逐字同步，`STRICT=1 check:rules-sync` 绿（9 模板双向对账一致）。
+
 ## [0.31.4] - 2026-08-17
 
 ### Added — QA 断言四件套 + 应用级异步长跑（QA 深化 PR-1a/PR-1b）
