@@ -26,6 +26,8 @@ import { resolveGameDataPath } from '../game-fs.js';
 export { resolveGameDataPath };
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
+/** 取消原因常量:aborted 置值(:208)与 finalizeSummary 判定(:280)共用,字面量漂移会让 CANCELLED 静默降级 FAILED */
+const CANCEL_REASON = 'cancelled by user';
 
 /** 解析 ToolResult.content[0].text 为 JSON；失败返回 null（text 可能是纯文本错误） */
 function parseToolJson(res: ToolResult): Record<string, unknown> | null {
@@ -205,8 +207,8 @@ export async function runQaSuite(
         }
         // 取消检查(PR-1b):步骤间轮询,复用 aborted 的 SKIPPED 机制标记剩余步骤
         if (!aborted && ctl?.cancelRequested()) {
-          aborted = 'cancelled by user';
-          rec.skip_reason = 'cancelled by user';
+          aborted = CANCEL_REASON;
+          rec.skip_reason = CANCEL_REASON;
           continue;
         }
 
@@ -277,7 +279,7 @@ export async function runQaSuite(
       }
     }
   } finally {
-    finalizeSummary(report, startedMs, aborted === 'cancelled by user');
+    finalizeSummary(report, startedMs, aborted === CANCEL_REASON);
     // 失败落盘录制（成功丢弃）：格式与 recording_play 的 events_json 兼容，可离线回放复现。
     if (o.record_on_failure && pendingRecording && report.summary.status !== 'PASSED') {
       try {

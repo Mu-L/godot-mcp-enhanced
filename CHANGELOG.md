@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **qa 套件 4 新断言 + 4 控制步骤（PR-1a）**：`assert` enum 4→8（+`screenshot_diff`/`signal`/`errors`/`monitor`）；新增 `watch_start|stop`/`monitor_start|stop`（17 种步骤类型）。signal 按 GD `_jsonify` 后形态深比较（Vector2→{x,y}）计数区间；errors 以 setup 后 `next_seq` 锚点增量断言（默认排除 warning，旧 bridge 降级）；monitor 区间 + 单调四档；**B-2 取数铁律**——GD 侧事件满/node_lost 自动置 inactive 后 poll 返空，断言取数 poll 优先 → 补 stop 取全量（不假红）；套件外订阅拒收 + 空缓存 `!== null` 判据（不假绿）。
 - **runtime-assert `screenshot_diff` 真实现（PR-1a）**：NOT_IMPLEMENTED 占位 → 像素级对比（复用 `diffPngBuffers`，**差异容忍**语义，threshold 默认 0.12，修复原 0.85 相似度语义反转）；`max_diff_ratio`（默认 0.05）；evidence 染红图落 qa-reports（PASSED/FAILED 均回填）；导出供 qa 同源复用。
 - **`qa run mode:'async'` 应用级异步长跑（PR-1b）**：立即返回 run_id 后台执行（化解客户端 ~60s 工具超时）；新增 `qa status`（轮询进度/列表）/`qa cancel`（步骤间生效，teardown 照常）action；run 注册表（SEP-1686 词汇，单 working 互斥 BUSY，TTL 惰性清扫，PR-2 tasks 层单一事实源）；`CANCELLED` 终态（优先于 FAILED）且不作 nightly 基线；close 优雅收尾进行中 run。
-- **qa 工具描述重构**：descBytes 773→407（细节移入 schema 字段 description）。
+- **qa 工具描述重构**：descBytes 773→469（细节移入 schema 字段 description）。
 
 ### Fixed
 - **`evidence_path` 任意路径写入注入（PR-1a 终审 I-1，安全）**：内部参数可从 MCP args 注入（args-validator 未知字段允许）→ 前缀校验锁 qa-reports 目录内（含兄弟目录伪装防护）。
