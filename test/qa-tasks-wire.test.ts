@@ -427,3 +427,21 @@ describe('taskAugmented 自动 async（PR-2 Task 4）', () => {
     }
   });
 });
+
+// ── PR-2 Task 5: era 门控断言(N-8 以 SDK 版本锁形式固化)──────────────────
+// SDK 的 era 编解码:2026-07-28 客户端的 tasks/* 在分发层即 METHOD_NOT_FOUND(到不了 handler)。
+// 该行为依赖 SDK 的 SUPPORTED_PROTOCOL_VERSIONS 仍以 2025-11-25 为最新——SDK 升级引入
+// 2026 era 时此测试红,提醒复核 tasks wire 层的 era 门控与 handler 自查必要性。
+describe('tasks wire era gate(版本锁)', () => {
+  it('LATEST_PROTOCOL_VERSION 仍为 2025-11-25(tasks 词汇可用 era;SDK 升级到 2026 era 时此断言红=复核提醒)', async () => {
+    const { LATEST_PROTOCOL_VERSION } = await import('@modelcontextprotocol/core/internal');
+    expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
+  });
+
+  it('GodotServer 的 4 个 tasks/* handler 已注册(wire 层在位)', async () => {
+    const src = readFileSync(new URL('../src/GodotServer.ts', import.meta.url), 'utf-8');
+    for (const m of ['tasks/get', 'tasks/list', 'tasks/cancel', 'tasks/result']) {
+      expect(src).toContain(`'${m}'`);
+    }
+  });
+});
