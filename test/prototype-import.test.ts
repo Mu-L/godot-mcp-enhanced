@@ -603,11 +603,11 @@ describe('StyleBox 通道翻译(PR-1)', () => {
     expect(warnings.some(w => w.includes('fill 仅 ProgressBar'))).toBe(true);
   });
 
-  it('规则 7 修正:无 stylebox 的 ProgressBar h<27 才预警;带 bg 时不预警', () => {
+  it('规则 7:ProgressBar h<27 无条件预警(带 override 仍被钳,实测 23/27)', () => {
     const { warnings: w1 } = tr(geo([n('P1', 0, 0, 100, 16, { type: 'ProgressBar', value: 0.5 })]));
     expect(w1.some(w => w.includes('will be clamped'))).toBe(true);
     const { warnings: w2 } = tr(geo([n('P2', 0, 0, 100, 16, { type: 'ProgressBar', value: 0.5, bg: '#222222', fill: '#3ddc84' })]));
-    expect(w2.some(w => w.includes('will be clamped'))).toBe(false);
+    expect(w2.some(w => w.includes('will be clamped'))).toBe(true);
   });
 
   it('parseGeometry:borderRadius 负值 → INVALID_PARAMS;border 坏颜色 → INVALID_PARAMS', () => {

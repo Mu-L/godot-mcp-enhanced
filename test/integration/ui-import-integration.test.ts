@@ -147,10 +147,11 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     // fixture 校准留痕(2026-08-16 裁定):HpBar 原型 y=606/h=16 按引擎下限校准为
     // y=599/h=27——Godot 4.7 默认主题 ProgressBar stylebox 最小高 27px(Control.minimum_size
     // 硬下限,h<27 被 clamp,实测原型 h=16 落地 27 且与 HpText 重叠 5px)。
-    // PR-1 联动(2026-08-17):HpBar 现带 bg+fill(StyleBox 双槽 override),规则 7 修正为
-    // 仅「无任何 override」的 ProgressBar 才预警 will be clamped——本 fixture 不再产该
-    // warning;h=27 高于 bg+fill override 后的实测下限 23(三组合用例数据),dh=0,23/23
-    // 仍全绿。注意:override 只降不除钳制——h<23 仍会被钳到 23(三组合实测见下方用例)。
+    // PR-1 联动(2026-08-17 Task 4 后再修):HpBar 带 bg+fill(StyleBox 双槽 override),
+    // 规则 7 经三组合实测(全组合被钳:无 override/bg-only/fill-only/bg+fill →
+    // 27/23/27/23)恢复为无条件预警(h<27 一律警)——HpBar h=27 恰不触警(27<27 为
+    // false),本 fixture 仍不产该 warning,dh=0 全绿。注意:override 只降不除钳制
+    // ——h<23 仍会被钳到 23(三组合实测见下方用例)。
     expect(parsed.data.layout_verify.diff).toHaveLength(parsed.data.layout_verify.targets.length);
     const bad = parsed.data.layout_verify.diff.filter(d => !d.ok);
     expect(bad, `不绿 diff: ${JSON.stringify(bad)}`).toEqual([]);
@@ -418,8 +419,8 @@ func _initialize():
     // 结论:① override 确实改变钳制值(spec §3.5 I-3 方向成立,但数值非其推断);
     // ② 「bg+fill 双 override 钳制消失」不成立——h=16 仍被钳到 23(23px 是 override 后
     // 的新下限;fill-only 场景 27 来自默认主题 background stylebox);
-    // ③ 规则 7「有 override 不预警」下 bg-only/bg+fill 的 h<23 条静默被钳——预警语义
-    // 是否恢复无条件化留 spec 层决策(数据本用例留档)。
+    // ③ 规则 7「有 override 不预警」下 bg-only/bg+fill 的 h<23 条静默被钳——该决策点
+    // 已于 2026-08-17 裁定落地:恢复无条件预警(h<27 一律警,文案分档 27/23/27/23)。
     // 分组固化:bg-only 与 bg+fill 同组(background 槽 override → 最小高 23);
     // fill-only 独组(background 默认主题 → 27)。
     for (const [name, r, dh, actualH] of [

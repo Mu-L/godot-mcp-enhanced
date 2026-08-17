@@ -231,6 +231,8 @@ const ALIGN_MAP: Record<ProtoAlign, number> = { left: 0, center: 1, right: 2 };
  * Control.minimum_size 顶到该值,rect.h 更小会被引擎钳制(clamp)。
  * 实测来源:2026-08-16 ui_import_prototype 集成验收,RTS HUD fixture HpBar
  * rect.h=16 落地实测 27px(Godot_v4.7.1-stable_win64 headless,dh=+11)。
+ * 2026-08-17 Task 4 三组合实测补充:stylebox override 只降下限不除钳制——
+ * h=16 落地值 无 override/bg-only/fill-only/bg+fill → 27/23/27/23(全被钳)。
  */
 export const PROGRESS_BAR_MIN_HEIGHT = 27;
 
@@ -302,7 +304,7 @@ function buildSpec(
     }
   }
   // PR-1 规则 9v2:样式三件套 → StyleBoxFlat(modulate 近似通道删除)。
-  // 段位置约定(规则 7 依赖 styleboxes 变量):本段必须在下方 ProgressBar 预警之前执行。
+  // (规则 7 曾依赖本段产出的 styleboxes 变量做条件预警,2026-08-17 实测后恢复无条件,不再依赖。)
   const hasBg = nd.bg !== undefined;
   const hasBorderish = nd.border !== undefined || nd.borderRadius !== undefined;
   const hasFill = nd.fill !== undefined;
@@ -342,10 +344,13 @@ function buildSpec(
   } else if (nd.type !== undefined && type === 'Panel') {
     warnings.push(`node "${node.cleanName}" explicit Panel without bg renders with the Godot default theme gray panel stylebox (web prototype div is transparent by default); set bg to match the prototype or drop type to let it be inferred as a transparent layout shell`);
   }
-  // 规则 7:仅无 stylebox override 的 ProgressBar 用 27px 阈值(spec I-3:有 override 时
-  // 钳制由 background+fill 两槽 override 的最小尺寸决定,不可静态预知)。
-  if (type === 'ProgressBar' && rel.h < PROGRESS_BAR_MIN_HEIGHT && styleboxes === undefined) {
-    warnings.push(`节点 "${node.cleanName}": ProgressBar height below Godot 4.7 default theme minimum (~${PROGRESS_BAR_MIN_HEIGHT}px): will be clamped`);
+  // 规则 7(2026-08-17 Task 4 三组合实测后恢复无条件预警):ProgressBar h<27 一律警。
+  // 旧版「有 stylebox override 不预警(钳制不可静态预知)」被实测推翻——Godot 4.7.1
+  // 实测 h=16 落地值:无 override→27、bg-only→23、fill-only→27、bg+fill→23,即
+  // **所有组合都被钳**(override 只降下限不除钳制),带 override 且 h<27 的场景同样
+  // 需要预警,文案分档说明实测数据。
+  if (type === 'ProgressBar' && rel.h < PROGRESS_BAR_MIN_HEIGHT) {
+    warnings.push(`节点 "${node.cleanName}": ProgressBar height below Godot 4.7 default theme minimum (~${PROGRESS_BAR_MIN_HEIGHT}px): will be clamped (with stylebox overrides the clamp differs — measured Godot 4.7.1: no override/bg-only/fill-only/bg+fill → 27/23/27/23px)`);
   }
   if (nd.color !== undefined) {
     props['theme_override_colors/font_color'] = normalizeColor(nd.color, 'color', nd.name);
