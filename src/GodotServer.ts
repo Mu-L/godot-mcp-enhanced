@@ -233,7 +233,10 @@ export class GodotServer {
     });
 
     this.server.setRequestHandler('tools/call', (request, ctx) =>
-      dispatcher.handleCall(request, ctx)
+      // PR-2 Task 4: per-request 读客户端 tasks 能力(tools/call task-augmented 协商)传入
+      // dispatcher → ctx.taskAugmented(qa run 据此自动 async + _meta.relatedTask 回指)。
+      // initialize 握手后才有值;未声明/未握手 → false,保持 sync 现状。
+      dispatcher.handleCall(request, ctx, !!this.server.getClientCapabilities()?.tasks)
     );
 
     // ── PR-2 (2025-11-25 tasks wire):tasks/get|list|cancel|result ─────────────

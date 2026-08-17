@@ -355,3 +355,143 @@ describe('qa run mode:async + status/cancel（PR-1b）', () => {
     expect((parse(r2!).data as { run_id: string }).run_id).toBeTruthy();
   });
 });
+
+// ─── PR-2 Task 4：taskAugmented 自动 async（客户端 tasks 能力协商 → _meta.relatedTask）──
+
+describe('qa run taskAugmented 自动 async（PR-2 Task 4）', () => {
+  let allowedRoot: string;
+  let reportsDir: string;
+  const prevAllowed = process.env.ALLOWED_PROJECT_PATHS;
+  const prevUnrestricted = process.env.GODOT_MCP_UNRESTRICTED;
+  const prevReportsDir = process.env.GODOT_MCP_QA_REPORTS_DIR;
+  /** plainCtx 模拟未声明 tasks 能力的客户端（taskAugmented 缺省）；augCtx 模拟已声明。 */
+  const plainCtx = {} as Parameters<typeof handleTool>[2];
+  const augCtx = { taskAugmented: true } as Parameters<typeof handleTool>[2];
+
+  const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
+
+  beforeEach(() => {
+    allowedRoot = mkdtempSync(join(tmpdir(), 'qa-taskaug-'));
+    reportsDir = mkdtempSync(join(tmpdir(), 'qa-taskaug-reports-'));
+    process.env.ALLOWED_PROJECT_PATHS = allowedRoot;
+    delete process.env.GODOT_MCP_UNRESTRICTED;
+    process.env.GODOT_MCP_QA_REPORTS_DIR = reportsDir;
+    vi.mocked(runQaSuite).mockReset();
+    clearRegistry();
+  });
+
+  afterEach(() => {
+    rmSync(allowedRoot, { recursive: true, force: true });
+    rmSync(reportsDir, { recursive: true, force: true });
+    if (prevAllowed === undefined) delete process.env.ALLOWED_PROJECT_PATHS;
+    else process.env.ALLOWED_PROJECT_PATHS = prevAllowed;
+    if (prevUnrestricted === undefined) delete process.env.GODOT_MCP_UNRESTRICTED;
+    else process.env.GODOT_MCP_UNRESTRICTED = prevUnrestricted;
+    if (prevReportsDir === undefined) delete process.env.GODOT_MCP_QA_REPORTS_DIR;
+    else process.env.GODOT_MCP_QA_REPORTS_DIR = prevReportsDir;
+    clearRegistry();
+  });
+
+  function fakeReport(runId: string, name: string, projectPath: string, status: 'PASSED' | 'CANCELLED'): QaReport {
+    const cancelled = status === 'CANCELLED';
+    return {
+      version: 1,
+      run_id: runId,
+      suite: { name, project_path: projectPath, started_at: new Date().toISOString(), spec_source: 'inline' },
+      options: {},
+      summary: { total: 1, passed: cancelled ? 0 : 1, failed: 0, errors: 0, skipped: cancelled ? 1 : 0, status, duration_ms: 5 },
+      steps: [
+        cancelled
+          ? { index: 0, label: 's1', type: 'sleep', status: 'SKIPPED' as const, elapsed_ms: 0, skip_reason: 'cancelled by user' }
+          : { index: 0, label: 's1', type: 'sleep', status: 'PASSED' as const, elapsed_ms: 2 },
+      ],
+    };
+  }
+
+  async function waitForTerminal(runId: string, timeoutMs = 10_000): Promise<Record<string, unknown>> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const res = await handleTool('qa', { action: 'status', run_id: runId }, plainCtx);
+      const j = parse(res!);
+      if (j.success === true) {
+        const run = (j.data as { run: Record<string, unknown> }).run;
+        if (run.status !== 'working') return run;
+      }
+      if (Date.now() > deadline) throw new Error(`run ${runId} 未在 ${timeoutMs}ms 内到终态`);
+      await sleep(25);
+    }
+  }
+
+  /** 从 ToolResult 提取 _meta.relatedTask（类型断言与 qa/index.ts 实现同款） */
+  function relatedTaskOf(res: { content: Array<{ type: string; text?: string }> }): { taskId?: string; status?: string } | undefined {
+    return (res as { _meta?: { relatedTask?: { taskId?: string; status?: string } } })._meta?.relatedTask;
+  }
+
+  it('taskAugmented:true + 不传 mode → 自动 async：data.status=working 且 _meta.relatedTask 回指 run_id', async () => {
+    vi.mocked(runQaSuite).mockImplementation(async (suite, _pp, _ctx, _src, _ctl, runIdOverride) => {
+      await sleep(100); // 模拟慢套件（async 分流应在完成前返回）
+      return fakeReport(runIdOverride!, suite.name, allowedRoot, 'PASSED');
+    });
+    const t0 = Date.now();
+    const r = await handleTool('qa', {
+      action: 'run', // 不传 mode —— 分流唯一依据是 ctx.taskAugmented
+      spec: { name: 'auto-async', steps: [{ type: 'sleep', ms: 100 }] },
+      project_path: allowedRoot,
+    }, augCtx);
+    expect(Date.now() - t0).toBeLessThan(80); // 未等后台 100ms，立即返回
+    const j = parse(r!);
+    expect(j.success).toBe(true);
+    const d = j.data as Record<string, unknown>;
+    expect(d.status).toBe('working');
+    expect(typeof d.run_id).toBe('string');
+    const rel = relatedTaskOf(r!);
+    expect(rel?.taskId).toBe(d.run_id); // _meta.relatedTask.taskId === data.run_id（验收核心）
+    expect(rel?.status).toBe('working');
+    // 后台收尾：等终态防 working 残留毒化后续用例
+    const run = await waitForTerminal(String(d.run_id));
+    expect(run.status).toBe('completed');
+  });
+
+  it('taskAugmented 缺省 + mode 缺省 → sync 既有回归（完整结果，无 _meta.relatedTask）', async () => {
+    vi.mocked(runQaSuite).mockImplementation(async (suite, _pp, _ctx, _src, _ctl, runIdOverride) =>
+      fakeReport(runIdOverride!, suite.name, allowedRoot, 'PASSED'));
+    const r = await handleTool('qa', {
+      action: 'run',
+      spec: { name: 'sync-still', steps: [{ type: 'sleep', ms: 100 }] },
+      project_path: allowedRoot,
+    }, plainCtx);
+    const j = parse(r!);
+    expect(j.success).toBe(true);
+    // sync 既有响应结构（PR-1b 回归红线：summary/steps 在 data 上）
+    expect((j.data as Record<string, unknown>).summary).toBeTruthy();
+    expect(relatedTaskOf(r!)).toBeUndefined(); // sync 响应不挂 _meta.relatedTask
+  });
+
+  it('行为锁定：taskAugmented:true + 显式 mode:sync → 仍 async（能力协商优先，brief 3d 表达式语义）', async () => {
+    vi.mocked(runQaSuite).mockImplementation(async (suite, _pp, _ctx, _src, _ctl, runIdOverride) => {
+      await sleep(100);
+      return fakeReport(runIdOverride!, suite.name, allowedRoot, 'PASSED');
+    });
+    const r = await handleTool('qa', {
+      action: 'run', mode: 'sync',
+      spec: { name: 'explicit-sync-ignored', steps: [{ type: 'sleep', ms: 100 }] },
+      project_path: allowedRoot,
+    }, augCtx);
+    const d = parse(r!).data as Record<string, unknown>;
+    expect(d.status).toBe('working'); // mode==='async' || taskAugmented === true → async（显式 sync 不豁免）
+    expect(relatedTaskOf(r!)?.taskId).toBe(d.run_id);
+    await waitForTerminal(String(d.run_id));
+  });
+
+  it('taskAugmented:true 的 async 响应也适用于 spec_path 入口（分流在 source 解析之后）', async () => {
+    vi.mocked(runQaSuite).mockImplementation(async (suite, _pp, _ctx, _src, _ctl, runIdOverride) =>
+      fakeReport(runIdOverride!, suite.name, allowedRoot, 'PASSED'));
+    const specFile = join(allowedRoot, 'spec-taskaug.json');
+    writeFileSync(specFile, JSON.stringify({ name: 'file-entry', steps: [{ type: 'sleep', ms: 100 }] }), 'utf-8');
+    const r = await handleTool('qa', { action: 'run', spec_path: specFile, project_path: allowedRoot }, augCtx);
+    const d = parse(r!).data as Record<string, unknown>;
+    expect(d.status).toBe('working');
+    expect(relatedTaskOf(r!)?.taskId).toBe(d.run_id);
+    await waitForTerminal(String(d.run_id));
+  });
+});

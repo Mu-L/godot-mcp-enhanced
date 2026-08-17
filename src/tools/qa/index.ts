@@ -157,7 +157,11 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
     return opsErrorResult('INVALID_PATH', err instanceof Error ? err.message : String(err));
   }
 
-  const mode = args.mode === 'async' ? 'async' : 'sync';
+  // PR-2 Task 4: 客户端声明 tasks 能力(ctx.taskAugmented,由 GodotServer tools/call handler
+  // 从 getClientCapabilities() 读出注入)时自动转 async——客户端经 _meta.relatedTask 回指
+  // + tasks/get 轮询,防长套件阻塞 tools/call。显式 mode:'sync' 不豁免(能力协商语义:
+  // 声明 tasks 即走 task-augmented 路径,要 sync 就不声明 tasks 能力)。
+  const mode = args.mode === 'async' || ctx.taskAugmented === true ? 'async' : 'sync';
   const runId = makeRunId(suite.name);   // index 层生成，注册表 taskId 与报告 run_id 同一标识
   // BUSY 门：sync/async 一视同仁（bridge 单连接，全局同时仅 1 个 run）
   let record: RunRecord;
@@ -199,7 +203,7 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
   record.done = exec.then(() => undefined, () => undefined);
 
   if (mode === 'async') {
-    return textResult(JSON.stringify({
+    const res = textResult(JSON.stringify({
       success: true,
       data: {
         run_id: runId, status: 'working',
@@ -207,6 +211,12 @@ async function handleRun(args: Record<string, unknown>, ctx: ToolContext): Promi
         hint: `qa status(run_id:"${runId}") 轮询进度；qa report(report_path:"${runId}") 读结果；qa cancel(run_id:"${runId}") 取消`,
       },
     }));
+    // PR-2 Task 4: _meta.relatedTask 回指(taskAugmented 客户端的协议入口,spec §3.2 组件 3)。
+    // 类型断言放宽同 G2 先例(ToolDispatcher.ts healthSample):CallToolResult._meta 推断类型
+    // 只声明 serverInfo key;G2 注入用 {...result._meta, trace_id, duration_ms} 展开,未知键
+    // (relatedTask)天然透传到 wire——集成测试实测锁定(test/qa-tasks-wire.test.ts Task 4)。
+    (res as ToolResult & { _meta?: Record<string, unknown> })._meta = { relatedTask: { taskId: runId, status: 'working' } };
+    return res;
   }
   // sync：等完整结果（行为与 PR-1a 前一致，响应结构不变）
   const { report, paths } = await exec;
