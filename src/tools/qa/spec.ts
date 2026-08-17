@@ -97,6 +97,7 @@ const assertStep = z.object({
   baseline: z.record(z.string(), z.number()).optional(),
   // screenshot_diff（像素差异容忍语义，与 screenshot 工具 action=diff 同引擎）
   reference: z.string().optional(),
+  threshold: z.number().min(0).max(1).optional(),
   max_diff_ratio: z.number().min(0).max(1).optional(),
   // signal（事件计数区间；args_match 按 GD _jsonify 后形态深比较：Vector2→{x,y}、Color→{r,g,b,a}）
   min_count: z.number().int().min(0).optional(),

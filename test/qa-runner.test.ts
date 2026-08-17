@@ -968,3 +968,20 @@ describe('qa runner: errors 断言(Task PR-1a)', () => {
     expect(calls).not.toContain('get_errors');
   });
 });
+
+// ═══ PR-1a Task 7:screenshot_diff 断言步骤(真实现降级语义;传参断言见 qa-screenshot-diff-step.test.ts)═══
+
+describe('qa runner: screenshot_diff 断言步骤(Task PR-1a)', () => {
+  it('复用 runtime-assert 真实现:虚构项目走诚实降级,步骤 ERROR/FAILED 不抛', async () => {
+    // defaultMocks 已路由 take_screenshot → success + user:// 路径;PROJECT 是虚构路径,
+    // 真实 assertScreenshotDiff 解析 user:// 失败(或 project_path 白名单外)→ success:false
+    // → 步骤 ERROR(诚实降级,不伪造判定)。传参正确性由 qa-screenshot-diff-step.test.ts 的
+    // mock 断言覆盖(ESM 命名导出无法 vi.spyOn)。
+    const s = suite({ steps: [
+      { type: 'assert', assert: 'screenshot_diff', reference: 'D:/ref/x.png' },
+    ] });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(['ERROR', 'FAILED']).toContain(report.steps[0]!.status);
+    expect(report.steps[0]!.detail).toContain('screenshot_diff');
+  });
+});

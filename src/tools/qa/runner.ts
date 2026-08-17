@@ -18,7 +18,7 @@ import {
 } from '../game-bridge.js';
 import * as gameBridge from '../game-bridge.js';
 import * as runtime from '../runtime.js';
-import { assertNodeState, assertSceneStructure, assertScreenText, assertPerf } from '../runtime-assert.js';
+import { assertNodeState, assertSceneStructure, assertScreenText, assertPerf, assertScreenshotDiff } from '../runtime-assert.js';
 import type { QaSuite, QaStep } from './spec.js';
 import { makeRunId, qaReportsDir, type QaReport, type StepRecord } from './report.js';
 import { resolveGameDataPath } from '../game-fs.js';
@@ -430,21 +430,27 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       return { status: 'PASSED', detail: condense(resp.result, 120) || `${step.method} ok` };
     }
     case 'assert': {
-      // fn 选择表:可复用 runtime-assert 的 4 种(不依赖 RunState);
+      // fn 选择表:可复用 runtime-assert 的 5 种(不依赖 RunState;含 Task 7 接线的 screenshot_diff);
       // signal/errors/monitor 依赖 RunState 跨步骤状态,走套件内本地断言。
-      // screenshot_diff 行 Task 7 接线(函数届时才导出,当前落到末尾"未实现"ERROR)。
       const fn = step.assert === 'node_state' ? assertNodeState
         : step.assert === 'scene_structure' ? assertSceneStructure
         : step.assert === 'screen_text' ? assertScreenText
         : step.assert === 'perf' ? assertPerf
+        : step.assert === 'screenshot_diff' ? assertScreenshotDiff
         : null;
       if (fn) {
         // 原有 runtime-assert 复用流程(args 组装 → fn → parseToolJson 判定),原样保留
-        // ('threshold' 是 screenshot_diff 专属参数且 spec schema 尚无该键,Task 7 接线时回加)
         const args: Record<string, unknown> = { action: step.assert };
-        for (const k of ['path', 'expect', 'tolerance', 'nodes', 'text', 'present', 'baseline', 'reference', 'max_diff_ratio'] as const) {
+        for (const k of ['path', 'expect', 'tolerance', 'nodes', 'text', 'present', 'baseline', 'reference', 'threshold', 'max_diff_ratio'] as const) {
           const v = step[k];
           if (v !== undefined) args[k] = v;
+        }
+        // screenshot_diff 专属注入:project_path(解析 user:// 截图)+ evidence_path(diff 染红图落 qa-reports)
+        if (step.assert === 'screenshot_diff') {
+          args.project_path = projectPath;
+          const dir = qaReportsDir();
+          mkdirSync(dir, { recursive: true });
+          args.evidence_path = join(dir, `${runId}-step${index}-diff.png`);
         }
         const res = await fn(args);
         const json = parseToolJson(res);
@@ -453,7 +459,12 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
           return err(`assert ${step.assert}: ${condense(json.error)}`);
         }
         if (json.passed === true) {
-          return { status: 'PASSED', detail: `assert ${step.assert} ok` };
+          // screenshot_diff PASSED 时回填染红图路径(details.evidence_path 由 Task 6 真实现
+          // 回显注入的报告路径;evidence 落盘是 best-effort,回填失败仅缺证据不影响判定)
+          const evidence = step.assert === 'screenshot_diff'
+            ? { screenshot_path: (json.details as Record<string, unknown> | undefined)?.evidence_path as string | undefined }
+            : undefined;
+          return { status: 'PASSED', detail: `assert ${step.assert} ok`, evidence };
         }
         return {
           status: 'FAILED',
@@ -463,7 +474,7 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       }
       // ── 套件内本地断言(signal/errors/monitor:依赖 RunState 跨步骤状态)──
       if (step.assert === 'signal') return await execSignalAssert(step, runState, o);
-      if (step.assert === 'errors') return await execErrorsAssert(step, runState, o); // Task 5 实现
+      if (step.assert === 'errors') return await execErrorsAssert(step, runState, o);
       if (step.assert === 'monitor') return await execMonitorAssert(step, runState, o);
       return err(`assert ${step.assert}: 未实现`);
     }
