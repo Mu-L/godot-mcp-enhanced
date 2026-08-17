@@ -300,15 +300,24 @@ type ResolvedOptions = QaSuite['options'];
 
 type MonitorSample = { frame: number; time: number; values?: Record<string, unknown>; error?: string; stopped_reason?: string };
 
-/** 取 watch 全量事件:缓存优先(stop 后仍可用)→ poll → 非 active 且本套件开过 → 补 stop 全量。
+/** 取 watch 全量事件:缓存优先(空数组也是有效缓存,stop 后仍可用)→ poll →
+ * 未开启则拒绝消费(watching:true 即套件外订阅,消费=假绿)→ watching 取数 → 非 active 补 stop 全量。
  * B-2:GD 侧 max_events 满后自动置 inactive,poll 返回空,必须补 stop 才能拿到事件。 */
 async function collectWatchEvents(runState: RunState, timeoutMs: number): Promise<{ events: WatchEvent[] } | { error: string }> {
-  if (runState.watchEventsCache) return { events: runState.watchEventsCache };
+  // Important①:用 !== null 判缓存,不能用 truthy——0 事件的空缓存 [] 是 falsy,
+  // 误走 poll 会在已 stop 时报 ERROR('无活跃 watch'),而语义应为 FAILED(计数 0 < min_count)
+  if (runState.watchEventsCache !== null) return { events: runState.watchEventsCache };
   const poll = await sendToBridge('watch.poll', {}, timeoutMs);
   if (poll.error) return { error: `bridge: ${poll.error.message}` };
   const r = (poll.result ?? {}) as { watching?: boolean; events?: unknown[] };
+  // Important②:铁律判定顺序——本套件未 watch_start 则拒绝取数(哪怕 bridge 侧
+  // watching:true,那是套件外订阅,消费会把别人的事件泄入断言造成假绿)
+  if (!runState.watchActive) {
+    return { error: r.watching === true
+      ? '本套件未 watch_start,拒绝消费套件外订阅(bridge 存在非本套件开启的活跃 watch)'
+      : '无活跃 watch 且无缓存事件,先 watch_start' };
+  }
   if (r.watching === true) return { events: (Array.isArray(r.events) ? r.events : []) as WatchEvent[] };
-  if (!runState.watchActive) return { error: '无活跃 watch 且无缓存事件,先 watch_start' };
   const stop = await sendToBridge('watch.stop', {}, timeoutMs);
   if (stop.error) return { error: `bridge: ${stop.error.message}` };
   const sr = (stop.result ?? {}) as { events?: unknown[] };
@@ -317,13 +326,20 @@ async function collectWatchEvents(runState: RunState, timeoutMs: number): Promis
   return { events: runState.watchEventsCache };
 }
 
-/** 取 monitor 全量样本:poll → 非 active 且本套件开过 → 补 stop 全量(B-2 同款)。 */
+/** 取 monitor 全量样本:poll → 未开启则拒绝消费(monitoring:true 即套件外订阅,消费=假绿)
+ * → monitoring 取数 → 非 active 补 stop 全量(B-2 同款)。 */
 async function collectMonitorSamples(runState: RunState, timeoutMs: number): Promise<{ samples: MonitorSample[]; stoppedReason?: string } | { error: string }> {
   const poll = await sendToBridge('monitor.poll', {}, timeoutMs);
   if (poll.error) return { error: `bridge: ${poll.error.message}` };
   const r = (poll.result ?? {}) as { monitoring?: boolean; samples?: unknown[]; stopped_reason?: string };
+  // Important②:铁律判定顺序——本套件未 monitor_start 则拒绝取数(哪怕 bridge 侧
+  // monitoring:true,那是套件外订阅,消费会把别人的样本泄入断言造成假绿)
+  if (!runState.monitorActive) {
+    return { error: r.monitoring === true
+      ? '本套件未 monitor_start,拒绝消费套件外订阅(bridge 存在非本套件开启的活跃 monitor)'
+      : '无活跃 monitor,先 monitor_start' };
+  }
   if (r.monitoring === true) return { samples: (Array.isArray(r.samples) ? r.samples : []) as MonitorSample[] };
-  if (!runState.monitorActive) return { error: '无活跃 monitor,先 monitor_start' };
   const stop = await sendToBridge('monitor.stop', {}, timeoutMs);
   if (stop.error) return { error: `bridge: ${stop.error.message}` };
   const sr = (stop.result ?? {}) as { samples?: unknown[]; stopped_reason?: string };
@@ -483,7 +499,9 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       return { status: 'PASSED', detail: `watch.start ${step.node_path}:${step.signal_name}${replacedNote}` };
     }
     case 'watch_stop': {
-      if (!runState.watchActive && !runState.watchEventsCache) return err('无活跃 watch(未 watch_start 或已 stop)');
+      // Important① 姊妹:判据用 === null 而非 truthy——0 事件的空缓存 [] 是 falsy,
+      // 会让第二次 watch_stop 误报 ERROR 而到不了下方幂等 cached 分支
+      if (!runState.watchActive && runState.watchEventsCache === null) return err('无活跃 watch(未 watch_start 或已 stop)');
       // Task 3 审查 Minor③:已 stop 且缓存就绪 → 直接复用缓存,不重发 bridge stop
       // (GD 侧无活跃 watch 时 stop 仍返成功 result + 空 events,重发会把缓存覆盖为 [])
       if (!runState.watchActive && runState.watchEventsCache !== null) {

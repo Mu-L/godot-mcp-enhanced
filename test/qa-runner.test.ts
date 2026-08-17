@@ -814,3 +814,70 @@ describe('qa runner: Task 3 审查 Minor 修复/补测(watch_stop 幂等 + monit
     expect(report.steps[1]!.detail).toContain('2 sample');
   });
 });
+
+// ═══ Task 4 审查 Important 修复:空缓存 falsy 判据 + 套件外订阅拒绝 ═══
+
+describe('qa runner: Task 4 审查 Important 修复(空缓存/套件外拒绝)', () => {
+  it('Important①:watch_stop 0 事件空缓存 → signal 断言走缓存判 FAILED(actual=0),不误报 ERROR', async () => {
+    let stopCount = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 3, result: { watching: false, events: [], message: 'No active watch' } };
+      if (method === 'watch.stop') {
+        stopCount++;
+        return { id: 2, result: { watching: false, events: [], event_count: 0 } }; // 0 事件 → 空缓存 []
+      }
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'x' },
+        { type: 'watch_stop' }, // 0 事件,缓存 = []
+        { type: 'watch_stop' }, // 姊妹修复:空缓存 [] 非 null → 幂等 cached 分支,不误报 ERROR
+        { type: 'assert', assert: 'signal', min_count: 1 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED');
+    expect(report.steps[2]!.status).toBe('PASSED'); // 幂等 cached 分支(姊妹修复)
+    expect(report.steps[2]!.detail).toContain('cached');
+    expect(report.steps[3]!.status).toBe('FAILED'); // 非 ERROR:断言未满足而非基础设施失败
+    expect(report.steps[3]!.mismatch?.count).toEqual({ expected: '[1, ∞]', actual: 0 });
+    expect(stopCount).toBe(1); // 后续取数/幂等 stop 均走缓存,不重发 bridge
+  });
+
+  it('Important②:从未 watch_start 但 bridge 有套件外活跃 watch → 拒绝消费 ERROR(防假绿)', async () => {
+    // 套件外订阅在跑(watching:true 且有事件)——修复前会消费它 → min_count 满足 → 假绿 PASSED
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.poll') return { id: 2, result: { watching: true, events: [{ frame: 1, time: 0.1, args: [9] }], event_count: 1 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'assert', assert: 'signal', min_count: 1 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('ERROR');
+    expect(report.steps[0]!.detail).toContain('套件外');
+  });
+
+  it('Important②:从未 monitor_start 但 bridge 有套件外活跃 monitor → 拒绝消费 ERROR(防假绿)', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.poll') return { id: 9, result: { monitoring: true, sample_count: 2,
+        samples: [
+          { frame: 1, time: 0.1, values: { fps: 60 } },
+          { frame: 2, time: 0.2, values: { fps: 60 } },
+        ] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'assert', assert: 'monitor', property: 'fps', min: 30 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('ERROR');
+    expect(report.steps[0]!.detail).toContain('套件外');
+  });
+});
