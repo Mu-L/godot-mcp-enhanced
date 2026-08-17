@@ -152,6 +152,8 @@ export function stepCaseId(st: StepRecord): string {
  * 找同套件的上一次运行报告（QA 收尾批② nightly 基线）：按 run_id 文件名时间序，
  * 从 excludeRunId 之后往前找第一个同 sanitizeSuiteName 后缀的报告；找不到返回 null
  * （首次运行无基线，nightly 对该套件跳过 diff 只报告本次结果）。
+ * 审查 Important-2：sanitize 是有损压缩（'a b' 与 'a_b' 同后缀），文件名只做粗筛，
+ * 命中后必读 JSON 校验原始 suite.name——碰撞套件的历史报告不作为基线（防止 diff 静默失真）。
  */
 export function findPreviousReport(excludeRunId: string, suiteName: string): QaReport | null {
   const suffix = `-${sanitizeSuiteName(suiteName)}.json`;
@@ -159,9 +161,11 @@ export function findPreviousReport(excludeRunId: string, suiteName: string): QaR
   const curIdx = all.indexOf(`${excludeRunId}.json`);
   const candidates = curIdx >= 0 ? all.slice(curIdx + 1) : all;
   for (const f of candidates) {
-    if (f.endsWith(suffix)) {
-      return JSON.parse(readFileSync(join(qaReportsDir(), f), 'utf8')) as QaReport;
-    }
+    if (!f.endsWith(suffix)) continue;
+    try {
+      const rep = JSON.parse(readFileSync(join(qaReportsDir(), f), 'utf8')) as QaReport;
+      if (rep.suite?.name === suiteName) return rep;
+    } catch { /* 损坏的候选报告跳过，继续往前找 */ }
   }
   return null;
 }

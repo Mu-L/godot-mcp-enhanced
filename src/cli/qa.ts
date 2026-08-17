@@ -20,7 +20,7 @@ import { findGodot } from '../core/godot-finder.js';
 import * as ps from '../core/process-state.js';
 import * as qaTool from '../tools/qa/index.js';
 import { findPreviousReport, diffReports, type QaReport } from '../tools/qa/report.js';
-import { appendAuditLine } from '../core/audit-log.js';
+import { appendAuditLine, isAuditEnabled } from '../core/audit-log.js';
 
 const __cliDir = dirname(fileURLToPath(import.meta.url));
 const __rootDir = join(__cliDir, '..', '..');
@@ -81,12 +81,15 @@ async function callQa(action: string, args: Record<string, unknown>): Promise<{ 
   }
 }
 
-/** NIT-7：CLI 直调不经 dispatcher 的 audit 门，手动留痕（best-effort，失败静默不阻断跑批） */
+/** NIT-7：CLI 直调不经 dispatcher 的 audit 门，手动留痕（best-effort，失败静默不阻断跑批）。
+ * 审查 Important-1：与 dispatcher 写审计点对称检查 isAuditEnabled（GODOT_MCP_AUDIT=false
+ * 时用户显式关审计，CLI 路径不得无视——否则 nightly 向用户项目追加写入违背配置意图）。 */
 async function auditRun(data: {
   run_id: string; suite_name: string; project_path: string;
   summary: { status: string; duration_ms: number };
 }): Promise<void> {
   try {
+    if (!isAuditEnabled()) return;
     await appendAuditLine(data.project_path, {
       timestamp: new Date().toISOString(),
       trace_id: `cli-qa-${data.run_id}`,
@@ -183,6 +186,7 @@ export async function runQa(args: string[]): Promise<void> {
 
       // 与上次同套件结果 diff（首次运行无基线则跳过；基线读取失败不阻断）
       let diff: ReturnType<typeof diffReports> | null = null;
+      let baselineBroken = false;
       try {
         const prev = findPreviousReport(data.run_id, data.suite_name);
         if (prev) {
@@ -191,7 +195,10 @@ export async function runQa(args: string[]): Promise<void> {
           if (diff.verdict === 'REGRESSED') regressions += diff.regressions.length;
           fixed += diff.fixed.length;
         }
-      } catch { /* 基线缺失/损坏：只报本次结果 */ }
+      } catch {
+        // Nit-2（审查）：基线文件读得到但损坏（parse 失败）≠ 首次运行，区分提示避免误导排障
+        baselineBroken = true;
+      }
 
       results.push({
         file: f,
@@ -210,6 +217,8 @@ export async function runQa(args: string[]): Promise<void> {
           for (const r of diff.regressions) {
             console.log(`    REGRESSION  ${r.case}${r.head_detail ? ` — ${r.head_detail.slice(0, 120)}` : ''}`);
           }
+        } else if (baselineBroken) {
+          console.error(`  vs 上次: (基线报告存在但不可读，跳过 diff——检查 qa-reports 目录 JSON 完整性)`);
         } else {
           console.log('  vs 上次: (首次运行，无基线)');
         }

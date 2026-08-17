@@ -241,7 +241,8 @@ export async function runQaSuite(
         try {
           await runtime.handleTool('runtime', { action: 'stop_project' }, ctx);
         } catch (err) {
-          report.teardown_warnings = [`stop_project 失败: ${err instanceof Error ? err.message : String(err)}`];
+          // Nit-1（审查）：append 模式（同函数其余 4 处一致）——recording.stop 已失败时不被覆盖
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `stop_project 失败: ${err instanceof Error ? err.message : String(err)}`];
         }
       }
     }

@@ -17,6 +17,8 @@ vi.mock('../src/tools/qa/index.js', () => ({
 }));
 vi.mock('../src/core/audit-log.js', () => ({
   appendAuditLine: vi.fn(async () => undefined),
+  // 审查 Important-1：真实 isAuditEnabled 读 env；mock 版同样读 env 保持开关语义可测
+  isAuditEnabled: () => process.env.GODOT_MCP_AUDIT !== 'false',
 }));
 
 import { handleTool as qaHandleTool } from '../src/tools/qa/index.js';
@@ -158,5 +160,27 @@ describe('cli qa nightly', () => {
     await expect(runQa(['nightly', specDir])).rejects.toMatchObject({ code: 2 });
     await expect(runQa(['nightly'])).rejects.toMatchObject({ code: 2 });
     errSpy.mockRestore();
+  });
+});
+
+describe('cli qa audit 开关（审查 Important-1）', () => {
+  it('GODOT_MCP_AUDIT=false：appendAuditLine 零调用（与 dispatcher 开关语义对称）', async () => {
+    const prev = process.env.GODOT_MCP_AUDIT;
+    process.env.GODOT_MCP_AUDIT = 'false';
+    try {
+      arrange([{ specFile: 'ok.json', runId: '20991231-010009-ok', name: 'ok', head: report('20991231-010009-ok', 'ok', [step(0, 'k1', 'PASSED')]) }]);
+      await expect(runQa(['nightly', specDir])).rejects.toMatchObject({ code: 0 });
+      expect(appendAuditLine).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env.GODOT_MCP_AUDIT;
+      else process.env.GODOT_MCP_AUDIT = prev;
+    }
+  });
+
+  it('默认（audit 开）：每套件一次 appendAuditLine（负例，防开关误反）', async () => {
+    delete process.env.GODOT_MCP_AUDIT;
+    arrange([{ specFile: 'ok.json', runId: '20991231-010010-ok', name: 'ok', head: report('20991231-010010-ok', 'ok', [step(0, 'k1', 'PASSED')]) }]);
+    await expect(runQa(['nightly', specDir])).rejects.toMatchObject({ code: 0 });
+    expect(appendAuditLine).toHaveBeenCalledTimes(1);
   });
 });
