@@ -104,8 +104,11 @@ const assertStep = z.object({
   args_match: z.unknown().optional(),
   // errors（测试期间游戏侧新增错误计数）
   kinds: z.array(z.enum(['error', 'script', 'shader', 'warning'])).optional(),
-  // monitor（属性时间线区间/单调性）
+  // monitor（属性时间线区间/单调性；min/max 为区间断言，Task 4 补——zod 默认 strip 未知键，
+  // 缺 schema 时 parse 后 step.min/max 为 undefined，区间断言静默失效）
   property: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
   monotonic: z.enum(['increasing', 'non_decreasing', 'decreasing', 'non_increasing']).optional(),
   label: labelField,
 });

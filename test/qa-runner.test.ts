@@ -573,3 +573,244 @@ describe('qa runner: watch/monitor 控制步骤(Task PR-1a)', () => {
     expect(report.summary.status).toBe('PASSED');
   });
 });
+
+// ═══ PR-1a Task 4:signal/monitor 断言 + Task 3 审查 Minor 补测 ═══
+
+describe('qa runner: signal/monitor 断言(Task PR-1a)', () => {
+  it('signal 断言:活跃 watch poll 取数,args_match 深比较计数', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 2, result: { watching: true, node_path: '/root/B', signal_name: 'moved',
+        events: [
+          { frame: 10, time: 1.0, args: [{ x: 1, y: 2 }] },
+          { frame: 20, time: 2.0, args: [{ x: 3, y: 4 }] },
+          { frame: 30, time: 3.0, args: ['other'] },
+        ], event_count: 3 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'moved' },
+        // 3 事件中仅 1 个 args 深等于 [{x:1,y:2}]:[{x:3,y:4}] 与 ['other'] 均被排除。
+        // (brief 原文 min/max=2 与 jsonEqual 语义不自洽,修正为 1/1——偏离见 task-4-report)
+        { type: 'assert', assert: 'signal', min_count: 1, max_count: 1, args_match: [{ x: 1, y: 2 }] },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED');
+  });
+
+  it('signal 断言 B-2:max_events 满自动停(poll 空)→ 补 stop 取全量,不误判 0 事件', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 2, result: { watching: false, events: [], message: 'No active watch' } };
+      // (brief 原文此处引用未定义变量 i 会 ReferenceError,改为字面量——偏离见 task-4-report)
+      if (method === 'watch.stop') return { id: 3, result: { watching: false,
+        events: [{ frame: 1, time: 1, args: [1] }], event_count: 1 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'hit' },
+        { type: 'assert', assert: 'signal', min_count: 1 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED'); // 补 stop 后拿到 1 事件,不假红
+  });
+
+  it('signal 断言:计数低于 min_count → FAILED 且 mismatch 带实际计数', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 2, result: { watching: true, events: [], event_count: 0 } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'x' },
+        { type: 'assert', assert: 'signal', min_count: 3 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('FAILED');
+    expect(report.steps[1]!.mismatch?.count).toEqual({ expected: '[3, ∞]', actual: 0 });
+  });
+
+  it('signal 断言:从未 watch_start → ERROR', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.poll') return { id: 2, result: { watching: false, events: [], message: 'No active watch' } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'assert', assert: 'signal', min_count: 1 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[0]!.status).toBe('ERROR');
+  });
+
+  it('monitor 断言:min/max 区间 + non_increasing 单调判定 PASSED', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.poll') return { id: 9, result: { monitoring: true, node_path: '/root/P', sample_count: 3,
+        samples: [
+          { frame: 1, time: 0.1, values: { health: 100 } },
+          { frame: 2, time: 0.2, values: { health: 90 } },
+          { frame: 3, time: 0.3, values: { health: 90 } },
+        ] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'assert', assert: 'monitor', property: 'health', min: 50, max: 100, monotonic: 'non_increasing' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED');
+  });
+
+  it('monitor 断言 B-2:node_lost 自动停(poll 空)→ 补 stop 取全量,判 ERROR(数据不完整)', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.poll') return { id: 9, result: { monitoring: false, samples: [], stopped_reason: 'node_lost', message: 'Monitor stopped: node_lost' } };
+      if (method === 'monitor.stop') return { id: 8, result: { monitoring: false, sample_count: 2, stopped_reason: 'node_lost',
+        samples: [
+          { frame: 1, time: 0.1, values: { health: 100 } },
+          { frame: 2, time: 0.2, error: 'node_lost', stopped_reason: 'node_lost' },
+        ] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'assert', assert: 'monitor', property: 'health', min: 0 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('ERROR');
+    expect(report.steps[1]!.detail).toContain('node_lost');
+  });
+
+  it('monitor 断言:越界 → FAILED 且 mismatch 带首个违规样本', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.poll') return { id: 9, result: { monitoring: true, sample_count: 2,
+        samples: [
+          { frame: 1, time: 0.1, values: { fps: 60 } },
+          { frame: 2, time: 0.2, values: { fps: 20 } },
+        ] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['fps'] },
+        { type: 'assert', assert: 'monitor', property: 'fps', min: 30 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('FAILED');
+    expect(report.steps[1]!.mismatch?.fps).toEqual({ expected: '≥ 30', actual: 20 });
+  });
+
+  it('monitor 断言:样本缺属性 → ERROR(不假绿)', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.poll') return { id: 9, result: { monitoring: true, sample_count: 1,
+        samples: [{ frame: 1, time: 0.1, values: { other: 1 } }] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['fps'] },
+        { type: 'assert', assert: 'monitor', property: 'fps', min: 30 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('ERROR');
+  });
+});
+
+describe('qa runner: Task 3 审查 Minor 修复/补测(watch_stop 幂等 + monitor)', () => {
+  it('watch_stop 重复调用(Minor③):已 stop 有缓存 → PASSED 不重发 bridge,缓存不被空结果冲掉', async () => {
+    let stopCount = 0;
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'watch.start') return { id: 1, result: { watching: true } };
+      if (method === 'watch.poll') return { id: 3, result: { watching: false, events: [] } };
+      if (method === 'watch.stop') {
+        stopCount++;
+        // 模拟 GD 侧:第二次 stop 时已无活跃 watch,返成功 result + 空 events(会把缓存覆盖为 [])
+        const events = stopCount === 1 ? [{ frame: 10, time: 1.0, args: [7] }] : [];
+        return { id: 2, result: { watching: false, events, event_count: events.length } };
+      }
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'watch_start', node_path: '/root/B', signal_name: 'hit' },
+        { type: 'watch_stop' },
+        { type: 'watch_stop' },
+        { type: 'assert', assert: 'signal', min_count: 1, max_count: 1 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED');
+    expect(report.steps[2]!.status).toBe('PASSED');
+    expect(report.steps[2]!.detail).toContain('cached');
+    expect(stopCount).toBe(1); // 第二次 watch_stop 不重发 bridge
+    expect(report.steps[3]!.status).toBe('PASSED'); // assert signal 从缓存仍取到 1 事件
+  });
+
+  it('monitor teardown 兜底(Minor①):套件正常结束未 monitor_stop → 补发 monitor.stop', async () => {
+    const stopCalls: string[] = [];
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.stop') { stopCalls.push(method); return { id: 8, result: { monitoring: false, samples: [], sample_count: 0 } }; }
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'sleep', ms: 100 },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.summary.status).toBe('PASSED');
+    expect(stopCalls).toContain('monitor.stop'); // teardown 兜底补发
+    expect(report.teardown_warnings).toBeUndefined(); // 兜底成功不记警告
+  });
+
+  it('本套件重复 monitor_start → 第二个 ERROR(Minor②)', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'monitor_start', node_path: '/root/Q', properties: ['fps'] },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('ERROR');
+    expect(report.steps[1]!.detail).toContain('已有活跃 monitor');
+  });
+
+  it('monitor_stop detail 带 sample_count(Minor③)', async () => {
+    vi.mocked(sendToBridge).mockImplementation(async (method: string) => {
+      if (method === 'monitor.start') return { id: 7, result: { monitoring: true } };
+      if (method === 'monitor.stop') return { id: 8, result: { monitoring: false, sample_count: 2, samples: [] } };
+      return { id: 5, result: {} };
+    });
+    const s = suite({
+      steps: [
+        { type: 'monitor_start', node_path: '/root/P', properties: ['health'] },
+        { type: 'monitor_stop' },
+      ],
+    });
+    const report = await runQaSuite(s, PROJECT, makeCtx(), 'inline');
+    expect(report.steps[1]!.status).toBe('PASSED');
+    expect(report.steps[1]!.detail).toContain('2 sample');
+  });
+});
