@@ -197,8 +197,13 @@ describe('容差常量(Task 4 集成校准锚点)', () => {
 });
 
 describe('toResPath', () => {
-  it('项目内绝对路径 → res:// 相对形式(反斜杠转正斜杠)', () => {
+  it('项目内绝对路径 → res:// 相对形式(正斜杠,平台无关)', () => {
     expect(toResPath('D:/proj', 'D:/proj/scenes/main.tscn')).toBe('res://scenes/main.tscn');
+  });
+  // 反斜杠是 win32 路径分隔符;Linux 的 path.relative 把 'D:\proj' 当单个文件名
+  // (反斜杠非分隔符,产出 res://../… 逃逸形态),该断言仅 win32 有语义——
+  // CI Linux 跑同一文件,skipIf 防(2026-08-18 PR#35 CI 首跑红根因)
+  it.skipIf(process.platform !== 'win32')('Windows 反斜杠路径转正斜杠', () => {
     expect(toResPath('D:\\proj', 'D:\\proj\\scenes\\main.tscn')).toBe('res://scenes/main.tscn');
   });
 });
