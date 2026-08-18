@@ -214,7 +214,7 @@ function buildTree(geo: PrototypeGeometry, cleanNames: string[]): WorkNode[] {
 // ─── 颜色归一 ──────────────────────────────────────────────────────────────
 
 /** #rrggbb / [r,g,b]0-255 / [r,g,b,a]0-1 → [r,g,b,a] 0-1(值域已由 zod 保证)。 */
-function normalizeColor(c: string | number[], field: string, name: string): [number, number, number, number] {
+export function normalizeColor(c: string | number[], field: string, name: string): [number, number, number, number] {
   if (typeof c === 'string') {
     const m = /^#([0-9a-fA-F]{6})$/.exec(c);
     if (!m) throw new Error(`INVALID_PARAMS: 节点 "${name}" 的 ${field} "${c}" 无法解析(仅支持 #rrggbb / [r,g,b] 0-255 / [r,g,b,a] 0-1)`);
