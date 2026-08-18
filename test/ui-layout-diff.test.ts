@@ -8,7 +8,7 @@ import type { MeasuredNode } from '../src/tools/ui/layout-diff.js';
 import type { UiNodeSpec } from '../src/tools/ui/types.js';
 import type { ExecuteGdscriptResult } from '../src/gdscript-executor.js';
 import { flattenStyleTargets, styleExpectList, diffStyles, diffFlow, STYLE_COLOR_TOL } from '../src/tools/ui/layout-diff.js';
-import type { StyleReading, StyleDiffEntry } from '../src/tools/ui/layout-diff.js';
+import type { StyleReading } from '../src/tools/ui/layout-diff.js';
 
 const n = (path: string, x: number, y: number, w: number, h: number): MeasuredNode =>
   ({ path, type: 'Control', rect: { x, y, w, h } });
