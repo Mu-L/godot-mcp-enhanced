@@ -127,11 +127,11 @@ Button, Label, Panel, LineEdit, TextEdit, RichTextLabel, LinkButton, HSlider, VS
 ```
 
 - **扁平列表，视口绝对坐标**（rect 为浏览器/原型视口绝对值）；树由翻译器按 rect 包含关系自动推导（容差 1px，≤500 节点）；**两节点 rect 交叉重叠（互不包含）或完全相等 → INVALID_PARAMS**（不静默落平级）。
-- 字段全可选（除 name/rect）：`type`（CONTROL_TYPES 白名单）/`text`/`fontSize`（px）/`color`/`bg`/`align`（left|center|right，缺省 center）/`value`（0-1，ProgressBar）/`flow`（row|column，容器排布语义）/`justify`/`interactive`（text+interactive→Button）。
+- 字段全可选（除 name/rect）：`type`（CONTROL_TYPES 白名单）/`text`/`fontSize`（px）/`color`/`bg`/`fill`（ProgressBar fill 槽色，取 `[data-fill]` 子元素背景）/`borderRadius`（统一四角 number 或 `{tl,tr,br,bl}` 对象）/`border`（`{width,color}` 统一四边，CSS 四边不同时取 top）/`align`（left|center|right，缺省 center）/`value`（0-1，ProgressBar）/`flow`（row|column，容器排布语义）/`justify`/`interactive`（text+interactive→Button）。
 - **颜色仅三种格式**：`#rrggbb` / `[r,g,b]` 0-255 / `[r,g,b,a]` 0-1。CSS `rgb()/rgba()` 字符串**不支持**——evaluate 模板已内置转换（见下节）。
 - **bg 缺省 = 透明壳契约（责任归 JSON 生产者）**：推断为布局壳 Panel（无显式 type、无 text、无 bg、无 value 的纯布局节点，及 flow 壳）→ `self_modulate:[1,1,1,0]`（禁 modulate，级联陷阱见 godot-mcp-engine-quirks.md）。**该有背景的面板务必在原型侧显式填 bg**，否则被当透明壳（build_warnings 会提示 "set bg or type to keep it visible"）。**自带视觉控件不会被设透明壳**：ProgressBar（推断或显式）、Button（推断或显式）、任何显式 type（含显式 Panel）——显式 type 说明有意为之，一律保留可见性。
-- **翻译规则要点**（12+1 条）：类型推断（显式 type > flow > value→ProgressBar > text+interactive→Button > text→Label > Panel）；视口坐标逐层减父原点转相对父 rect（进锚点求解链）；Label 全部 `vertical_alignment:1`；bg→modulate 近似染色（warning 声明非 StyleBox，叠加子树与实际底色有偏差）；非白名单 type 降级 Panel + warning；深度 cap 10；name 非法字符清洗。
-- **引擎下限预警（只警不修，修在原型侧）**：文本控件 rect.h < fontSize*1.5 → "可能被字体最小行高钳制" warning；ProgressBar rect.h < 27（Godot 4.7 默认主题 stylebox 最小高，实测 rect.h=16 落地 27px）→ "will be clamped" warning。应对：调大原型 rect.h 或调小字号，勿指望 Godot 侧硬压。
+- **翻译规则要点**（12+1 条）：类型推断（显式 type > flow > value→ProgressBar > text+interactive→Button > text→Label > Panel）；视口坐标逐层减父原点转相对父 rect（进锚点求解链）；Label 全部 `vertical_alignment:1`；bg/fill/borderRadius/border→StyleBoxFlat（槽位映射（`add_theme_stylebox_override` API；override 属性名为 `theme_override_styles/<slot>`，注意 `node.set()` 该路径 pack 落盘会丢 override，勿手写）：Panel→panel、ProgressBar→background+fill、Button/Label→normal；其余控件 warning+忽略；bg 缺省而 border/radius 存在→`draw_center=false` 保 CSS 透明底）；非白名单 type 降级 Panel + warning；深度 cap 10；name 非法字符清洗。
+- **引擎下限预警（只警不修，修在原型侧）**：文本控件 rect.h < fontSize*1.5 → "可能被字体最小行高钳制" warning；ProgressBar rect.h < 27 → "will be clamped" warning（**无条件**；实测 Godot 4.7.1 h=16：无 override→27、bg-only→23、fill-only→27、bg+fill→23，全组合被钳，override 只改变钳制值不消除钳制）。应对：调大原型 rect.h 或调小字号，勿指望 Godot 侧硬压。
 - **容差模糊带**：verify 容差（默认 2px）内兄弟关系与偏移不可区分——**避免构造 ≤2px 宽的相邻独立节点**（工具返回也带此提示）。
 
 **返回**：`{ tree, build_warnings, measure: {stable_after_frames, stalled, viewport}, verify_coverage, layout_verify: {targets, diff, overlaps, out_of_bounds, viewport}, persist }`。
@@ -150,11 +150,12 @@ HTML 原型侧约定：每个待还原元素标 `data-name`（=Godot 节点名�
 
 ```js
 () => {
-  const toHex = (c) => {
+  const toRgba = (c) => {                     // CSS 颜色 → [r,g,b,a] 0-1 数组(保留 alpha;替代丢 alpha 的 toHex)
+    if (!c || c === 'transparent' || c === 'rgba(0, 0, 0, 0)') return null;
     const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/.exec(c);
-    if (!m) return null;                                  // 非 rgb()/rgba() 不填(翻译器仅认 #rrggbb)
-    if (m[4] !== undefined && Number(m[4]) === 0) return null;  // alpha 0 = 透明
-    return '#' + [1, 2, 3].map(i => Number(m[i]).toString(16).padStart(2, '0')).join('');
+    if (!m) return null;
+    if (m[4] !== undefined && Number(m[4]) === 0) return null;   // alpha 0 = 透明
+    return [Number(m[1])/255, Number(m[2])/255, Number(m[3])/255, m[4] !== undefined ? Number(m[4]) : 1];
   };
   const vpEl = document.querySelector('[data-viewport]');
   const vpRect = vpEl ? vpEl.getBoundingClientRect() : { width: innerWidth, height: innerHeight };
@@ -173,9 +174,9 @@ HTML 原型侧约定：每个待还原元素标 `data-name`（=Godot 节点名�
     if (align) node.align = align;                       // (justify 等其余值不输出字段,走翻译器缺省 center)
     const fs = parseFloat(cs.fontSize);
     if (Number.isFinite(fs)) node.fontSize = fs;
-    const fg = toHex(cs.color);
-    if (fg && fg !== '#000000') node.color = fg;          // 文本色:跳过浏览器默认黑(CSS 未设 color 时 computed 恒黑)
-    const bg = toHex(cs.backgroundColor);                 // 背景色:非透明才填(v2 N-3——该有背景的面板被当透明壳是高频误判)
+    const fg = toRgba(cs.color);
+    if (fg && !(fg[0]===0 && fg[1]===0 && fg[2]===0 && fg[3]===1)) node.color = fg;  // 跳过浏览器默认黑
+    const bg = toRgba(cs.backgroundColor);                 // 背景色:非透明才填(透明壳契约由翻译器兜底)
     if (bg) node.bg = bg;
     const flow = el.dataset.flow;
     if (flow === 'row' || flow === 'column') {
@@ -187,6 +188,22 @@ HTML 原型侧约定：每个待还原元素标 `data-name`（=Godot 节点名�
       node.value = Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined;
     }
     if (el.dataset.interactive === 'true') node.interactive = true;
+    const px = (v) => parseFloat(v) || 0;                  // "8px" → 8
+    const tl = px(cs.borderTopLeftRadius), tr = px(cs.borderTopRightRadius),
+          br = px(cs.borderBottomRightRadius), bl = px(cs.borderBottomLeftRadius);
+    if (tl || tr || br || bl) {
+      node.borderRadius = (tl === tr && tr === br && br === bl) ? tl : { tl, tr, br, bl };
+    }
+    const bw = parseFloat(cs.borderTopWidth);              // CSS 四边不同时取 top(简单;border-color 同)
+    if (Number.isFinite(bw) && bw > 0) {
+      const bc = toRgba(cs.borderTopColor);
+      if (bc) node.border = { width: bw, color: bc };
+    }
+    const fillEl = el.querySelector('[data-fill]');        // ProgressBar fill 色:原型约定内层标 data-fill
+    if (fillEl) {
+      const fc = toRgba(getComputedStyle(fillEl).backgroundColor);
+      if (fc) node.fill = fc;
+    }
     if (el.dataset.type) node.type = el.dataset.type;     // 显式类型覆盖推断(29 种白名单内)
     out.nodes.push(node);
   }
@@ -194,7 +211,7 @@ HTML 原型侧约定：每个待还原元素标 `data-name`（=Godot 节点名�
 }
 ```
 
-要点：**bg 只在 `getComputedStyle().backgroundColor` 非透明时填**（透明壳契约由翻译器兜底）；**颜色经 toHex 转 `#rrggbb`**（翻译器不认 CSS `rgb()` 原文）；`viewport` 取 `[data-viewport]` 容器或窗口尺寸，**必须与 Godot 项目 `display/window/size` 及后续 `screenshot(capture)` 的 viewport 参数一致**（不一致则几何比例全错）。
+要点：**bg 只在 `getComputedStyle().backgroundColor` 非透明时填**（透明壳契约由翻译器兜底）；**颜色经 toRgba 转 `[r,g,b,a]` 0-1 数组**（保留 alpha，替代旧 toHex 的丢 alpha；翻译器三种颜色格式均认）；`viewport` 取 `[data-viewport]` 容器或窗口尺寸，**必须与 Godot 项目 `display/window/size` 及后续 `screenshot(capture)` 的 viewport 参数一致**（不一致则几何比例全错）。
 
 ### draw_recipe 声明式绘图
 

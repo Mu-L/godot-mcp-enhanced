@@ -1,7 +1,7 @@
 // UI layout operations: ui_set_layout, ui_get_layout, ui_build_layout.
 
 import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
-import { CONTROL_TYPES, ANCHOR_PRESETS } from './types.js';
+import { CONTROL_TYPES, ANCHOR_PRESETS, STYLEBOX_SLOTS, colorToGd } from './types.js';
 import { solveAnchors, CONTAINER_CONTROL_TYPES } from './anchor-solver.js';
 import type { Rect } from './anchor-solver.js';
 import { BLOCKED_PROPS } from '../scene/helpers.js';
@@ -168,6 +168,28 @@ function validateUiNodeSpec(spec: UiNodeSpec, depth: number, warnings: string[] 
   }
   if (spec.flex) {
     validateFlexChild(spec.flex, warnings);
+  }
+  if (spec.styleboxes) {
+    for (const sb of spec.styleboxes) {
+      if (!STYLEBOX_SLOTS.includes(sb.slot)) {
+        throw new Error(`INVALID_PARAMS: styleboxes slot "${sb.slot}" is not whitelisted (allowed: ${STYLEBOX_SLOTS.join(', ')})`);
+      }
+      const b = sb.box;
+      // 审查 I-1:draw_center 在 genStyleboxLines 中裸内插进 GDScript,必须在 validate 层
+      // 堵死非布尔输入(字符串可携带换行注入任意 GD 语句,TS 类型标注对 MCP 运行时 JSON 无强制力)
+      if (b.draw_center !== undefined && typeof b.draw_center !== 'boolean') {
+        throw new Error('INVALID_PARAMS: styleboxes draw_center must be a boolean');
+      }
+      const radii = typeof b.corner_radius === 'number'
+        ? [b.corner_radius]
+        : Object.values(b.corner_radius ?? {});
+      if (radii.some(v => typeof v !== 'number' || v < 0 || !Number.isFinite(v))) {
+        throw new Error('INVALID_PARAMS: styleboxes corner_radius must be non-negative finite number(s)');
+      }
+      if (b.border_width !== undefined && (typeof b.border_width !== 'number' || b.border_width < 0 || !Number.isFinite(b.border_width))) {
+        throw new Error('INVALID_PARAMS: styleboxes border_width must be a non-negative finite number');
+      }
+    }
   }
   if (spec.children) {
     for (const child of spec.children) {
@@ -428,6 +450,57 @@ function genFlexChildLines(flex: FlexChild, isRow: boolean, indent: string, warn
   return lines;
 }
 
+// PR-1:stylebox 变量名计数(模块级,genUiBuildLayoutScript 入口重置——同步拼接无并发
+// 交错,每次生成从 _sb_1 起)。裁定:brief 测试断言嵌套场景父/子 stylebox 为 _sb_1/_sb_2,
+// 共享 nextId 计数时父节点的 _saved_N 会在两 stylebox 之间消耗 id,无法产出该序列;
+// 故 _sb_N 用专属 1-based 计数。N-7(同名 var 是 GDScript 编译错)仍消除:
+// _sb_ 系列内唯一 + 前缀与 _saved_/_margin_/_spacer_ 互异,整树作用域无同名。
+let _sbCounter = 0;
+const nextSbId = (): number => ++_sbCounter;
+
+/** PR-1:styleboxes → StyleBoxFlat 构造块(spec §3.2)。变量名 _sb_N 由专属 1-based
+ * 计数器生成(见 nextSbId,genUiBuildLayoutScript 入口重置)——整树拼进单个
+ * _initialize() 作用域,与 _saved_N/_margin_N 同层,同名 var 是 GDScript 编译错
+ * (审查 N-7)。colorToGd 出 [r,g,b,a] → Color(...) 表达式。 */
+function genStyleboxLines(spec: UiNodeSpec, indent: string, nextSbId: () => number): string {
+  if (!spec.styleboxes || spec.styleboxes.length === 0) return '';
+  const blocks: string[] = [];
+  for (const sb of spec.styleboxes) {
+    const v = `_sb_${nextSbId()}`;
+    const b = sb.box;
+    const lines: string[] = [`var ${v} := StyleBoxFlat.new()`];
+    if (b.bg_color !== undefined) lines.push(`${v}.bg_color = ${colorToGd(b.bg_color)}`);
+    if (b.draw_center !== undefined) lines.push(`${v}.draw_center = ${b.draw_center}`);
+    if (b.corner_radius !== undefined) {
+      const u = typeof b.corner_radius === 'number' ? b.corner_radius : undefined;
+      const o = typeof b.corner_radius === 'object' && b.corner_radius !== null ? b.corner_radius : {};
+      lines.push(
+        `${v}.corner_radius_top_left = ${o.tl ?? u ?? 0}`,
+        `${v}.corner_radius_top_right = ${o.tr ?? u ?? 0}`,
+        `${v}.corner_radius_bottom_right = ${o.br ?? u ?? 0}`,
+        `${v}.corner_radius_bottom_left = ${o.bl ?? u ?? 0}`,
+      );
+    }
+    if (b.border_width !== undefined) {
+      lines.push(
+        `${v}.border_width_left = ${b.border_width}`,
+        `${v}.border_width_top = ${b.border_width}`,
+        `${v}.border_width_right = ${b.border_width}`,
+        `${v}.border_width_bottom = ${b.border_width}`,
+      );
+    }
+    if (b.border_color !== undefined) lines.push(`${v}.border_color = ${colorToGd(b.border_color)}`);
+    // 引擎事实(Task 4 集成实测 2026-08-17):Godot 4.7 中 stylebox 类 theme override 的
+    // 属性路径是 theme_override_styles/<slot>(非 theme_override_styleboxes/——spec 原文
+    // 误写),且经 node.set("theme_override_styles/…") 设值后 PackedScene.pack 照样丢
+    // override;唯一实测落盘可靠路径是 add_theme_stylebox_override API(落盘产出
+    // theme_override_styles/<slot> = SubResource("StyleBoxFlat_…"))。
+    lines.push(`node.add_theme_stylebox_override("${sb.slot}", ${v})`);
+    blocks.push(lines.map(l => `${indent}${l}`).join('\n'));
+  }
+  return '\n' + blocks.join('\n');
+}
+
 function uiNodeToGd(
   spec: UiNodeSpec, parentVar: string, ownerVar: string, indent: string,
   warnings: string[] = [], nextId: () => number = () => 0,
@@ -466,13 +539,14 @@ function uiNodeToGd(
         .map(([k, v]) => `${indent}node.set("${gdEscape(k)}", ${valueToGd(v)})`)
         .join('\n')
     : '';
+  const styleLines = genStyleboxLines(spec, indent, nextSbId);
 
   let lines = `${indent}node = ClassDB.instantiate("${gdEscape(spec.type)}")
 ${indent}if node == null:
 ${indent}\t_mcp_output("error", "Failed to instantiate: ${gdEscape(spec.type)}")
 ${indent}\t_mcp_done()
 ${indent}\treturn
-${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}`;
+${indent}node.name = "${gdEscape(spec.name)}"${anchorLine}${propLines}${styleLines}`;
 
   if (spec.children && spec.children.length > 0) {
     const savedIdx = nextId();
@@ -534,6 +608,7 @@ ${indent}node.name = "${gdEscape(spec.name)}"`;
     }
   }
 
+  lines += genStyleboxLines(spec, indent, nextSbId);
   lines += genFlexContainerProps(layout, indent, warnings);
 
   let marginWrapperVar: string | null = null;
@@ -612,6 +687,7 @@ export function genUiBuildLayoutScript(
 
   let _idCounter = 0;
   const nextId = () => _idCounter++;
+  _sbCounter = 0; // PR-1:每次生成重置 stylebox 计数(_sb_N 从 1 起,跨调用不累加)
   // C1: 根节点 rect 的父(parent_path 指向的节点)尺寸静态未知 → 以 viewport 为基准求解
   // (默认 1280x720,可通过参数覆盖);树内子节点则按各自父的 rect.w/h 求解(见 uiNodeToGd)。
   const baseViewport = viewport ?? { w: 1280, h: 720 };

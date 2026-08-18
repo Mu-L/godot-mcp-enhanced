@@ -306,12 +306,14 @@ describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
     expect(warnings.some(w => w.includes('Shell') && w.includes('layout-only Panel') && w.includes('set bg or type to keep it visible'))).toBe(true);
   });
 
-  it('有 bg → modulate 染色 + warning 含"近似" + 不设 self_modulate', () => {
+  it('有 bg → styleboxes panel 槽 bg_color(不再 modulate)', () => {
     const { tree, warnings } = tr(geo([n('Bg', 0, 0, 100, 50, { bg: '#10141f' })]));
-    const p = findNode(tree, 'Bg')!.properties!;
-    expect(p.modulate).toEqual([16 / 255, 20 / 255, 31 / 255, 1]);
-    expect(p.self_modulate).toBeUndefined();
-    expect(warnings.some(w => w.includes('近似'))).toBe(true);
+    const p = findNode(tree, 'Bg')!;
+    expect(p.properties?.modulate).toBeUndefined();
+    expect(p.styleboxes).toEqual([
+      { slot: 'panel', box: { bg_color: [16 / 255, 20 / 255, 31 / 255, 1] } },
+    ]);
+    expect(warnings.some(w => w.includes('近似'))).toBe(false);
   });
 
   it('有 text 无 bg(Label)→ 不设 self_modulate(负例)', () => {
@@ -351,10 +353,10 @@ describe('规则 4: 透明壳(self_modulate,禁 modulate 级联)', () => {
     expect(warnings.some(w => w.includes('P') && w.includes('gray panel stylebox'))).toBe(true);
   });
 
-  it('显式 type Panel 有 bg → modulate 染色,无灰底翻转 warning(负例)', () => {
-    const { warnings } = tr(geo([n('PB', 0, 0, 100, 50, { type: 'Panel', bg: '#10141f' })]));
+  it('显式 type Panel 有 bg → panel 槽 stylebox,无灰底翻转 warning(负例)', () => {
+    const { tree, warnings } = tr(geo([n('PB', 0, 0, 100, 50, { type: 'Panel', bg: '#10141f' })]));
+    expect(findNode(tree, 'PB')!.styleboxes).toHaveLength(1);
     expect(warnings.some(w => w.includes('gray panel stylebox'))).toBe(false);
-    expect(warnings.some(w => w.includes('PB') && w.includes('近似'))).toBe(true);
   });
 
   // 审查 N-5:非白名单 type 降级 Panel 无 bg → 同样落灰底默认主题,须一并提示(与显式 Panel 对齐)
@@ -478,9 +480,9 @@ describe('规则 8/9/10: 颜色三格式与对齐', () => {
     expect(() => tr(geo([n('T', 0, 0, 80, 40, { bg: 42 as unknown as string })]))).toThrow(/INVALID_PARAMS/);
   });
 
-  it('bg [r,g,b](0-255)→ modulate 归一', () => {
+  it('bg [r,g,b](0-255)→ stylebox bg_color 归一', () => {
     const { tree } = tr(geo([n('P', 0, 0, 80, 40, { bg: [10, 20, 30] })]));
-    expect(findNode(tree, 'P')!.properties!.modulate).toEqual([10 / 255, 20 / 255, 30 / 255, 1]);
+    expect(findNode(tree, 'P')!.styleboxes![0]!.box.bg_color).toEqual([10 / 255, 20 / 255, 30 / 255, 1]);
   });
 
   it('align left/center/right → horizontal_alignment 0/1/2', () => {
@@ -554,5 +556,64 @@ describe('coverage', () => {
     expect(r.coverage.targets).toBe(flattenTargets(r.tree).length);
     expect(r.coverage.targets).toBeLessThan(r.coverage.total_nodes);
     expect(r.warnings.some(w => w.includes('verify'))).toBe(true);
+  });
+});
+
+// ─── PR-1 Task 2: 样式三件套翻译规则 ───────────────────────────────────────
+
+describe('StyleBox 通道翻译(PR-1)', () => {
+  it('ProgressBar: bg→background 槽 + fill→fill 槽双 stylebox', () => {
+    const { tree } = tr(geo([n('Hp', 0, 0, 120, 20, { type: 'ProgressBar', value: 0.5, bg: '#222222', fill: '#3ddc84' })]));
+    const sb = findNode(tree, 'Hp')!.styleboxes!;
+    expect(sb.map(s => s.slot)).toEqual(['background', 'fill']);
+    expect(sb[1]!.box.bg_color).toEqual([61 / 255, 220 / 255, 132 / 255, 1]);
+  });
+
+  it('Button/Label 有 bg → normal 槽(badge 映射)', () => {
+    const { tree: t1 } = tr(geo([n('Tag', 0, 0, 40, 20, { text: 'NEW', bg: '#3ddc84' })]));
+    expect(findNode(t1, 'Tag')!.styleboxes![0]!.slot).toBe('normal');   // text+无 interactive → Label
+    const { tree: t2 } = tr(geo([n('Btn', 0, 0, 60, 30, { text: '确定', interactive: true, bg: '#2255aa' })]));
+    expect(findNode(t2, 'Btn')!.styleboxes![0]!.slot).toBe('normal');   // interactive+text → Button
+  });
+
+  it('bg 缺省但 border/borderRadius 存在 → draw_center=false(CSS 透明底)', () => {
+    const { tree } = tr(geo([n('BO', 0, 0, 60, 30, { type: 'Panel', borderRadius: 8, border: { width: 2, color: '#7a8aab' } })]));
+    const box = findNode(tree, 'BO')!.styleboxes![0]!.box;
+    expect(box.draw_center).toBe(false);
+    expect(box.bg_color).toBeUndefined();
+    expect(box.corner_radius).toBe(8);
+    expect(box.border_width).toBe(2);
+    expect(box.border_color).toEqual([122 / 255, 138 / 255, 171 / 255, 1]);
+  });
+
+  it('borderRadius 四角对象原样保留', () => {
+    const { tree } = tr(geo([n('R4', 0, 0, 60, 30, { type: 'Panel', bg: '#111111', borderRadius: { tl: 8, br: 4 } })]));
+    expect(findNode(tree, 'R4')!.styleboxes![0]!.box.corner_radius).toEqual({ tl: 8, br: 4 });
+  });
+
+  it('未映射控件(LineEdit)带 bg → warning + 忽略(不产 stylebox)', () => {
+    const { tree, warnings } = tr(geo([n('LE', 0, 0, 100, 24, { type: 'LineEdit', bg: '#123456' })]));
+    expect(findNode(tree, 'LE')!.styleboxes).toBeUndefined();
+    expect(warnings.some(w => w.includes('LE') && w.includes('样式槽位'))).toBe(true);
+  });
+
+  it('fill 给非 ProgressBar → warning + 忽略', () => {
+    const { tree, warnings } = tr(geo([n('LB', 0, 0, 40, 20, { text: 'x', fill: '#ff0000' })]));
+    expect(findNode(tree, 'LB')!.styleboxes).toBeUndefined();
+    expect(warnings.some(w => w.includes('fill 仅 ProgressBar'))).toBe(true);
+  });
+
+  it('规则 7:ProgressBar h<27 无条件预警(带 override 仍被钳,实测 23/27)', () => {
+    const { warnings: w1 } = tr(geo([n('P1', 0, 0, 100, 16, { type: 'ProgressBar', value: 0.5 })]));
+    expect(w1.some(w => w.includes('will be clamped'))).toBe(true);
+    const { warnings: w2 } = tr(geo([n('P2', 0, 0, 100, 16, { type: 'ProgressBar', value: 0.5, bg: '#222222', fill: '#3ddc84' })]));
+    expect(w2.some(w => w.includes('will be clamped'))).toBe(true);
+  });
+
+  it('parseGeometry:borderRadius 负值 → INVALID_PARAMS;border 坏颜色 → INVALID_PARAMS', () => {
+    expect(() => parseGeometry(geo([n('X', 0, 0, 10, 10, { borderRadius: -1 })])))
+      .toThrow(/INVALID_PARAMS/);
+    expect(() => parseGeometry(geo([n('Y', 0, 0, 10, 10, { border: { width: 1, color: 'not-a-color' } })])))
+      .toThrow(/INVALID_PARAMS/);
   });
 });

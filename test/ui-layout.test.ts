@@ -249,3 +249,105 @@ describe('ui_build_layout persist 与运行时丢失 warning 合并', () => {
     expect(warning!.text).toContain('ui_build_layout');
   });
 });
+
+// ─── PR-1 Task 1: styleboxes 类型层校验 ────────────────────────────────────
+
+describe('validateUiNodeSpec styleboxes 校验(PR-1)', () => {
+  // 走公共入口间接触发 validateUiNodeSpec(其非导出,经 genUiBuildLayoutScript 调用);
+  // 实际签名 (scenePath, parentPath, tree, viewport?, persist?)——spec 落 tree 位(第 3 参)。
+  const call = (spec: unknown) =>
+    genUiBuildLayoutScript('res://scenes/t.tscn', 'root', spec as never, { w: 1280, h: 720 });
+
+  // 裁定(Task-1 brief Step 5):StyleBoxFlat.new() 构造块属 Task 3,本任务第 1 例仅断言
+  // 校验通过不 throw;Task 3 完成后保留此形式,无需改回断言 StyleBoxFlat.new()。
+  it('合法 styleboxes(panel 槽 + bg_color + corner_radius 对象)通过', () => {
+    expect(() => call({
+      type: 'Panel', name: 'Card', rect: { x: 0, y: 0, w: 100, h: 50 },
+      styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.12, 0.18, 1], corner_radius: { tl: 8, br: 4 } } }],
+    })).not.toThrow();
+  });
+
+  it('slot 白名单外 → throw(INVALID_PARAMS)', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'focus', box: { bg_color: [1, 0, 0, 1] } }],
+    })).toThrow(/styleboxes slot "focus" is not whitelisted/);
+  });
+
+  it('corner_radius 负值 → throw', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'panel', box: { corner_radius: -1 } }],
+    })).toThrow(/corner_radius must be non-negative/);
+  });
+
+  it('border_width 非有限数 → throw', () => {
+    expect(() => call({
+      type: 'Button', name: 'B', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'normal', box: { border_width: Number.POSITIVE_INFINITY } }],
+    })).toThrow(/border_width must be a non-negative finite number/);
+  });
+
+  it('draw_center 非布尔 → throw(注入防线,审查 I-1)', () => {
+    expect(() => call({
+      type: 'Panel', name: 'X', rect: { x: 0, y: 0, w: 10, h: 10 },
+      styleboxes: [{ slot: 'panel', box: { draw_center: 'false\n_mcp_output("error", "injected")' } }],
+    })).toThrow(/draw_center must be a boolean/);
+  });
+});
+
+// ─── PR-1 Task 3: genStyleboxLines 构造块 ──────────────────────────────────
+
+describe('genStyleboxLines 构造块(PR-1 Task 3)', () => {
+  // 注(brief Step 1 签名修正):实际签名 (scenePath, parentPath, tree, viewport?, persist?),
+  // brief 原文 genUiBuildLayoutScript(spec, {w,h}, true) 不成立,spec 落第 3 参。
+  const gen = (spec: unknown) =>
+    genUiBuildLayoutScript('res://scenes/t.tscn', 'root', spec as never, { w: 800, h: 600 });
+
+  it('bg+radius+border → 完整构造块(panel 槽)', () => {
+    const s = gen({
+      type: 'Panel', name: 'Card', rect: { x: 0, y: 0, w: 100, h: 50 },
+      styleboxes: [{
+        slot: 'panel',
+        box: { bg_color: [0.1, 0.12, 0.18, 1], corner_radius: 8, border_width: 2, border_color: [0.24, 0.86, 0.52, 1] },
+      }],
+    });
+    expect(s).toContain('var _sb_1 := StyleBoxFlat.new()');
+    expect(s).toContain('_sb_1.bg_color = Color(0.1, 0.12, 0.18, 1)');
+    expect(s).toContain('_sb_1.corner_radius_top_left = 8');
+    expect(s).toContain('_sb_1.corner_radius_bottom_right = 8');
+    expect(s).toContain('_sb_1.border_width_left = 2');
+    expect(s).toContain('_sb_1.border_color = Color(0.24, 0.86, 0.52, 1)');
+    // Task 4 集成实测修正:node.set 属性路径在 Godot 4.7 pack 时丢 override,
+    // 生成器改用 add_theme_stylebox_override API(落盘属性名 theme_override_styles/)
+    expect(s).toContain('node.add_theme_stylebox_override("panel", _sb_1)');
+  });
+
+  it('draw_center=false 与四角对象展开;两节点变量名递增不冲突', () => {
+    const s = gen({
+      type: 'Panel', name: 'P0', rect: { x: 0, y: 0, w: 50, h: 50 },
+      styleboxes: [{ slot: 'panel', box: { corner_radius: { tl: 8, br: 4 }, draw_center: false } }],
+      children: [{
+        type: 'Panel', name: 'P1', rect: { x: 10, y: 10, w: 20, h: 20 },
+        styleboxes: [{ slot: 'panel', box: { bg_color: [1, 0, 0, 1] } }],
+      }],
+    });
+    expect(s).toContain('_sb_1.draw_center = false');
+    expect(s).toContain('_sb_1.corner_radius_top_right = 0');   // 对象缺省角 = 0
+    expect(s).toContain('_sb_1.corner_radius_bottom_left = 0');
+    expect(s).toContain('var _sb_2 := StyleBoxFlat.new()');      // 变量名递增,无同名 var
+    expect(s.match(/var _sb_1 :=/g)).toHaveLength(1);
+  });
+
+  it('ProgressBar 双槽(background+fill)各产构造块', () => {
+    const s = gen({
+      type: 'ProgressBar', name: 'Hp', rect: { x: 0, y: 0, w: 120, h: 20 },
+      styleboxes: [
+        { slot: 'background', box: { bg_color: [0.13, 0.13, 0.13, 1] } },
+        { slot: 'fill', box: { bg_color: [0.24, 0.86, 0.52, 1] } },
+      ],
+    });
+    expect(s).toContain('node.add_theme_stylebox_override("background", _sb_1)');
+    expect(s).toContain('node.add_theme_stylebox_override("fill", _sb_2)');
+  });
+});
