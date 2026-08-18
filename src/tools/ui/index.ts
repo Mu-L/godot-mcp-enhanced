@@ -467,7 +467,7 @@ export async function handleTool(
         // executor 链),不走公共单次执行段,提前 return——同 ui_import_prototype 模式。
         return await handleUiPixelVerify(args, projectPath, godot);
       case 'ui_import_prototype':
-        // 特殊链路:内部两次 executor(build+persist → measure),不走公共单次执行段,提前 return。
+        // 特殊链路:内部单 spawn 合成(build+persist→reload→measure,PR-4),不走公共单次执行段,提前 return。
         return handleUiImportPrototype(args, projectPath, godot, loadAutoloads);
       default:
         return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
