@@ -15,6 +15,14 @@
 //      StyleBoxFlat(bg_color 一致)——badge 映射(Label text+bg 一比一)的引擎事实前提;
 //   6. ProgressBar 三组合钳制实测(spec §10.4 开放问题 4):bg-only / fill-only / bg+fill
 //      在 h=16(< 默认主题最小高 27)下的 dh 实测数据固化断言。
+// PR-2 Task 6 追加(verify 层集成验收,spec 2026-08-17-prototype-stylebox-loop-design.md §4):
+//   2v2. 用例 2 追加 flow_verify 断言(消解 B-2:3 按钮 target=输入视口 rect,x 精确,
+//        y/h 实测固化——HTML align 语义 vs Godot fill 的固有偏差如实暴露,不伪装全绿);
+//   4v2. 用例 4 追加 style_verify 全绿断言(「生成快照全绿≠引擎行为」的数字防线:
+//        measure 脚本 get_theme_stylebox 读回 override 生效值逐字段 diff);
+//   6v2. 用例 6 追加三组合 style_verify(端到端验证 override 真设上 + 期望清单只含产出槽);
+//   7. 新增:手写树 styleboxes + genUiMeasureScript 无期望清单(第 4 参 undefined)
+//      → override 并集读回(has_theme_stylebox_override 右侧,spec §4.1 I-B)。
 // 模式复用 test/integration/ui-layout-integration.test.ts:临时项目 project.godot 1280x720
 // + main.tscn 根 Control 固定 offsets(勿 full_rect——headless Window 实际尺寸不反映 project
 // 设置,上轮 2496 教训);重载验证走 genUiMeasureScript 直调(executor 层,不经 handler)。
@@ -231,6 +239,13 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
         tree: { children: Array<{ name: string; type: string; children?: Array<{ type: string; name: string; anchor_preset?: string }> }> };
         verify_coverage: { targets: number; total_nodes: number };
         layout_verify: { diff: Array<{ ok: boolean }> };
+        flow_verify: Array<{
+          path: string;
+          target: { x: number; y: number; w: number; h: number };
+          actual: { x: number; y: number; w: number; h: number } | null;
+          delta: { dx: number; dy: number; dw: number; dh: number };
+          ok: boolean;
+        }>;
         persist: { saved: boolean };
       };
     };
@@ -250,6 +265,45 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     // 覆盖内的节点(根+Holder)diff 全绿
     expect(parsed.data.layout_verify.diff.every(d => d.ok)).toBe(true);
     expect(parsed.data.persist.saved).toBe(true);
+
+    // ── PR-2 flow_verify(spec §4.2,消解 B-2 盲区):flow 直接子层数字清单 ──
+    const fv = parsed.data.flow_verify;
+    // eslint-disable-next-line no-console -- flow_verify 实测校准数据(spec §10.5 开放问题决策输入),随测试输出留档
+    console.log(`[flow_verify 实测] ${JSON.stringify(fv)}`);
+    expect(fv).toHaveLength(3);
+    expect(fv.map(e => e.path)).toEqual([
+      '_PrototypeRoot/Holder/Holder_Flow/BtnA',
+      '_PrototypeRoot/Holder/Holder_Flow/BtnB',
+      '_PrototypeRoot/Holder/Holder_Flow/BtnC',
+    ]);
+    // target = 输入视口 rect(期望语义:space-between 三按钮 100/268/436,垂直居中 y=104,72x32)
+    expect(fv[0]!.target).toEqual({ x: 100, y: 104, w: 72, h: 32 });
+    expect(fv[1]!.target).toEqual({ x: 268, y: 104, w: 72, h: 32 });
+    expect(fv[2]!.target).toEqual({ x: 436, y: 104, w: 72, h: 32 });
+    // actual 直接对比(global rect vs 视口绝对,不做父相对换算)
+    expect(fv.every(e => e.actual !== null)).toBe(true);
+    // x 方向精确(dx≈0——space-between 排布与输入一致,与下方重载 gap 96 断言同源)
+    for (const e of fv) {
+      expect(Math.abs(e.delta.dx), `${e.path} dx=${e.delta.dx}`).toBeLessThanOrEqual(2);
+    }
+    // ── y/h 实测固化(校准循环:首跑观察 → 固化,Godot 4.6.3 headless,2026-08-18)──
+    // HTML flex 默认 align-items:stretch 但按钮输入 h=32 < 容器 40(Godot HBox 子垂直
+    // size_flags 默认 FILL → 拉伸):实测落地 h=39(容器 40 下 FILL 未拉满 1px,引擎实测
+    // 行为)且 y 顶到容器顶(实测 y=100.0000076,1e-5 级 float 残差)——三按钮一致
+    // dy=-4 / dh=+7 / dx=0 / dw=0。系统性固有偏差,flow_verify 如实暴露(spec §4.2
+    // 偏差即价值),ok=false(tolerance=2)不伪装全绿;修正属原型侧(给 flow 子节点与
+    // 容器等高的 rect)或后续翻译规则(垂直 size_flags 映射),不属本层。
+    for (const e of fv) {
+      expect(Math.round(e.delta.dy), `${e.path} dy=${e.delta.dy}`).toBe(-4);
+      expect(Math.round(e.delta.dh), `${e.path} dh=${e.delta.dh}`).toBe(7);
+      expect(Math.round(e.delta.dw), `${e.path} dw=${e.delta.dw}`).toBe(0);
+      expect(e.ok, `${e.path} 超容差(tolerance=2)应如实红`).toBe(false);
+    }
+    // 抽查 BtnA 实测 rect 精确值(h=39 为 FILL 拉伸落地值;x 精确;y 有 1e-5 级残差用容差)
+    expect(fv[0]!.actual!.w).toBe(72);
+    expect(fv[0]!.actual!.h).toBe(39);
+    expect(fv[0]!.actual!.x).toBe(100);
+    expect(Math.abs(fv[0]!.actual!.y - 100)).toBeLessThanOrEqual(0.01);
 
     // 独立重载 measure:按钮间距 = (408 - 3*72) / 2 = 96 ±2px(容器排布,与输入视口坐标无关)
     const m = await measureFromDisk(dirFlow);
@@ -302,9 +356,63 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     }, createCtx());
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
-    const parsed = JSON.parse(textOf(result)) as { data: { layout_verify: { diff: Array<{ ok: boolean; path: string; delta: unknown }> } } };
+    const parsed = JSON.parse(textOf(result)) as {
+      data: {
+        layout_verify: { diff: Array<{ ok: boolean; path: string; delta: unknown }> };
+        style_verify: Array<{
+          path: string; slot: string; field: string;
+          target: number | number[] | string | null;
+          actual: number | number[] | string | null;
+          delta: number | number[] | null; ok: boolean;
+        }>;
+      };
+    };
     const bad = parsed.data.layout_verify.diff.filter(d => !d.ok);
     expect(bad, `不绿 diff: ${JSON.stringify(bad)}`).toEqual([]);
+
+    // ── PR-2 style_verify(spec §4.1):override 全部落盘生效的数字防线 ──
+    // 「生成快照全绿≠引擎行为」:sub_resource 落盘文本正确 ≠ add_theme_stylebox_override
+    // 后 get_theme_stylebox 读回值正确——此处对引擎读回的生效值逐字段 diff。
+    const sv = parsed.data.style_verify;
+    // eslint-disable-next-line no-console -- style_verify 条数实测校准数据,随测试输出留档
+    console.log(`[style_verify 实测] 共 ${sv.length} 条: ${sv.map(e => `${e.path}:${e.slot}/${e.field}`).join(', ')}`);
+    const badStyle = sv.filter(e => !e.ok);
+    expect(badStyle, `不绿 style_verify: ${JSON.stringify(badStyle)}`).toEqual([]);
+    // 条目计数护栏(fixture 变更须同步,照用例 1 的 23 节点护栏先例):
+    //   CardBg 10(bg_color1+corner4+border_width4+border_color1)
+    //   + Title 5(bg_color1+corner4)+ TagChip 5(同构;Title/TagChip 几何包含于
+    //     CardBg → 树内挂 _PrototypeRoot/CardBg/ 下,path 含父链)
+    //   + BorderOnly 9(corner4+border_width4+border_color1,无 bg→无 bg_color 条目,
+    //     draw_center 永不比对)
+    //   + HpBar 2(几何包含于 BorderOnly → 挂 _PrototypeRoot/BorderOnly/ 下;
+    //     background/fill 各 bg_color1)= 31。
+    // 计数勘误留痕:plan/brief 原文 34 与任务修正 33 均笔误——34 把 CardBg 误算 11;
+    // 33 修了 CardBg 却把 Title/TagChip 误算 6(Label badge 只有 bg_color+corner_radius
+    // 两个显式字段 → 1+4=5,fixture 无 border)。按 2026-08-18 真跑实测 31 固化。
+    expect(sv).toHaveLength(31);
+    // 抽查 CardBg/panel bg_color:target = #1a1f2e 归一 [26/255,31/255,46/255,1],
+    // delta 分量 ≤0.002(Color float32 序列化漂移,STYLE_COLOR_TOL 同款)
+    const cardBg = sv.find(e => e.path === '_PrototypeRoot/CardBg' && e.slot === 'panel' && e.field === 'bg_color')!;
+    expect(cardBg, 'CardBg/panel bg_color 条目缺失').toBeDefined();
+    expect(cardBg.target).toEqual([26 / 255, 31 / 255, 46 / 255, 1]);
+    for (const d of cardBg.delta as number[]) {
+      expect(Math.abs(d), `CardBg bg_color delta 分量超容差: ${JSON.stringify(cardBg)}`).toBeLessThanOrEqual(0.002);
+    }
+    // 抽查 corner_radius_top_left(target 12)与 border_width_left(target 2)精确匹配
+    const ctl = sv.find(e => e.path === '_PrototypeRoot/CardBg' && e.field === 'corner_radius_top_left')!;
+    expect(ctl.target).toBe(12);
+    expect(ctl.actual).toBe(12);
+    expect(ctl.ok).toBe(true);
+    const bwl = sv.find(e => e.path === '_PrototypeRoot/CardBg' && e.field === 'border_width_left')!;
+    expect(bwl.target).toBe(2);
+    expect(bwl.actual).toBe(2);
+    expect(bwl.ok).toBe(true);
+    // BorderOnly(无 bg)不产 bg_color 条目(box 无 bg_color 字段即不比对)
+    expect(sv.some(e => e.path.endsWith('/BorderOnly') && e.field === 'bg_color')).toBe(false);
+    // HpBar(几何包含于 BorderOnly → 树内非顶层,用 endsWith)有 background+fill 两槽各 1 条 bg_color
+    const hpBg = sv.filter(e => e.path.endsWith('/HpBar') && e.field === 'bg_color');
+    expect(hpBg.map(e => e.slot).sort()).toEqual(['background', 'fill']);
+    expect(hpBg.every(e => e.ok)).toBe(true);
 
     const sceneText = readFileSync(join(dirCard, 'main.tscn'), 'utf-8');
     // bg+radius+border → StyleBoxFlat sub_resource 落盘。
@@ -375,7 +483,7 @@ func _initialize():
     // 开放问题 4 的决策输入)。
     // 首跑校准循环:先 console.log 观察 dh 再固化为断言——本 fixture 无程序化真值,
     // 跑红→修绿的实测记录就是期望值来源(不伪装有真值)。
-    interface HpDiff { dh: number; actualH: number; sceneText: string }
+    interface HpDiff { dh: number; actualH: number; sceneText: string; styleVerify: Array<{ path: string; slot: string; field: string; target: number | number[] | string | null; ok: boolean }> }
     const runCombo = async (key: string, extra: Record<string, unknown>): Promise<HpDiff> => {
       // 每组合独立临时项目(同项目重复 import 会叠加多个 _PrototypeRoot)
       const d = mkProject(`ui-import-pb-${key.replace('+', '-')}-`);
@@ -394,13 +502,16 @@ func _initialize():
         expect(result).not.toBeNull();
         expect(result!.isError).toBeFalsy();
         const parsed = JSON.parse(textOf(result)) as {
-          data: { layout_verify: { diff: Array<{ path: string; delta: { dh: number }; actual: { h: number } | null }> } };
+          data: {
+            layout_verify: { diff: Array<{ path: string; delta: { dh: number }; actual: { h: number } | null }> };
+            style_verify: Array<{ path: string; slot: string; field: string; target: number | number[] | string | null; ok: boolean }>;
+          };
         };
         const hp = parsed.data.layout_verify.diff.find(e => e.path.endsWith('/HpBar'));
         expect(hp, 'HpBar 未进 layout_verify diff').toBeDefined();
         // eslint-disable-next-line no-console -- 三组合实测数据是 spec 开放问题 4 的决策记录,随测试输出留档
-        console.log(`[pb-combo:${key}] target h=16 → actual h=${hp!.actual?.h}(dh=${hp!.delta.dh})`);
-        return { dh: hp!.delta.dh, actualH: hp!.actual?.h ?? -1, sceneText: readFileSync(join(d, 'main.tscn'), 'utf-8') };
+        console.log(`[pb-combo:${key}] target h=16 → actual h=${hp!.actual?.h}(dh=${hp!.delta.dh}), style_verify=${JSON.stringify(parsed.data.style_verify)}`);
+        return { dh: hp!.delta.dh, actualH: hp!.actual?.h ?? -1, sceneText: readFileSync(join(d, 'main.tscn'), 'utf-8'), styleVerify: parsed.data.style_verify };
       } finally {
         rmSync(d, { recursive: true, force: true });
       }
@@ -441,5 +552,98 @@ func _initialize():
     expect(bgFill.sceneText).toContain('theme_override_styles/fill');
     // 对照语义固化:background 槽被 override 的两组合钳制值相同(23px 新下限)
     expect(bgOnly.dh).toBe(bgFill.dh);
+
+    // ── PR-2 style_verify 三组合断言(端到端验证 override 真设上 + 期望清单只含产出槽)──
+    // 读回值来自 measure 的 get_theme_stylebox 生效值——落盘文本断言(上方 toContain)
+    // 之外的引擎行为防线;颜色 target 为 #223022/#3ddc84 归一值,float32 漂移由
+    // diffStyles 容差(0.002)吸收,此处断言 ok 与 target 精确值。
+    // bg-only:仅 background 槽 1 条绿(bg 槽 override 产出;fill 无输入不产出)
+    expect(bgOnly.styleVerify).toHaveLength(1);
+    const bgOnlyBg = bgOnly.styleVerify[0]!;
+    expect(bgOnlyBg.slot).toBe('background');
+    expect(bgOnlyBg.field).toBe('bg_color');
+    expect(bgOnlyBg.target).toEqual([34 / 255, 48 / 255, 34 / 255, 1]);
+    expect(bgOnlyBg.ok).toBe(true);
+    // fill-only:恰好 fill 槽 1 条绿——同时验证「期望清单只含产出槽」(fill-only 翻译
+    // 不产 background override,style_expect 不含它,style_verify 也不冒出默认主题读回)
+    expect(fillOnly.styleVerify).toHaveLength(1);
+    const fillOnlyFill = fillOnly.styleVerify[0]!;
+    expect(fillOnlyFill.slot).toBe('fill');
+    expect(fillOnlyFill.field).toBe('bg_color');
+    expect(fillOnlyFill.target).toEqual([61 / 255, 220 / 255, 132 / 255, 1]);
+    expect(fillOnlyFill.ok).toBe(true);
+    // bg+fill:两条(background+fill)全绿
+    expect(bgFill.styleVerify).toHaveLength(2);
+    expect(bgFill.styleVerify.map(e => e.slot).sort()).toEqual(['background', 'fill']);
+    expect(bgFill.styleVerify.every(e => e.field === 'bg_color' && e.ok)).toBe(true);
+  });
+
+  // ─── 用例 7:手写树 override 并集读回(spec §4.1 I-B 并集右侧) ──────────────
+
+  it('手写树 styleboxes + 无期望清单 measure:override 槽仍被读回(flat=true)', { timeout: 90000 }, async () => {
+    // spec §4.1 I-B 并集条件右侧:期望清单(左侧)缺省时,has_theme_stylebox_override
+    // 非空的节点也被按需读回——手写树场景(ui_build_layout 直接带 styleboxes,不经
+    // ui_import_prototype 翻译)无人产期望清单,若无并集右侧则 override 完全不可见。
+    const d = mkProject('ui-import-manual-');
+    try {
+      const built = await handleTool('ui', {
+        action: 'ui_build_layout',
+        project_path: d,
+        scene_path: 'res://main.tscn',
+        persist: true,
+        tree: {
+          type: 'Panel', name: 'Root', rect: { x: 0, y: 0, w: 400, h: 300 },
+          children: [{
+            type: 'Panel', name: 'Card', rect: { x: 10, y: 10, w: 200, h: 100 },
+            styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.2, 0.3, 1], corner_radius: 6 } }],
+          }],
+        },
+      }, createCtx());
+      expect(built).not.toBeNull();
+      expect(built!.isError).toBeFalsy();
+      const builtData = JSON.parse(textOf(built)) as { data?: { persist?: { saved?: boolean } } };
+      expect(builtData.data?.persist?.saved, 'ui_build_layout persist 落盘失败').toBe(true);
+
+      // genUiMeasureScript 第 4 参 undefined(executor 层直调):无期望清单注入
+      // (脚本 _style_expect 恒空字典),读回判定只剩 override 非空并集右侧
+      const res = await executeGdscriptTrusted({
+        godotPath: GODOT!, projectPath: d,
+        code: genUiMeasureScript(join(d, 'main.tscn'), undefined, 16),
+        timeout: 30, loadAutoloads: false,
+      });
+      expect(res.compile_success, res.compile_error).toBe(true);
+      expect(res.run_success, res.run_error).toBe(true);
+      const m = JSON.parse(String(res.outputs.find(o => o.key === 'measure')!.value)) as {
+        nodes: Array<{
+          path: string;
+          styles?: Array<{
+            slot: string; flat: boolean;
+            bg_color?: [number, number, number, number];
+            corner_radius?: { tl: number; tr: number; br: number; bl: number };
+          }>;
+        }>;
+      };
+      const card = m.nodes.find(n => n.path === 'Root/Card');
+      expect(card, 'measure 缺 Root/Card').toBeDefined();
+      const cardStyles = card!.styles ?? [];
+      // eslint-disable-next-line no-console -- 手写树并集读回实测数据,随测试输出留档
+      console.log(`[manual-tree styles 实测] Root/Card = ${JSON.stringify(cardStyles)}`);
+      const panel = cardStyles.find(s => s.slot === 'panel');
+      expect(panel, `Root/Card styles 应含 override 槽 panel: ${JSON.stringify(cardStyles)}`).toBeDefined();
+      expect(panel!.flat, 'panel 槽读回应为 StyleBoxFlat').toBe(true);
+      // Color float32 漂移用容差(与集成用例 5 同款断言方式)
+      expect(Math.abs(panel!.bg_color![0] - 0.1)).toBeLessThan(0.002);
+      expect(Math.abs(panel!.bg_color![1] - 0.2)).toBeLessThan(0.002);
+      expect(Math.abs(panel!.bg_color![2] - 0.3)).toBeLessThan(0.002);
+      expect(Math.abs(panel!.bg_color![3] - 1.0)).toBeLessThan(0.002);
+      expect(panel!.corner_radius!.tl).toBe(6);
+      // 无 override 的 Root 不被读(并集语义:无期望清单时仅 override 非空节点读回,
+      // Root 只建树无 styleboxes → styles 字段不产出)
+      const root = m.nodes.find(n => n.path === 'Root');
+      expect(root, 'measure 缺 Root').toBeDefined();
+      expect(root!.styles, 'Root 无 override 不应有 styles 读回').toBeUndefined();
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
   });
 });
