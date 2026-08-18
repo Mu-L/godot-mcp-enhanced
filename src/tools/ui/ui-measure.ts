@@ -10,7 +10,7 @@
 // (I-B 拍板:并集左侧是期望——「override 没设上」的节点 has_override=false 也必须被读到,
 // 以默认主题数值 diff 暴露;右侧补手写树/手动 override 场景)。
 
-import { gdEscape, SCENE_TREE_HEADER } from '../shared.js';
+import { gdEscape, escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
 
 export function genUiMeasureScript(
   scenePath: string,
@@ -29,8 +29,12 @@ export function genUiMeasureScript(
   // 声明位置必须在 `var _frames := 0` 之后:ui-layout-integration 的 buildThenMeasure
   // 以 'var _frames := 0' 为截取锚点拼接 build+measure 单进程脚本,锚点之前的新增声明
   // 会被截掉 → 拼接产物 _walk 引用未声明标识符。
+  // I-1(2026-08-18 Task3 审查修复):期望清单 JSON 用 escapeForGdLiteral 而非 gdEscape——
+  // 该字符串只被 GD 侧 JSON.parse_string 消费,不参与 % 格式化;gdEscape 为 % 格式化场景
+  // 设计会把 name 中的 % 双写成 %%,GD 侧无 % 坍缩 → key 变 x%%y ≠ 运行时 get(path) 的
+  // x%y,I-B 防线(期望清单并集左侧)静默落空。scenePath/nodePath 注入维持 gdEscape 不变。
   const styleInit = styleExpect && styleExpect.length > 0
-    ? `\tvar _se_parsed = JSON.parse_string("${gdEscape(JSON.stringify(Object.fromEntries(styleExpect.map(e => [e.path, [...e.slots]]))))}")\n\t_style_expect = _se_parsed if typeof(_se_parsed) == TYPE_DICTIONARY else _style_expect\n`
+    ? `\tvar _se_parsed = JSON.parse_string("${escapeForGdLiteral(JSON.stringify(Object.fromEntries(styleExpect.map(e => [e.path, [...e.slots]]))))}")\n\t_style_expect = _se_parsed if typeof(_se_parsed) == TYPE_DICTIONARY else _style_expect\n`
     : '';
   return `${SCENE_TREE_HEADER}
 

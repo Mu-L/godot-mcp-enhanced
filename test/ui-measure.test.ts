@@ -73,6 +73,29 @@ describe('genUiMeasureScript style 读回(PR-2)', () => {
     expect(s).not.toMatch(/JSON\.parse_string\("A\\"/);  // 不允许裸字面量拼接出非法 GD
     expect(s).toContain('JSON.parse_string');
   });
+  it('I-1:name 含 % / " / \\ / 换行时期望清单 round-trip——不双写 %%,unescape 后 key 与原始 path 全等', () => {
+    const styleExpect = [
+      { path: 'x%y', slots: ['panel'] },
+      { path: 'A"B', slots: ['fill'] },
+      { path: 'back\\slash', slots: ['hover'] },
+      { path: 'line\nbreak', slots: ['pressed'] },
+    ];
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16, styleExpect);
+    // 提取 JSON.parse_string("...") 的内嵌文本(换行已转义为 \n 字面量,注入为单行)
+    const m = s.match(/JSON\.parse_string\("(.*)"\)/);
+    expect(m).not.toBeNull();
+    const embedded = m?.[1] ?? '';
+    // ① 不含 %% 双写(gdEscape 的 % 格式化转义指纹,I-1 缺陷根因)
+    expect(embedded.includes('%%')).toBe(false);
+    // ② 模拟 GD 字符串字面量 unescape(覆盖 escapeForGdLiteral 的转义集 \\ \" \n \t),
+    //    还原出的 JSON 文本与原始 JSON 逐字相等,parse 后 key 与原始 path 全等
+    const unescaped = embedded.replace(/\\(["\\nt])/g, (_all, ch: string) =>
+      ch === 'n' ? '\n' : ch === 't' ? '\t' : ch);
+    const rawJson = JSON.stringify(Object.fromEntries(styleExpect.map(e => [e.path, [...e.slots]])));
+    expect(unescaped).toBe(rawJson);
+    const parsed: Record<string, unknown> = JSON.parse(unescaped);
+    expect(Object.keys(parsed).sort()).toEqual(styleExpect.map(e => e.path).sort());
+  });
   it('styleExpect 缺省 → 无 _style_expect 初始化注入(与现状脚本一致,向后兼容)', () => {
     const s = genUiMeasureScript('res://main.tscn', undefined, 16);
     expect(s).toContain('var _style_expect: Dictionary = {}');
