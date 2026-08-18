@@ -2,7 +2,8 @@
 // PR-3 集成验收(spec 2026-08-17-prototype-stylebox-loop-design.md §5/§7):
 // 真跑 Godot 窗口模式(会短暂弹窗——Windows headless=dummy renderer 截图空白,窗口模式
 // 是唯一可靠渲染路径,spec §5 实测前提)。三用例:
-//   1. css-card:ui_import_prototype 建场 → ui_pixel_verify 同图全绿(逐 bg 节点 5 采样点);
+//   1. css-card:ui_import_prototype 建场 → ui_pixel_verify 同图全绿(逐 bg 节点中心+四角,
+//      text 节点跳中心=4 点;ProgressBar 系整节点 skip);
 //   2. 容差校准(§10.2):首跑若阈值不过,记录实际 distance 分布 → 校准常量 → 复跑全绿,
 //      校准过程在本文件注释如实留档(不静默调阈值);
 //   3. 负向:geometry_path '../' 逃逸 → INVALID_PARAMS(集成层白名单,沿 import 用例 3 先例)。

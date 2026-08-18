@@ -699,7 +699,7 @@ async function handleUiImportPrototype(
     const flowVerify = diffFlow(measured, translated.flow_expect, tolerance);
     const verifyCoverage = {
       ...translated.coverage,
-      _note: 'targets 为受 layout_verify 几何覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在 layout_verify 覆盖内,由 flow_verify 数字覆盖(期望=输入视口 rect);孙层为近似覆盖',
+      _note: 'targets 为受 layout_verify 几何覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在 layout_verify 覆盖内,由 flow_verify 数字覆盖(期望=输入视口 rect);孙层由 layout_verify 近似覆盖(期望相对输入父原点,容器排布后天然带偏移)',
     };
     return textResult(JSON.stringify(opsSuccess({
       tree: translated.tree,

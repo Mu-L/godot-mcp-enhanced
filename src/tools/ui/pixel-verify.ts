@@ -44,7 +44,8 @@ export interface BgTarget {
   skipCenter: boolean;
 }
 
-/** 判定容差(0-255 欧氏距离):中心严格、角点宽松(spec §5,阈值 §10.2 集成校准)。 */
+/** 判定容差(0-255 欧氏距离):中心严格、角点宽松(spec §5,阈值 §10.2 集成校准——
+ * 2026-08-18 集成校准(css-card,真渲染):13 采样点 distance=0.0,零底噪零偏移,无需裕量)。 */
 export const CENTER_TOL = 20;
 export const CORNER_TOL = 60;
 
@@ -113,7 +114,8 @@ export function collectBgTargets(geo: PrototypeGeometry): { targets: BgTarget[];
       skipped.push({ name: nd.name, reason: `bg alpha=${rgba[3]}(半透明):与底层合成后采样色≠bg_color,像素直判不可用` });
       continue;
     }
-    // ProgressBar 语义推断对齐翻译器(type 标注 / value 进度 / fill 槽色任一命中)
+    // type/value 两分支对齐翻译器 inferType 推断,fill 分支为保守扩展
+    // (fill-only+bg 节点翻译后是可采样 Panel bg,保守跳过只少判不误绿)
     if (nd.type === 'ProgressBar' || nd.value !== undefined || nd.fill !== undefined) {
       skipped.push({ name: nd.name, reason: 'ProgressBar 的 bg 渲染面被 fill 与百分比文字覆盖,无可采样纯色区域——bg 槽请依赖 style_verify 数值验证' });
       continue;
