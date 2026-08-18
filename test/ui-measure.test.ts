@@ -51,3 +51,64 @@ describe('genUiMeasureScript', () => {
     expect(genUiMeasureScript('res://scenes/main.tscn', undefined, Number.POSITIVE_INFINITY)).toContain('depth > 16');
   });
 });
+
+// ─── PR-2 Task 3: style 按需读回(spec §4.1) ───────────────────────────────
+
+describe('genUiMeasureScript style 读回(PR-2)', () => {
+  it('styleExpect 传入:内嵌 JSON.parse_string(转义单字符串,防 name 注入)+ has_override 并集 + get_theme_stylebox 读回', () => {
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16,
+      [{ path: 'Root/Card', slots: ['panel', 'fill'] }]);
+    expect(s).toContain('JSON.parse_string');
+    expect(s).toContain('Root/Card');
+    expect(s).toContain('has_theme_stylebox_override');
+    expect(s).toContain('get_theme_stylebox');
+    expect(s).toContain('StyleBoxFlat');
+    expect(s).toContain('corner_radius_top_left');
+    expect(s).toContain('border_width_bottom');
+    expect(s).toContain('get_class');  // 非 Flat 输出 type 字段
+  });
+  it('name 含引号/反斜杠等任意字符时安全转义(gdEscape 过 JSON 字符串)', () => {
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16,
+      [{ path: 'A\\"B\\nC', slots: ['panel'] }]);
+    expect(s).not.toMatch(/JSON\.parse_string\("A\\"/);  // 不允许裸字面量拼接出非法 GD
+    expect(s).toContain('JSON.parse_string');
+  });
+  it('I-1:name 含 % / " / \\ / 换行时期望清单 round-trip——不双写 %%,unescape 后 key 与原始 path 全等', () => {
+    const styleExpect = [
+      { path: 'x%y', slots: ['panel'] },
+      { path: 'A"B', slots: ['fill'] },
+      { path: 'back\\slash', slots: ['hover'] },
+      { path: 'line\nbreak', slots: ['pressed'] },
+    ];
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16, styleExpect);
+    // 提取 JSON.parse_string("...") 的内嵌文本(换行已转义为 \n 字面量,注入为单行)
+    const m = s.match(/JSON\.parse_string\("(.*)"\)/);
+    expect(m).not.toBeNull();
+    const embedded = m?.[1] ?? '';
+    // ① 不含 %% 双写(gdEscape 的 % 格式化转义指纹,I-1 缺陷根因)
+    expect(embedded.includes('%%')).toBe(false);
+    // ② 模拟 GD 字符串字面量 unescape(覆盖 escapeForGdLiteral 的转义集 \\ \" \n \t),
+    //    还原出的 JSON 文本与原始 JSON 逐字相等,parse 后 key 与原始 path 全等
+    const unescaped = embedded.replace(/\\(["\\nt])/g, (_all, ch: string) =>
+      ch === 'n' ? '\n' : ch === 't' ? '\t' : ch);
+    const rawJson = JSON.stringify(Object.fromEntries(styleExpect.map(e => [e.path, [...e.slots]])));
+    expect(unescaped).toBe(rawJson);
+    const parsed: Record<string, unknown> = JSON.parse(unescaped);
+    expect(Object.keys(parsed).sort()).toEqual(styleExpect.map(e => e.path).sort());
+  });
+  it('styleExpect 缺省 → 无 _style_expect 初始化注入(与现状脚本一致,向后兼容)', () => {
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16);
+    expect(s).toContain('var _style_expect: Dictionary = {}');
+    expect(s).not.toContain('JSON.parse_string');
+    // 读回段仍在(override 并集条件——手写树无期望清单也能读到)
+    expect(s).toContain('has_theme_stylebox_override');
+  });
+  it('styleExpect 空数组 → 同缺省(不注入 parse)', () => {
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16, []);
+    expect(s).not.toContain('JSON.parse_string');
+  });
+  it('七槽白名单常量内嵌', () => {
+    const s = genUiMeasureScript('res://main.tscn', undefined, 16, [{ path: 'X', slots: ['panel'] }]);
+    expect(s).toContain('"panel", "normal", "background", "fill", "hover", "pressed", "disabled"');
+  });
+});

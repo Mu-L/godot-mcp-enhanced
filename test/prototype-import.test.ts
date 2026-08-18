@@ -617,3 +617,103 @@ describe('StyleBox 通道翻译(PR-1)', () => {
       .toThrow(/INVALID_PARAMS/);
   });
 });
+
+// ─── PR-2 Task 2: flow_expect 产出 + fill-only 灰底 warning ────────────────
+
+describe('flow_expect(PR-2,spec §4.2)', () => {
+  const geo = (nodes: unknown[]) => ({ viewport: { w: 1280, h: 720 }, nodes });
+
+  it('flow 直接子节点 → flow_expect 条目(path 含 _Flow 层,rect 为输入视口绝对)', () => {
+    const r = translateGeometry(geo([
+      { name: 'Holder', rect: { x: 100, y: 100, w: 408, h: 40 }, flow: 'row', justify: 'space-between' },
+      { name: 'BtnA', rect: { x: 100, y: 104, w: 72, h: 32 }, type: 'Button', text: 'A' },
+      { name: 'BtnB', rect: { x: 268, y: 104, w: 72, h: 32 }, type: 'Button', text: 'B' },
+    ]) as never);
+    expect(r.flow_expect).toEqual([
+      { path: '_PrototypeRoot/Holder/Holder_Flow/BtnA', rect: { x: 100, y: 104, w: 72, h: 32 } },
+      { path: '_PrototypeRoot/Holder/Holder_Flow/BtnB', rect: { x: 268, y: 104, w: 72, h: 32 } },
+    ]);
+  });
+  it('flow 孙层不进 flow_expect(仅直接子层);孙层 rect 照旧保留在树中', () => {
+    const r = translateGeometry(geo([
+      { name: 'F', rect: { x: 0, y: 0, w: 400, h: 100 }, flow: 'row' },
+      { name: 'C1', rect: { x: 0, y: 0, w: 200, h: 100 } },
+      { name: 'G1', rect: { x: 10, y: 10, w: 50, h: 30 }, text: 'g' },
+    ]) as never);
+    expect(r.flow_expect).toEqual([{ path: '_PrototypeRoot/F/F_Flow/C1', rect: { x: 0, y: 0, w: 200, h: 100 } }]);
+    const c1 = r.tree.children![0]!.children![0]!.children![0]!;
+    expect(c1.name).toBe('C1');
+    expect(c1.children![0]!.rect).toBeDefined(); // 孙层保留 rect(近似覆盖)
+  });
+  it('嵌套 flow:内层 flow 直接子也进 flow_expect(path 全链)', () => {
+    const r = translateGeometry(geo([
+      { name: 'Outer', rect: { x: 0, y: 0, w: 400, h: 200 }, flow: 'row' },
+      { name: 'Inner', rect: { x: 0, y: 0, w: 200, h: 200 }, flow: 'column' },
+      { name: 'Leaf', rect: { x: 5, y: 5, w: 100, h: 30 }, text: 'x' },
+    ]) as never);
+    expect(r.flow_expect).toEqual([
+      { path: '_PrototypeRoot/Outer/Outer_Flow/Inner', rect: { x: 0, y: 0, w: 200, h: 200 } },
+      { path: '_PrototypeRoot/Outer/Outer_Flow/Inner/Inner_Flow/Leaf', rect: { x: 5, y: 5, w: 100, h: 30 } },
+    ]);
+  });
+  it('合成根撞名改名时 path 用最终树名(禁硬编码 ROOT_NAME)', () => {
+    const r = translateGeometry(geo([
+      { name: '_PrototypeRoot', rect: { x: 0, y: 0, w: 1280, h: 720 }, flow: 'row' },
+      { name: 'A', rect: { x: 0, y: 0, w: 50, h: 30 }, text: 'a' },
+    ]) as never);
+    expect(r.tree.name).toBe('_PrototypeRoot2');   // uniqueName 改名
+    expect(r.flow_expect[0]!.path).toBe('_PrototypeRoot2/_PrototypeRoot/_PrototypeRoot_Flow/A');
+  });
+  it('无 flow → flow_expect 空数组', () => {
+    const r = translateGeometry(geo([
+      { name: 'A', rect: { x: 0, y: 0, w: 50, h: 30 }, text: 'a' },
+    ]) as never);
+    expect(r.flow_expect).toEqual([]);
+  });
+  it('B-2 warning 文案改为 flow_verify 数字覆盖措辞', () => {
+    const r = translateGeometry(geo([
+      { name: 'F', rect: { x: 0, y: 0, w: 400, h: 100 }, flow: 'row' },
+      { name: 'C1', rect: { x: 0, y: 0, w: 200, h: 100 }, text: 'c' },
+    ]) as never);
+    // brief 原选择器 includes('flow') 会先命中 flow 子节点 min_size 提示(树构造期先 push),
+    // 改用 flow_verify 精确定位 B-2 文案;后续断言语义不变。
+    const w = r.warnings.find(x => x.includes('flow_verify'))!;
+    expect(w).toContain('直接子节点');
+    expect(w).not.toContain('screenshot diff 兜底');
+  });
+});
+
+describe('fill-only 灰底 warning(PR-2 顺手项 3/4,PR-1 终审转来)', () => {
+  const geo = (nodes: unknown[]) => ({ viewport: { w: 800, h: 600 }, nodes });
+
+  it('显式 Panel fill-only:fill 忽略 warning 追加默认主题灰底声明', () => {
+    const r = translateGeometry(geo([
+      { name: 'P', rect: { x: 0, y: 0, w: 100, h: 50 }, type: 'Panel', fill: '#3ddc84' },
+    ]) as never);
+    const w = r.warnings.find(x => x.includes('fill 仅 ProgressBar'))!;
+    expect(w).toContain('灰底');
+    expect(r.tree.children![0]!.styleboxes).toBeUndefined(); // 无 override 产出
+  });
+  it('推断布局壳 fill-only:同样灰底声明(透明壳被 fill 输入阻断)', () => {
+    const r = translateGeometry(geo([
+      { name: 'Shell', rect: { x: 0, y: 0, w: 100, h: 50 }, fill: '#3ddc84' },
+    ]) as never);
+    const w = r.warnings.find(x => x.includes('fill 仅 ProgressBar'))!;
+    expect(w).toContain('灰底');
+    expect(r.tree.children![0]!.properties?.self_modulate).toBeUndefined(); // 未设透明壳(fill 阻断推断壳路径,properties 可能整体不存在,用可选链)
+  });
+  it('fill+bg(显式 Panel):仅 fill 忽略 warning,无灰底声明(有 override 不灰底)', () => {
+    const r = translateGeometry(geo([
+      { name: 'P', rect: { x: 0, y: 0, w: 100, h: 50 }, type: 'Panel', bg: '#1a1f2e', fill: '#3ddc84' },
+    ]) as never);
+    const w = r.warnings.find(x => x.includes('fill 仅 ProgressBar'))!;
+    expect(w).not.toContain('灰底');
+  });
+  it('fill-only Label:fill 忽略 warning 无灰底措辞(Label 默认主题透明,非灰底)', () => {
+    const r = translateGeometry(geo([
+      { name: 'L', rect: { x: 0, y: 0, w: 100, h: 30 }, text: 'x', fill: '#3ddc84' },
+    ]) as never);
+    const w = r.warnings.find(x => x.includes('fill 仅 ProgressBar'))!;
+    expect(w).not.toContain('灰底');
+  });
+});

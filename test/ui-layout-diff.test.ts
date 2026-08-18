@@ -7,6 +7,8 @@ import { flattenTargets, diffLayout, detectOverlaps, detectOutOfBounds } from '.
 import type { MeasuredNode } from '../src/tools/ui/layout-diff.js';
 import type { UiNodeSpec } from '../src/tools/ui/types.js';
 import type { ExecuteGdscriptResult } from '../src/gdscript-executor.js';
+import { flattenStyleTargets, styleExpectList, diffStyles, diffFlow, STYLE_COLOR_TOL } from '../src/tools/ui/layout-diff.js';
+import type { StyleReading } from '../src/tools/ui/layout-diff.js';
 
 const n = (path: string, x: number, y: number, w: number, h: number): MeasuredNode =>
   ({ path, type: 'Control', rect: { x, y, w, h } });
@@ -293,5 +295,212 @@ describe('ui_measure_layout expect_tree(handler 集成)', () => {
     }, ctx);
     expect(r.isError).toBeFalsy();
     expect((r.content[0] as { text: string }).text).not.toContain('layout_verify');
+  });
+
+  // ─── PR-2 Task 4: expect_tree 同构复用 style_verify(spec §4.1 挂两处之二) ──
+
+  it('expect_tree 带 styleboxes → data.style_verify 注入 + measure 脚本内嵌期望清单(PR-2)', async () => {
+    // styles 按 GD _walk 产出真实形状(flat:true 时四组字段全产出)
+    mockedExec.mockResolvedValue(okResult({
+      stable_after_frames: 2,
+      stalled: false,
+      viewport: { w: 1280, h: 720 },
+      nodes: [
+        { path: 'P', type: 'Panel', rect: { x: 0, y: 0, w: 200, h: 200 },
+          styles: [{ slot: 'panel', flat: true, bg_color: [0.1, 0.12, 0.18, 1],
+            corner_radius: { tl: 0, tr: 0, br: 0, bl: 0 },
+            border_width: { left: 0, top: 0, right: 0, bottom: 0 },
+            border_color: [0, 0, 0, 1] }] },
+        { path: 'P/A', type: 'Button', rect: { x: 0, y: 40, w: 100, h: 48 } },
+      ],
+    }));
+    const r = await handleTool('ui', {
+      action: 'ui_measure_layout', project_path: '/fake/p',
+      scene_path: 'res://scenes/main.tscn',
+      expect_tree: {
+        type: 'Panel', name: 'P',
+        styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.12, 0.18, 1] } }],
+        children: [
+          { type: 'Button', name: 'A', rect: { x: 0, y: 24, w: 100, h: 48 } },
+        ],
+      },
+    }, ctx);
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse((r.content[0] as { text: string }).text) as {
+      data: {
+        style_verify?: Array<{ path: string; slot: string; field: string; ok: boolean }>;
+        layout_verify?: unknown;
+      };
+    };
+    // style_verify 注入(与 layout_verify 并列;只比 box 显式字段 → 仅 bg_color 1 条全绿)
+    const sv = parsed.data.style_verify!;
+    expect(sv).toHaveLength(1);
+    expect(sv[0]).toMatchObject({ path: 'P', slot: 'panel', field: 'bg_color', ok: true });
+    expect(parsed.data.layout_verify).toBeTruthy();
+    // measure 脚本第 4 参期望清单内嵌:code 含 JSON.parse_string 与 path→slots 清单
+    // (escapeForGdLiteral 会把 JSON 的 " 转义为 \",断言按转义后字面序列)
+    const call = mockedExec.mock.calls[0]![0] as { code: string };
+    expect(call.code).toContain('JSON.parse_string');
+    expect(call.code).toContain('\\"P\\":[\\"panel\\"]');
+  });
+
+  it('expect_tree 无 styleboxes → style_verify=[] 且 measure 脚本不注入期望清单(PR-2)', async () => {
+    mockedExec.mockResolvedValue(okResult({ stable_after_frames: 2, nodes: [] }));
+    const r = await handleTool('ui', {
+      action: 'ui_measure_layout', project_path: '/fake/p',
+      scene_path: 'res://scenes/main.tscn',
+      expect_tree: { type: 'Panel', name: 'P', rect: { x: 0, y: 0, w: 100, h: 100 } },
+    }, ctx);
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse((r.content[0] as { text: string }).text) as { data?: { style_verify?: unknown } };
+    expect(parsed.data?.style_verify).toEqual([]);
+    const call = mockedExec.mock.calls[0]![0] as { code: string };
+    expect(call.code).not.toContain('JSON.parse_string');
+  });
+});
+
+// ─── PR-2 Task 1: style_verify / flow_verify 纯函数 ────────────────────────
+
+describe('flattenStyleTargets / styleExpectList(PR-2)', () => {
+  const tree: UiNodeSpec = {
+    type: 'Panel', name: 'Root', rect: { x: 0, y: 0, w: 100, h: 100 },
+    styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.12, 0.18, 1] } }],
+    children: [
+      { type: 'ProgressBar', name: 'Hp', rect: { x: 8, y: 8, w: 80, h: 10 },
+        styleboxes: [
+          { slot: 'background', box: { bg_color: [0, 0, 0, 1] } },
+          { slot: 'fill', box: { bg_color: [0.2, 0.8, 0.4, 1] } },
+        ] },
+    ],
+  };
+  it('flattenStyleTargets:逐节点逐槽位,path 链与 flattenTargets 同构(根级无前缀)', () => {
+    const out = flattenStyleTargets(tree);
+    expect(out.map(t => `${t.path}:${t.slot}`)).toEqual([
+      'Root:panel', 'Root/Hp:background', 'Root/Hp:fill',
+    ]);
+  });
+  it('styleExpectList:同 path 多槽聚合(顺序保持)', () => {
+    const list = styleExpectList(flattenStyleTargets(tree));
+    expect(list).toEqual([
+      { path: 'Root', slots: ['panel'] },
+      { path: 'Root/Hp', slots: ['background', 'fill'] },
+    ]);
+  });
+  it('无 styleboxes 的树 → 两个函数均空数组', () => {
+    const plain: UiNodeSpec = { type: 'Panel', name: 'P' };
+    expect(flattenStyleTargets(plain)).toEqual([]);
+    expect(styleExpectList([])).toEqual([]);
+  });
+});
+
+describe('diffStyles(PR-2)', () => {
+  const target = { path: 'Card', slot: 'panel', box: {
+    bg_color: [0.1, 0.12, 0.18, 1], corner_radius: 8, border_width: 2, border_color: [0.24, 0.86, 0.52, 1],
+  } };
+  const flatReading: StyleReading = {
+    path: 'Card', slot: 'panel', flat: true,
+    bg_color: [0.1, 0.12, 0.18, 1],
+    corner_radius: { tl: 8, tr: 8, br: 8, bl: 8 },
+    border_width: { left: 2, top: 2, right: 2, bottom: 2 },
+    border_color: [0.24, 0.86, 0.52, 1],
+  };
+  it('全字段命中 → 全绿,10 条(bg1+corner4+border_width4+border_color1)', () => {
+    const out = diffStyles([flatReading], [target]);
+    expect(out).toHaveLength(10);
+    expect(out.every(e => e.ok)).toBe(true);
+    const bg = out.find(e => e.field === 'bg_color')!;
+    expect(bg.target).toEqual([0.1, 0.12, 0.18, 1]);
+    expect(bg.delta).toEqual([0, 0, 0, 0]);
+    const c = out.find(e => e.field === 'corner_radius_top_left')!;
+    expect(c.target).toBe(8);
+    expect(c.actual).toBe(8);
+  });
+  it('颜色 float32 漂移在容差内绿(0.2 → 0.2000000029 级),超容差红', () => {
+    // 注:brief 原用 0.1 + STYLE_COLOR_TOL 构造"恰好容差边界",但 double 表示误差使
+    // (0.1+0.002)-0.1 = 0.0020000000000000018 > tol → 误红;改用 tol/2 表示"容差内漂移"。
+    // 红例 delta 断言用同一浮点表达式回算,不做 0.02 精确字面量假设。
+    const r: StyleReading = { ...flatReading, bg_color: [0.1 + STYLE_COLOR_TOL / 2, 0.12, 0.18, 1] };
+    const out = diffStyles([r], [target]);
+    expect(out.find(e => e.field === 'bg_color')!.ok).toBe(true);
+    const r2: StyleReading = { ...flatReading, bg_color: [0.1 + STYLE_COLOR_TOL * 10, 0.12, 0.18, 1] };
+    const out2 = diffStyles([r2], [target]);
+    const bg2 = out2.find(e => e.field === 'bg_color')!;
+    expect(bg2.ok).toBe(false);
+    const drift = (0.1 + STYLE_COLOR_TOL * 10) - 0.1;
+    expect(bg2.delta).toEqual([drift, 0, 0, 0]);
+  });
+  it('非 StyleBoxFlat(Label 未 override → StyleBoxEmpty)→ 单条 type 红条目,不进字段 diff', () => {
+    const r: StyleReading = { path: 'Card', slot: 'normal', flat: false, type: 'StyleBoxEmpty' };
+    const out = diffStyles([r], [{ path: 'Card', slot: 'normal', box: { bg_color: [1, 1, 1, 1] } }]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe('type');
+    expect(out[0]!.target).toBe('StyleBoxFlat');
+    expect(out[0]!.actual).toBe('StyleBoxEmpty');
+    expect(out[0]!.ok).toBe(false);
+  });
+  it('override 没设上(get 回默认主题数值)→ 字段 diff 红(§4.1 核心防线)', () => {
+    // Panel 默认主题 panel 槽是 StyleBoxFlat 灰底 + 无圆角无边框
+    const defaultTheme: StyleReading = {
+      path: 'Card', slot: 'panel', flat: true,
+      bg_color: [0.1, 0.1, 0.1, 1],
+      corner_radius: { tl: 0, tr: 0, br: 0, bl: 0 },
+      border_width: { left: 0, top: 0, right: 0, bottom: 0 },
+      border_color: [0.8, 0.8, 0.8, 1],
+    };
+    const out = diffStyles([defaultTheme], [target]);
+    expect(out.find(e => e.field === 'bg_color')!.ok).toBe(false);
+    expect(out.find(e => e.field === 'corner_radius_top_left')!.ok).toBe(false);
+    expect(out.find(e => e.field === 'border_width_left')!.ok).toBe(false);
+  });
+  it('reading 缺失(节点不在测量集)→ (reading missing) 红条目', () => {
+    const out = diffStyles([], [target]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe('(reading missing)');
+    expect(out[0]!.ok).toBe(false);
+  });
+  it('期望字段缺省不比对(box 只有 bg_color 时仅 1 条;draw_center 永不比)', () => {
+    const t = { path: 'X', slot: 'panel', box: { bg_color: [0, 0, 0, 1], draw_center: false } };
+    const out = diffStyles([{ path: 'X', slot: 'panel', flat: true, bg_color: [0, 0, 0, 1] }], [t]);
+    expect(out).toHaveLength(1);
+    expect(out.every(e => e.ok)).toBe(true);
+  });
+  it('corner_radius 对象形态:{tl:8} 展开 tl=8 其余 0(与生成器同缺省)', () => {
+    const t = { path: 'Y', slot: 'panel', box: { corner_radius: { tl: 8 } } };
+    const r: StyleReading = { path: 'Y', slot: 'panel', flat: true,
+      corner_radius: { tl: 8, tr: 0, br: 0, bl: 0 } };
+    const out = diffStyles([r], [t]);
+    expect(out).toHaveLength(4);
+    expect(out.every(e => e.ok)).toBe(true);
+    expect(out.find(e => e.field === 'corner_radius_bottom_right')!.target).toBe(0);
+  });
+});
+
+describe('diffFlow(PR-2)', () => {
+  const measured = [
+    { path: 'R/H/H_Flow/A', type: 'Button', rect: { x: 100, y: 100, w: 72, h: 40 } },
+    { path: 'R/H/H_Flow/B', type: 'Button', rect: { x: 268, y: 100, w: 72, h: 40 } },
+  ];
+  const expect1 = [
+    { path: 'R/H/H_Flow/A', rect: { x: 100, y: 104, w: 72, h: 32 } },
+    { path: 'R/H/H_Flow/B', rect: { x: 268, y: 104, w: 72, h: 32 } },
+  ];
+  it('期望为视口绝对、actual 直接对比(不换父相对);x 命中 y/h 超容差 → 对应维度红', () => {
+    const out = diffFlow(measured, expect1, 2);
+    expect(out).toHaveLength(2);
+    const a = out[0]!;
+    expect(a.delta.dx).toBe(0);
+    expect(a.delta.dy).toBe(-4);
+    expect(a.delta.dh).toBe(8);
+    expect(a.ok).toBe(false);
+  });
+  it('容差内全绿', () => {
+    const out = diffFlow(measured, expect1, 10);
+    expect(out.every(e => e.ok)).toBe(true);
+  });
+  it('节点缺失 → actual:null + NaN delta,ok:false', () => {
+    const out = diffFlow(measured, [{ path: 'R/H/H_Flow/GONE', rect: { x: 0, y: 0, w: 1, h: 1 } }]);
+    expect(out[0]!.actual).toBeNull();
+    expect(out[0]!.delta.dy).toBeNaN();
+    expect(out[0]!.ok).toBe(false);
   });
 });

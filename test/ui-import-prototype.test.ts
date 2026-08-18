@@ -375,4 +375,175 @@ describe('ui_import_prototype 登记契约', () => {
     expect(cfg.removeProps).toContain('geometry_path');
     expect(cfg.descHint).toContain('ui_import_prototype');
   });
+
+  it('SLIM_CONFIG descHint: ui_import_prototype 段提及 style_verify/flow_verify 返回(PR-2)', () => {
+    expect(SLIM_CONFIG['ui']!.descHint).toContain('返回 style_verify/flow_verify');
+  });
+});
+
+// ─── PR-2 Task 4: import 链 style_verify/flow_verify 接线 ───────────────────
+
+// geometry: Card(Panel bg+radius+border)+ Holder(flow row)→ BtnA(Button bg,flow 直接子)。
+// 颜色归一 target: '#1a1f2e'→[26,31,46]/255, '#3ddc84'→[61,220,132]/255, '#3d5afe'→[61,90,254]/255。
+const GEO_STYLE = {
+  viewport: { w: 800, h: 600 },
+  nodes: [
+    { name: 'Card', rect: { x: 40, y: 40, w: 320, h: 200 },
+      bg: '#1a1f2e', borderRadius: 12, border: { width: 2, color: '#3ddc84' } },
+    { name: 'Holder', rect: { x: 0, y: 300, w: 400, h: 40 }, flow: 'row' },
+    { name: 'BtnA', rect: { x: 100, y: 304, w: 72, h: 32 },
+      interactive: true, text: '按钮A', bg: '#3d5afe' },
+  ],
+};
+
+/** PR-2 measure mock:nodes[].styles 按 GD _walk 产出真实形状(flat:true 时四组字段
+ * 全产出:slot/flat/bg_color/corner_radius/border_width/border_color)。Card 的
+ * bg/border 读回值带 float32 漂移级差异(与归一 target 差 ≤0.002 → STYLE_COLOR_TOL 内绿);
+ * dropStyles=true 模拟 override 没设上场景(节点无 styles 字段)。 */
+function styleMeasureOutputs(dropStyles = false) {
+  const withStyles = (slot: string, r: {
+    bg: number[]; corner: { tl: number; tr: number; br: number; bl: number }; bw: number; bc: number[];
+  }) => (dropStyles ? {} : {
+    styles: [{
+      slot, flat: true,
+      bg_color: r.bg,
+      corner_radius: r.corner,
+      border_width: { left: r.bw, top: r.bw, right: r.bw, bottom: r.bw },
+      border_color: r.bc,
+    }],
+  });
+  return [{
+    key: 'measure',
+    value: JSON.stringify({
+      stable_after_frames: 3,
+      stalled: false,
+      viewport: { w: 800, h: 600 },
+      nodes: [
+        { path: '_PrototypeRoot', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 600 } },
+        { path: '_PrototypeRoot/Card', type: 'Panel', rect: { x: 40, y: 40, w: 320, h: 200 },
+          ...withStyles('panel', {
+            bg: [0.102, 0.122, 0.18, 1],                 // '#1a1f2e' 归一值的漂移级差异
+            corner: { tl: 12, tr: 12, br: 12, bl: 12 },
+            bw: 2, bc: [0.24, 0.863, 0.518, 1],           // '#3ddc84' 归一值的漂移级差异
+          }) },
+        { path: '_PrototypeRoot/Holder', type: 'Panel', rect: { x: 0, y: 300, w: 400, h: 40 } },
+        { path: '_PrototypeRoot/Holder/Holder_Flow', type: 'HBoxContainer', rect: { x: 0, y: 300, w: 400, h: 40 } },
+        { path: '_PrototypeRoot/Holder/Holder_Flow/BtnA', type: 'Button', rect: { x: 100, y: 304, w: 72, h: 32 },
+          ...withStyles('normal', {
+            bg: [61 / 255, 90 / 255, 254 / 255, 1],       // '#3d5afe' 精确归一值(delta=0)
+            corner: { tl: 0, tr: 0, br: 0, bl: 0 }, bw: 0, bc: [0, 0, 0, 1],
+          }) },
+      ],
+    }),
+  }];
+}
+
+/** PR-2 两段 mock:build + 带 styles 的 measure。 */
+function mockTwoPhaseStyles(dropStyles = false) {
+  execMock.mockReset();
+  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
+  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: styleMeasureOutputs(dropStyles) }));
+}
+
+interface StyleVerifyEntry {
+  path: string;
+  slot: string;
+  field: string;
+  delta: number | number[] | null;
+  ok: boolean;
+}
+
+describe('ui_import_prototype 返回 style_verify/flow_verify(PR-2)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('stylebox+flow geometry → style_verify 全绿(含 Card/panel bg_color)+ flow_verify 覆盖 BtnA + measure 脚本内嵌期望清单', async () => {
+    mockTwoPhaseStyles();
+    const result = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: GEO_STYLE,
+    }, createCtx());
+    expect(result!.isError).toBeFalsy();
+    const parsed = JSON.parse(textOf(result));
+
+    // 1. style_verify 全绿;含 Card/panel 的 bg_color 条目(delta ≤0.002,float32 容差)
+    const sv = parsed.data.style_verify as StyleVerifyEntry[];
+    expect(Array.isArray(sv)).toBe(true);
+    expect(sv.length).toBeGreaterThan(0);
+    expect(sv.every(e => e.ok)).toBe(true);
+    const cardBg = sv.find(e => e.path === '_PrototypeRoot/Card' && e.slot === 'panel' && e.field === 'bg_color');
+    expect(cardBg).toBeTruthy();
+    expect(Math.max(...(cardBg!.delta as number[]).map(Math.abs))).toBeLessThanOrEqual(0.002);
+    // Card box 四组显式字段均产出条目(corner×4/border_width×4/border_color)+ BtnA normal bg_color
+    expect(sv.some(e => e.field === 'corner_radius_top_left')).toBe(true);
+    expect(sv.some(e => e.field === 'border_width_left')).toBe(true);
+    expect(sv.some(e => e.field === 'border_color')).toBe(true);
+    expect(sv.some(e => e.path.endsWith('/BtnA') && e.slot === 'normal' && e.field === 'bg_color')).toBe(true);
+
+    // 2. flow_verify:1 条 BtnA,期望=输入视口 rect,actual(measure global rect)直接对比 ok
+    const fv = parsed.data.flow_verify as Array<{
+      path: string; target: { x: number; y: number; w: number; h: number };
+      actual: { x: number; y: number; w: number; h: number }; ok: boolean;
+    }>;
+    expect(fv).toHaveLength(1);
+    expect(fv[0]!.path).toBe('_PrototypeRoot/Holder/Holder_Flow/BtnA');
+    expect(fv[0]!.target).toEqual({ x: 100, y: 304, w: 72, h: 32 });
+    expect(fv[0]!.ok).toBe(true);
+
+    // 3. verify_coverage._note 含 flow_verify 措辞(不再只说 screenshot diff 兜底)
+    expect(String(parsed.data.verify_coverage._note)).toContain('flow_verify');
+
+    // 4. measure 脚本生成参数含期望清单:第 2 次调用 code 含 JSON 内嵌 path→slots
+    expect(execMock).toHaveBeenCalledTimes(2);
+    const secondCode = execMock.mock.calls[1]![0] as { code: string };
+    expect(secondCode.code).toContain('JSON.parse_string');
+    expect(secondCode.code).toContain('Holder_Flow');
+  });
+
+  it('无 stylebox 无 flow 的 geometry → style_verify=[] 且 flow_verify=[],measure 脚本不注入期望清单', async () => {
+    execMock.mockReset();
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{
+      key: 'measure',
+      value: JSON.stringify({
+        stable_after_frames: 3,
+        stalled: false,
+        viewport: { w: 800, h: 600 },
+        nodes: [
+          { path: '_PrototypeRoot', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 600 } },
+          { path: '_PrototypeRoot/Bar', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 60 } },
+          { path: '_PrototypeRoot/Bar/Title', type: 'Label', rect: { x: 10, y: 20, w: 200, h: 24 } },
+        ],
+      }),
+    }] }));
+    const result = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: {
+        viewport: { w: 800, h: 600 },
+        nodes: [
+          { name: 'Bar', rect: { x: 0, y: 0, w: 800, h: 60 } },               // 推断布局壳 Panel,无样式
+          { name: 'Title', rect: { x: 10, y: 20, w: 200, h: 24 }, text: '标题' }, // Label,无样式
+        ],
+      },
+    }, createCtx());
+    expect(result!.isError).toBeFalsy();
+    const parsed = JSON.parse(textOf(result));
+    expect(parsed.data.style_verify).toEqual([]);
+    expect(parsed.data.flow_verify).toEqual([]);
+    // 空期望清单 → measure 脚本不注入 JSON.parse_string
+    const secondCode = execMock.mock.calls[1]![0] as { code: string };
+    expect(secondCode.code).not.toContain('JSON.parse_string');
+  });
+
+  it('styles 缺失(override 没设上场景)→ style_verify 出 (reading missing) 红条目', async () => {
+    mockTwoPhaseStyles(true);
+    const result = await handleTool('ui', {
+      action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
+      geometry: GEO_STYLE,
+    }, createCtx());
+    expect(result!.isError).toBeFalsy();
+    const sv = JSON.parse(textOf(result)).data.style_verify as StyleVerifyEntry[];
+    // Card/panel 与 BtnA/normal 两个期望全部落空
+    expect(sv.some(e => e.field === '(reading missing)' && !e.ok)).toBe(true);
+    expect(sv.every(e => !e.ok)).toBe(true);
+  });
 });

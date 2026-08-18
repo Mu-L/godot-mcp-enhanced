@@ -50,6 +50,9 @@ export interface TranslateResult {
   tree: UiNodeSpec;
   warnings: string[];
   coverage: { targets: number; total_nodes: number };
+  /** PR-2(spec §4.2):flow 直接子节点期望清单——path 为最终树内路径(含 _Flow
+   * 容器层与 uniqueName 改名后的合成根名),rect 为输入视口绝对坐标。 */
+  flow_expect: Array<{ path: string; rect: Rect }>;
 }
 
 // ─── zod schema(v4,参照 src/tools/qa/spec.ts 先例) ────────────────────────
@@ -279,6 +282,8 @@ function buildSpec(
   warnings: string[],
   taken: Set<string>,
   depth: number,
+  pathPrefix: string,
+  flowExpect: Array<{ path: string; rect: Rect }>,
 ): UiNodeSpec {
   const nd = node.spec;
   if (depth > MAX_DEPTH) {
@@ -335,7 +340,14 @@ function buildSpec(
       warnings.push(`节点 "${node.cleanName}"(${type}): bg/fill/border 无该控件的样式槽位,已忽略(换 Panel/Button/Label/ProgressBar 或外包 Panel)`);
     }
     if (hasFill && type !== 'ProgressBar') {
-      warnings.push(`节点 "${node.cleanName}": fill 仅 ProgressBar 支持,已忽略`);
+      // PR-2 顺手项 3/4(PR-1 终审转来):fill-only(无 bg/border)时不产任何 override
+      // 且推断布局壳的透明壳被阻断 → 默认主题渲染。Panel 系是灰底(Label 默认透明),
+      // 显式声明让 AI 可见;fill+bg 时有 override 不灰底,不发灰底措辞。
+      if (type === 'Panel' && !hasBg && !hasBorderish) {
+        warnings.push(`节点 "${node.cleanName}": fill 仅 ProgressBar 支持,已忽略;且无 bg/border → 未产 stylebox override、未设透明壳(推断布局壳),将以默认主题灰底渲染——应有底色请显式给 bg`);
+      } else {
+        warnings.push(`节点 "${node.cleanName}": fill 仅 ProgressBar 支持,已忽略`);
+      }
     }
   } else if (nd.flow !== undefined || (nd.type === undefined && nd.text === undefined && nd.value === undefined)) {
     // 规则 4(final review I-1 收窄):只有**推断为布局壳 Panel**才设透明壳;禁 modulate(级联陷阱)。
@@ -373,13 +385,20 @@ function buildSpec(
     const flowType = nd.flow === 'row' ? 'HBoxContainer' : 'VBoxContainer';
     const flowLayout: UiNodeSpec['layout'] = { direction: nd.flow };
     if (nd.justify !== undefined) flowLayout.justify = nd.justify;
+    // containerName 提前提取:children 的 map 回调同步执行,若在此引用 container.name
+    // 会触发 TDZ ReferenceError(const container 尚未完成初始化)。
+    const containerName = uniqueName(`${node.cleanName}_Flow`, taken);
     const container: UiNodeSpec = {
       type: flowType,
-      name: uniqueName(`${node.cleanName}_Flow`, taken),
+      name: containerName,
       anchor_preset: 'full_rect',
       layout: flowLayout,
       children: node.children.map(c => {
-        const child = buildSpec(c, { x: abs.x, y: abs.y }, warnings, taken, depth + 2);
+        // PR-2:flow 直接子层期望(视口绝对 rect;path=前缀/本节点/_Flow/子名)。
+        // push 必须先于 buildSpec 子调用(子递归可能再产嵌套 flow 条目,顺序即树序)。
+        flowExpect.push({ path: `${pathPrefix}/${node.cleanName}/${containerName}/${c.cleanName}`, rect: c.spec.rect });
+        const child = buildSpec(c, { x: abs.x, y: abs.y }, warnings, taken, depth + 2,
+          `${pathPrefix}/${node.cleanName}/${containerName}`, flowExpect);
         delete child.rect;
         child.flex = { min_width: c.spec.rect.w, min_height: c.spec.rect.h };
         warnings.push(`flow 子节点 "${c.cleanName}": rect 尺寸映射为 flex.min_width/min_height(HUG 文本场景可能偏大)`);
@@ -391,7 +410,8 @@ function buildSpec(
   }
 
   if (node.children.length > 0) {
-    spec.children = node.children.map(c => buildSpec(c, { x: abs.x, y: abs.y }, warnings, taken, depth + 1));
+    spec.children = node.children.map(c => buildSpec(c, { x: abs.x, y: abs.y }, warnings, taken, depth + 1,
+      `${pathPrefix}/${node.cleanName}`, flowExpect));
   }
   return spec;
 }
@@ -420,6 +440,7 @@ export function translateGeometry(geo: PrototypeGeometry): TranslateResult {
   const warnings: string[] = [];
   const work = buildTree(geo, cleanNames);
   const taken = new Set(cleanNames);
+  const flowExpect: Array<{ path: string; rect: Rect }> = [];
 
   // 合成根:透明 Panel 壳,rect=viewport(视口原点);名字与输入清洗名去重。
   const rootName = uniqueName(ROOT_NAME, taken);
@@ -428,18 +449,19 @@ export function translateGeometry(geo: PrototypeGeometry): TranslateResult {
     name: rootName,
     rect: { x: 0, y: 0, w: geo.viewport.w, h: geo.viewport.h },
     properties: { self_modulate: [1, 1, 1, 0] },
-    children: work.map(w => buildSpec(w, { x: 0, y: 0 }, warnings, taken, 2)),
+    children: work.map(w => buildSpec(w, { x: 0, y: 0 }, warnings, taken, 2, rootName, flowExpect)),
   };
 
-  // B-2:flow 直接子节点丢 rect → 不受几何 verify 覆盖,warning 让 AI 可见(补偿防线 = screenshot diff)。
+  // B-2(2026-08-18 PR-2 改写):flow 直接子节点丢 rect 不受 layout_verify 覆盖——
+  // 补偿防线从「screenshot diff 兜底」升级为 flow_verify 数字清单(消解 B-2 盲区)。
   const flowChildCount = countDroppedRects(work);
   if (flowChildCount > 0) {
     const coverage = { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length };
     warnings.push(
-      `flow 子树共 ${flowChildCount} 个节点丢 rect,不受几何 verify 覆盖(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes}),几何正确性由 screenshot diff 兜底`);
+      `flow 直接子节点共 ${flowChildCount} 个: layout_verify 不覆盖(丢 rect),由 flow_verify 数字覆盖(期望=输入视口 rect vs 容器排布实测 global rect,逐节点 Δx/Δy/Δw/Δh);孙层为近似覆盖(期望相对输入父原点,容器排布后天然带偏移)(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes})`);
   }
 
-  return { tree, warnings, coverage: { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length } };
+  return { tree, warnings, coverage: { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length }, flow_expect: flowExpect };
 }
 
 /** flow 节点的直接子节点总数(= 丢 rect 不进 verify 的节点数;孙层保留 rect 不计)。 */

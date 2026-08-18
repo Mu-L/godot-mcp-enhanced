@@ -189,6 +189,25 @@ function validateUiNodeSpec(spec: UiNodeSpec, depth: number, warnings: string[] 
       if (b.border_width !== undefined && (typeof b.border_width !== 'number' || b.border_width < 0 || !Number.isFinite(b.border_width))) {
         throw new Error('INVALID_PARAMS: styleboxes border_width must be a non-negative finite number');
       }
+      // PR-2 M-2(PR-1 终审转来):bg_color/border_color 四元 number 数组对称校验
+      // (无注入向量——colorToGd 只认数组形态,坏输入原先在生成层静默/产出错行;
+      // 此处早拒提升 INVALID_PARAMS 质量)
+      for (const key of ['bg_color', 'border_color'] as const) {
+        const c = b[key];
+        if (c !== undefined) {
+          const bad = !Array.isArray(c) || c.length !== 4
+            || c.some(v => typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1);
+          if (bad) {
+            throw new Error(`INVALID_PARAMS: styleboxes ${key} must be an array of exactly 4 finite numbers in [0,1]`);
+          }
+        }
+      }
+      // PR-2 M-5:corner_radius 布尔/null/数组原先静默当 0(Object.values(布尔)=[] 空过,
+      // 生成器 `typeof object` 分支产 {} → 四角全 0)——显式拒
+      if (b.corner_radius !== undefined && typeof b.corner_radius !== 'number'
+        && (typeof b.corner_radius !== 'object' || b.corner_radius === null || Array.isArray(b.corner_radius))) {
+        throw new Error('INVALID_PARAMS: styleboxes corner_radius must be a number or an object {tl,tr,br,bl}');
+      }
     }
   }
   if (spec.children) {
