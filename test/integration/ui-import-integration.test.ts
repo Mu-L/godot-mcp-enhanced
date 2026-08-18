@@ -32,9 +32,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { executeGdscriptTrusted } from '../../src/gdscript-executor.js';
+import { genUiImportSingleScript } from '../../src/tools/ui/ui-import-single.js';
 import { genUiMeasureScript } from '../../src/tools/ui/ui-measure.js';
 import { handleTool } from '../../src/tools/ui/index.js';
 import type { ToolContext, ToolResult } from '../../src/types.js';
+import type { UiNodeSpec } from '../../src/tools/ui/types.js';
 
 const GODOT = process.env.GODOT_PATH;
 const run = !!GODOT && process.platform === 'win32';
@@ -43,26 +45,27 @@ const run = !!GODOT && process.platform === 'win32';
 const RTS_FIXTURE = fileURLToPath(new URL('../fixtures/prototype-geometry/rts-hud.json', import.meta.url));
 const CARD_FIXTURE = fileURLToPath(new URL('../fixtures/prototype-geometry/css-card.json', import.meta.url));
 
-// 集成耗时记录(spec 开放问题 3:两次 spawn 首版方案实测数据,供单 spawn 优化决策)
+// 集成耗时记录:两次 spawn 首版实测 ~6s(历史基线,spec §6 决策依据);PR-4 起单 spawn 合成,importElapsedMs 为单 spawn 耗时
 let importElapsedMs = 0;
+
+/** 临时 Godot 项目:project.godot + 根 Control 固定 offsets(尺寸须与 geometry viewport
+ * 一致——锚点求解产比例 anchor,viewport≠scene 根尺寸时整树被拉伸,layout diff 全偏)。
+ * (PR-4 起模块级:末尾篡改磁盘 describe 块与首个 describe 块共用。) */
+function mkProject(prefix: string, w = 1280, h = 720): string {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  writeFileSync(join(d, 'project.godot'),
+    `config_version=5\n\n[display]\nwindow/size/viewport_width=${w}\nwindow/size/viewport_height=${h}\n`);
+  // 根 Control 固定 offsets(合成根 _PrototypeRoot rect=viewport 的求解基准;勿 full_rect
+  // ——headless Window 实际尺寸不反映 project 设置,上轮 2496 教训)
+  writeFileSync(join(d, 'main.tscn'),
+    `[gd_scene format=3]\n\n[node name="Main" type="Control"]\noffset_right = ${w}.0\noffset_bottom = ${h}.0\n`);
+  return d;
+}
 
 describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
   let dir: string;      // RTS 项目(geometry_path 链路)
   let dirFlow: string;  // mini-flow 项目(inline geometry 链路)
   let dirCard: string;  // css-card 项目(StyleBox 通道验收)
-
-  /** 临时 Godot 项目:project.godot + 根 Control 固定 offsets(尺寸须与 geometry viewport
-   * 一致——锚点求解产比例 anchor,viewport≠scene 根尺寸时整树被拉伸,layout diff 全偏)。 */
-  function mkProject(prefix: string, w = 1280, h = 720): string {
-    const d = mkdtempSync(join(tmpdir(), prefix));
-    writeFileSync(join(d, 'project.godot'),
-      `config_version=5\n\n[display]\nwindow/size/viewport_width=${w}\nwindow/size/viewport_height=${h}\n`);
-    // 根 Control 固定 offsets(合成根 _PrototypeRoot rect=viewport 的求解基准;勿 full_rect
-    // ——headless Window 实际尺寸不反映 project 设置,上轮 2496 教训)
-    writeFileSync(join(d, 'main.tscn'),
-      `[gd_scene format=3]\n\n[node name="Main" type="Control"]\noffset_right = ${w}.0\noffset_bottom = ${h}.0\n`);
-    return d;
-  }
 
   beforeAll(() => {
     dir = mkProject('ui-import-rts-');
@@ -80,7 +83,7 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     rmSync(dirFlow, { recursive: true, force: true });
     rmSync(dirCard, { recursive: true, force: true });
     // eslint-disable-next-line no-console -- 集成耗时是 spec 开放问题 3 的决策数据,随测试输出留档
-    console.log(`[ui-import-integration] RTS 一次调用(handler 内 build+measure 两次 spawn)实测耗时: ${importElapsedMs}ms`);
+    console.log(`[ui-import-integration] RTS 一次调用(PR-4 单 spawn 合成:build+persist+reload+measure)实测耗时: ${importElapsedMs}ms(两次 spawn 历史基线 ~6s)`);
   });
 
   /** 集成链路只消费 ctx.findGodot();其余为 handler 不触达的 no-op stub。 */
@@ -132,6 +135,10 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
       geometry_path: 'proto/rts-hud.json',
     }, createCtx());
     importElapsedMs = Date.now() - t0;
+
+    // PR-4 耗时回归绊线:单 spawn 合成后应显著低于两次 spawn 基线(~6s);上限 10s
+    // (>3x 余量,CI 2 核 runner 安全)。数值留档进 CHANGELOG 0.32.4 段。
+    expect(importElapsedMs).toBeLessThan(10_000);
 
     expect(result).not.toBeNull();
     expect(result!.isError).toBeFalsy();
@@ -645,5 +652,101 @@ func _initialize():
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── PR-4:reload CACHE_MODE_IGNORE 断言(spec §6 验收:篡改磁盘,防 reload 假绿)───
+// 注入方式沿 buildThenMeasure 先例:call_deferred("_measure_go") 替换为 _tamper_go
+// (写盘篡改后调真 _measure_go)——被测 reload+measure 逻辑零改动。若 reload 回退为裸
+// load,同进程二载命中 ResourceCache 里 build 前 load 的原场景(1280x720 无子树),
+// 篡改内容(100x50)测不到 → 断言红;只有真读磁盘才绿。
+describe.skipIf(!run)('PR-4 单 spawn 合成与篡改磁盘断言(真跑 Godot)', () => {
+  const TREE: UiNodeSpec = { type: 'Panel', name: 'P', rect: { x: 10, y: 10, w: 200, h: 100 }, children: [] };
+
+  function withTamperHook(script: string, sceneAbs: string, tamperedTscn: string): string {
+    // GD 字符串字面量:JSON.stringify 产出的转义(\" 与 \n)恰为 GDScript 同款转义;
+    // 路径统一正斜杠(Windows Godot 兼容,且免反斜杠转义问题)
+    const gd = `func _tamper_go() -> void:
+\tvar _f := FileAccess.open("${sceneAbs.replace(/\\/g, '/')}", FileAccess.WRITE)
+\t_f.store_string(${JSON.stringify(tamperedTscn)})
+\t_f.close()
+\t_measure_go()
+`;
+    const hooked = script.replace('call_deferred("_measure_go")', 'call_deferred("_tamper_go")');
+    expect(hooked).not.toBe(script); // 锚点命中护栏:注入失败即测试红
+    return hooked + gd;
+  }
+
+  it('单 spawn 合成:build→persist→reload→measure 一次进程完成,P 节点 rect 正确', { timeout: 90000 }, async () => {
+    const d = mkProject('ui-import-single-');
+    try {
+      const res = await executeGdscriptTrusted({
+        godotPath: GODOT!, projectPath: d,
+        code: genUiImportSingleScript(join(d, 'main.tscn'), 'root', TREE, { w: 1280, h: 720 }, undefined),
+        timeout: 30, loadAutoloads: false,
+      });
+      expect(res.compile_success, res.compile_error).toBe(true);
+      expect(res.run_success, res.run_error).toBe(true);
+      expect(res.outputs.some(o => o.key === 'error')).toBe(false);
+      const persist = res.outputs.find(o => o.key === 'persist');
+      expect(res.outputs.filter(o => o.key === 'persist')).toHaveLength(1);
+      expect(JSON.parse(String(persist!.value)).saved).toBe(true);
+      const measure = JSON.parse(String(res.outputs.find(o => o.key === 'measure')!.value)) as {
+        nodes: Array<{ path: string; rect: { x: number; y: number; w: number; h: number } }>;
+      };
+      const p = measure.nodes.find(n => n.path === 'P');
+      expect(measure.nodes.filter(n => n.path === 'P')).toHaveLength(1);
+      expect(Math.abs(p!.rect.x - 10)).toBeLessThanOrEqual(1);
+      expect(Math.abs(p!.rect.w - 200)).toBeLessThanOrEqual(1);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  it('篡改磁盘(换 Hacked 100x50 场景)→ reload 测出篡改内容,证明绕过 ResourceCache', { timeout: 90000 }, async () => {
+    const d = mkProject('ui-import-tamper-');
+    try {
+      const script = genUiImportSingleScript(join(d, 'main.tscn'), 'root', TREE, { w: 1280, h: 720 }, undefined);
+      const res = await executeGdscriptTrusted({
+        godotPath: GODOT!, projectPath: d,
+        code: withTamperHook(script, join(d, 'main.tscn'),
+          '[gd_scene format=3]\n\n[node name="Hacked" type="Control"]\noffset_right = 100.0\noffset_bottom = 50.0\n'),
+        timeout: 30, loadAutoloads: false,
+      });
+      expect(res.compile_success, res.compile_error).toBe(true);
+      expect(res.run_success, res.run_error).toBe(true);
+      expect(res.outputs.some(o => o.key === 'error')).toBe(false);
+      const measure = JSON.parse(String(res.outputs.find(o => o.key === 'measure')!.value)) as {
+        nodes: Array<{ path: string; rect: { w: number; h: number } }>;
+      };
+      const rootEntry = measure.nodes.find(n => n.path === '.');
+      expect(measure.nodes.filter(n => n.path === '.')).toHaveLength(1);
+      expect(Math.abs(rootEntry!.rect.w - 100)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rootEntry!.rect.h - 50)).toBeLessThanOrEqual(1);
+      expect(measure.nodes.some(n => n.path.includes('P'))).toBe(false);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  it('篡改磁盘(非场景资源)→ reload 失败错误内嵌恢复语义「build 已持久化,可重跑」', { timeout: 90000 }, async () => {
+    const d = mkProject('ui-import-tamper-err-');
+    try {
+      const script = genUiImportSingleScript(join(d, 'main.tscn'), 'root', TREE, { w: 1280, h: 720 }, undefined);
+      const res = await executeGdscriptTrusted({
+        godotPath: GODOT!, projectPath: d,
+        // brief Step 2 注记裁决(2026-08-18 实测):纯垃圾文本使 ResourceLoader 产出
+        // "ERROR: res://main.tscn:1 - Parse Error: Expected '['." 进 stderr → executor 判
+        // compile_success=false(脚本未获机会跑);换合法但非场景资源走模板
+        // not (_rl is PackedScene) 分支,同一错误输出同一断言。
+        code: withTamperHook(script, join(d, 'main.tscn'), '[gd_resource type="Resource" format=3]\n\n[resource]\n'),
+        timeout: 30, loadAutoloads: false,
+      });
+      expect(res.compile_success, res.compile_error).toBe(true);
+      expect(res.run_success, res.run_error).toBe(true);
+      const errEntry = res.outputs.find(o => o.key === 'error');
+      expect(res.outputs.filter(o => o.key === 'error')).toHaveLength(1);
+      expect(String(errEntry!.value)).toContain('Scene reload failed (post-persist)');
+      expect(String(errEntry!.value)).toContain('已持久化');
+      expect(String(errEntry!.value)).toContain('ui_measure_layout');
+      // 测量中止:无 measure 输出(build 已持久化在磁盘,可重跑 ui_measure_layout 补测量)
+      expect(res.outputs.some(o => o.key === 'measure')).toBe(false);
+    } finally { rmSync(d, { recursive: true, force: true }); }
   });
 });

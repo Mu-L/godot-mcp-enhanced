@@ -1,6 +1,6 @@
 // test/ui-import-prototype.test.ts
 // Task 2 TDD:ui_import_prototype 接线(spec docs/superpowers/specs/2026-08-16-prototype-import-design.md §2.3)。
-// mock executeGdscriptTrusted 两段返回(先 build 后 measure,spec 开放问题 3 首版两次 spawn 方案),
+// mock executeGdscriptTrusted 单段返回(PR-4 单 spawn 合成,spec §6:build+persist+reload(CACHE_MODE_IGNORE)+measure 一次调用),
 // 断言:一次调用返回 {tree, build_warnings, measure, verify_coverage, layout_verify};
 // geometry/geometry_path 二选一语义;路径逃逸拒绝;ACTIONS/TOOL_META/UI_PERSIST_ACTIONS 登记契约。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -61,11 +61,10 @@ function measureOutputs(dOffset = 0) {
   }];
 }
 
-/** 两段 mock:第一次 build,第二次 measure。返回 executor 调用参数记录。 */
-function mockTwoPhase(dOffset = 0) {
+/** 单段 mock(PR-4):一次 executor 调用合并返回 build(persist)+measure 输出。 */
+function mockSinglePhase(dOffset = 0) {
   execMock.mockReset();
-  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
-  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: measureOutputs(dOffset) }));
+  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [...buildOutputs(), ...measureOutputs(dOffset)] }));
 }
 
 function textOf(result: ToolResult | null, index = 0): string {
@@ -91,8 +90,8 @@ function createCtx() {
 describe('ui_import_prototype 正常链路(inline geometry)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('返回 data 含 tree/build_warnings/measure/verify_coverage/layout_verify,executor 恰两次', async () => {
-    mockTwoPhase();
+  it('返回 data 含 tree/build_warnings/measure/verify_coverage/layout_verify,executor 恰一次(单 spawn)', async () => {
+    mockSinglePhase();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO,
@@ -125,17 +124,18 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     expect(parsed.data.layout_verify.out_of_bounds).toEqual([]);
     expect(parsed.data.layout_verify.viewport).toEqual({ w: 800, h: 600 });
 
-    // 两次 spawn:第一次 build(含 persist 原子写),第二次 measure(含 process_frame.connect)
-    expect(execMock).toHaveBeenCalledTimes(2);
-    const firstCode = execMock.mock.calls[0]![0] as { code: string };
-    const secondCode = execMock.mock.calls[1]![0] as { code: string };
-    expect(firstCode.code).toContain('ResourceSaver.save');
-    expect(firstCode.code).toContain('_PrototypeRoot');
-    expect(secondCode.code).toContain('process_frame.connect');
+    // 单 spawn(PR-4):一次调用合成 build(含 persist 原子写)+reload+measure
+    expect(execMock).toHaveBeenCalledTimes(1);
+    const code = execMock.mock.calls[0]![0] as { code: string };
+    expect(code.code).toContain('ResourceSaver.save');
+    expect(code.code).toContain('_PrototypeRoot');
+    expect(code.code).toContain('process_frame.connect');
+    expect(code.code).toContain('ResourceLoader.CACHE_MODE_IGNORE');
+    expect(code.code).toContain('call_deferred("_measure_go")');
   });
 
   it('固定持久化:build 脚本含 persist 块,返回不含 "退出即丢" ⚠ 提示(不入 UI_PERSIST_ACTIONS)', async () => {
-    mockTwoPhase();
+    mockSinglePhase();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO,
@@ -147,7 +147,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
   });
 
   it('tolerance 生效:偏移 3px 时默认容差 2 不绿,tolerance=5 绿', async () => {
-    mockTwoPhase(3); // Title x 偏移 3px
+    mockSinglePhase(3); // Title x 偏移 3px
     const r2 = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO,
@@ -155,7 +155,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     const diff2 = JSON.parse(textOf(r2)).data.layout_verify.diff as Array<{ ok: boolean }>;
     expect(diff2.find(d => !d.ok)).toBeTruthy();
 
-    mockTwoPhase(3);
+    mockSinglePhase(3);
     const r5 = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO, tolerance: 5,
@@ -165,7 +165,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
   });
 
   it('geometry+geometry_path 同时给:geometry 优先 + warning 提示', async () => {
-    mockTwoPhase();
+    mockSinglePhase();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO, geometry_path: 'res://whatever.json',
@@ -173,13 +173,13 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     expect(result!.isError).toBeFalsy();
     const parsed = JSON.parse(textOf(result));
     expect(parsed.data.build_warnings.join('\n')).toContain('geometry');
-    // 只两次 executor(build+measure),geometry_path 未触发额外执行
-    expect(execMock).toHaveBeenCalledTimes(2);
+    // 只一次 executor(单 spawn 合成),geometry_path 未触发额外执行
+    expect(execMock).toHaveBeenCalledTimes(1);
   });
 
   // I-2(final review 声明式修复):parent_path 非 root → build_warnings 追加根级 diff 参照系限制提示
   it('parent_path 非 root → build_warnings 含根级 diff 参照系限制提示;默认 root 不提示', async () => {
-    mockTwoPhase();
+    mockSinglePhase();
     const r1 = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO, parent_path: '/root/HUD',
@@ -190,7 +190,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     expect(w1).toContain('原点对齐');
     expect(w1).toContain('根级 diff 恒误报');
 
-    mockTwoPhase();
+    mockSinglePhase();
     const r2 = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO,
@@ -204,7 +204,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
   // 归一化判定(去尾斜杠)后不触发假阳性 warning;真子路径仍触发。
   it('parent_path 尾斜杠变体("root/","/root/")→ 不触发根级 diff 限制提示(假阳性修复)', async () => {
     for (const variant of ['root/', '/root/']) {
-      mockTwoPhase();
+      mockSinglePhase();
       const r = await handleTool('ui', {
         action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
         geometry: GEO, parent_path: variant,
@@ -215,20 +215,19 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     }
   });
 
-  it('measure 阶段失败:错误信息附 "build 已持久化,可重跑 ui_measure_layout" 提示', async () => {
+  it('错误透传:executor error 输出(Parent not found)→ isError 且 message 原样返回', async () => {
     execMock.mockReset();
-    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
-    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{ key: 'error', value: 'Parent not found: /root' }] }));
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [
+      { key: 'error', value: 'Parent not found: /root' },
+    ] }));
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO,
     }, createCtx());
     expect(result!.isError).toBe(true);
-    const errObj = JSON.parse(textOf(result));
-    expect(errObj.error).toContain('Parent not found');
-    expect(errObj.error).toContain('build 已持久化,可重跑 ui_measure_layout');
-    // 错误码映射保持(uiErrorMapper: 'not found' → NODE_NOT_FOUND),JSON 结构不被提示破坏
-    expect(errObj.error_code).toBe('NODE_NOT_FOUND');
+    const parsed = JSON.parse(textOf(result));
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain('Parent not found: /root');
   });
 });
 
@@ -252,7 +251,7 @@ describe('ui_import_prototype geometry_path', () => {
   });
 
   it('相对路径读入成功', async () => {
-    mockTwoPhase();
+    mockSinglePhase();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: tmpProj, scene_path: 'res://scene.tscn',
       geometry_path: 'geo.json',
@@ -260,11 +259,11 @@ describe('ui_import_prototype geometry_path', () => {
     expect(result!.isError).toBeFalsy();
     const parsed = JSON.parse(textOf(result));
     expect(parsed.data.tree.name).toBe('_PrototypeRoot');
-    expect(execMock).toHaveBeenCalledTimes(2);
+    expect(execMock).toHaveBeenCalledTimes(1);
   });
 
   it('res:// 前缀被剥离,指向项目内合法文件成功', async () => {
-    mockTwoPhase();
+    mockSinglePhase();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: tmpProj, scene_path: 'res://scene.tscn',
       geometry_path: 'res://geo.json',
@@ -438,11 +437,9 @@ function styleMeasureOutputs(dropStyles = false) {
   }];
 }
 
-/** PR-2 两段 mock:build + 带 styles 的 measure。 */
-function mockTwoPhaseStyles(dropStyles = false) {
+function mockSinglePhaseStyles(dropStyles = false) {
   execMock.mockReset();
-  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
-  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: styleMeasureOutputs(dropStyles) }));
+  execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [...buildOutputs(), ...styleMeasureOutputs(dropStyles)] }));
 }
 
 interface StyleVerifyEntry {
@@ -457,7 +454,7 @@ describe('ui_import_prototype 返回 style_verify/flow_verify(PR-2)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('stylebox+flow geometry → style_verify 全绿(含 Card/panel bg_color)+ flow_verify 覆盖 BtnA + measure 脚本内嵌期望清单', async () => {
-    mockTwoPhaseStyles();
+    mockSinglePhaseStyles();
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO_STYLE,
@@ -492,29 +489,31 @@ describe('ui_import_prototype 返回 style_verify/flow_verify(PR-2)', () => {
     // 3. verify_coverage._note 含 flow_verify 措辞(不再只说 screenshot diff 兜底)
     expect(String(parsed.data.verify_coverage._note)).toContain('flow_verify');
 
-    // 4. measure 脚本生成参数含期望清单:第 2 次调用 code 含 JSON 内嵌 path→slots
-    expect(execMock).toHaveBeenCalledTimes(2);
-    const secondCode = execMock.mock.calls[1]![0] as { code: string };
-    expect(secondCode.code).toContain('JSON.parse_string');
-    expect(secondCode.code).toContain('Holder_Flow');
+    // 4. 单 spawn 脚本内嵌期望清单:唯一调用 code 含 JSON 内嵌 path→slots
+    expect(execMock).toHaveBeenCalledTimes(1);
+    const code = execMock.mock.calls[0]![0] as { code: string };
+    expect(code.code).toContain('JSON.parse_string');
+    expect(code.code).toContain('Holder_Flow');
   });
 
-  it('无 stylebox 无 flow 的 geometry → style_verify=[] 且 flow_verify=[],measure 脚本不注入期望清单', async () => {
+  it('无 stylebox 无 flow 的 geometry → style_verify=[] 且 flow_verify=[],合成脚本不注入期望清单', async () => {
     execMock.mockReset();
-    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: buildOutputs() }));
-    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{
-      key: 'measure',
-      value: JSON.stringify({
-        stable_after_frames: 3,
-        stalled: false,
-        viewport: { w: 800, h: 600 },
-        nodes: [
-          { path: '_PrototypeRoot', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 600 } },
-          { path: '_PrototypeRoot/Bar', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 60 } },
-          { path: '_PrototypeRoot/Bar/Title', type: 'Label', rect: { x: 10, y: 20, w: 200, h: 24 } },
-        ],
-      }),
-    }] }));
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [
+      ...buildOutputs(),
+      {
+        key: 'measure',
+        value: JSON.stringify({
+          stable_after_frames: 3,
+          stalled: false,
+          viewport: { w: 800, h: 600 },
+          nodes: [
+            { path: '_PrototypeRoot', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 600 } },
+            { path: '_PrototypeRoot/Bar', type: 'Panel', rect: { x: 0, y: 0, w: 800, h: 60 } },
+            { path: '_PrototypeRoot/Bar/Title', type: 'Label', rect: { x: 10, y: 20, w: 200, h: 24 } },
+          ],
+        }),
+      },
+    ] }));
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: {
@@ -529,13 +528,13 @@ describe('ui_import_prototype 返回 style_verify/flow_verify(PR-2)', () => {
     const parsed = JSON.parse(textOf(result));
     expect(parsed.data.style_verify).toEqual([]);
     expect(parsed.data.flow_verify).toEqual([]);
-    // 空期望清单 → measure 脚本不注入 JSON.parse_string
-    const secondCode = execMock.mock.calls[1]![0] as { code: string };
-    expect(secondCode.code).not.toContain('JSON.parse_string');
+    // 空期望清单 → 合成脚本不注入 JSON.parse_string
+    const code = execMock.mock.calls[0]![0] as { code: string };
+    expect(code.code).not.toContain('JSON.parse_string');
   });
 
   it('styles 缺失(override 没设上场景)→ style_verify 出 (reading missing) 红条目', async () => {
-    mockTwoPhaseStyles(true);
+    mockSinglePhaseStyles(true);
     const result = await handleTool('ui', {
       action: 'ui_import_prototype', project_path: '/fake/p', scene_path: 'res://scene.tscn',
       geometry: GEO_STYLE,

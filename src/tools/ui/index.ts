@@ -14,6 +14,7 @@ import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } fr
 import { genUiSetThemeScript, genThemeCreateScript, genThemeSetPropertyScript } from './ui-theme.js';
 import { genUiDrawRecipeScript } from './ui-draw.js';
 import { genUiMeasureScript } from './ui-measure.js';
+import { genUiImportSingleScript } from './ui-import-single.js';
 import { flattenTargets, flattenStyleTargets, styleExpectList, diffLayout, diffStyles, diffFlow, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
 import type { MeasuredNode } from './layout-diff.js';
 import { parseGeometry, translateGeometry } from './prototype-import.js';
@@ -466,7 +467,7 @@ export async function handleTool(
         // executor 链),不走公共单次执行段,提前 return——同 ui_import_prototype 模式。
         return await handleUiPixelVerify(args, projectPath, godot);
       case 'ui_import_prototype':
-        // 特殊链路:内部两次 executor(build+persist → measure),不走公共单次执行段,提前 return。
+        // 特殊链路:内部单 spawn 合成(build+persist→reload→measure,PR-4),不走公共单次执行段,提前 return。
         return handleUiImportPrototype(args, projectPath, godot, loadAutoloads);
       default:
         return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}`);
@@ -570,10 +571,7 @@ function resolveGeometryInput(
 
 /**
  * ui_import_prototype 一次调用内部链:zod 校验 → translateGeometry 纯函数翻译 →
- * build(**固定 persist=true**,B-1 契约:measure 是第二次 Godot spawn 从磁盘 load 场景,
- * 不持久化则 verify 全部 actual:null;因此也不入 UI_PERSIST_ACTIONS,无"退出即丢"可提示)
- * → measure → diffLayout(目标=翻译树)→ 组装 {tree, build_warnings, measure,
- * verify_coverage, layout_verify}。两次 spawn 是首版简单方案(spec 开放问题 3)。
+ * build(**固定 persist=true**)+persist→reload(CACHE_MODE_IGNORE)→measure **单 spawn 合成**(PR-4,spec §6;原两次 spawn 首版实测 ~6s)。B-1 契约保持:measure(reload)读磁盘场景,不持久化则 verify 全部 actual:null;因此也不入 UI_PERSIST_ACTIONS,无"退出即丢"可提示)→ diffLayout(目标=翻译树)→ 组装 {tree, build_warnings, measure, verify_coverage, layout_verify}。
  */
 async function handleUiImportPrototype(
   args: Record<string, unknown>,
@@ -618,17 +616,32 @@ async function handleUiImportPrototype(
     viewport = { w, h };
   }
 
-  // ① build(固定 persist=true):挂 parentPath 下,合成根 _PrototypeRoot rect=viewport。
-  const buildScript = genUiBuildLayoutScript(scenePath, parentPath, translated.tree, viewport, true);
-  const buildResult = await executeGdscriptTrusted({
-    godotPath: godot, projectPath, code: buildScript, timeout: 30, loadAutoloads,
+  // ① 单 spawn 合成(PR-4,spec §6):build→persist→reload(CACHE_MODE_IGNORE)→measure
+  // 一次 Godot 进程完成。固定 persist=true 保持 B-1 契约——measure(reload)读的是磁盘
+  // 场景,不持久化则 verify 全部 actual:null。reload 阶段错误信息由模板内嵌
+  // 「build 已持久化,可重跑 ui_measure_layout」恢复语义(persist 先于 measure),TS 侧
+  // 不再二次拼接(原两阶段流程的 hint-append 逻辑随第二次 spawn 一起删除)。
+  const styleTargets = flattenStyleTargets(translated.tree);
+  const singleScript = genUiImportSingleScript(scenePath, parentPath, translated.tree, viewport, styleExpectList(styleTargets));
+  const singleResult = await executeGdscriptTrusted({
+    godotPath: godot, projectPath, code: singleScript, timeout: 30, loadAutoloads,
   });
-  const buildParsed = parseGdscriptResult(buildResult, [], uiErrorMapper);
-  if (buildParsed.isError) return buildParsed;
+  const parsed = parseGdscriptResult(singleResult, [], uiErrorMapper);
+  if (parsed.isError) return parsed;
 
-  const buildOut = JSON.parse((buildParsed.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
-    data?: { persist?: { saved?: boolean }; warnings?: unknown[] };
+  let out: {
+    data?: {
+      persist?: { saved?: boolean };
+      warnings?: unknown[];
+      measure?: { nodes?: MeasuredNode[]; viewport?: { w: number; h: number }; stable_after_frames?: number; stalled?: boolean };
+    };
+    warnings?: string[];
   };
+  try {
+    out = JSON.parse((parsed.content?.[0] as { text?: string } | undefined)?.text ?? '{}');
+  } catch {
+    return parsed;
+  }
 
   // build_warnings:输入消歧 + 翻译 warnings 透传 + 容差模糊带使用提示 + 生成器 warnings。
   // I-2(声明式修复):parent_path 非 root 时根级 diff 参照系限制提示(diff 算法不改——
@@ -644,45 +657,16 @@ async function handleUiImportPrototype(
       `parent_path="${parentPath}" 非 root: layout_verify 根级条目期望 rect 按视口原点求解,挂载父非原点对齐(global_position≈0,0)时根级 diff 恒误报——请确认挂载父原点对齐,或忽略根级条目的 diff 结果`,
     ] : []),
   ];
-  for (const w of buildOut.data?.warnings ?? []) {
+  for (const w of out.data?.warnings ?? []) {
     buildWarnings.push(typeof w === 'object' && w !== null && 'message' in w ? String((w as { message: unknown }).message) : String(w));
   }
-  if (buildOut.data?.persist?.saved !== true) {
+  if (out.data?.persist?.saved !== true) {
     buildWarnings.push('persist 落盘失败(saved=false):measure 读到的是磁盘旧场景,layout_verify 不可信,请排查后重试');
   }
 
-  // ② measure(第二次 spawn):nodePath=挂载父节点,measure path(get_path_to 相对父)与
-  // flattenTargets(树根名起算)恰好对齐——同 expect_tree 注入段的对齐前提。
-  // PR-2:styleExpect 期望清单内嵌(I-B 拍板:并集左侧,override 没设上的节点也必须被读到)。
-  const styleTargets = flattenStyleTargets(translated.tree);
-  const measureScript = genUiMeasureScript(scenePath, parentPath, 16, styleExpectList(styleTargets));
-  const measureResult = await executeGdscriptTrusted({
-    godotPath: godot, projectPath, code: measureScript, timeout: 30, loadAutoloads,
-  });
-  const measureParsed = parseGdscriptResult(measureResult, [], uiErrorMapper);
-  if (measureParsed.isError) {
-    // B-1 契约下 build 固定 persist=true 已落盘——measure 阶段失败时场景仍在磁盘,
-    // 提示 AI 无需重新 import,可单独重跑 ui_measure_layout 补测量(Task 2 遗留改进)。
-    const el = measureParsed.content?.[0];
-    if (el?.type === 'text') {
-      try {
-        const errObj = JSON.parse(el.text) as { error?: unknown };
-        if (typeof errObj.error === 'string') {
-          return { ...measureParsed, content: [{ type: 'text', text: JSON.stringify({ ...errObj, error: `${errObj.error}(build 已持久化,可重跑 ui_measure_layout)` }) }] };
-        }
-      } catch { /* 非 JSON 错误文本保持原样 */ }
-    }
-    return measureParsed;
-  }
-
-  // ③ 组装返回(content[0].text 解析模式,同 expect_tree 注入段;输出异常保持原样,
-  // diff 缺失由 AI 视为未验证)。
+  // ③ 组装返回(单 spawn:measure 与 build 输出同批;输出异常保持原样,diff 缺失由 AI 视为未验证)。
   try {
-    const measureOut = JSON.parse((measureParsed.content?.[0] as { text?: string } | undefined)?.text ?? '{}') as {
-      data?: { measure?: { nodes?: MeasuredNode[]; viewport?: { w: number; h: number }; stable_after_frames?: number; stalled?: boolean } };
-      warnings?: string[];
-    };
-    const measure = measureOut.data?.measure;
+    const measure = out.data?.measure;
     const measured = measure?.nodes ?? [];
     const targets = flattenTargets(translated.tree);
     const layoutVerify = {
@@ -713,10 +697,10 @@ async function handleUiImportPrototype(
       layout_verify: layoutVerify,
       style_verify: styleVerify,
       flow_verify: flowVerify,
-      persist: buildOut.data?.persist,
-    }, measureOut.warnings ?? [])));
+      persist: out.data?.persist,
+    }, out.warnings ?? [])));
   } catch {
-    return measureParsed;
+    return parsed;
   }
 }
 
