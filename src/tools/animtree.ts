@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, ensureNumber, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
+import { normalizeNodePath, gdEscape, escapeForGdLiteral, ensureNumber, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -108,9 +108,9 @@ function genCreate(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _parent: Node = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar _parent: Node = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif _parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _tree = AnimationTree.new()
@@ -129,7 +129,7 @@ func _initialize():
 \t_tree.tree_root = _root_node
 \t_tree.active = true
 \t_parent.add_child(_tree)
-\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "parent": "${gdEscape(parentPath)}", "root_type": "${gdEscape(treeRootType)}"})
+\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "parent": "${escapeForGdLiteral(parentPath)}", "root_type": "${gdEscape(treeRootType)}"})
 \t_mcp_done()
 `;
 }
@@ -147,9 +147,9 @@ function genAddState(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _sm: AnimationNodeStateMachine = _tree.tree_root
@@ -180,9 +180,9 @@ function genAddTransition(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _sm: AnimationNodeStateMachine = _tree.tree_root
@@ -207,9 +207,9 @@ function genSetBlend(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \t_tree.set("${gdEscape(paramName)}", ${valueSrc})
@@ -225,9 +225,9 @@ function genPlay(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _playback = _tree["parameters/playback"]
@@ -250,9 +250,9 @@ function genStateSetPosition(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _sm: AnimationNodeStateMachine = _tree.tree_root
@@ -278,9 +278,9 @@ function genStateSetBlend(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _tree: AnimationTree = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _tree: AnimationTree = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _tree == null or not (_tree is AnimationTree):
-\t\t_mcp_output("error", "AnimationTree not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationTree not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \t_tree.set("${gdEscape(paramName)}", ${valueSrc})

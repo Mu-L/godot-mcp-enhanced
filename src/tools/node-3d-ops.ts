@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, validateVector3, TYPE_WHITELIST, validateIdentifier, appendRuntimePersistWarning } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, escapeForGdLiteral, normalizeNodePath, validateVector3, TYPE_WHITELIST, validateIdentifier, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -65,9 +65,9 @@ export function genCreate3DScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar parent = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar parent = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif parent == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar node = ${nodeType}.new()

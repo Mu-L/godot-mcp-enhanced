@@ -215,6 +215,21 @@ describe('ui_build_layout persist', () => {
     expect(s.indexOf('ResourceSaver.save')).toBeGreaterThan(s.indexOf('node.owner = root'));
     expect(s.indexOf('ResourceSaver.save')).toBeLessThan(s.indexOf('_mcp_output("layout_built"'));
   });
+
+  // Task 2(debt-cleanup-20260818):路径类内插(_mcp_load_scene/persist _full/
+  // _mcp_get_scene_node/Parent not found)均为纯字面量上下文(不参与 % 格式化),
+  // gdEscape 的 % 双写会静默改写含 % 的路径;须走 escapeForGdLiteral。
+  // 同行 rootType/tree.name 仍走 gdEscape(node name 含 % 被 Godot 命名规则禁止,
+  // type 来自白名单,零真实风险面,保持不动)。
+  it('T2: persist=true 时 scenePath/parentPath 含 % 不双写(覆盖 :735 _full 与 :755 load)', () => {
+    const s = genUiBuildLayoutScript('res://a%b.tscn', '/root/%HUD', tree, undefined, true);
+    expect(s).toContain('var _full := "res://a%b.tscn"');
+    expect(s).toContain('_mcp_load_scene("res://a%b.tscn")');
+    expect(s).toContain('_mcp_get_scene_node("/root/%HUD")');
+    expect(s).toContain('Parent not found: /root/%HUD');
+    expect(s).not.toContain('a%%b');
+    expect(s).not.toContain('%%HUD');
+  });
 });
 
 describe('ui_build_layout persist 与运行时丢失 warning 合并', () => {

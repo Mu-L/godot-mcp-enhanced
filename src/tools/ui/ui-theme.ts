@@ -1,6 +1,6 @@
 // UI theme operations: ui_set_theme, theme_create, theme_set_property.
 
-import { gdEscape, sanitizeResPath, SCENE_TREE_HEADER } from '../shared.js';
+import { gdEscape, escapeForGdLiteral, sanitizeResPath, SCENE_TREE_HEADER } from '../shared.js';
 
 // ─── ui_set_theme ──────────────────────────────────────────────────────────
 
@@ -90,16 +90,16 @@ export function genUiSetThemeScript(
     ? '{"resource_path": "' + gdEscape(themePath || '') + '"}'
     : action === 'load'
       ? '{"resource_path": "' + gdEscape(themePath || '') + '"}'
-      : '{"node": "' + gdEscape(nodePath) + '", "action": "' + action + '"}';
+      : '{"node": "' + escapeForGdLiteral(nodePath) + '", "action": "' + action + '"}';
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not node is Control:
@@ -174,7 +174,7 @@ export function genThemeCreateScript(
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn${actionBlock}${saveBlock}
 \t_mcp_output("theme_created", {"action": "${action}"})
@@ -194,7 +194,7 @@ export function genThemeSetPropertyScript(
   scenePath?: string,
 ): string {
   const sceneLine = scenePath
-    ? `\tif not _mcp_load_scene("${gdEscape(scenePath)}"):\n\t\t_mcp_done()\n\t\treturn\n`
+    ? `\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):\n\t\t_mcp_done()\n\t\treturn\n`
     : '';
 
   let setLine = '';

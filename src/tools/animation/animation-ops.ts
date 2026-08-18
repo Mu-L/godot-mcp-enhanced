@@ -2,7 +2,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../../types.js';
 import { requireProjectPath } from '../../helpers.js';
 import { executeGdscript } from '../../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, validateIdentifier } from '../shared.js';
+import { normalizeNodePath, gdEscape, escapeForGdLiteral, validateIdentifier } from '../shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from '../shared.js';
 import { LOOP_MODES, TRACK_TYPES, ensureNumber, valueToGd, argsToGd, animErrorMapper } from './animation-shared.js';
 import { handleIkAction } from '../ik-tools.js';
@@ -114,9 +114,9 @@ function genGetInfo(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
-\t\t_mcp_output("error", "AnimationPlayer not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationPlayer not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _info: Dictionary = {}
@@ -141,9 +141,9 @@ function genGetDetails(nodePath: string, animName: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
-\t\t_mcp_output("error", "AnimationPlayer not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "AnimationPlayer not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _anim: Animation = null
@@ -183,7 +183,7 @@ function genGetKeyframes(nodePath: string, animName: string, trackIdx: number): 
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -230,7 +230,7 @@ function genPlay(nodePath: string, animName: string, customBlend?: number, custo
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -245,7 +245,7 @@ function genStop(nodePath: string, keepState?: boolean): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -260,7 +260,7 @@ function genSeek(nodePath: string, seconds: number, update?: boolean): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -277,7 +277,7 @@ function genCreate(nodePath: string, animName: string, libraryName?: string, len
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -304,7 +304,7 @@ function genDelete(nodePath: string, animName: string, libraryName?: string): st
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -333,7 +333,7 @@ function genUpdateProps(nodePath: string, animName: string, length?: number, loo
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -363,7 +363,7 @@ function genAddTrack(nodePath: string, animName: string, trackType: string, trac
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -385,7 +385,7 @@ function genRemoveTrack(nodePath: string, animName: string, trackIdx: number): s
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -418,7 +418,7 @@ function genAddKeyframe(nodePath: string, animName: string, trackIdx: number, ti
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -451,7 +451,7 @@ function genRemoveKeyframe(nodePath: string, animName: string, trackIdx: number,
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -488,7 +488,7 @@ function genUpdateKeyframe(nodePath: string, animName: string, trackIdx: number,
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()
@@ -518,7 +518,7 @@ function genAnimationBlend(nodePath: string, animName: string, blendTime: number
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _ap: AnimationPlayer = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _ap: AnimationPlayer = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _ap == null or not (_ap is AnimationPlayer):
 \t\t_mcp_output("error", "AnimationPlayer not found")
 \t\t_mcp_done()

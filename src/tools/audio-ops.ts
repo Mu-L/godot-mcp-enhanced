@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, normalizeNodePath, clampParam, sanitizeResPath, appendRuntimePersistWarning } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, escapeForGdLiteral, normalizeNodePath, clampParam, sanitizeResPath, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -42,9 +42,9 @@ export function genAudioPlayScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is AudioStreamPlayer or node is AudioStreamPlayer2D or node is AudioStreamPlayer3D):
@@ -52,7 +52,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn${streamLine}${volLine}${pitchLine}${busLine}
 \tnode.play${playArg}
-\t_mcp_output("playing", {"node": "${gdEscape(nodePath)}", "stream": str(node.stream) if node.stream else "None"})
+\t_mcp_output("playing", {"node": "${escapeForGdLiteral(nodePath)}", "stream": str(node.stream) if node.stream else "None"})
 \t_mcp_done()
 `;
 }
@@ -61,9 +61,9 @@ export function genAudioStopScript(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is AudioStreamPlayer or node is AudioStreamPlayer2D or node is AudioStreamPlayer3D):
@@ -71,7 +71,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tnode.stop()
-\t_mcp_output("stopped", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("stopped", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -83,9 +83,9 @@ export function genAudioSetParamScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is AudioStreamPlayer or node is AudioStreamPlayer2D or node is AudioStreamPlayer3D):
@@ -93,7 +93,7 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tnode.${param} = ${valStr}
-\t_mcp_output("param_set", {"node": "${gdEscape(nodePath)}", "param": "${param}", "value": ${valStr}})
+\t_mcp_output("param_set", {"node": "${escapeForGdLiteral(nodePath)}", "param": "${param}", "value": ${valStr}})
 \t_mcp_done()
 `;
 }
@@ -102,9 +102,9 @@ export function genAudioQueryScript(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is AudioStreamPlayer or node is AudioStreamPlayer2D or node is AudioStreamPlayer3D):

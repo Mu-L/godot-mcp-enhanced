@@ -6,7 +6,7 @@ import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { findInstanceNode, detachInstance, nodePathToNameAndParent } from '../../tscn/tscn-editor.js';
 import { executeGdscript } from '../../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, toSnakeCase, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from '../shared.js';
+import { normalizeNodePath, gdEscape, escapeForGdLiteral, toSnakeCase, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from '../shared.js';
 import { gdScriptSetLine, TRY_SET_HELPER, BLOCKED_PROPS } from './helpers.js';
 
 // A3 (2026-07-13 enhanced-vs-godogen 对比测试核实): instance_scene/set_instance_property 此前
@@ -15,7 +15,7 @@ import { gdScriptSetLine, TRY_SET_HELPER, BLOCKED_PROPS } from './helpers.js';
 // add_node(godot_operations.gd:308-321) 与 scene-commit.ts:118: pack 场景根(_mcp_scene_instance)
 // 并 ResourceSaver.save 到 scenePath, 失败回 error 终止。无尾随换行(调用处前置 \n)。
 function persistSceneBlock(scenePath: string): string {
-  const sp = gdEscape(scenePath);
+  const sp = escapeForGdLiteral(scenePath);
   return [
     '\tvar _packed = PackedScene.new()',
     '\tvar _pack_err = _packed.pack(_mcp_scene_instance)',
@@ -90,7 +90,7 @@ export async function handleInstanceScene(args: Record<string, unknown>, ctx: To
   const script = `${SCENE_TREE_HEADER}
 ${TRY_SET_HELPER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
 \tvar _scene_res = load("${gdEscape(instancePath)}")
@@ -172,23 +172,23 @@ export async function handleSetInstanceProperty(args: Record<string, unknown>, c
   const script = `${SCENE_TREE_HEADER}
 ${TRY_SET_HELPER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar target = _mcp_get_scene_node("${gdEscape(nodePath)}")
+\tvar target = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")
 \tif target == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar root = _mcp_scene_instance
 \tvar is_instance = (target != root and target.owner == root)
 \tif not is_instance:
-\t\t_mcp_output("error", "NODE_NOT_INSTANCE: node '${gdEscape(nodePath)}' is not an instanced scene child")
+\t\t_mcp_output("error", "NODE_NOT_INSTANCE: node '${escapeForGdLiteral(nodePath)}' is not an instanced scene child")
 \t\t_mcp_done()
 \t\treturn
 \t${propLine}
 ${persistSceneBlock(scenePath)}
-\t_mcp_output("set_property", {"node": "${gdEscape(nodePath)}", "property": "${gdEscape(propName)}"})
+\t_mcp_output("set_property", {"node": "${escapeForGdLiteral(nodePath)}", "property": "${gdEscape(propName)}"})
 \t_mcp_done()
 `;
 

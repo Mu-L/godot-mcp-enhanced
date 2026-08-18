@@ -13,7 +13,7 @@
 // 引用全部前向声明(规避 GDScript 前向引用风险)。
 // reload 错误信息内嵌「build 已持久化,可重跑」恢复语义(persist 先于 measure 的既有
 // 顺序;原两阶段流程的 TS 侧 hint-append 随第二次 spawn 删除,阶段语义由模板自持)。
-import { gdEscape } from '../shared.js';
+import { escapeForGdLiteral } from '../shared.js';
 import { genUiBuildLayoutScript } from './ui-layout.js';
 import { genUiMeasureScript, genStyleExpectInit } from './ui-measure.js';
 import type { UiNodeSpec } from './types.js';
@@ -25,8 +25,10 @@ export function genUiImportSingleScript(
   viewport: { w: number; h: number },
   styleExpect?: ReadonlyArray<{ path: string; slots: readonly string[] }>,
 ): string {
-  const sp = gdEscape(scenePath);
-  const np = gdEscape(parentPath);
+  // sp/np 内嵌 reload load/npLookup/错误信息均为纯字面量(不参与 % 格式化),走
+  // escapeForGdLiteral——gdEscape 会把路径中 % 双写成 %%(Task 2 根因,reload 加载失败源)。
+  const sp = escapeForGdLiteral(scenePath);
+  const np = escapeForGdLiteral(parentPath);
   // np 定位段:与 genUiMeasureScript _initialize 同款(_mcp_get_scene_node 支持场景根名
   // 前缀剥离,parentPath="/root" 时 _target=场景根;非 root 挂载时定位挂载父——measure
   // path 与 flattenTargets 树根名起算的对齐前提)。

@@ -34,6 +34,18 @@ describe('genUiMeasureScript', () => {
     expect(s).toContain('_mcp_get_scene_node("HUD")');
   });
 
+  // Task 2(debt-cleanup-20260818):sp/np 只内嵌进纯字符串字面量(load 调用/np 查找/
+  // 错误信息),不参与 % 格式化——gdEscape 会把 % 双写成 %% 导致含 % 的路径被静默改写、
+  // 加载失败;纯字面量上下文必须走 escapeForGdLiteral。
+  it('T2: scenePath/nodePath 含 % 不双写——纯字面量内插走 escapeForGdLiteral', () => {
+    const s = genUiMeasureScript('res://a%b.tscn', '/Root/%Unique', 16);
+    expect(s).toContain('_mcp_load_scene("res://a%b.tscn")');
+    expect(s).toContain('_mcp_get_scene_node("/Root/%Unique")');
+    expect(s).toContain('Node not found: /Root/%Unique');
+    expect(s).not.toContain('a%%b');
+    expect(s).not.toContain('%%Unique');
+  });
+
   it('maxDepth 截断深度', () => {
     const s = genUiMeasureScript('res://scenes/main.tscn', undefined, 7);
     expect(s).toContain('depth > 7');

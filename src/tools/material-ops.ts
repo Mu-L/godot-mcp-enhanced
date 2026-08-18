@@ -212,9 +212,9 @@ export function genMaterialReadScript(nodePath: string, materialIndex: number): 
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -286,9 +286,9 @@ export function genMaterialSetParamsScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -318,14 +318,14 @@ export function genMaterialCreateScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = ${materialType}.new()${shaderLine}
 \tnode.material = mat
-\t_mcp_output("created", {"material_type": "${gdEscape(materialType)}", "node": "${gdEscape(nodePath)}"})
+\t_mcp_output("created", {"material_type": "${gdEscape(materialType)}", "node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -334,9 +334,9 @@ export function genMaterialSaveScript(nodePath: string, materialIndex: number, r
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -379,9 +379,9 @@ export function genMaterialLoadScript(nodePath: string, resourcePath: string): s
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not ResourceLoader.exists("${gdEscape(resourcePath)}"):
@@ -405,9 +405,9 @@ export function genShaderReadScript(nodePath: string, materialIndex: number): st
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -443,9 +443,9 @@ export function genShaderWriteScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -491,9 +491,9 @@ export function genShaderLoadFileScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")
@@ -554,9 +554,9 @@ export function genShaderApplyTemplateScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar mat = node.get("material")

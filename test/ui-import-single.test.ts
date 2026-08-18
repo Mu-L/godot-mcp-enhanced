@@ -53,6 +53,18 @@ describe('genUiImportSingleScript 组装结构契约', () => {
     const nonRoot = genUiImportSingleScript('res://scene.tscn', '/Main/HUD', TREE, { w: 800, h: 600 });
     expect(nonRoot).toContain('_mcp_get_scene_node("/Main/HUD")');
   });
+
+  // Task 2(debt-cleanup-20260818):sp/np 内嵌 reload load/npLookup/错误信息均为纯字面量
+  // (不参与 % 格式化),gdEscape 的 % 双写会静默改写路径 → reload 加载失败;须走
+  // escapeForGdLiteral。覆盖链:①段 build persist _full + :735;③段 reload load。
+  it('T2: scenePath/parentPath 含 % 不双写——reload load 与 npLookup 纯字面量正确', () => {
+    const s = genUiImportSingleScript('res://a%b.tscn', '/root/%HUD', TREE, { w: 800, h: 600 });
+    expect(s).toContain('ResourceLoader.load("res://a%b.tscn"');
+    expect(s).toContain('var _full := "res://a%b.tscn"');
+    expect(s).toContain('_mcp_get_scene_node("/root/%HUD")');
+    expect(s).not.toContain('a%%b');
+    expect(s).not.toContain('%%HUD');
+  });
 });
 
 describe('genUiImportSingleScript styleExpect 注入', () => {

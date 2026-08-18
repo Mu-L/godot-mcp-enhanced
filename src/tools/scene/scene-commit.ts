@@ -199,7 +199,7 @@ export function generateCommitScript(
     opBlocks.push(generateOpBlock(i, op, stopOnError));
   }
 
-  const sp = gdEscape(scenePath);
+  const sp = escapeForGdLiteral(scenePath);
   // F-2 (批 F, 2026-08-14): save=true 分支顶层 success 绑定 err == OK——原硬编码 true 与
   // saved:err==OK 并存,磁盘满/权限失败(EACCES/ENOSPC)时 COMMIT_RESULT 报成功(假成功),
   // AI 与 middleware 把写盘失败当成功。save=false 分支无保存动作,success:true 是"无保存失败"

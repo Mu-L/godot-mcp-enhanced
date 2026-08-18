@@ -5,7 +5,7 @@ import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
 import {
   SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult,
-  gdEscape, normalizeNodePath, validateIdentifier, validateVector3,
+  gdEscape, escapeForGdLiteral, normalizeNodePath, validateIdentifier, validateVector3,
 } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -79,9 +79,9 @@ export function genIkGetScript(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar ik_node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar ik_node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif ik_node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar ik_class = ik_node.get_class()
@@ -106,9 +106,9 @@ export function genIkSetScript(nodePath: string, props: Record<string, unknown>)
   lines.push(`${SCENE_TREE_HEADER}`);
   lines.push(`func _initialize():`);
   lines.push(`\t_mcp_load_main_scene()`);
-  lines.push(`\tvar ik_node = _mcp_get_node("${gdEscape(nodePath)}")`);
+  lines.push(`\tvar ik_node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")`);
   lines.push(`\tif ik_node == null:`);
-  lines.push(`\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")`);
+  lines.push(`\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")`);
   lines.push(`\t\t_mcp_done()`);
   lines.push(`\t\treturn`);
 
@@ -141,9 +141,9 @@ export function genListBonesScript(nodePath: string, limit?: number): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not node is Skeleton3D:
