@@ -251,7 +251,7 @@ export function diffStyles(
 
 /** flow_verify(spec §4.2):flow 直接子层期望(输入视口绝对)vs measure 实测
  * (global rect,视口绝对)直接 diff——不做父相对换算(与 diffLayout 的关键差异,
- * 消解 B-2 盲区)。孙层不进(近似覆盖,纳入会产稳定系统性偏差报警=噪声)。 */
+ * 消解 B-2 盲区)。孙层不进(由 layout_verify 近似覆盖,纳入会产稳定系统性偏差报警=噪声)。 */
 export function diffFlow(
   measured: MeasuredNode[],
   flowExpect: Array<{ path: string; rect: Rect }>,

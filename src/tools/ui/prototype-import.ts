@@ -214,7 +214,7 @@ function buildTree(geo: PrototypeGeometry, cleanNames: string[]): WorkNode[] {
 // ─── 颜色归一 ──────────────────────────────────────────────────────────────
 
 /** #rrggbb / [r,g,b]0-255 / [r,g,b,a]0-1 → [r,g,b,a] 0-1(值域已由 zod 保证)。 */
-function normalizeColor(c: string | number[], field: string, name: string): [number, number, number, number] {
+export function normalizeColor(c: string | number[], field: string, name: string): [number, number, number, number] {
   if (typeof c === 'string') {
     const m = /^#([0-9a-fA-F]{6})$/.exec(c);
     if (!m) throw new Error(`INVALID_PARAMS: 节点 "${name}" 的 ${field} "${c}" 无法解析(仅支持 #rrggbb / [r,g,b] 0-255 / [r,g,b,a] 0-1)`);
@@ -458,7 +458,7 @@ export function translateGeometry(geo: PrototypeGeometry): TranslateResult {
   if (flowChildCount > 0) {
     const coverage = { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length };
     warnings.push(
-      `flow 直接子节点共 ${flowChildCount} 个: layout_verify 不覆盖(丢 rect),由 flow_verify 数字覆盖(期望=输入视口 rect vs 容器排布实测 global rect,逐节点 Δx/Δy/Δw/Δh);孙层为近似覆盖(期望相对输入父原点,容器排布后天然带偏移)(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes})`);
+      `flow 直接子节点共 ${flowChildCount} 个: layout_verify 不覆盖(丢 rect),由 flow_verify 数字覆盖(期望=输入视口 rect vs 容器排布实测 global rect,逐节点 Δx/Δy/Δw/Δh);孙层为 layout_verify 的近似覆盖(期望相对输入父原点,容器排布后天然带偏移)(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes})`);
   }
 
   return { tree, warnings, coverage: { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length }, flow_expect: flowExpect };

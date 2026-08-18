@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.3] - 2026-08-18
+
+### Added — 原型翻译层像素终验（ui_pixel_verify，PR-3）
+
+- **`ui_pixel_verify` 像素终验**：ui 工具新 action——入参同 `ui_import_prototype`（geometry/geometry_path 二选一）+ 必填 `scene_path`（已构建场景，persist 产物）；窗口模式截图（Windows 专属，headless dummy renderer 空白）→ PNG 解码 → 每 bg 节点采样中心+四角内缩点（内缩 clamp `min(borderRadius+border.width, 短边/2−2)` 防圆角越界）→ 与目标色 0-255 空间 RGB 欧氏距离判定（中心容差 20、角点 60——2026-08-18 集成校准 css-card 真渲染 13 采样点 distance=0.0，零底噪零偏移，阈值维持初值）。采样跳过两类（诚实 skip 不伪装判定）：半透明 bg（alpha<0.999，合成后采样色≠bg_color）与 ProgressBar 系（type/value/fill 任一——fill+百分比文字覆盖 bg 渲染面，无可采样纯色区，bg 槽依赖 style_verify）；带 text 节点跳中心点（居中排版必踩文字像素，仅采 4 角）。BLANK 双条件拦截（stdout BLANK_DETECTED 且 PNG 全图 8x8 网格均匀色，两证据独立一致才拦——防 capture 层步进采样在部分视口退化单列的假拦）；PNG 中间产物临时落 `.godot/` 且失败路径 try/finally 清理；PNG/viewport 尺寸不一致时线性缩放采样坐标。定位**终验**——几何 layout_verify + style_verify 全绿后才跑一次（每次 capture 窗口模式弹窗+秒级耗时）。`actionRisks: write`；action 计数 240→241（规则文档双侧+单测同步）。
+
+### Changed
+
+- **半开区间采样修正**（集成首跑取证 F4）：rect 覆盖像素列 `[x, x+w)`、行 `[y, y+h)`——角点右/下分量取 `x+w−1−inset` / `y+h−1−inset`（否则 inset=0 时角点落覆盖区外一像素格、采到节点外背景，实测 css-card HpBar 角点 d=65.7 假红）；中心点 floor 到 0-indexed 像素格。
+- **T5a 措辞修正**（4 处）：border 四边各异「以 style_verify 数值暴露」→ 准确语义——style_verify 期望/实测同源（同一翻译产出）恒绿暴露不了，真暴露渠道是 ui_pixel_verify 像素采样（规则双副本 + README v0.32.1 行 + CHANGELOG 0.32.1 段）。
+- **T5c 孙层措辞精确化**（5 处）+ 七槽互指注释：「孙层为近似覆盖」→「孙层由 layout_verify 近似覆盖（非 flow_verify，期望相对输入父原点，容器排布后天然带偏移）」（规则双副本 + measure `_note` + 翻译器 B-2 warning + layout-diff 注释）；STYLEBOX_SLOTS（TS）与 measure 生成脚本 `_all_slots`（GD）双份硬编码加互指注释。
+
 ## [0.32.1] - 2026-08-18
 
 ### Added — 原型翻译层 verify 层（style_verify + flow_verify，PR-2）
@@ -12,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **flow_verify（消解上轮 B-2 盲区）**：`TranslateResult` 产出 `flow_expect`（flow 直接子节点最终树路径 + 输入视口绝对 rect，合成根改名后实际名字），import 链与 measure 实测 global rect 直接 diff → `flow_verify: [{path, target, actual, delta, ok}]`；B-2 补偿防线从「screenshot diff 兜底」升级为数字清单；孙层维持近似覆盖（防系统性偏差噪声）。
 - **validate 层补强（PR-1 终审 M-2/M-5）**：`bg_color`/`border_color` 四元 number 数组对称校验；`corner_radius` 布尔/null/数组显式拒（原先静默当 0）。
 - **fill-only 灰底 warning（PR-1 终审顺手项 3/4）**：显式 Panel/推断布局壳 fill-only（无 bg/border）时声明将以默认主题灰底渲染（透明壳被 fill 输入阻断）；fill+bg 场景不误报。
-- **M-1 border 降级声明**：border 四边各异不单独 warning（生产者仅取 top），规则双副本显式声明。
+- **M-1 border 降级声明**：border 四边各异不单独 warning（生产者仅取 top；该差异 style_verify 同源恒绿暴露不了，真暴露渠道为 0.32.3 的 ui_pixel_verify 像素采样），规则双副本显式声明。
 
 ## [0.32.0] - 2026-08-17
 

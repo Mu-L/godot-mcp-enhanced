@@ -17,6 +17,7 @@ export const ACTIONS = [
   'ui_build_layout',
   'ui_measure_layout',
   'ui_import_prototype',
+  'ui_pixel_verify',
   'theme_create',
   'theme_set_property',
 ] as const;
@@ -94,7 +95,8 @@ export interface FlexChild {
 /** stylebox 类 theme override 槽位白名单(spec §3.3;Godot 4.7 序列化属性名
  * theme_override_styles/<slot>,spec 原文 styleboxes 系误写——Task 4 集成实测)。
  * hover/pressed/disabled 仅供 ui_build_layout 手写树入口,翻译器永不产出;
- * focus/read_only 等显式不进(YAGNI:每扩一槽须定义语义边界+测试面)。 */
+ * focus/read_only 等显式不进(YAGNI:每扩一槽须定义语义边界+测试面)。
+ * 双份硬编码:GD 侧副本在 ui-measure.ts 生成脚本的 _all_slots(override 并集扫描),扩槽须两处同步。 */
 export type StyleBoxSlot = 'panel' | 'normal' | 'background' | 'fill' | 'hover' | 'pressed' | 'disabled';
 
 export const STYLEBOX_SLOTS: readonly StyleBoxSlot[] = [

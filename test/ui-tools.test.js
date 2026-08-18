@@ -19,10 +19,10 @@ import {
 // ─── Actions (via schema) ─────────────────────────────────────────────────
 
 describe('UI actions (via tool schema)', () => {
-  it('action enum contains exactly 12 entries', () => {
+  it('action enum contains exactly 13 entries', () => {
     const defs = getToolDefinitions();
     const actionEnum = defs[0].inputSchema.properties.action.enum;
-    expect(actionEnum.length).toBe(12);
+    expect(actionEnum.length).toBe(13);
   });
   it('includes ui_create_control', () => {
     const defs = getToolDefinitions();
@@ -603,14 +603,15 @@ describe('getToolDefinitions', () => {
     expect(def.inputSchema).toBeTruthy();
     expect(def.inputSchema.required).toContain('action');
   });
-  it('action enum contains all 12 ACTIONS', () => {
+  it('action enum contains all 13 ACTIONS', () => {
     const defs = getToolDefinitions();
     const actionEnum = defs[0].inputSchema.properties.action.enum;
-    expect(actionEnum.length).toBe(12);
+    expect(actionEnum.length).toBe(13);
     expect(actionEnum).toContain('ui_create_control');
     expect(actionEnum).toContain('ui_build_layout');
     expect(actionEnum).toContain('ui_measure_layout');
     expect(actionEnum).toContain('ui_import_prototype');
+    expect(actionEnum).toContain('ui_pixel_verify');
     expect(actionEnum).toContain('theme_create');
     expect(actionEnum).toContain('theme_set_property');
   });

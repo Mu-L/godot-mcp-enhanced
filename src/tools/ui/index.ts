@@ -18,6 +18,7 @@ import { flattenTargets, flattenStyleTargets, styleExpectList, diffLayout, diffS
 import type { MeasuredNode } from './layout-diff.js';
 import { parseGeometry, translateGeometry } from './prototype-import.js';
 import type { PrototypeGeometry, TranslateResult } from './prototype-import.js';
+import { runPixelVerify } from './pixel-verify.js';
 import { textResult } from '../../types.js';
 import { readFileSync } from 'node:fs';
 
@@ -27,7 +28,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'ui',
-      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>;返回 style_verify 逐槽位样式 diff/flow_verify flow 直接子层 rect diff)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
+      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>;返回 style_verify 逐槽位样式 diff/flow_verify flow 直接子层 rect diff)。像素终验: ui_pixel_verify(bg 节点截图采样 vs 目标色 RGB 距离;Windows 窗口模式会弹窗,几何+style_verify 全绿后跑一次)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -37,7 +38,7 @@ export function getToolDefinitions(): Tool[] {
             enum: [...ACTIONS],
             description: '操作类型',
           },
-          scene_path: { type: 'string', description: '场景路径（相对项目路径）。ui_set_theme/theme_set_property 可选' },
+          scene_path: { type: 'string', description: '场景路径（相对项目路径）。ui_set_theme/theme_set_property 可选;ui_pixel_verify: 必填,已构建场景(ui_import_prototype persist 产物)' },
           node_path: { type: 'string', description: '节点路径（ui_set_layout/ui_get_layout/ui_anchor_preset/ui_set_theme/ui_container_add/ui_draw_recipe）' },
           node_type: {
             type: 'string',
@@ -160,10 +161,10 @@ export function getToolDefinitions(): Tool[] {
           expect_tree: { type: 'object', description: 'ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界', additionalProperties: true },
           geometry: {
             type: 'object',
-            description: 'ui_import_prototype: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先;样式字段:bg/fill(ProgressBar fill 槽色)/borderRadius(number 或 {tl,tr,br,bl})/border({width,color})→StyleBoxFlat 四控件槽位(Panel/ProgressBar/Button/Label))',
+            description: 'ui_import_prototype/ui_pixel_verify: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先;样式字段:bg/fill(ProgressBar fill 槽色)/borderRadius(number 或 {tl,tr,br,bl})/border({width,color})→StyleBoxFlat 四控件槽位(Panel/ProgressBar/Button/Label))',
             additionalProperties: true,
           },
-          geometry_path: { type: 'string', description: 'ui_import_prototype: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)' },
+          geometry_path: { type: 'string', description: 'ui_import_prototype/ui_pixel_verify: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)' },
           tolerance: { type: 'number', description: 'ui_import_prototype: layout_verify 容差(px,默认 2)' },
           parent_path: { type: 'string', description: 'ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报' },
           tree: {
@@ -460,6 +461,10 @@ export async function handleTool(
         script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth, styleExpect);
         break;
       }
+      case 'ui_pixel_verify':
+        // 特殊链路:capture 是独立 spawn(窗口模式 driver 参数不同,spec §5 capture 不并入
+        // executor 链),不走公共单次执行段,提前 return——同 ui_import_prototype 模式。
+        return await handleUiPixelVerify(args, projectPath, godot);
       case 'ui_import_prototype':
         // 特殊链路:内部两次 executor(build+persist → measure),不走公共单次执行段,提前 return。
         return handleUiImportPrototype(args, projectPath, godot, loadAutoloads);
@@ -532,6 +537,37 @@ const uiErrorMapper = (msg: string) => {
   return ERROR_CODES.SCRIPT_EXEC_FAILED;
 };
 
+/** geometry/geometry_path 二选一解析(ui_import_prototype 与 ui_pixel_verify 共用):
+ * 都给 → geometry 优先 + warning;都不给 → INVALID_PARAMS;geometry_path 经
+ * normalizeUserProjectPath + resolveWithinRoot 白名单(越界 INVALID_PARAMS)。 */
+function resolveGeometryInput(
+  args: Record<string, unknown>,
+  projectPath: string,
+): { ok: true; rawGeometry: unknown; preWarnings: string[] } | { ok: false; result: ToolResult } {
+  const geometryPathRaw = args.geometry_path as string | undefined;
+  if (args.geometry !== undefined && args.geometry !== null) {
+    const preWarnings: string[] = [];
+    if (geometryPathRaw !== undefined) {
+      preWarnings.push('geometry 与 geometry_path 同时提供: geometry 优先, geometry_path 被忽略');
+    }
+    return { ok: true, rawGeometry: args.geometry, preWarnings };
+  }
+  if (geometryPathRaw !== undefined) {
+    let absGeometryPath: string;
+    try {
+      absGeometryPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(geometryPathRaw));
+    } catch (err) {
+      return { ok: false, result: opsErrorResult(ERROR_CODES.INVALID_PARAMS, `geometry_path 非法: ${getErrorMessage(err)}`) };
+    }
+    try {
+      return { ok: true, rawGeometry: JSON.parse(readFileSync(absGeometryPath, 'utf-8')), preWarnings: [] };
+    } catch (err) {
+      return { ok: false, result: opsErrorResult(ERROR_CODES.INVALID_PARAMS, `geometry_path 文件读取或 JSON 解析失败: ${getErrorMessage(err)}`) };
+    }
+  }
+  return { ok: false, result: opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'geometry 与 geometry_path 必须提供其一') };
+}
+
 /**
  * ui_import_prototype 一次调用内部链:zod 校验 → translateGeometry 纯函数翻译 →
  * build(**固定 persist=true**,B-1 契约:measure 是第二次 Godot spawn 从磁盘 load 场景,
@@ -548,33 +584,12 @@ async function handleUiImportPrototype(
   const scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
   const parentPath = normalizeNodePath((args.parent_path as string) || 'root');
 
-  // geometry / geometry_path 二选一:都给 → geometry 优先 + warning;都不给 → INVALID_PARAMS。
-  const geometryPathRaw = args.geometry_path as string | undefined;
-  let rawGeometry: unknown;
-  const preWarnings: string[] = [];
-  if (args.geometry !== undefined && args.geometry !== null) {
-    if (geometryPathRaw !== undefined) {
-      preWarnings.push('geometry 与 geometry_path 同时提供: geometry 优先, geometry_path 被忽略');
-    }
-    rawGeometry = args.geometry;
-  } else if (geometryPathRaw !== undefined) {
-    // v2 N-6:先 normalizeUserProjectPath 剥 res:// 再 resolveWithinRoot 白名单;路径非法是
-    // 参数错误(INVALID_PARAMS)而非脚本执行失败——在 executor 之前前置拦截。
-    let absGeometryPath: string;
-    try {
-      absGeometryPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(geometryPathRaw));
-    } catch (err) {
-      return opsErrorResult(ERROR_CODES.INVALID_PARAMS, `geometry_path 非法: ${getErrorMessage(err)}`);
-    }
-    try {
-      rawGeometry = JSON.parse(readFileSync(absGeometryPath, 'utf-8'));
-    } catch (err) {
-      return opsErrorResult(ERROR_CODES.INVALID_PARAMS,
-        `geometry_path 文件读取或 JSON 解析失败: ${getErrorMessage(err)}`);
-    }
-  } else {
-    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'geometry 与 geometry_path 必须提供其一');
-  }
+  // geometry / geometry_path 二选一(v2 N-6 白名单前置拦截),提取为 resolveGeometryInput
+  // 与 ui_pixel_verify 共用——行为不变,prototype-import 单测保护。
+  const resolved = resolveGeometryInput(args, projectPath);
+  if (!resolved.ok) return resolved.result;
+  const preWarnings = resolved.preWarnings;
+  const rawGeometry = resolved.rawGeometry;
 
   let geo: PrototypeGeometry;
   let translated: TranslateResult;
@@ -684,7 +699,7 @@ async function handleUiImportPrototype(
     const flowVerify = diffFlow(measured, translated.flow_expect, tolerance);
     const verifyCoverage = {
       ...translated.coverage,
-      _note: 'targets 为受 layout_verify 几何覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在 layout_verify 覆盖内,由 flow_verify 数字覆盖(期望=输入视口 rect);孙层为近似覆盖',
+      _note: 'targets 为受 layout_verify 几何覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在 layout_verify 覆盖内,由 flow_verify 数字覆盖(期望=输入视口 rect);孙层由 layout_verify 近似覆盖(期望相对输入父原点,容器排布后天然带偏移)',
     };
     return textResult(JSON.stringify(opsSuccess({
       tree: translated.tree,
@@ -705,6 +720,42 @@ async function handleUiImportPrototype(
   }
 }
 
+/**
+ * ui_pixel_verify(spec §5 终验):入参同 import(geometry/geometry_path 二选一 + 必填
+ * scene_path 指向 ui_import_prototype persist 产物)→ parseGeometry → runPixelVerify
+ * (capture → decode → 采样 → 判定)。不做 translate/translate 产物比对——采样基准是
+ * 输入视口 rect(终验前提:layout_verify/style_verify 已全绿,期望≈实测)。
+ */
+async function handleUiPixelVerify(
+  args: Record<string, unknown>,
+  projectPath: string,
+  godot: string,
+): Promise<ToolResult> {
+  const sceneRaw = args.scene_path as string | undefined;
+  if (!sceneRaw || !String(sceneRaw).trim()) {
+    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'ui_pixel_verify 需要 scene_path 指向已构建场景(ui_import_prototype persist 产物)');
+  }
+  let scenePath: string;
+  try {
+    scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(String(sceneRaw)));
+  } catch (err) {
+    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, `scene_path 非法: ${getErrorMessage(err)}`);
+  }
+  const resolved = resolveGeometryInput(args, projectPath);
+  if (!resolved.ok) return resolved.result;
+  let geo: PrototypeGeometry;
+  try {
+    geo = parseGeometry(resolved.rawGeometry);
+  } catch (err) {
+    return opsErrorResult(ERROR_CODES.INVALID_PARAMS, getErrorMessage(err));
+  }
+  const r = await runPixelVerify({ godotPath: godot, projectPath, scenePath, geo });
+  if (!r.ok) {
+    return opsErrorResult(ERROR_CODES.SCRIPT_EXEC_FAILED, r.error + (r.hint ? `\nHint: ${r.hint}` : ''));
+  }
+  return textResult(JSON.stringify(opsSuccess({ pixel_verify: r.summary })));
+}
+
 // ─── Tool Meta ──────────────────────────────────────────────────────────────
 
 export const TOOL_META: Record<string, { readonly: boolean; long_running: boolean; actionRisks?: Record<string, RiskLevel> }> = {
@@ -715,7 +766,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       ui_get_layout: 'read', ui_create_control: 'write', ui_set_layout: 'write',
       ui_anchor_preset: 'write', ui_set_theme: 'write', ui_container_add: 'write',
       ui_draw_recipe: 'write', ui_build_layout: 'write', ui_measure_layout: 'read',
-      ui_import_prototype: 'write',
+      ui_import_prototype: 'write', ui_pixel_verify: 'write',
       theme_create: 'write', theme_set_property: 'write',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
