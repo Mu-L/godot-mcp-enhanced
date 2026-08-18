@@ -7,6 +7,14 @@
 
 ---
 
+## 📚 知识库(vault)路径——写开发日志必读
+
+> **本仓库的知识库目录是 `D:\workspace\Obsidian\GodotMCP\`**(**不是** `D:\workspace\Obsidian\godot-mcp-enhanced\`)。
+> 开发日志写到 `D:\workspace\Obsidian\GodotMCP\开发日志\`(`YYYY-MM-DD 标题.md`);任务真相源是 `D:\workspace\Obsidian\GodotMCP\项目待办.md`。
+> 历史教训:按仓库名猜 vault 目录名(godot-mcp-enhanced 仓库 → godot-mcp-enhanced/ 目录)曾致两目录长期分叉,2026-08-17 已合并清理并删除旧目录(见 `D:\workspace\Obsidian\docs\维护日志\2026-08-17 知识库整理.md`)。
+
+---
+
 ## ⚠️ 工具兼容性差异(必读)
 
 不同 agent 工具对 AGENTS.md 的加载行为差异极大(2026-07-22 经 ZCode 官方文档核实):
