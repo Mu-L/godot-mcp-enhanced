@@ -15,6 +15,9 @@ import {
 import { captureScreenshot, getBlankHint } from '../src/screenshot.js';
 import type { PrototypeGeometry } from '../src/tools/ui/prototype-import.js';
 import type { Rect } from '../src/tools/ui/anchor-solver.js';
+import { handleTool, TOOL_META } from '../src/tools/ui/index.js';
+import { ACTIONS } from '../src/tools/ui/types.js';
+import type { ToolContext } from '../src/types.js';
 
 vi.mock('../src/screenshot.js', () => ({
   captureScreenshot: vi.fn(),
@@ -302,5 +305,45 @@ describe('runPixelVerify 编排(mock capture)', () => {
     if (!r.ok) return;
     expect(r.summary.nodes).toHaveLength(0);
     expect(r.summary.note).toContain('无 bg 节点');
+  });
+});
+
+describe('ui_pixel_verify handler 接线', () => {
+  function createCtx(): ToolContext {
+    return {
+      opsScript: '/fake/ops.gd',
+      findGodot: async () => 'C:/godot/godot.exe',
+      runningProcess: null, setRunningProcess: () => {},
+      outputBuffer: [], setOutputBuffer: () => {},
+      processStartTime: 0, setProcessStartTime: () => {},
+      projectDir: process.cwd(), setProjectDir: () => {},
+      parseGodotConfig: () => ({}),
+    } as unknown as ToolContext;
+  }
+
+  it('geometry 与 geometry_path 都缺 → INVALID_PARAMS', async () => {
+    const r = await handleTool('ui', { action: 'ui_pixel_verify', project_path: process.cwd(), scene_path: 'main.tscn' }, createCtx());
+    const text = (r?.content?.[0] as { text: string }).text;
+    expect(text).toContain('INVALID_PARAMS');
+    expect(text).toContain('必须提供其一');
+  });
+
+  it('geometry_path 越界逃逸(../) → INVALID_PARAMS(路径白名单负向)', async () => {
+    const r = await handleTool('ui', { action: 'ui_pixel_verify', project_path: process.cwd(), scene_path: 'main.tscn', geometry_path: '../outside.json' }, createCtx());
+    const text = (r?.content?.[0] as { text: string }).text;
+    expect(text).toContain('INVALID_PARAMS');
+    expect(text).toContain('geometry_path');
+  });
+
+  it('scene_path 缺失 → INVALID_PARAMS(pixel_verify 必须指向已构建场景)', async () => {
+    const r = await handleTool('ui', { action: 'ui_pixel_verify', project_path: process.cwd(), geometry: { viewport: { w: 10, h: 10 }, nodes: [] } }, createCtx());
+    const text = (r?.content?.[0] as { text: string }).text;
+    expect(text).toContain('INVALID_PARAMS');
+    expect(text).toContain('scene_path');
+  });
+
+  it('ACTIONS/TOOL_META 登记一致(spec §5 actionRisks write)', () => {
+    expect(ACTIONS).toContain('ui_pixel_verify');
+    expect(TOOL_META['ui']!.actionRisks!['ui_pixel_verify']).toBe('write');
   });
 });

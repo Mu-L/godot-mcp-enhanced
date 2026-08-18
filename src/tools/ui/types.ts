@@ -17,6 +17,7 @@ export const ACTIONS = [
   'ui_build_layout',
   'ui_measure_layout',
   'ui_import_prototype',
+  'ui_pixel_verify',
   'theme_create',
   'theme_set_property',
 ] as const;
