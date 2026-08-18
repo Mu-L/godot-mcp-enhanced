@@ -1,13 +1,28 @@
-// pixel-verify 纯函数单测(spec 2026-08-17-prototype-stylebox-loop-design.md §5,PR-3 Task 1):
-// 采样点 clamp 数学 / PNG 像素读取(构造 PNG 精确断言)/ RGB 距离 / bg 目标收集(半透明 skip)。
-// 不含 capture 编排(Task 2)与 handler 接线(Task 3)。
-import { describe, it, expect } from 'vitest';
+// pixel-verify 单测(spec 2026-08-17-prototype-stylebox-loop-design.md §5,PR-3):
+// Task 1 纯函数——采样点 clamp 数学 / PNG 像素读取(构造 PNG 精确断言)/ RGB 距离 / bg 目标收集(半透明 skip);
+// Task 2 capture 编排——runPixelVerify(mock captureScreenshot + 真临时 PNG 文件)/ judgeNode 契约补充。
+// 不含 handler 接线(Task 3)。
+import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { PNG } from 'pngjs';
 import {
-  computeSamplePoints, pixelAt, rgbDistance, collectBgTargets,
+  computeSamplePoints, pixelAt, rgbDistance, collectBgTargets, judgeNode,
+  runPixelVerify, toResPath,
   CENTER_TOL, CORNER_TOL,
 } from '../src/tools/ui/pixel-verify.js';
+import { captureScreenshot, getBlankHint } from '../src/screenshot.js';
 import type { PrototypeGeometry } from '../src/tools/ui/prototype-import.js';
+import type { Rect } from '../src/tools/ui/anchor-solver.js';
+
+vi.mock('../src/screenshot.js', () => ({
+  captureScreenshot: vi.fn(),
+  getBlankHint: vi.fn().mockReturnValue(''),
+}));
+
+const captureMock = vi.mocked(captureScreenshot);
+const blankHintMock = vi.mocked(getBlankHint);
 
 describe('computeSamplePoints(spec §5 内缩 clamp)', () => {
   // rect 100x60 @(10,20),radius 8 + border 2 → inset=min(10, 60/2-2=28)=10
@@ -120,5 +135,172 @@ describe('collectBgTargets(spec §5 「每 bg 节点」)', () => {
 describe('容差常量(Task 4 集成校准锚点)', () => {
   it('中心严格、角点宽松(spec §5)', () => {
     expect(CENTER_TOL).toBeLessThan(CORNER_TOL);
+  });
+});
+
+describe('toResPath', () => {
+  it('项目内绝对路径 → res:// 相对形式(反斜杠转正斜杠)', () => {
+    expect(toResPath('D:/proj', 'D:/proj/scenes/main.tscn')).toBe('res://scenes/main.tscn');
+    expect(toResPath('D:\\proj', 'D:\\proj\\scenes\\main.tscn')).toBe('res://scenes/main.tscn');
+  });
+});
+
+describe('judgeNode 契约与路径(Task 2 衔接补充)', () => {
+  const rect: Rect = { x: 0, y: 0, w: 100, h: 100 };
+  // computeSamplePoints(rect,0,0) → center(50,50)/tl(0,0)/tr(100,0)/br(100,100)/bl(0,100)
+  const points = computeSamplePoints(rect, 0, 0);
+
+  it('samples 与 points 不成对(短数组)→ 抛错(锁「编排层必须成对给」契约)', () => {
+    // 现实现 samples[i]! 非空断言在运行时为 undefined → 读属性抛 TypeError
+    expect(() => judgeNode('N', rect, [0, 0, 0], points, [])).toThrow();
+  });
+
+  it('rgb null(越界采样)→ ok:false + distance:null,节点整体红', () => {
+    const samples = points.map(p => ({ x: p.x, y: p.y, rgb: null }));
+    const r = judgeNode('N', rect, [0, 0, 0], points, samples);
+    expect(r.ok).toBe(false);
+    expect(r.samples.every(s => s.ok === false)).toBe(true);
+    expect(r.samples.every(s => s.distance === null)).toBe(true);
+  });
+
+  it('容差分流:CENTER_TOL 边界过(<=20)/ CORNER_TOL 边界过(<=60)两路径', () => {
+    // target [0,0,0]:rgb [20,0,0] → distance 20 == CENTER_TOL,中心点边界过(<=)
+    const rCenter = judgeNode('N', rect, [0, 0, 0], points, points.map(p => ({
+      x: p.x, y: p.y,
+      rgb: (p.id === 'center' ? [20, 0, 0] : [0, 0, 0]) as [number, number, number],
+    })));
+    expect(rCenter.samples.find(s => s.id === 'center')!.ok).toBe(true);
+    expect(rCenter.ok).toBe(true);
+
+    // rgb [60,0,0] → distance 60 == CORNER_TOL,角点边界过(<=);同值放中心则红(60 > 20)
+    const rCorner = judgeNode('N', rect, [0, 0, 0], points, points.map(p => ({
+      x: p.x, y: p.y,
+      rgb: (p.id === 'tl' ? [60, 0, 0] : [0, 0, 0]) as [number, number, number],
+    })));
+    expect(rCorner.samples.find(s => s.id === 'tl')!.ok).toBe(true);
+    const rCenter60 = judgeNode('N', rect, [0, 0, 0], points, points.map(p => ({
+      x: p.x, y: p.y,
+      rgb: (p.id === 'center' ? [60, 0, 0] : [0, 0, 0]) as [number, number, number],
+    })));
+    expect(rCenter60.samples.find(s => s.id === 'center')!.ok).toBe(false);
+    expect(rCenter60.ok).toBe(false);
+  });
+});
+
+describe('runPixelVerify 编排(mock capture)', () => {
+  let dir: string;
+
+  /** 构造整图纯色 PNG 落盘,并让 mock captureScreenshot 返回成功(产出该文件)。 */
+  function stubCaptureWithSolidPng(rgb: [number, number, number], w = 800, h = 600): void {
+    captureMock.mockImplementation(async (opts) => {
+      // 模拟真实 captureScreenshot 的建目录行为(产物落 .godot/ 子目录)
+      mkdirSync(dirname(opts.outputPath), { recursive: true });
+      const png = new PNG({ width: w, height: h });
+      for (let i = 0; i < w * h; i++) {
+        png.data[i * 4] = rgb[0]; png.data[i * 4 + 1] = rgb[1];
+        png.data[i * 4 + 2] = rgb[2]; png.data[i * 4 + 3] = 255;
+      }
+      writeFileSync(opts.outputPath, PNG.sync.write(png));
+      return { success: true, imagePath: opts.outputPath, width: w, height: h };
+    });
+  }
+
+  const geo: PrototypeGeometry = {
+    viewport: { w: 800, h: 600 },
+    nodes: [
+      { name: 'Card', rect: { x: 100, y: 100, w: 200, h: 80 }, bg: '#1a1f2e' },
+      { name: 'Accent', rect: { x: 100, y: 200, w: 200, h: 40 }, bg: '#3ddc84' },
+    ],
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pixel-verify-ut-'));
+    captureMock.mockReset();
+    blankHintMock.mockReturnValue('');
+  });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('同图全绿:PNG 与目标同色 → 全节点 ok + PNG 已清理(cleaned_up)', async () => {
+    // 两节点同目标色 #1a1f2e,整图渲染该色 → 采样全绿路径
+    const g2: PrototypeGeometry = {
+      viewport: { w: 800, h: 600 },
+      nodes: [
+        { name: 'Card', rect: { x: 100, y: 100, w: 200, h: 80 }, bg: '#1a1f2e' },
+        { name: 'Accent', rect: { x: 100, y: 200, w: 200, h: 40 }, bg: '#1a1f2e' },
+      ],
+    };
+    stubCaptureWithSolidPng([0x1a, 0x1f, 0x2e]);
+    const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo: g2 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.summary.pass).toBe(2);
+    expect(r.summary.fail).toBe(0);
+    expect(r.summary.nodes.every(n => n.ok)).toBe(true);
+    expect(r.summary.image.cleaned_up).toBe(true);
+    expect(existsSync(join(dir, '.godot', 'mcp_pixel_verify.png'))).toBe(false);
+  });
+
+  it('构造差异精确计数:整图 Accent 色 → Card 红(5 采样点)/Accent 绿,pass=1 fail=1', async () => {
+    stubCaptureWithSolidPng([0x3d, 0xdc, 0x84]);
+    const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.summary.pass).toBe(1);
+    expect(r.summary.fail).toBe(1);
+    const card = r.summary.nodes.find(n => n.name === 'Card')!;
+    expect(card.ok).toBe(false);
+    expect(card.samples).toHaveLength(5);
+    expect(card.samples.every(s => !s.ok)).toBe(true);
+    expect(card.samples.every(s => s.distance !== null && s.distance > 60)).toBe(true);
+  });
+
+  it('capture 失败 → ok:false 透传错误', async () => {
+    captureMock.mockResolvedValue({ success: false, error: 'Screenshot failed (windowed mode). Godot exited with code 1.' });
+    const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain('Screenshot failed');
+    // 失败路径也不留 PNG
+    expect(existsSync(join(dir, '.godot', 'mcp_pixel_verify.png'))).toBe(false);
+  });
+
+  it('BLANK_DETECTED → ok:false 且附 hint(Linux headless 空白防线)', async () => {
+    blankHintMock.mockReturnValue('2D CanvasItem content cannot render in headless mode.');
+    try {
+      stubCaptureWithSolidPng([0, 0, 0]);
+      const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error).toContain('空白');
+      expect(r.hint).toContain('headless');
+    } finally {
+      blankHintMock.mockReturnValue('');
+    }
+  });
+
+  it('PNG 尺寸≠viewport → 线性缩放采样坐标 + image.scaled=true', async () => {
+    // viewport 800x600,PNG 实际 400x300(半分辨率)→ 采样点同比例缩放,同色仍全绿
+    stubCaptureWithSolidPng([0x1a, 0x1f, 0x2e], 400, 300);
+    const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo: {
+      viewport: { w: 800, h: 600 },
+      nodes: [{ name: 'Card', rect: { x: 100, y: 100, w: 200, h: 80 }, bg: '#1a1f2e' }],
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.summary.image.scaled).toBe(true);
+    expect(r.summary.image.width).toBe(400);
+    expect(r.summary.nodes[0]!.ok).toBe(true);
+    expect(r.summary.nodes[0]!.samples.find(s => s.id === 'tl')).toMatchObject({ x: 50, y: 50 });
+  });
+
+  it('无 bg 节点 → 空结果 + note 声明(不是错误)', async () => {
+    stubCaptureWithSolidPng([0, 0, 0]);
+    const r = await runPixelVerify({ godotPath: 'godot', projectPath: dir, scenePath: join(dir, 'main.tscn'), geo: {
+      viewport: { w: 800, h: 600 }, nodes: [{ name: 'Plain', rect: { x: 0, y: 0, w: 10, h: 10 } }],
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.summary.nodes).toHaveLength(0);
+    expect(r.summary.note).toContain('无 bg 节点');
   });
 });

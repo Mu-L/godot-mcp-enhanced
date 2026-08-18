@@ -1,9 +1,13 @@
 // ui_pixel_verify 纯函数层(spec 2026-08-17-prototype-stylebox-loop-design.md §5,PR-3):
 // 采样点 clamp 数学 / PNG 像素读取 / RGB 距离判定 / bg 目标收集。
-// capture 编排(runPixelVerify)同文件下方,Task 2 落地。
+// capture 编排(runPixelVerify)同文件下方,Task 2 已落地。
 // 颜色语义:输入 bg 经 normalizeColor 归一为 0-1 RGBA,目标色换算 round(c*255) 进 0-255
 // 空间与 PNG 采样值直接欧氏距离(Godot 2D canvas 默认不做 linear-sRGB 转换;若集成实测
 // 发现系统性偏移,在 Task 4 校准并如实记录,不静默调阈值掩盖)。
+import { readFileSync, rmSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { PNG } from 'pngjs';
+import { captureScreenshot, getBlankHint } from '../../screenshot.js';
 import type { Rect } from './anchor-solver.js';
 import { normalizeColor } from './prototype-import.js';
 import type { PrototypeGeometry } from './prototype-import.js';
@@ -126,4 +130,115 @@ export function judgeNode(
     return { id: p.id, x: s.x, y: s.y, rgb: s.rgb, distance, ok: distance !== null && distance <= tol };
   });
   return { name, rect, target, samples: out, ok: out.every(s => s.ok) };
+}
+
+// ─── capture 编排(Task 2)──────────────────────────────────────────────────
+
+export interface PixelVerifySummary {
+  nodes: NodePixelResult[];
+  pass: number;
+  fail: number;
+  skipped: Array<{ name: string; reason: string }>;
+  viewport: { w: number; h: number };
+  image: { width: number; height: number; scaled: boolean; cleaned_up: boolean };
+  tolerances: { center: number; corner: number };
+  note: string;
+}
+
+/** 绝对路径 → res:// 形式(screenshot_capture.gd 的 ResourceLoader.exists/load 需要)。 */
+export function toResPath(projectPath: string, absPath: string): string {
+  return 'res://' + relative(projectPath, absPath).replace(/\\/g, '/');
+}
+
+const PIXEL_VERIFY_NOTE = '终验定位(spec §5):几何 layout_verify + style_verify 全绿后才跑一次'
+  + '(每次 capture 窗口模式弹窗 + 秒级耗时,迭代每轮跑会拖垮收敛循环);'
+  + '采样基准 = 输入 geometry 的视口 rect,挂载父须原点对齐(同 layout_verify 约束);'
+  + 'flow 子节点的实际渲染位置由容器排布决定,与输入 rect 的偏差正是 flow_verify 的收敛对象'
+  + '(终验前提全绿时偏差已在容差内;采样红时先查 flow_verify——位置未收敛与色错都表现为红)';
+
+/**
+ * ui_pixel_verify 编排:collectBgTargets → captureScreenshot(窗口模式,viewport=geo.viewport)
+ * → PNG 解码 → 逐节点采样点计算(必要时按 PNG/viewport 线性缩放)→ 判定 → try/finally
+ * 清理 PNG 中间产物(spec §5:临时名落项目内,失败路径也清理)。
+ * 返回 ok:false 的两类:capture 失败(含 BLANK hint)/ PNG 解码失败。
+ * cleaned_up 语义:finally 无条件 rmSync(force:true 不抛),成功路径直接写 true。
+ */
+export async function runPixelVerify(params: {
+  godotPath: string; projectPath: string; scenePath: string; geo: PrototypeGeometry;
+}): Promise<{ ok: true; summary: PixelVerifySummary } | { ok: false; error: string; hint?: string }> {
+  const { godotPath, projectPath, scenePath, geo } = params;
+  const { targets, skipped } = collectBgTargets(geo);
+  const note = PIXEL_VERIFY_NOTE + (targets.length === 0 ? ';本次 geometry 无 bg 节点,无采样目标' : '');
+  if (targets.length === 0) {
+    return { ok: true, summary: emptySummary(geo, skipped, note) };
+  }
+
+  const tmpPng = join(projectPath, '.godot', 'mcp_pixel_verify.png');
+  try {
+    const shot = await captureScreenshot({
+      godotPath, projectPath,
+      scene: toResPath(projectPath, scenePath),
+      outputPath: tmpPng,
+      viewportSize: { width: geo.viewport.w, height: geo.viewport.h },
+      timeout: 60,
+    });
+    if (!shot.success) {
+      return { ok: false, error: `像素截图失败: ${shot.error ?? 'unknown'}`, hint: getBlankHint(shot.godotOutput ?? '') || undefined };
+    }
+    // Linux headless 可能「成功」产出空白 PNG——BLANK_DETECTED 显式拦截,不采样出全红误导
+    const blankHint = getBlankHint(shot.godotOutput ?? '');
+    if (blankHint) {
+      return { ok: false, error: '像素截图为空白(headless 2D CanvasItem 不可渲染)', hint: blankHint };
+    }
+
+    let png: PNG;
+    try {
+      png = PNG.sync.read(readFileSync(tmpPng));
+    } catch (err) {
+      return { ok: false, error: `PNG 解码失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    // 采样坐标缩放:PNG 尺寸与 geometry viewport 不一致(如 content scale/窗口边框差异)时
+    // 按线性比例缩放,保持采样点与渲染内容的相对位置;scaled 标记暴露给消费方。
+    const scaled = png.width !== geo.viewport.w || png.height !== geo.viewport.h;
+    const sx = png.width / geo.viewport.w;
+    const sy = png.height / geo.viewport.h;
+
+    const nodes: NodePixelResult[] = targets.map(t => {
+      const points = computeSamplePoints(t.rect, t.borderRadius, t.borderWidth);
+      const samples = points.map(p => {
+        // 与 computeSamplePoints floor 语义一致(0-indexed 像素格左端),缩放后同样向下取整
+        const x = Math.floor(p.x * sx);
+        const y = Math.floor(p.y * sy);
+        return { x, y, rgb: pixelAt(png, x, y) };
+      });
+      return judgeNode(t.name, t.rect, t.target, points, samples);
+    });
+
+    return {
+      ok: true,
+      summary: {
+        nodes,
+        pass: nodes.filter(n => n.ok).length,
+        fail: nodes.filter(n => !n.ok).length,
+        skipped,
+        viewport: { w: geo.viewport.w, h: geo.viewport.h },
+        image: { width: png.width, height: png.height, scaled, cleaned_up: true },
+        tolerances: { center: CENTER_TOL, corner: CORNER_TOL },
+        note,
+      },
+    };
+  } finally {
+    rmSync(tmpPng, { force: true });
+  }
+}
+
+function emptySummary(geo: PrototypeGeometry, skipped: Array<{ name: string; reason: string }>, note: string): PixelVerifySummary {
+  return {
+    nodes: [], pass: 0, fail: 0, skipped,
+    viewport: { w: geo.viewport.w, h: geo.viewport.h },
+    image: { width: 0, height: 0, scaled: false, cleaned_up: true },
+    tolerances: { center: CENTER_TOL, corner: CORNER_TOL },
+    note,
+  };
 }
