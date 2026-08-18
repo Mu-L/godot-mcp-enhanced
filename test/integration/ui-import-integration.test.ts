@@ -689,13 +689,13 @@ describe.skipIf(!run)('PR-4 单 spawn 合成与篡改磁盘断言(真跑 Godot)'
       expect(res.run_success, res.run_error).toBe(true);
       expect(res.outputs.some(o => o.key === 'error')).toBe(false);
       const persist = res.outputs.find(o => o.key === 'persist');
-      expect(persist).toBeTruthy();
+      expect(res.outputs.filter(o => o.key === 'persist')).toHaveLength(1);
       expect(JSON.parse(String(persist!.value)).saved).toBe(true);
       const measure = JSON.parse(String(res.outputs.find(o => o.key === 'measure')!.value)) as {
         nodes: Array<{ path: string; rect: { x: number; y: number; w: number; h: number } }>;
       };
       const p = measure.nodes.find(n => n.path === 'P');
-      expect(p).toBeTruthy();
+      expect(measure.nodes.filter(n => n.path === 'P')).toHaveLength(1);
       expect(Math.abs(p!.rect.x - 10)).toBeLessThanOrEqual(1);
       expect(Math.abs(p!.rect.w - 200)).toBeLessThanOrEqual(1);
     } finally { rmSync(d, { recursive: true, force: true }); }
@@ -718,7 +718,7 @@ describe.skipIf(!run)('PR-4 单 spawn 合成与篡改磁盘断言(真跑 Godot)'
         nodes: Array<{ path: string; rect: { w: number; h: number } }>;
       };
       const rootEntry = measure.nodes.find(n => n.path === '.');
-      expect(rootEntry).toBeTruthy();
+      expect(measure.nodes.filter(n => n.path === '.')).toHaveLength(1);
       expect(Math.abs(rootEntry!.rect.w - 100)).toBeLessThanOrEqual(1);
       expect(Math.abs(rootEntry!.rect.h - 50)).toBeLessThanOrEqual(1);
       expect(measure.nodes.some(n => n.path.includes('P'))).toBe(false);
@@ -741,7 +741,7 @@ describe.skipIf(!run)('PR-4 单 spawn 合成与篡改磁盘断言(真跑 Godot)'
       expect(res.compile_success, res.compile_error).toBe(true);
       expect(res.run_success, res.run_error).toBe(true);
       const errEntry = res.outputs.find(o => o.key === 'error');
-      expect(errEntry).toBeTruthy();
+      expect(res.outputs.filter(o => o.key === 'error')).toHaveLength(1);
       expect(String(errEntry!.value)).toContain('Scene reload failed (post-persist)');
       expect(String(errEntry!.value)).toContain('已持久化');
       expect(String(errEntry!.value)).toContain('ui_measure_layout');
