@@ -10,31 +10,18 @@
 // 编排 mock 单测(Task 2)覆盖分支,与 game-bridge「Linux CI 完全无法跑其测试」的排除理由
 // 不同;本集成文件 Windows-only skip 照 ui-import-integration.test.ts:40 先例(const run = !!GODOT && win32,describe.skipIf)。
 //
-// ⚠️ 2026-08-18 首跑校准结论(§10.2 取证,Task 4 上报 BLOCKED,详见
-// .superpowers/sdd/task-4-report.md;用例 1 暂 it.skip,解除前置见下方注释):
+// ⚠️ 2026-08-18 首跑校准结论(§10.2 取证,详见 .superpowers/sdd/task-4-report.md):
 //   A. 零色彩偏移 + 零底噪:CardBg 5/5、Title 角 4/4、TagChip 角 4/4 共 13 采样点
 //      distance=0.0(精确匹配)——CENTER_TOL=20 / CORNER_TOL=60 维持初值,无需校准;
 //      spec §10.2 担忧的 linear/sRGB 系统偏差实测不存在(Godot 2D canvas 不做转换,
 //      pixel-verify.ts 头注释预期获实测确认)。
-//   B. F1(BLOCKING,capture 层):screenshot_capture.gd _detect_blank_image 的
-//      step = w*h/100 = 4800 = 6×800 → 采样点全落在 x=0 单列(css-card 内容 x≥40 全被
-//      漏采)→ 100% uniform > 95% → BLANK_DETECTED 误报,ui_pixel_verify 返回
-//      ok:false「像素截图为空白」——Windows 窗口模式有真实渲染也被拦(PNG 实测含
-//      CardBg #1a1f2e 精确色)。800x600/1000x500 等 w*h/100 为 w 整数倍的视口必中招。
-//   C. F2(采样语义):HpBar(ProgressBar bg+fill+value=0.72)5/5 红,与阈值无关:
-//      center d=289.6(Godot 4 show_percentage 默认 true,「72%」文字画在 bar 中心)、
-//      tl d=199.8(fill #3ddc84 覆盖左缘)、tr/br/bl d=65.7(inset=0 角点踩 rect
-//      半开区间外的未覆盖像素格,读到清屏灰 (76,76,76))。
-//   D. F3(采样语义):Title center d=47.9 / TagChip center d=48.5——Label 文字水平
-//      居中排版,采样中心点踩文字抗锯齿像素(文字色与 bg 按 t≈0.15-0.22 混合)。
-//   E. F4(采样数学):inset=0(无 radius/border)时 tr/br/bl 角点 = rect 右/下边界
-//      精确值,落在 rect 覆盖区([x,x+w)×[y,y+h))之外一像素格——tl 在内、其余三角
-//      在外的不对称。CardBg/Title/TagChip 因 inset>0 不触发;HpBar 触发(65.7 红)。
-//   按校准纪律(§10.2):F2/F3/F4 是采样语义问题,禁止用大阈值掩盖(48→可盖但毁掉
-//   「中心严格」语义;290/200 无论何容差都盖不住),上报控制器裁决。修复选项矩阵
-//   见 task-4-report.md(F1 修 screenshot_capture.gd 采样退化或 pixel-verify 改用
-//   PNG 实际内容判空白;F2 或 skip 带 fill 的 ProgressBar bg 或翻译层关
-//   show_percentage;F3 或采样点避开 Label 文字区;F4 或角点坐标 -1 内缩)。
+//   B-F. F1-F4 四项缺陷(详见 task-4-report.md §2.4/§6)已于同日按控制器裁决修复落地:
+//      F1 BLANK 误报 → TS 侧双条件拦截(stdout BLANK_DETECTED 且 PNG 8x8 网格均匀才拦,
+//        不动 screenshot_capture.gd);
+//      F2 HpBar 5/5 红 → collectBgTargets skip ProgressBar 系 bg(本用例 HpBar 进
+//        skipped,采样节点 4→3:CardBg/Title/TagChip,pass=3);
+//      F3 Label 文字居中 center 红 → 带 text 节点 skipCenter(Title/TagChip 各 4 采样点);
+//      F4 角点半开区间 → computeSamplePoints 右/下分量 x+w-1-inset / y+h-1-inset。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -79,12 +66,10 @@ describe.skipIf(!run)('ui_pixel_verify 集成验收(真跑 Godot 窗口模式)',
   });
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  // 解除 it.skip 前置(2026-08-18 首跑取证):
-  //   1. F1 修复(BLANK step 退化误报)——否则本用例死在「像素截图为空白」,到不了断言;
-  //   2. F2/F3/F4 裁决落地(采样语义三处,任一方案使 css-card 全绿);
-  //   3. 裁决若改 CENTER_TOL/CORNER_TOL,同步 test/pixel-verify.test.ts 容差边界用例
-  //      的 [20,0,0]/[60,0,0] 断言值(前序审查遗留衔接 1)。
-  it.skip('css-card:import 建场(前置绿)→ ui_pixel_verify 同图全绿', { timeout: 180_000 }, async () => {
+  // 2026-08-18 F1-F4 修复落地后解除 skip(原取证期 it.skip 留档见 git 历史 235487b):
+  // HpBar(ProgressBar)按 F2 裁决进 skipped → 采样节点 = CardBg/Title/TagChip 共 3,
+  // Title/TagChip 带 text 按 F3 裁决各 4 采样点(无 center)。
+  it('css-card:import 建场(前置绿)→ ui_pixel_verify 同图全绿', { timeout: 180_000 }, async () => {
     const imported = await handleTool('ui', {
       action: 'ui_import_prototype',
       project_path: dir, scene_path: 'main.tscn', geometry_path: 'proto/css-card.json',
@@ -105,18 +90,33 @@ describe.skipIf(!run)('ui_pixel_verify 集成验收(真跑 Godot 窗口模式)',
     }, createCtx());
     const out = JSON.parse(textOf(result)) as {
       success: boolean;
-      data?: { pixel_verify?: { nodes: Array<{ name: string; ok: boolean; samples: Array<{ id: string; distance: number | null }> }>; pass: number; fail: number; image: { width: number; height: number } } };
+      data?: { pixel_verify?: {
+        nodes: Array<{ name: string; ok: boolean; samples: Array<{ id: string; distance: number | null }> }>;
+        pass: number; fail: number;
+        skipped: Array<{ name: string; reason: string }>;
+        image: { width: number; height: number };
+      } };
       error?: string;
     };
     expect(out.error).toBeUndefined();
     const pv = out.data?.pixel_verify;
     expect(pv, JSON.stringify(out)).toBeDefined();
-    // 采样节点数 = fixture 中带 bg 的节点数(实测:CardBg/Title/TagChip/HpBar = 4,
-    // Desc/BorderOnly 无 bg 不进,skipped 空——fixture 全不透明)
-    expect(pv!.nodes.map(n => n.name)).toEqual(['CardBg', 'Title', 'TagChip', 'HpBar']);
+    // 采样节点 = fixture 中带 bg 且不触发 skip 的节点(F2 后:CardBg/Title/TagChip;
+    // HpBar 为 ProgressBar → skipped;Desc/BorderOnly 无 bg 不进)
+    expect(pv!.nodes.map(n => n.name)).toEqual(['CardBg', 'Title', 'TagChip']);
     expect(pv!.fail).toBe(0);
-    expect(pv!.pass).toBe(4);
+    expect(pv!.pass).toBe(3);
     expect(pv!.nodes.every(n => n.ok)).toBe(true);
+    // F2:HpBar 进 skipped,reason 指向 style_verify
+    expect(pv!.skipped.map(s => s.name)).toEqual(['HpBar']);
+    expect(pv!.skipped[0]!.reason).toContain('ProgressBar');
+    // F3:带 text 的 Title/TagChip 各 4 采样点(无 center);CardBg 无 text 全 5 点
+    const title = pv!.nodes.find(n => n.name === 'Title')!;
+    const tagChip = pv!.nodes.find(n => n.name === 'TagChip')!;
+    const cardBg = pv!.nodes.find(n => n.name === 'CardBg')!;
+    expect(title.samples.map(s => s.id)).toEqual(['tl', 'tr', 'br', 'bl']);
+    expect(tagChip.samples.map(s => s.id)).toEqual(['tl', 'tr', 'br', 'bl']);
+    expect(cardBg.samples).toHaveLength(5);
   });
 
   it('geometry_path ../ 逃逸 → INVALID_PARAMS(集成层路径白名单)', { timeout: 30_000 }, async () => {
