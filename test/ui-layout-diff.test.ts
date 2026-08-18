@@ -296,6 +296,67 @@ describe('ui_measure_layout expect_tree(handler 集成)', () => {
     expect(r.isError).toBeFalsy();
     expect((r.content[0] as { text: string }).text).not.toContain('layout_verify');
   });
+
+  // ─── PR-2 Task 4: expect_tree 同构复用 style_verify(spec §4.1 挂两处之二) ──
+
+  it('expect_tree 带 styleboxes → data.style_verify 注入 + measure 脚本内嵌期望清单(PR-2)', async () => {
+    // styles 按 GD _walk 产出真实形状(flat:true 时四组字段全产出)
+    mockedExec.mockResolvedValue(okResult({
+      stable_after_frames: 2,
+      stalled: false,
+      viewport: { w: 1280, h: 720 },
+      nodes: [
+        { path: 'P', type: 'Panel', rect: { x: 0, y: 0, w: 200, h: 200 },
+          styles: [{ slot: 'panel', flat: true, bg_color: [0.1, 0.12, 0.18, 1],
+            corner_radius: { tl: 0, tr: 0, br: 0, bl: 0 },
+            border_width: { left: 0, top: 0, right: 0, bottom: 0 },
+            border_color: [0, 0, 0, 1] }] },
+        { path: 'P/A', type: 'Button', rect: { x: 0, y: 40, w: 100, h: 48 } },
+      ],
+    }));
+    const r = await handleTool('ui', {
+      action: 'ui_measure_layout', project_path: '/fake/p',
+      scene_path: 'res://scenes/main.tscn',
+      expect_tree: {
+        type: 'Panel', name: 'P',
+        styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.12, 0.18, 1] } }],
+        children: [
+          { type: 'Button', name: 'A', rect: { x: 0, y: 24, w: 100, h: 48 } },
+        ],
+      },
+    }, ctx);
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse((r.content[0] as { text: string }).text) as {
+      data: {
+        style_verify?: Array<{ path: string; slot: string; field: string; ok: boolean }>;
+        layout_verify?: unknown;
+      };
+    };
+    // style_verify 注入(与 layout_verify 并列;只比 box 显式字段 → 仅 bg_color 1 条全绿)
+    const sv = parsed.data.style_verify!;
+    expect(sv).toHaveLength(1);
+    expect(sv[0]).toMatchObject({ path: 'P', slot: 'panel', field: 'bg_color', ok: true });
+    expect(parsed.data.layout_verify).toBeTruthy();
+    // measure 脚本第 4 参期望清单内嵌:code 含 JSON.parse_string 与 path→slots 清单
+    // (escapeForGdLiteral 会把 JSON 的 " 转义为 \",断言按转义后字面序列)
+    const call = mockedExec.mock.calls[0]![0] as { code: string };
+    expect(call.code).toContain('JSON.parse_string');
+    expect(call.code).toContain('\\"P\\":[\\"panel\\"]');
+  });
+
+  it('expect_tree 无 styleboxes → style_verify=[] 且 measure 脚本不注入期望清单(PR-2)', async () => {
+    mockedExec.mockResolvedValue(okResult({ stable_after_frames: 2, nodes: [] }));
+    const r = await handleTool('ui', {
+      action: 'ui_measure_layout', project_path: '/fake/p',
+      scene_path: 'res://scenes/main.tscn',
+      expect_tree: { type: 'Panel', name: 'P', rect: { x: 0, y: 0, w: 100, h: 100 } },
+    }, ctx);
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse((r.content[0] as { text: string }).text) as { data?: { style_verify?: unknown } };
+    expect(parsed.data?.style_verify).toEqual([]);
+    const call = mockedExec.mock.calls[0]![0] as { code: string };
+    expect(call.code).not.toContain('JSON.parse_string');
+  });
 });
 
 // ─── PR-2 Task 1: style_verify / flow_verify 纯函数 ────────────────────────
