@@ -79,7 +79,7 @@ describe('test-framework tools', () => {
   });
 
   it('property_equals wraps expected as a string literal, not a bare identifier (security P2)', async () => {
-    // :146 `str(${gdEscape(expected)})` 语句位置无引号 → expected="Player" 生成 str(Player)
+    // 源码 `var _expected = str(...)` 语句位置曾无引号 → expected="Player" 生成 str(Player)
     // (GDScript 当标识符，功能 bug + 弱注入面)。修复后应 str("Player")。
     const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
     let capturedCode = '';
@@ -106,6 +106,36 @@ describe('test-framework tools', () => {
     expect(capturedCode).not.toContain('var _expected = str(Player)');
   });
 
+  // T2c (debt-cleanup-20260818): expected 是任意用户值,消费点全为值语义——
+  //   var _match = _val == _expected(比较右侧)+ "%s.%s = ..." % [...] 格式串
+  //   **右侧数组**(右侧数组元素只被替换、不解析 % 转义)——均需 % 原样。
+  //   gdEscape 双写致含 % 的 expected 断言恒错(_val "a%b" vs _expected "a%%b")。
+  it('T2c: property_equals expected 含 % 不双写(比较右侧/格式串右侧数组均需原样)', async () => {
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+
+    await handleTool('test', {
+      project_path: '/tmp/test-project',
+      action: 'assert',
+      assertion_type: 'property_equals',
+      path: 'root/Player',
+      property: 'name',
+      expected: 'a%b',
+    }, mockCtx);
+
+    expect(capturedCode).toContain('var _expected = str("a%b")');
+    expect(capturedCode).not.toContain('a%%b');
+  });
+
   it('handleTool for test assert with invalid assertion_type', async () => {
     const result = await handleTool('test', {
       project_path: '/tmp/test-project',
@@ -118,9 +148,9 @@ describe('test-framework tools', () => {
   });
 
   // T2b (debt-cleanup-20260818): parentPath 是混合上下文,拆两份变量:
-  //   - :158 _mcp_get_node / :160 错误消息 → 纯字面量,escapeForGdLiteral(%HUD 原样保留,
-  //     gdEscape 双写 %%HUD 使 unique-name 查找失败,预先存在的 bug);
-  //   - :164 "Children of %s: %d..." 是 % 格式串左侧,必须 gdEscape(%% 格式化后还原为 %)。
+  //   - node_count 分支 _mcp_get_node 查找 / "Parent node not found" 错误消息 → 纯字面量,
+  //     escapeForGdLiteral(%HUD 原样保留,gdEscape 双写 %%HUD 使 unique-name 查找失败);
+  //   - "Children of %s: %d..." 是 % 格式串左侧,必须 gdEscape(%% 格式化后还原为 %)。
   // 本用例同时断言两种形态各归其位——拆分正确性的直接锁。
   it('T2b: node_count parent 含 % ——字面量处 %HUD 原样、% 格式串处 %%HUD 双写', async () => {
     const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
@@ -143,17 +173,17 @@ describe('test-framework tools', () => {
       count: 3,
     }, mockCtx);
 
-    // 字面量消费点(:158 查找 + 空串比较、:160 错误消息)——% 原样,不被双写
+    // 字面量消费点(var _p 查找 + 空串比较、"Parent node not found" 错误消息)——% 原样,不被双写
     expect(capturedCode).toContain('var _p = _mcp_get_node("%HUD") if "%HUD" != "" else _root');
     expect(capturedCode).toContain('"Parent node not found: %HUD"');
     expect(capturedCode).not.toContain('_mcp_get_node("%%HUD")');
-    // % 格式串左侧(:164)——必须双写,格式化后还原为字面 %
+    // % 格式串左侧("Children of ...")——必须双写,格式化后还原为字面 %
     expect(capturedCode).toContain('"Children of %%HUD: %d (expected: %d)" % [_count, _expected]');
   });
 
-  // T2b: path 的全部消费点(:131 字面量赋值 → :134/:140/:150 _mcp_get_node、:136/:138/:142
-  // 消息拼接、:148 % 格式串**右侧数组**——右侧参数不解析 % 转义)均需 % 原样 → 整体切
-  // escapeForGdLiteral,无需拆分。
+  // T2b: path 的全部消费点(var _path 字面量赋值 → 各分支 _mcp_get_node(_path) 查找、
+  // "Node not found: " + _path 消息拼接、"message": "%s..." % [... _path ...] % 格式串
+  // **右侧数组**——右侧参数不解析 % 转义)均需 % 原样 → 整体切 escapeForGdLiteral,无需拆分。
   it('T2b: node_exists path 含 % (unique-name) 不双写', async () => {
     const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
     let capturedCode = '';
@@ -178,7 +208,8 @@ describe('test-framework tools', () => {
     expect(capturedCode).not.toContain('%%Player');
   });
 
-  // T2b: targetPath 消费点(:151 _mcp_get_node 纯字面量、:156 % 格式串右侧数组)均需 % 原样 → 整体切。
+  // T2b: targetPath 消费点(signal_connected 分支 _mcp_get_node 纯字面量、"Signal %s->%s..."
+  // % 格式串右侧数组)均需 % 原样 → 整体切。
   it('T2b: signal_connected target 含 % (unique-name) 不双写', async () => {
     const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
     let capturedCode = '';

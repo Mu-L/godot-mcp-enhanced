@@ -77,7 +77,10 @@ export function genSignalEmitScript(
       if (arg === null || arg === undefined) { serialized.push('null'); }
       else if (typeof arg === 'number') { serialized.push(String(arg)); }
       else if (typeof arg === 'boolean') { serialized.push(String(arg)); }
-      else if (typeof arg === 'string') { serialized.push(`"${gdEscape(arg)}"`); }
+      // T2c (debt-cleanup-20260818): emit args 是任意用户字符串,消费点是
+      // emit_signal("...", "...") 的字面量实参(纯值传递,不参与 % 格式化),
+      // % 需原样;gdEscape 双写致监听方收到 "a%%b"。
+      else if (typeof arg === 'string') { serialized.push(`"${escapeForGdLiteral(arg)}"`); }
       else { throw new Error('signal_emit args only support basic types (string/number/bool/null)'); }
     }
     argsStr = ', ' + serialized.join(', ');

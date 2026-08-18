@@ -85,6 +85,14 @@ describe('genSignalEmitScript', () => {
     const script = genSignalEmitScript('/root/Player', 'msg', ['hello']);
     expect(script).toContain('"hello"');
   });
+  // T2c (debt-cleanup-20260818): emit args 是任意用户字符串,消费点是
+  // source.emit_signal("...", "a%b") 的字面量实参(纯值传递,不参与 % 格式化),
+  // % 需原样;gdEscape 双写致监听方收到 "a%%b"。
+  it('T2c: string arg 含 % 不双写(emit_signal 字面量实参需 % 原样)', () => {
+    const script = genSignalEmitScript('/root/Player', 'msg', ['a%b']);
+    expect(script).toContain('source.emit_signal("msg", "a%b")');
+    expect(script).not.toContain('a%%b');
+  });
   it('serializes number args', () => {
     const script = genSignalEmitScript('/root/Player', 'damage', [42]);
     expect(script).toContain('42');
