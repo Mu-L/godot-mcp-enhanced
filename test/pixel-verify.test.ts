@@ -55,7 +55,7 @@ describe('computeSamplePoints(spec §5 内缩 clamp)', () => {
     expect(by.br).toEqual({ id: 'br', x: 8, y: 7 });
   });
 
-  it('坐标 round 到整数(奇数宽高中心)', () => {
+  it('坐标 floor 到整数(奇数宽高中心)', () => {
     const pts = computeSamplePoints({ x: 0, y: 0, w: 101, h: 61 }, 0, 0);
     expect(pts.find(p => p.id === 'center')).toEqual({ id: 'center', x: 50, y: 30 });
   });
