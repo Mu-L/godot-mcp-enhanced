@@ -5,8 +5,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
 import { executeGdscript, executeGdscriptTrusted } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, parseGdscriptResult, wrapAssertionCode, opsErrorResult, validateTimeout } from './shared.js';
-import { gdEscape } from './shared.js';
+import { SCENE_TREE_HEADER, parseGdscriptResult, wrapAssertionCode, opsErrorResult, validateTimeout, escapeForGdLiteral } from './shared.js';
 import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
 import { spawnGodot } from './spawn-helper.js';
@@ -689,7 +688,9 @@ func _initialize():
 
       // Ensure res:// prefix for load() — sandbox allows only res:// paths
       const resPath = scenePath.startsWith('res://') ? scenePath : 'res://' + scenePath.replace(/\\/g, '/');
-      const safePath = gdEscape(resPath);
+      // T2b: resPath 只内嵌进纯字符串字面量(genSceneSnapshotScript 的 load()/错误消息),
+      // 不参与 % 格式化——escapeForGdLiteral(含 % 的场景文件名在文件系统层合法)。
+      const safePath = escapeForGdLiteral(resPath);
       const snapScript = genSceneSnapshotScript(safePath, maxDepth);
 
       const result = await executeGdscriptTrusted({

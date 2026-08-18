@@ -242,6 +242,24 @@ describe('genUiSetThemeScript', () => {
     expect(script).toContain('_mcp_output("loaded"');
   });
 
+  it('T2b (debt-cleanup-20260818): save themePath 含 % 不双写——纯字面量内插走 escapeForGdLiteral', () => {
+    // themePath 消费点全部为纯字符串字面量(get_base_dir/_full/_mcp_output 字典),
+    // 不参与 % 格式化——gdEscape 会把 a%b 双写成 a%%b 导致含 % 的资源路径被静默改写。
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save', 'res://themes/a%b.tres');
+    expect(script).toContain('var dir = "res://themes/a%b.tres".get_base_dir()');
+    expect(script).toContain('var _full := "res://themes/a%b.tres"');
+    // :90 outputValue(TS 字符串拼接进 _mcp_output 字典字面量)同为纯字面量
+    expect(script).toContain('{"resource_path": "res://themes/a%b.tres"}');
+    expect(script).not.toContain('a%%b');
+  });
+
+  it('T2b: load themePath 含 % 不双写', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'load', 'res://themes/a%b.tres');
+    expect(script).toContain('var res = load("res://themes/a%b.tres")');
+    expect(script).toContain('Failed to load theme from: res://themes/a%b.tres');
+    expect(script).not.toContain('a%%b');
+  });
+
   it('throws for save without theme_path', () => {
     expect(() => genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save')).toThrow(/theme_path is required/);
   });

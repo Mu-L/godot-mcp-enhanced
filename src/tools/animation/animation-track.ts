@@ -77,7 +77,7 @@ function genAnimationTrackAdd(nodePath: string, animName: string, trackType: str
     ? `_anim.add_track(${typeVal}, ${insertAt})`
     : `_anim.add_track(${typeVal})`;
   const pathLine = trackPath
-    ? `\n\t_anim.track_set_path(_idx, NodePath("${gdEscape(trackPath)}"))`
+    ? `\n\t_anim.track_set_path(_idx, NodePath("${escapeForGdLiteral(trackPath)}"))`
     : '';
   return `${SCENE_TREE_HEADER}
 func _initialize():

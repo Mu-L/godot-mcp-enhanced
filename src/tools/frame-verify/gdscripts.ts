@@ -2,14 +2,15 @@
 // 图像数值计算放 GDScript（Godot Image API，零 npm 依赖）。
 // embedding 算法来源：D:\GitHub\godogen\shared\skills\godogen\tools\find_loop_frame.py:34-37
 
-import { gdEscape } from '../shared.js';
+import { escapeForGdLiteral } from '../shared.js';
 
 export function extractFrameMetricsScript(framesDir: string): string {
-  // CRITICAL(gdscript-template-injection): 路径参数经 gdEscape 转义后插值，防闭串注入。
-  // framesDir 来源可为 MCP 工具参数（frames_dir），不可信。与 physics-ops.ts:41 同模式。
+  // CRITICAL(gdscript-template-injection): 路径参数经转义后插值,防闭串注入。
+  // framesDir 来源可为 MCP 工具参数(frames_dir),不可信。与 physics-ops.ts:41 同模式。
+  // T2b: 路径转义用 escapeForGdLiteral(纯字面量内插,% 原样——gdEscape 双写 %% 会破坏含 % 的目录名)。
   return `extends SceneTree
 
-var _frames_dir := "${gdEscape(framesDir)}"
+var _frames_dir := "${escapeForGdLiteral(framesDir)}"
 var _outputs := []
 
 func _mcp_output(key, value):
@@ -120,8 +121,8 @@ func _cos(a: PackedFloat32Array, b: PackedFloat32Array) -> float:
 	return s
 
 func _initialize():
-	var a := _embed("${gdEscape(screenshotPath)}")
-	var b := _embed("${gdEscape(referencePath)}")
+	var a := _embed("${escapeForGdLiteral(screenshotPath)}")
+	var b := _embed("${escapeForGdLiteral(referencePath)}")
 	_mcp_output("reference_sim", _cos(a, b))
 	_mcp_done()
 `;

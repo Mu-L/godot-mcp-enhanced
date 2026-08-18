@@ -93,23 +93,23 @@ func _initialize():
 \tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar _scene_res = load("${gdEscape(instancePath)}")
+\tvar _scene_res = load("${escapeForGdLiteral(instancePath)}")
 \tif _scene_res == null:
-\t\t_mcp_output("error", "Failed to load instance: ${gdEscape(instancePath)}")
+\t\t_mcp_output("error", "Failed to load instance: ${escapeForGdLiteral(instancePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (_scene_res is PackedScene):
-\t\t_mcp_output("error", "Resource is not a PackedScene: ${gdEscape(instancePath)}")
+\t\t_mcp_output("error", "Resource is not a PackedScene: ${escapeForGdLiteral(instancePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _inst = _scene_res.instantiate()
 \tif _inst == null:
-\t\t_mcp_output("error", "Failed to instantiate: ${gdEscape(instancePath)}")
+\t\t_mcp_output("error", "Failed to instantiate: ${escapeForGdLiteral(instancePath)}")
 \t\t_mcp_done()
 \t\treturn${nameLine}${propLines}
-\tvar _parent = _mcp_get_scene_node("${gdEscape(parentNodePath)}")
+\tvar _parent = _mcp_get_scene_node("${escapeForGdLiteral(parentNodePath)}")
 \tif _parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentNodePath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentNodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \t_parent.add_child(_inst, true)
@@ -118,7 +118,7 @@ ${persistSceneBlock(scenePath)}
 \t_mcp_output("instanced", {
 \t\t"node_name": str(_inst.name),
 \t\t"node_type": _inst.get_class(),
-\t\t"instance_of": "${gdEscape(instancePath)}",
+\t\t"instance_of": "${escapeForGdLiteral(instancePath)}",
 \t\t"path": str(_inst.get_path())
 \t})
 \t_mcp_done()

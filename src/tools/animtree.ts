@@ -115,7 +115,7 @@ func _initialize():
 \t\treturn
 \tvar _tree = AnimationTree.new()
 \t_tree.name = "${gdEscape(nodeName)}"
-\t_tree.anim_player = NodePath("${gdEscape(animPlayerPath)}")
+\t_tree.anim_player = NodePath("${escapeForGdLiteral(animPlayerPath)}")
 \tvar _root_node
 \tmatch "${gdEscape(treeRootType)}":
 \t\t"AnimationNodeStateMachine":

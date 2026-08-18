@@ -91,10 +91,10 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar _search_root: Node = _root
-\tif "${gdEscape(rootPath)}" != "":
-\t\t_search_root = _mcp_get_node("${gdEscape(rootPath)}")
+\tif "${escapeForGdLiteral(rootPath)}" != "":
+\t\t_search_root = _mcp_get_node("${escapeForGdLiteral(rootPath)}")
 \t\tif _search_root == null:
-\t\t\t_mcp_output("error", "Node not found: ${gdEscape(rootPath)}")
+\t\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(rootPath)}")
 \t\t\t_mcp_done()
 \t\t\treturn
 \tvar _players: Array = []
@@ -375,8 +375,8 @@ func _initialize():
 \tvar _anim: Animation = _ap.get_animation("${gdEscape(animName)}")
 \t${insertLine}
 \tvar _idx: int = _anim.get_track_count() - 1
-\t_anim.track_set_path(_idx, NodePath("${gdEscape(trackPath)}"))
-\t_mcp_output("result", {"track_index": _idx, "track_path": "${gdEscape(trackPath)}", "track_type": "${gdEscape(trackType)}"})
+\t_anim.track_set_path(_idx, NodePath("${escapeForGdLiteral(trackPath)}"))
+\t_mcp_output("result", {"track_index": _idx, "track_path": "${escapeForGdLiteral(trackPath)}", "track_type": "${gdEscape(trackType)}"})
 \t_mcp_done()
 `;
 }

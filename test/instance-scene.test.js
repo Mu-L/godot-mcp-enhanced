@@ -199,6 +199,25 @@ describe('instance_scene / set_instance_property persistence (A3)', () => {
     expect(code).toContain('ResourceSaver.save');
   });
 
+  // T2b (debt-cleanup-20260818): parentNodePath 消费点(_mcp_get_scene_node/错误消息)为纯
+  // 字符串字面量,%HUD 是 Godot unique-name 语法在 get_node 参数合法——gdEscape 双写 %%HUD
+  // 使查找失败(预先存在的 bug)。注意:instance_path 本身被上游 :55 正则限制为
+  // [a-zA-Z0-9_\-/.](% 不可达),parentNodePath 是本文件 % 真实可达的路径变体,故用其断言。
+  it('T2b: parent_node_path 含 % (unique-name) 不双写——纯字面量内插走 escapeForGdLiteral', async () => {
+    await scene.handleTool('scene', {
+      project_path: proj,
+      action: 'instance_scene',
+      scene_path: 'res://main.tscn',
+      instance_path: 'res://enemy.tscn',
+      parent_node_path: '%HUD',
+    }, makeCtx());
+    expect(mockExecuteGdscript).toHaveBeenCalledTimes(1);
+    const code = mockExecuteGdscript.mock.calls[0][0].code;
+    expect(code).toContain('_mcp_get_scene_node("/%HUD")');
+    expect(code).toContain('Parent node not found: /%HUD');
+    expect(code).not.toContain('%%HUD');
+  });
+
   it('set_instance_property: generated script persists via pack+save', async () => {
     await scene.handleTool('scene', {
       project_path: proj,

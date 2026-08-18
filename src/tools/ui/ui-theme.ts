@@ -52,10 +52,10 @@ export function genUiSetThemeScript(
 \t\t_mcp_output("error", "Node has no theme to save")
 \t\t_mcp_done()
 \t\treturn
-\tvar dir = "${gdEscape(themePath)}".get_base_dir()
+\tvar dir = "${escapeForGdLiteral(themePath)}".get_base_dir()
 \tif not DirAccess.dir_exists_absolute(dir):
 \t\tDirAccess.make_dir_recursive_absolute(dir)
-\tvar _full := "${gdEscape(themePath)}"
+\tvar _full := "${escapeForGdLiteral(themePath)}"
 \tvar _ext := _full.get_extension()
 \tvar _tmp := _full + ".tmp." + _ext
 \tif FileAccess.file_exists(_tmp):
@@ -76,9 +76,9 @@ export function genUiSetThemeScript(
     case 'load':
       if (!themePath) throw new Error('theme_path is required for load action');
       actionBlock = `
-\tvar res = load("${gdEscape(themePath)}")
+\tvar res = load("${escapeForGdLiteral(themePath)}")
 \tif res == null:
-\t\t_mcp_output("error", "Failed to load theme from: ${gdEscape(themePath)}")
+\t\t_mcp_output("error", "Failed to load theme from: ${escapeForGdLiteral(themePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tnode.theme = res`;
@@ -87,9 +87,9 @@ export function genUiSetThemeScript(
 
   const outputKey = action === 'save' ? 'saved' : action === 'load' ? 'loaded' : 'theme_set';
   const outputValue = action === 'save'
-    ? '{"resource_path": "' + gdEscape(themePath || '') + '"}'
+    ? '{"resource_path": "' + escapeForGdLiteral(themePath || '') + '"}'
     : action === 'load'
-      ? '{"resource_path": "' + gdEscape(themePath || '') + '"}'
+      ? '{"resource_path": "' + escapeForGdLiteral(themePath || '') + '"}'
       : '{"node": "' + escapeForGdLiteral(nodePath) + '", "action": "' + action + '"}';
 
   return `${SCENE_TREE_HEADER}
@@ -128,9 +128,9 @@ export function genThemeCreateScript(
     // extract
     if (!sourceNodePath) throw new Error('source_node_path is required for extract action');
     actionBlock = `
-\tvar source = _mcp_get_scene_node("${gdEscape(sourceNodePath)}")
+\tvar source = _mcp_get_scene_node("${escapeForGdLiteral(sourceNodePath)}")
 \tif source == null:
-\t\t_mcp_output("error", "Source node not found: ${gdEscape(sourceNodePath)}")
+\t\t_mcp_output("error", "Source node not found: ${escapeForGdLiteral(sourceNodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not source is Control:
@@ -147,10 +147,10 @@ export function genThemeCreateScript(
   let saveBlock = '';
   if (savePath) {
     saveBlock = `
-\tvar dir = "${gdEscape(savePath)}".get_base_dir()
+\tvar dir = "${escapeForGdLiteral(savePath)}".get_base_dir()
 \tif not DirAccess.dir_exists_absolute(dir):
 \t\tDirAccess.make_dir_recursive_absolute(dir)
-\tvar _full := "${gdEscape(savePath)}"
+\tvar _full := "${escapeForGdLiteral(savePath)}"
 \tvar _ext := _full.get_extension()
 \tvar _tmp := _full + ".tmp." + _ext
 \tif FileAccess.file_exists(_tmp):
@@ -167,7 +167,7 @@ export function genThemeCreateScript(
 \t\t_mcp_output("error", "Failed to rename tmp: " + str(_ren))
 \t\t_mcp_done()
 \t\treturn
-\t_mcp_output("saved", {"resource_path": "${gdEscape(savePath)}"})
+\t_mcp_output("saved", {"resource_path": "${escapeForGdLiteral(savePath)}"})
 \t_mcp_done()
 \treturn`;
   }
@@ -205,7 +205,7 @@ export function genThemeSetPropertyScript(
     case 'default_font': {
       const fontPath = String(value);
       sanitizeResPath(fontPath, 'font_path');
-      setLine = `\ttheme.set_default_font(load("${gdEscape(fontPath)}"))`;
+      setLine = `\ttheme.set_default_font(load("${escapeForGdLiteral(fontPath)}"))`;
       break;
     }
     case 'color': {
@@ -230,16 +230,16 @@ export function genThemeSetPropertyScript(
     case 'stylebox': {
       const sbPath = String(value);
       sanitizeResPath(sbPath, 'stylebox_path');
-      setLine = `\ttheme.set_stylebox("${safeName}", ${tt}, load("${gdEscape(sbPath)}"))`;
+      setLine = `\ttheme.set_stylebox("${safeName}", ${tt}, load("${escapeForGdLiteral(sbPath)}"))`;
       break;
     }
   }
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-${sceneLine}\tvar node = _mcp_get_scene_node("${gdEscape(themeNodePath)}")
+${sceneLine}\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(themeNodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(themeNodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(themeNodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar theme = node.theme
@@ -252,7 +252,7 @@ ${sceneLine}\tvar node = _mcp_get_scene_node("${gdEscape(themeNodePath)}")
 \t\t_mcp_done()
 \t\treturn
 ${setLine}
-\t_mcp_output("property_set", {"node": "${gdEscape(themeNodePath)}", "item_type": "${itemType}", "name": "${safeName}"})
+\t_mcp_output("property_set", {"node": "${escapeForGdLiteral(themeNodePath)}", "item_type": "${itemType}", "name": "${safeName}"})
 \t_mcp_done()
 `;
 }

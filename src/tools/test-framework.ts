@@ -2,8 +2,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
 import { requireProjectPath } from '../helpers.js';
-import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult } from './shared.js';
-import { gdEscape } from './shared.js';
+import { SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult, gdEscape, escapeForGdLiteral } from './shared.js';
 
 const TOOL_NAMES = ['test'] as const;
 
@@ -111,12 +110,25 @@ async function handleTestAssert(args: Record<string, unknown>, godot: string, pr
   if (!rawPath && rawAssertionType !== 'node_count') {
     return opsErrorResult('INVALID_PARAMS', `"path" is required for ${rawAssertionType} assertion`);
   }
-  const path = gdEscape(rawPath);
+  // T2b (debt-cleanup-20260818): 路径类变体的 % 转义按消费点分流——
+  // gdEscape(%→%%)只用于 % 格式串左侧;纯字符串字面量(_mcp_get_node 查找/错误消息/字典)
+  // 与 % 格式串右侧数组参数(右侧不解析 % 转义)都需 % 原样(escapeForGdLiteral),
+  // 否则 %HUD unique-name 查找失败/消息显示双写。
+  // path:消费于 :131 字面量赋值→:134/:140/:150 查找、:136/:138/:142 消息拼接、
+  //   :148 % 格式串右侧数组——全部需 % 原样,整体切。
+  const path = escapeForGdLiteral(rawPath);
   const property = gdEscape((args.property as string) || '');
   const signalName = gdEscape((args.signal as string) || '');
-  const targetPath = gdEscape((args.target as string) || '');
+  // targetPath:消费于 :151 _mcp_get_node(纯字面量)、:156 % 格式串右侧数组——全部需 % 原样,整体切。
+  const targetPath = escapeForGdLiteral((args.target as string) || '');
   const methodName = gdEscape((args.method as string) || '');
-  const parentPath = gdEscape((args.parent as string) || '');
+  // parentPath 是混合上下文,拆两份(不能整体切换):
+  //   parentPathLit → :158 _mcp_get_node 查找 + :160 错误消息(纯字面量,% 原样);
+  //   parentPath    → :164 "Children of ...: %d ..." % [...] 是 % 格式串左侧(必须 %% 双写,
+  //                   格式化后还原为字面 %;用字面量版会把 %H 当格式符致 GDScript 报错)。
+  const rawParent = (args.parent as string) || '';
+  const parentPath = gdEscape(rawParent);
+  const parentPathLit = escapeForGdLiteral(rawParent);
   const count = (args.count as number) ?? -1;
 
   const script = `${SCENE_TREE_HEADER}
@@ -155,9 +167,9 @@ func _initialize():
 \t\t\t\tvar _connected = _src.is_connected("${signalName}", Callable(_tgt, "${methodName}"))
 \t\t\t\t_mcp_output("result", JSON.stringify({"passed": _connected, "message": "Signal %s->%s.%s %s" % ["${signalName}", "${targetPath}", "${methodName}", "connected" if _connected else "not connected"]}))
 \t\t"node_count":
-\t\t\tvar _p = _mcp_get_node("${parentPath}") if "${parentPath}" != "" else _root
+\t\t\tvar _p = _mcp_get_node("${parentPathLit}") if "${parentPathLit}" != "" else _root
 \t\t\tif _p == null:
-\t\t\t\t_mcp_output("result", JSON.stringify({"passed": false, "message": "Parent node not found: ${parentPath}"}))
+\t\t\t\t_mcp_output("result", JSON.stringify({"passed": false, "message": "Parent node not found: ${parentPathLit}"}))
 \t\t\telse:
 \t\t\t\tvar _count = _p.get_child_count()
 \t\t\t\tvar _expected = ${count}

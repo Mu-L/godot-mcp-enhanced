@@ -245,7 +245,7 @@ export function genNavQueryScript(
 ): string {
   let regionBlock: string;
   if (navigationRegion) {
-    regionBlock = `\tvar region_node = _mcp_get_node("${gdEscape(navigationRegion)}")
+    regionBlock = `\tvar region_node = _mcp_get_node("${escapeForGdLiteral(navigationRegion)}")
 \tif region_node and region_node is NavigationRegion3D:
 \t\tmap_rid = NavigationServer3D.region_get_map(region_node.get_region_rid())
 \telse:

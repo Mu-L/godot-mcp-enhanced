@@ -117,6 +117,95 @@ describe('test-framework tools', () => {
     expect(result.content[0].text).toContain('INVALID_PARAMS');
   });
 
+  // T2b (debt-cleanup-20260818): parentPath 是混合上下文,拆两份变量:
+  //   - :158 _mcp_get_node / :160 错误消息 → 纯字面量,escapeForGdLiteral(%HUD 原样保留,
+  //     gdEscape 双写 %%HUD 使 unique-name 查找失败,预先存在的 bug);
+  //   - :164 "Children of %s: %d..." 是 % 格式串左侧,必须 gdEscape(%% 格式化后还原为 %)。
+  // 本用例同时断言两种形态各归其位——拆分正确性的直接锁。
+  it('T2b: node_count parent 含 % ——字面量处 %HUD 原样、% 格式串处 %%HUD 双写', async () => {
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+
+    await handleTool('test', {
+      project_path: '/tmp/test-project',
+      action: 'assert',
+      assertion_type: 'node_count',
+      parent: '%HUD',
+      count: 3,
+    }, mockCtx);
+
+    // 字面量消费点(:158 查找 + 空串比较、:160 错误消息)——% 原样,不被双写
+    expect(capturedCode).toContain('var _p = _mcp_get_node("%HUD") if "%HUD" != "" else _root');
+    expect(capturedCode).toContain('"Parent node not found: %HUD"');
+    expect(capturedCode).not.toContain('_mcp_get_node("%%HUD")');
+    // % 格式串左侧(:164)——必须双写,格式化后还原为字面 %
+    expect(capturedCode).toContain('"Children of %%HUD: %d (expected: %d)" % [_count, _expected]');
+  });
+
+  // T2b: path 的全部消费点(:131 字面量赋值 → :134/:140/:150 _mcp_get_node、:136/:138/:142
+  // 消息拼接、:148 % 格式串**右侧数组**——右侧参数不解析 % 转义)均需 % 原样 → 整体切
+  // escapeForGdLiteral,无需拆分。
+  it('T2b: node_exists path 含 % (unique-name) 不双写', async () => {
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+
+    await handleTool('test', {
+      project_path: '/tmp/test-project',
+      action: 'assert',
+      assertion_type: 'node_exists',
+      path: '%Player',
+    }, mockCtx);
+
+    expect(capturedCode).toContain('var _path = "%Player"');
+    expect(capturedCode).not.toContain('%%Player');
+  });
+
+  // T2b: targetPath 消费点(:151 _mcp_get_node 纯字面量、:156 % 格式串右侧数组)均需 % 原样 → 整体切。
+  it('T2b: signal_connected target 含 % (unique-name) 不双写', async () => {
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'result', value: JSON.stringify({ passed: true, message: 'ok' }) }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+
+    await handleTool('test', {
+      project_path: '/tmp/test-project',
+      action: 'assert',
+      assertion_type: 'signal_connected',
+      path: 'root/A',
+      signal: 'hit',
+      target: '%Tgt',
+      method: 'on_hit',
+    }, mockCtx);
+
+    expect(capturedCode).toContain('var _tgt = _mcp_get_node("%Tgt")');
+    expect(capturedCode).not.toContain('%%Tgt');
+  });
+
   it('handleTool for test assert with missing project_path', async () => {
     // SEC-P2-1 (2026-08-09): 删手写 typeof 检查后,project_path 缺失由 requireProjectPath
     // 内部 requireString 抛错,被外层 catch 包装成 INVALID_PATH(语义:路径参数不合法)。

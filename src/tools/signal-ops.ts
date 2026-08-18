@@ -32,18 +32,18 @@ export function genSignalConnectScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar source = _mcp_get_node("${gdEscape(sourcePath)}")
-\tvar target = _mcp_get_node("${gdEscape(targetPath)}")
+\tvar source = _mcp_get_node("${escapeForGdLiteral(sourcePath)}")
+\tvar target = _mcp_get_node("${escapeForGdLiteral(targetPath)}")
 \tif source == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(sourcePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(sourcePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif target == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(targetPath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(targetPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tsource.connect("${gdEscape(signalName)}", Callable(target, "${gdEscape(methodName)}")${flagsArg})
-\t_mcp_output("connected", {"source": "${gdEscape(sourcePath)}", "signal": "${gdEscape(signalName)}", "target": "${gdEscape(targetPath)}", "method": "${gdEscape(methodName)}"})
+\t_mcp_output("connected", {"source": "${escapeForGdLiteral(sourcePath)}", "signal": "${gdEscape(signalName)}", "target": "${escapeForGdLiteral(targetPath)}", "method": "${gdEscape(methodName)}"})
 \t_mcp_done()
 `;
 }
@@ -55,14 +55,14 @@ export function genSignalDisconnectScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar source = _mcp_get_node("${gdEscape(sourcePath)}")
-\tvar target = _mcp_get_node("${gdEscape(targetPath)}")
+\tvar source = _mcp_get_node("${escapeForGdLiteral(sourcePath)}")
+\tvar target = _mcp_get_node("${escapeForGdLiteral(targetPath)}")
 \tif source == null or target == null:
 \t\t_mcp_output("error", "Node not found")
 \t\t_mcp_done()
 \t\treturn
 \tsource.disconnect("${gdEscape(signalName)}", Callable(target, "${gdEscape(methodName)}"))
-\t_mcp_output("disconnected", {"source": "${gdEscape(sourcePath)}", "signal": "${gdEscape(signalName)}"})
+\t_mcp_output("disconnected", {"source": "${escapeForGdLiteral(sourcePath)}", "signal": "${gdEscape(signalName)}"})
 \t_mcp_done()
 `;
 }
@@ -85,13 +85,13 @@ export function genSignalEmitScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar source = _mcp_get_node("${gdEscape(sourcePath)}")
+\tvar source = _mcp_get_node("${escapeForGdLiteral(sourcePath)}")
 \tif source == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(sourcePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(sourcePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tsource.emit_signal("${gdEscape(signalName)}"${argsStr})
-\t_mcp_output("emitted", {"source": "${gdEscape(sourcePath)}", "signal": "${gdEscape(signalName)}"})
+\t_mcp_output("emitted", {"source": "${escapeForGdLiteral(sourcePath)}", "signal": "${gdEscape(signalName)}"})
 \t_mcp_done()
 `;
 }

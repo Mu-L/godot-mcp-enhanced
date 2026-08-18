@@ -31,7 +31,7 @@ export function genAudioPlayScript(
 ): string {
   let streamLine = '';
   if (streamPath) {
-    streamLine = `\n\tvar stream_res = load("${gdEscape(streamPath)}")\n\tif stream_res:\n\t\tnode.stream = stream_res`;
+    streamLine = `\n\tvar stream_res = load("${escapeForGdLiteral(streamPath)}")\n\tif stream_res:\n\t\tnode.stream = stream_res`;
   }
   const fmtNum = (n: number) => Number.isInteger(n) ? n.toFixed(1) : String(n);
   const volLine = volumeDb !== undefined ? `\n\tnode.volume_db = ${volumeDb}` : '';

@@ -51,7 +51,7 @@ export function genIkCreateScript(
     ? `\n\tik_node.bone_name = "${gdEscape(boneName)}"`
     : '';
   const targetLine = targetNodepath
-    ? `\n\tik_node.target_nodepath = NodePath("${gdEscape(targetNodepath)}")`
+    ? `\n\tik_node.target_nodepath = NodePath("${escapeForGdLiteral(targetNodepath)}")`
     : '';
 
   return `${SCENE_TREE_HEADER}
@@ -59,9 +59,9 @@ func _initialize():
 \t_mcp_load_main_scene()
 \tvar ik_node = ${type}.new()
 \tik_node.name = "${gdEscape(name)}"${posLine}${boneLine}${targetLine}
-\tvar parent_node = _mcp_get_node("${gdEscape(parent)}")
+\tvar parent_node = _mcp_get_node("${escapeForGdLiteral(parent)}")
 \tif parent_node == null:
-\t\t_mcp_output("error", "Parent not found: ${gdEscape(parent)}")
+\t\t_mcp_output("error", "Parent not found: ${escapeForGdLiteral(parent)}")
 \t\t_mcp_done()
 \t\treturn
 \tparent_node.add_child(ik_node)
