@@ -458,7 +458,7 @@ export function translateGeometry(geo: PrototypeGeometry): TranslateResult {
   if (flowChildCount > 0) {
     const coverage = { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length };
     warnings.push(
-      `flow 直接子节点共 ${flowChildCount} 个: layout_verify 不覆盖(丢 rect),由 flow_verify 数字覆盖(期望=输入视口 rect vs 容器排布实测 global rect,逐节点 Δx/Δy/Δw/Δh);孙层为近似覆盖(期望相对输入父原点,容器排布后天然带偏移)(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes})`);
+      `flow 直接子节点共 ${flowChildCount} 个: layout_verify 不覆盖(丢 rect),由 flow_verify 数字覆盖(期望=输入视口 rect vs 容器排布实测 global rect,逐节点 Δx/Δy/Δw/Δh);孙层为 layout_verify 的近似覆盖(期望相对输入父原点,容器排布后天然带偏移)(verify_coverage.targets=${coverage.targets}/total_nodes=${coverage.total_nodes})`);
   }
 
   return { tree, warnings, coverage: { targets: flattenTargets(tree).length, total_nodes: geo.nodes.length }, flow_expect: flowExpect };
