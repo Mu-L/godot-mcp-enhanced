@@ -39,6 +39,9 @@ export interface BgTarget {
   target: [number, number, number];
   borderRadius: number;                    // per-corner 对象已取 max
   borderWidth: number;
+  /** 带 text 节点为 true(F3):文字水平居中排版,中心点必踩文字渲染/抗锯齿像素,
+   *  编排层组装采样点时过滤掉 center(四角 inset>0 避开文字,仍可判)。 */
+  skipCenter: boolean;
 }
 
 /** 判定容差(0-255 欧氏距离):中心严格、角点宽松(spec §5,阈值 §10.2 集成校准)。 */
@@ -49,9 +52,13 @@ export const CORNER_TOL = 60;
  * 中心 + 四角内缩采样点(spec §5)。内缩量 clamp:min(borderRadius + borderWidth,
  * 短边/2 − 2)——防 borderRadius > 短边一半时角点越界;短边 < 4 时下限回落 0
  * (角点=rect 角,仍在图内,由 pixelAt 越界 null 兜底)。中心点不内缩(圆角矩形
- * 中心必在填充区内)。坐标 floor 到整数像素格(0-indexed:奇数尺寸中心取左中像素,
- * 如 w=101 → 50;Math.round 对 half 值向上取整得 51/31,与测试断言 50/30 冲突,
- * 以断言为准裁定 floor,整数输入下两者等价)。
+ * 中心必在填充区内)。半开区间语义(F4,2026-08-18 集成取证):rect 覆盖像素列
+ * [x, x+w)、行 [y, y+h),右/下缘最后有效像素格是 x+w−1 / y+h−1——角点右/下分量
+ * 取 x+w−1−inset / y+h−1−inset(左/上分量 x+inset / y+inset 不变),否则 inset=0
+ * 时角点落在覆盖区外一像素格、采到节点外背景(实测 css-card HpBar 角点 d=65.7)。
+ * 坐标 floor 到整数像素格(0-indexed:奇数尺寸中心取左中像素,如 w=101 → 50;
+ * Math.round 对 half 值向上取整得 51/31,与测试断言 50/30 冲突,以断言为准裁定
+ * floor,整数输入下两者等价)。
  */
 export function computeSamplePoints(rect: Rect, borderRadius: number, borderWidth: number): SamplePoint[] {
   const minSide = Math.min(rect.w, rect.h);
@@ -61,9 +68,9 @@ export function computeSamplePoints(rect: Rect, borderRadius: number, borderWidt
   return [
     { id: 'center', x: cx, y: cy },
     { id: 'tl', x: Math.floor(rect.x + inset), y: Math.floor(rect.y + inset) },
-    { id: 'tr', x: Math.floor(rect.x + rect.w - inset), y: Math.floor(rect.y + inset) },
-    { id: 'br', x: Math.floor(rect.x + rect.w - inset), y: Math.floor(rect.y + rect.h - inset) },
-    { id: 'bl', x: Math.floor(rect.x + inset), y: Math.floor(rect.y + rect.h - inset) },
+    { id: 'tr', x: Math.floor(rect.x + rect.w - 1 - inset), y: Math.floor(rect.y + inset) },
+    { id: 'br', x: Math.floor(rect.x + rect.w - 1 - inset), y: Math.floor(rect.y + rect.h - 1 - inset) },
+    { id: 'bl', x: Math.floor(rect.x + inset), y: Math.floor(rect.y + rect.h - 1 - inset) },
   ];
 }
 
@@ -83,8 +90,13 @@ export function rgbDistance(a: [number, number, number], b: [number, number, num
 
 /**
  * 收集采样目标:输入 geometry 中带 bg 的节点(spec §5「每 bg 节点」;fill-only 不进——
- * fill 槽语义属 ProgressBar 内部渲染,非本工具首版范围)。半透明 bg(alpha < 0.999)
- * skipped:合成后采样色 ≠ bg_color,像素直判不可用——诚实跳过不伪装判定。
+ * fill 槽语义属 ProgressBar 内部渲染,非本工具首版范围)。跳过两类(诚实 skip,不伪装判定):
+ * 1. 半透明 bg(alpha < 0.999):合成后采样色 ≠ bg_color,像素直判不可用;
+ * 2. ProgressBar 系 bg(F2,2026-08-18 集成取证):ProgressBar 的 bg 渲染面被 fill 与
+ *    百分比文字(show_percentage 默认 true,画在 bar 几何中心)覆盖,无可采样纯色区域
+ *    ——bg 槽验证请依赖 style_verify 的数值 diff。
+ * 带 text 节点标 skipCenter(F3):文字水平居中排版,中心点踩文字渲染像素(实测
+ * css-card Title/TagChip center d≈48),由编排层过滤 center 采样点。
  * per-corner borderRadius 对象取四角 max(保守内缩)。
  * 注意:未映射控件(如 LineEdit 带 bg,规则 12)的 bg 被翻译层忽略、渲染无该色——
  * 本函数仍收集之,采样预期红;这与 build_warnings 的「样式丢失」警告互为印证,是诚实
@@ -101,6 +113,11 @@ export function collectBgTargets(geo: PrototypeGeometry): { targets: BgTarget[];
       skipped.push({ name: nd.name, reason: `bg alpha=${rgba[3]}(半透明):与底层合成后采样色≠bg_color,像素直判不可用` });
       continue;
     }
+    // ProgressBar 语义推断对齐翻译器(type 标注 / value 进度 / fill 槽色任一命中)
+    if (nd.type === 'ProgressBar' || nd.value !== undefined || nd.fill !== undefined) {
+      skipped.push({ name: nd.name, reason: 'ProgressBar 的 bg 渲染面被 fill 与百分比文字覆盖,无可采样纯色区域——bg 槽请依赖 style_verify 数值验证' });
+      continue;
+    }
     const r = typeof nd.borderRadius === 'number' ? nd.borderRadius
       : Math.max(nd.borderRadius?.tl ?? 0, nd.borderRadius?.tr ?? 0, nd.borderRadius?.br ?? 0, nd.borderRadius?.bl ?? 0);
     targets.push({
@@ -109,6 +126,7 @@ export function collectBgTargets(geo: PrototypeGeometry): { targets: BgTarget[];
       target: [Math.round(rgba[0] * 255), Math.round(rgba[1] * 255), Math.round(rgba[2] * 255)],
       borderRadius: r,
       borderWidth: nd.border?.width ?? 0,
+      skipCenter: nd.text !== undefined && nd.text !== '',
     });
   }
   return { targets, skipped };
@@ -134,6 +152,23 @@ export function judgeNode(
 
 // ─── capture 编排(Task 2)──────────────────────────────────────────────────
 
+/** BLANK 双条件拦截的图像侧证据(F1):8x8=64 点网格采样,全部 RGB 相同才判均匀。
+ *  与 stdout BLANK_DETECTED 独立——两证据同时成立才拦截(capture 层步进采样在
+ *  800x600 等视口退化单列误报,真渲染内容丰富不均匀,不拦)。 */
+function isUniformImage(png: { width: number; height: number; data: Buffer }): boolean {
+  const first = pixelAt(png, 0, 0);
+  if (first === null) return true;  // 读不到首像素(异常空图)——按均匀处理,拦截侧保守
+  for (let gy = 0; gy < 8; gy++) {
+    for (let gx = 0; gx < 8; gx++) {
+      const x = Math.floor((gx + 0.5) * png.width / 8);
+      const y = Math.floor((gy + 0.5) * png.height / 8);
+      const rgb = pixelAt(png, x, y);
+      if (rgb === null || rgb[0] !== first[0] || rgb[1] !== first[1] || rgb[2] !== first[2]) return false;
+    }
+  }
+  return true;
+}
+
 export interface PixelVerifySummary {
   nodes: NodePixelResult[];
   pass: number;
@@ -158,9 +193,10 @@ const PIXEL_VERIFY_NOTE = '终验定位(spec §5):几何 layout_verify + style_v
 
 /**
  * ui_pixel_verify 编排:collectBgTargets → captureScreenshot(窗口模式,viewport=geo.viewport)
- * → PNG 解码 → 逐节点采样点计算(必要时按 PNG/viewport 线性缩放)→ 判定 → try/finally
- * 清理 PNG 中间产物(spec §5:临时名落项目内,失败路径也清理)。
- * 返回 ok:false 的两类:capture 失败(含 BLANK hint)/ PNG 解码失败。
+ * → PNG 解码 → BLANK 双条件拦截(stdout BLANK_DETECTED 且图像 8x8 网格均匀,见 isUniformImage)
+ * → 逐节点采样点计算(skipCenter 过滤 center;必要时按 PNG/viewport 线性缩放)→ 判定
+ * → try/finally 清理 PNG 中间产物(spec §5:临时名落项目内,失败路径也清理)。
+ * 返回 ok:false 的三类:capture 失败 / BLANK 双条件命中 / PNG 解码失败。
  * cleaned_up 语义:finally 无条件 rmSync(force:true 不抛),成功路径直接写 true。
  */
 export async function runPixelVerify(params: {
@@ -185,17 +221,21 @@ export async function runPixelVerify(params: {
     if (!shot.success) {
       return { ok: false, error: `像素截图失败: ${shot.error ?? 'unknown'}`, hint: getBlankHint(shot.godotOutput ?? '') || undefined };
     }
-    // Linux headless 可能「成功」产出空白 PNG——BLANK_DETECTED 显式拦截,不采样出全红误导
-    const blankHint = getBlankHint(shot.godotOutput ?? '');
-    if (blankHint) {
-      return { ok: false, error: '像素截图为空白(headless 2D CanvasItem 不可渲染)', hint: blankHint };
-    }
 
     let png: PNG;
     try {
       png = PNG.sync.read(readFileSync(tmpPng));
     } catch (err) {
       return { ok: false, error: `PNG 解码失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    // BLANK 双条件拦截(F1,2026-08-18 集成取证):stdout BLANK_DETECTED 与 PNG 内容
+    // 均匀两证据独立一致才拦——screenshot_capture.gd 的步进采样在部分视口(如 800x600,
+    // step=6×w)退化为 x=0 单列误报 BLANK,而窗口模式真渲染图内容丰富,放行采样;
+    // Linux headless 真空白两证据同时成立,拦截。getBlankHint 仅为错误信息附加 hint。
+    const blankHint = getBlankHint(shot.godotOutput ?? '');
+    if (blankHint && isUniformImage(png)) {
+      return { ok: false, error: '像素截图为空白(headless 2D CanvasItem 不可渲染)', hint: blankHint };
     }
 
     // 采样坐标缩放:PNG 尺寸与 geometry viewport 不一致(如 content scale/窗口边框差异)时
@@ -205,7 +245,9 @@ export async function runPixelVerify(params: {
     const sy = png.height / geo.viewport.h;
 
     const nodes: NodePixelResult[] = targets.map(t => {
-      const points = computeSamplePoints(t.rect, t.borderRadius, t.borderWidth);
+      // skipCenter(F3):带 text 节点过滤 center 点(文字居中排版必踩文字像素),四角仍判
+      const points = computeSamplePoints(t.rect, t.borderRadius, t.borderWidth)
+        .filter(p => !(t.skipCenter && p.id === 'center'));
       const samples = points.map(p => {
         // 与 computeSamplePoints floor 语义一致(0-indexed 像素格左端),缩放后同样向下取整
         const x = Math.floor(p.x * sx);
