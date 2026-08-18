@@ -14,7 +14,7 @@ import { genUiSetLayoutScript, genUiGetLayoutScript, genUiBuildLayoutScript } fr
 import { genUiSetThemeScript, genThemeCreateScript, genThemeSetPropertyScript } from './ui-theme.js';
 import { genUiDrawRecipeScript } from './ui-draw.js';
 import { genUiMeasureScript } from './ui-measure.js';
-import { flattenTargets, diffLayout, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
+import { flattenTargets, flattenStyleTargets, styleExpectList, diffLayout, diffStyles, diffFlow, detectOverlaps, detectOutOfBounds } from './layout-diff.js';
 import type { MeasuredNode } from './layout-diff.js';
 import { parseGeometry, translateGeometry } from './prototype-import.js';
 import type { PrototypeGeometry, TranslateResult } from './prototype-import.js';
@@ -27,7 +27,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'ui',
-      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
+      description: `UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>;返回 style_verify 逐槽位样式 diff/flow_verify flow 直接子层 rect diff)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -455,7 +455,9 @@ export async function handleTool(
         if (expectTree && (typeof expectTree !== 'object' || !expectTree.name)) {
           return opsErrorResult(ERROR_CODES.INVALID_PARAMS, 'expect_tree must be a tree object with name');
         }
-        script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth);
+        // PR-2:expect_tree 带 styleboxes → 期望清单内嵌 measure 脚本(读回判定并集左侧)
+        const styleExpect = expectTree ? styleExpectList(flattenStyleTargets(expectTree)) : undefined;
+        script = genUiMeasureScript(scenePath, nodePathRaw ? normalizeNodePath(nodePathRaw) : undefined, maxDepth, styleExpect);
         break;
       }
       case 'ui_import_prototype':
@@ -489,6 +491,8 @@ export async function handleTool(
           const measure = parsed.data?.measure;
           const measured = measure?.nodes ?? [];
           const targets = flattenTargets(expectTree);
+          // PR-2:expect_tree 同构复用 style_verify(spec §4.1 挂两处之二)
+          const styleReadings = measured.flatMap(n => (n.styles ?? []).map(s => ({ ...s, path: n.path })));
           const wrapped = {
             targets,
             diff: diffLayout(measured, targets, 2),
@@ -497,7 +501,8 @@ export async function handleTool(
             // C1: 根级 rect 的参照系(measure 输出的 root Window 尺寸),供消费方核对
             viewport: measure?.viewport,
           };
-          const merged = { ...parsed, data: { ...parsed.data, layout_verify: wrapped } };
+          const merged = { ...parsed, data: { ...parsed.data, layout_verify: wrapped,
+            style_verify: diffStyles(styleReadings, flattenStyleTargets(expectTree)) } };
           r = { ...r, content: [{ type: 'text', text: JSON.stringify(merged) }] };
         }
       } catch {
@@ -633,7 +638,9 @@ async function handleUiImportPrototype(
 
   // ② measure(第二次 spawn):nodePath=挂载父节点,measure path(get_path_to 相对父)与
   // flattenTargets(树根名起算)恰好对齐——同 expect_tree 注入段的对齐前提。
-  const measureScript = genUiMeasureScript(scenePath, parentPath, 16);
+  // PR-2:styleExpect 期望清单内嵌(I-B 拍板:并集左侧,override 没设上的节点也必须被读到)。
+  const styleTargets = flattenStyleTargets(translated.tree);
+  const measureScript = genUiMeasureScript(scenePath, parentPath, 16, styleExpectList(styleTargets));
   const measureResult = await executeGdscriptTrusted({
     godotPath: godot, projectPath, code: measureScript, timeout: 30, loadAutoloads,
   });
@@ -671,9 +678,13 @@ async function handleUiImportPrototype(
       // 根级 rect 的参照系(measure 输出的 root Window 尺寸),供消费方核对
       viewport: measure?.viewport,
     };
+    // PR-2:style_verify(逐槽位样式 diff)+ flow_verify(flow 直接子层数字清单)
+    const styleReadings = measured.flatMap(n => (n.styles ?? []).map(s => ({ ...s, path: n.path })));
+    const styleVerify = diffStyles(styleReadings, styleTargets);
+    const flowVerify = diffFlow(measured, translated.flow_expect, tolerance);
     const verifyCoverage = {
       ...translated.coverage,
-      _note: 'targets 为受几何 verify 覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在覆盖内,其几何正确性由 screenshot diff 兜底',
+      _note: 'targets 为受 layout_verify 几何覆盖的节点数(含合成根 _PrototypeRoot,无 flow 时 = 输入节点数+1);flow 直接子节点丢 rect 不在 layout_verify 覆盖内,由 flow_verify 数字覆盖(期望=输入视口 rect);孙层为近似覆盖',
     };
     return textResult(JSON.stringify(opsSuccess({
       tree: translated.tree,
@@ -685,6 +696,8 @@ async function handleUiImportPrototype(
       },
       verify_coverage: verifyCoverage,
       layout_verify: layoutVerify,
+      style_verify: styleVerify,
+      flow_verify: flowVerify,
       persist: buildOut.data?.persist,
     }, measureOut.warnings ?? [])));
   } catch {

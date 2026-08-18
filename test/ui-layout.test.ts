@@ -351,3 +351,44 @@ describe('genStyleboxLines 构造块(PR-1 Task 3)', () => {
     expect(s).toContain('node.add_theme_stylebox_override("fill", _sb_2)');
   });
 });
+
+// ─── PR-2 Task 3: validate 层 M-2/M-5 校验(PR-1 终审顺手项) ────────────────
+
+describe('validateUiNodeSpec styleboxes 补强校验(PR-2 M-2/M-5)', () => {
+  // 注(brief Step 1 签名修正):实际签名 (scenePath, parentPath, tree, viewport?, persist?),
+  // brief 原文 genUiBuildLayoutScript(spec, {w,h}, true) 不成立,spec 落第 3 参
+  // (与 PR-1 Task 1/Task 3 同型修正;validateUiNodeSpec 入口同步抛,persist 无关,不传)。
+  const gen = (spec: unknown) =>
+    genUiBuildLayoutScript('res://scenes/t.tscn', 'root', spec as never, { w: 1280, h: 720 });
+
+  it('M-2:bg_color 非四元数组 → INVALID_PARAMS', () => {
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { bg_color: [0.1, 0.2, 0.3] } }] }))
+      .toThrow('bg_color must be an array of exactly 4 finite numbers in [0,1]');
+  });
+  it('M-2:bg_color 值域外(1.5)→ INVALID_PARAMS', () => {
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { bg_color: [0, 0, 0, 1.5] } }] }))
+      .toThrow('bg_color must be an array of exactly 4 finite numbers in [0,1]');
+  });
+  it('M-2:border_color 同款校验(非数组/含字符串)→ INVALID_PARAMS', () => {
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { border_color: 'red' as unknown as [number, number, number, number] } }] }))
+      .toThrow('border_color must be an array of exactly 4 finite numbers in [0,1]');
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { border_color: [0, 0, 0, 'a' as unknown as number] } }] }))
+      .toThrow('border_color must be an array of exactly 4 finite numbers in [0,1]');
+  });
+  it('M-2:合法四元 0-1 数组通过(负向护栏)', () => {
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { bg_color: [0, 0.5, 1, 1], border_color: [1, 1, 1, 0.5] } }] }))
+      .not.toThrow();
+  });
+  it('M-5:corner_radius 布尔/null/数组 → INVALID_PARAMS(原先静默当 0)', () => {
+    for (const bad of [true, null, [8, 8, 8, 8]]) {
+      expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { corner_radius: bad as never } }] }))
+        .toThrow('corner_radius must be a number or an object {tl,tr,br,bl}');
+    }
+  });
+  it('M-5:合法 number 与对象形态通过(负向护栏)', () => {
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { corner_radius: 8 } }] })).not.toThrow();
+    // 注:brief 原文 `{ corner_radius: { tl: 4 } }]` 缺 box 层闭合 `}`(括号不平衡,
+    // esbuild PARSE_ERROR),最小修正补齐——语义不变(corner_radius 对象形态 {tl:4})
+    expect(() => gen({ type: 'Panel', name: 'P', styleboxes: [{ slot: 'panel', box: { corner_radius: { tl: 4 } } }] })).not.toThrow();
+  });
+});

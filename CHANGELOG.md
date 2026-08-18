@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.1] - 2026-08-18
+
+### Added — 原型翻译层 verify 层（style_verify + flow_verify，PR-2）
+
+- **style_verify（逐节点逐槽位逐属性 diff）**：`ui_import_prototype` 返回与 `ui_measure_layout`（expect_tree 时）新增 `style_verify: [{path, slot, field, target, actual, delta, ok}]`——measure 脚本按需读回（期望清单 ∪ `has_theme_stylebox_override` 并集，期望清单 TS 侧序列化内嵌防「override 没设上被静默架空」）`get_theme_stylebox(slot)` 生效值；非 StyleBoxFlat（如 Label 未 override 的 StyleBoxEmpty）以 type 红条目暴露；颜色容差 0.002（Color float32 精度）。
+- **flow_verify（消解上轮 B-2 盲区）**：`TranslateResult` 产出 `flow_expect`（flow 直接子节点最终树路径 + 输入视口绝对 rect，合成根改名后实际名字），import 链与 measure 实测 global rect 直接 diff → `flow_verify: [{path, target, actual, delta, ok}]`；B-2 补偿防线从「screenshot diff 兜底」升级为数字清单；孙层维持近似覆盖（防系统性偏差噪声）。
+- **validate 层补强（PR-1 终审 M-2/M-5）**：`bg_color`/`border_color` 四元 number 数组对称校验；`corner_radius` 布尔/null/数组显式拒（原先静默当 0）。
+- **fill-only 灰底 warning（PR-1 终审顺手项 3/4）**：显式 Panel/推断布局壳 fill-only（无 bg/border）时声明将以默认主题灰底渲染（透明壳被 fill 输入阻断）；fill+bg 场景不误报。
+- **M-1 border 降级声明**：border 四边各异不单独 warning（生产者仅取 top），规则双副本显式声明。
+
 ## [0.32.0] - 2026-08-17
 
 ### Changed — 原型翻译层 StyleBox 通道（bg/fill/borderRadius/border → StyleBoxFlat，PR-1，bg 为 BREAKING）
