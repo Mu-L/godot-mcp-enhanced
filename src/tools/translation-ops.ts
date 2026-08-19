@@ -42,33 +42,62 @@ const ACTIONS = ['translation_read', 'translation_write', 'translation_register'
  *  write 仅 .csv(PO 写入复杂度不值当,交给 gettext 工具/编辑器) */
 const REGISTER_EXTENSIONS = ['.translation', '.po'];
 
-// ─── CSV(RFC 4180 简化解析,Godot 国际化表格格式) ─────────────────────────
+// ─── CSV(RFC 4180,Godot 国际化表格格式) ─────────────────────────────────
 
-/** 解析单行 CSV(处理引号包裹、双引号转义、字段内逗号/换行由调用方拼接) */
-export function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
+/**
+ * 字符级状态机解析整个 CSV 文档为记录数组。
+ * I-1(2026-08-19 审查):引号内的 \r\n 是字段内容而非记录分隔(RFC 4180)——
+ * 按行 split 会把 serializeCsvLine 写出的含换行字段拆成错位记录(write→read 往返损坏)。
+ */
+export function parseCsvRecords(content: string): string[][] {
+  const records: string[][] = [];
+  let fields: string[] = [];
   let cur = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
+  let fieldStarted = false;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i]!;
     if (inQuotes) {
       if (ch === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++; }
+        if (content[i + 1] === '"') { cur += '"'; i++; }
         else inQuotes = false;
       } else {
-        cur += ch;
+        cur += ch; // 含 \n \r:引号内换行是字段内容
       }
     } else if (ch === '"') {
       inQuotes = true;
+      fieldStarted = true;
     } else if (ch === ',') {
       fields.push(cur);
       cur = '';
+      fieldStarted = false;
+    } else if (ch === '\n') {
+      // 记录结束(\r\n 的 \r 已跳过)
+      fields.push(cur);
+      if (!(fields.length === 1 && fields[0] === '' && !fieldStarted)) records.push(fields);
+      fields = [];
+      cur = '';
+      fieldStarted = false;
+    } else if (ch === '\r') {
+      // 等待配对的 \n; lone \r 也当记录分隔由上面的 \n 分支不可达——保守跳过
+      if (content[i + 1] !== '\n') {
+        fields.push(cur);
+        if (!(fields.length === 1 && fields[0] === '' && !fieldStarted)) records.push(fields);
+        fields = [];
+        cur = '';
+        fieldStarted = false;
+      }
     } else {
       cur += ch;
+      fieldStarted = true;
     }
   }
-  fields.push(cur);
-  return fields;
+  // 末条无换行结尾的记录
+  if (cur !== '' || fields.length > 0 || fieldStarted) {
+    fields.push(cur);
+    records.push(fields);
+  }
+  return records;
 }
 
 /** 序列化单行 CSV(引号包裹含逗号/引号/换行的字段) */
@@ -86,17 +115,17 @@ export interface CsvTranslation {
   entries: Record<string, Record<string, string>>;
 }
 
-/** 解析 Godot CSV 翻译表:首行 `keys,lang1,lang2,...` */
+/** 解析 Godot CSV 翻译表:首行 `keys,lang1,lang2,...`(引号内换行字段按 RFC 4180 保留) */
 export function parseTranslationCsv(content: string): CsvTranslation {
-  const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
-  if (lines.length === 0) throw new Error('CSV file is empty');
-  const header = parseCsvLine(lines[0]!);
+  const records = parseCsvRecords(content);
+  if (records.length === 0) throw new Error('CSV file is empty');
+  const header = records[0]!;
   if (header.length < 2) throw new Error('CSV header must have a keys column plus at least one language column');
   if (header[0] !== 'keys') throw new Error(`CSV header first column must be "keys", got: ${header[0]}`);
   const languages = header.slice(1);
   const entries: Record<string, Record<string, string>> = {};
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCsvLine(lines[i]!);
+  for (let i = 1; i < records.length; i++) {
+    const cols = records[i]!;
     const key = cols[0];
     if (!key) continue;
     const row: Record<string, string> = {};
@@ -178,7 +207,13 @@ export function parseTranslationPo(content: string): PoTranslation {
 function unquotePo(token: string): string {
   const m = token.match(/^"(.*)"$/);
   if (!m) return token;
-  return m[1]!.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  // N-1(2026-08-19 审查):单遍转义——\\n 必须先于 \\ 之外处理,链式 replace 会把
+  // 字面反斜杠序列(C:\\new → "C:\\\\new")错误变成换行
+  return m[1]!.replace(/\\(.)/g, (_, c: string) => {
+    if (c === 'n') return '\n';
+    if (c === 't') return '\t';
+    return c; // \" → " , \\ → \ ,其他 \<x> → x(gettext 未定义转义保守取字面)
+  });
 }
 
 /** 把 msgstr 的多个 "..." 段拼起来 */

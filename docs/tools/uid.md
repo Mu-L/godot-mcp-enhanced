@@ -1,6 +1,6 @@
 # uid
 
-> 文件 UID 管理(Godot 4.4+)。scan: 扫描缺 .uid 资源与孤儿 .uid。get: 查文件 UID(批量)。set: 写 .uid(指定 uid/generate 单文件/fix_missing 批量修复)。check_refs: 检测 uid:// 悬空引用。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。
+> 文件 UID 管理(Godot 4.4+)。scan: 扫描缺 .uid 资源与孤儿 .uid。get: 查文件 UID(批量)。set: 写 .uid(指定 uid/generate 单文件/fix_missing 批量修复)。check_refs: 检测 uid:// 悬空引用(仅对照项目 .uid 集合;uid 悬空但 ext_resource 另有 path fallback 的引用引擎可正常加载,计入 dangling 属诊断提示,非断链)。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。
 
 | 属性 | 值 |
 |------|-----|

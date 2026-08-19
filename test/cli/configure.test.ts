@@ -81,12 +81,14 @@ describe('configure 命令', () => {
     let testDir: string;
     let logSpy: ReturnType<typeof vi.spyOn>;
     let errSpy: ReturnType<typeof vi.spyOn>;
+    let warnSpy: ReturnType<typeof vi.spyOn>;
     let exitSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
       testDir = mkdtempSync(join(tmpdir(), 'mcp-test-configure-'));
       logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
       vi.spyOn(process, 'cwd').mockReturnValue(testDir);
       // 跨测试清零 mock 调用计数(Once 队列与默认 resolved 值保留);
@@ -101,6 +103,7 @@ describe('configure 命令', () => {
     afterEach(() => {
       logSpy.mockRestore();
       errSpy.mockRestore();
+      warnSpy.mockRestore();
       exitSpy.mockRestore();
       vi.mocked(process.cwd).mockRestore();
       rmSync(testDir, { recursive: true, force: true });
@@ -163,6 +166,14 @@ describe('configure 命令', () => {
       await runConfigure([]);
       expect(exitSpy).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Supported clients'));
+    });
+
+    it('N-4:project scope 在非 Godot 项目目录警告(不阻断)', async () => {
+      // tmpDir 无 project.godot → warn;global scope(Codex)不 warn
+      await runConfigure(['claude-code']);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('不是 Godot 项目'));
+      const claude = ALL_ADAPTERS.find(a => a.name === 'Claude Code')!;
+      expect(claude.configure).toHaveBeenCalled(); // 警告不阻断
     });
   });
 });

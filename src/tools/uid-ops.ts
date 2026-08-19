@@ -306,15 +306,12 @@ func _initialize():
 			continue
 		var content := f.get_as_text()
 		f.close()
-		var line_no := 1
-		var col := 0
 		for m in re.search_all(content):
 			var uid_text: String = m.get_string()
 			total_refs += 1
 			if not known.has(uid_text):
 				var upto: int = m.get_start()
-				col = content.rfind("\\n", upto)
-				line_no = content.count("\\n", 0, upto) + 1
+				var line_no: int = content.count("\\n", 0, upto) + 1
 				dangling.append({"file": tf, "line": line_no, "uid": uid_text})
 	_mcp_output("refs", JSON.stringify({
 		"scanned_files": text_files.size(),
@@ -333,7 +330,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'uid',
-      description: `文件 UID 管理(Godot 4.4+)。scan: 扫描缺 .uid 资源与孤儿 .uid。get: 查文件 UID(批量)。set: 写 .uid(指定 uid/generate 单文件/fix_missing 批量修复)。check_refs: 检测 uid:// 悬空引用。${NON_PERSIST}`,
+      description: `文件 UID 管理(Godot 4.4+)。scan: 扫描缺 .uid 资源与孤儿 .uid。get: 查文件 UID(批量)。set: 写 .uid(指定 uid/generate 单文件/fix_missing 批量修复)。check_refs: 检测 uid:// 悬空引用(仅对照项目 .uid 集合;uid 悬空但 ext_resource 另有 path fallback 的引用引擎可正常加载,计入 dangling 属诊断提示,非断链)。${NON_PERSIST}`,
       inputSchema: {
         type: 'object' as const,
         properties: {

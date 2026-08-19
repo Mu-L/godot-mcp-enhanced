@@ -5,6 +5,8 @@
  * 对标 godot-ai 22 客户端 registry 与 yanhuifair「一条命令就绪」分发面,
  * 替代手工 docs/使用指南-Warp.md。
  */
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { ALL_ADAPTERS } from './clients/index.js';
 import type { ClientAdapter } from './clients/types.js';
 import { findGodot } from '../core/godot-finder.js';
@@ -67,6 +69,14 @@ export async function runConfigure(args: string[]): Promise<void> {
 
   console.log(`🔧 Configuring ${adapter.name} (${adapter.scope})...\n`);
 
+  // N-4(2026-08-19 审查):project scope 的 working_directory/env 会指向 cwd,
+  // 在非 Godot 项目目录运行会精确复现使用指南-Warp §5 的坑——前置警告不阻断
+  const projectDir = process.cwd();
+  if (adapter.scope === 'project' && !existsSync(join(projectDir, 'project.godot'))) {
+    console.warn(`  ⚠ 当前目录不是 Godot 项目(无 project.godot)——project scope 配置将指向 ${projectDir}。`);
+    console.warn('    建议在 Godot 项目根目录运行,或确认这是你有意的目标。');
+  }
+
   // 1. 未检测到:默认拒绝(--force 可越过 —— 配置写文件无害,客户端装好后即生效)
   const installed = await adapter.detect();
   if (!installed && !force) {
@@ -80,7 +90,6 @@ export async function runConfigure(args: string[]): Promise<void> {
   }
 
   // 2. 已配置:默认幂等跳过(--force 重写,如升级 command/args/env)
-  const projectDir = process.cwd();
   if (await adapter.isConfigured(projectDir)) {
     if (!force) {
       console.log(`✓ ${adapter.name}: already configured (use --force to rewrite)`);

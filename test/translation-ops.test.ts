@@ -5,7 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { isolatePathEnv } from './helpers/path-isolation.js';
 import {
-  parseCsvLine, serializeCsvLine, parseTranslationCsv, serializeTranslationCsv,
+  parseCsvRecords, serializeCsvLine, parseTranslationCsv, serializeTranslationCsv,
   parseTranslationPo, registerTranslationsInProjectGodot, handleTool, TOOL_META,
   getToolDefinitions,
 } from '../src/tools/translation-ops.js';
@@ -13,22 +13,44 @@ import {
 // ─── CSV 纯函数 ──────────────────────────────────────────────────────────────
 
 describe('CSV parse/serialize', () => {
-  it('parses simple line', () => {
-    expect(parseCsvLine('keys,en,fr')).toEqual(['keys', 'en', 'fr']);
+  it('parses simple record', () => {
+    expect(parseCsvRecords('keys,en,fr')).toEqual([['keys', 'en', 'fr']]);
+  });
+
+  it('parses multiple records with trailing newline', () => {
+    expect(parseCsvRecords('a,b\nc,d\n')).toEqual([['a', 'b'], ['c', 'd']]);
   });
 
   it('parses quoted field with comma', () => {
-    expect(parseCsvLine('GREETING,"Hello, world",Bonjour')).toEqual(['GREETING', 'Hello, world', 'Bonjour']);
+    expect(parseCsvRecords('GREETING,"Hello, world",Bonjour')).toEqual([['GREETING', 'Hello, world', 'Bonjour']]);
   });
 
   it('parses escaped double quotes', () => {
-    expect(parseCsvLine('K,"say ""hi""",x')).toEqual(['K', 'say "hi"', 'x']);
+    expect(parseCsvRecords('K,"say ""hi""",x')).toEqual([['K', 'say "hi"', 'x']]);
+  });
+
+  it('I-1 回归:引号内换行是字段内容,不是记录分隔(RFC 4180)', () => {
+    const csv = 'keys,en\nMULTI,"line1\nline2"\nAFTER,ok\n';
+    expect(parseCsvRecords(csv)).toEqual([
+      ['keys', 'en'],
+      ['MULTI', 'line1\nline2'],
+      ['AFTER', 'ok'],
+    ]);
+  });
+
+  it('I-1 回归:serialize→parse 文件级往返保留含换行字段', () => {
+    const languages = ['en'];
+    const entries = { MULTI: { en: 'line1\nline2' }, PLAIN: { en: 'x' } };
+    const csv = serializeTranslationCsv(languages, entries);
+    const parsed = parseTranslationCsv(csv);
+    expect(parsed.entries.MULTI).toEqual({ en: 'line1\nline2' });
+    expect(parsed.entries.PLAIN).toEqual({ en: 'x' });
   });
 
   it('round-trips tricky fields', () => {
     const fields = ['key,1', 'quote"inside', 'line\nbreak', 'plain'];
     const line = serializeCsvLine(fields);
-    expect(parseCsvLine(line)).toEqual(fields);
+    expect(parseCsvRecords(line)).toEqual([fields]);
   });
 
   it('parses Godot translation csv', () => {
@@ -77,6 +99,13 @@ msgstr "Au revoir"
     const po = 'msgid "line1"\n"line2"\nmsgstr "第一行"\n"第二行"\n';
     const parsed = parseTranslationPo(po);
     expect(parsed.entries['line1line2']).toBe('第一行第二行');
+  });
+
+  it('N-1 回归:字面反斜杠序列不被误译为换行', () => {
+    // PO 源里 "C:\\new"(字节 C:\\\\new)应解析为 C:\new 而非 C:+LF+ew
+    const po = 'msgid "PATH"\nmsgstr "C:\\\\new\\\\dir"\n';
+    const parsed = parseTranslationPo(po);
+    expect(parsed.entries.PATH).toBe('C:\\new\\dir');
   });
 });
 

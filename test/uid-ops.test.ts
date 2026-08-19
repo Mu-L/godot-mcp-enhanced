@@ -13,9 +13,19 @@ vi.mock('../src/gdscript-executor.js', () => ({
     stdout: '___MCP_RESULT___{"success": true, "outputs": []}',
     stderr: '', exitCode: 0, timedOut: false,
   })),
+  // I-2(2026-08-19 审查):uid-ops 实际 import 的是 executeGdscriptTrusted——
+  // mock 工厂缺此导出曾致正向路径零接线(校验层用例全不走执行器)
+  executeGdscriptTrusted: vi.fn(async (opts: { code: string }) => ({
+    success: true, compile_success: true, run_success: true,
+    outputs: [{ key: 'scan', value: JSON.stringify({ total_resources: 0, with_uid: 0, missing_count: 0, missing: [], orphan_count: 0, orphans: [] }) }],
+    stdout: '___MCP_RESULT___{"success": true, "outputs": []}',
+    stderr: '', exitCode: 0, timedOut: false,
+    _seenCode: opts.code,
+  })),
   scanGdscriptSandbox: vi.fn(() => []),
 }));
 
+import { executeGdscriptTrusted } from '../src/gdscript-executor.js';
 import {
   getToolDefinitions, TOOL_META,
   genUidScanScript, genUidGetScript, genUidSetScript, genUidCheckRefsScript,
@@ -211,5 +221,22 @@ describe('uid handler 参数校验', () => {
 
   it('returns null for other tool names', async () => {
     expect(await handleTool('signal', {}, makeCtx())).toBeNull();
+  });
+
+  // I-2:正向接线——校验层用例不走执行器,此用例锁定 handler↔executeGdscriptTrusted↔
+  // parseGdscriptResult 真接线(删 handler 的执行调用必红)
+  it('uid_scan 正向走到 executeGdscriptTrusted 且结果经 parseGdscriptResult', async () => {
+    const trusted = vi.mocked(executeGdscriptTrusted);
+    trusted.mockClear();
+    const r = await handleTool('uid', { action: 'uid_scan', project_path: tmpProj }, makeCtx());
+    expect(trusted).toHaveBeenCalledTimes(1);
+    const call = trusted.mock.calls[0]![0] as unknown as { code: string; projectPath: string; loadAutoloads: boolean };
+    expect(call.code).toContain('_mcp_walk');            // 生成脚本真传入
+    expect(call.code).toContain('"missing_count"');
+    expect(call.projectPath).toBe(tmpProj);
+    expect(call.loadAutoloads).toBe(false);               // 文件层操作不加载 autoload
+    const parsed = await parseResult(r!);
+    expect(parsed.success).toBe(true);                    // outputs[{key:'scan'}] → data.scan
+    expect(parsed.data.scan.total_resources).toBe(0);     // JSON.parse 解回结构
   });
 });
