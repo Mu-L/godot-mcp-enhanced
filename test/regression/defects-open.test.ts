@@ -32,7 +32,7 @@ describe('DEFECT open 防恶化（基线阈值 detect() <= baseline）', () => {
     }
   });
 
-  it('OPEN_DEFECTS 覆盖 11 条、无重名且 baseline 已锁定', () => {
+  it('OPEN_DEFECTS 覆盖 8 条、无重名且 baseline 已锁定', () => {
     // 11 = 原 18 − 3（gdscript-gen-null-root-deref / launcher-no-error-listener / plugin-no-super-call
     //   2026-06-27 probe 实测 detect=0 移 FIXED 防复发;plugin-no-super-call 系 R2 super IMP-4 654b162 已修）
     //   − 1（ts-args-as-cast-no-validation 2026-06-27 args-validator 接入 detect 改查入口移 FIXED）
@@ -44,9 +44,11 @@ describe('DEFECT open 防恶化（基线阈值 detect() <= baseline）', () => {
     //   （detect/baseline 不变,承认合理设计/已认知防御层,保留 baseline 防恶化）。
     // +1(2026-07-19 SDD editor-version-tear §3 验收10 follow-up): editor-batch-name-whitelist-
     //   headless-blacklist-mismatch(editor 白 vs headless 黑严格度不一致,baseline=1 防恶化),合计 9。
-    expect(OPEN_DEFECTS.length).toBe(9);
+    // −1(2026-08-19): api-db-version-stale 移 FIXED(extension_api.json 已 4.7 + lint target 同步),
+    //   9→8。
+    expect(OPEN_DEFECTS.length).toBe(8);
     const keys = OPEN_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(9);
+    expect(new Set(keys).size, '存在重名 key').toBe(8);
     // 全部 status=open 且 baseline 已锁定（防恶化门必须）
     for (const d of OPEN_DEFECTS) {
       expect(d.status, `${d.key} status 应为 open`).toBe('open');

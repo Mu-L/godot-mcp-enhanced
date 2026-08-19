@@ -23,6 +23,7 @@ afterEach(() => { restoreUnrestricted(); });
 
 import {
   renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE,
+  isGodotCppV10Track, godotCppCloneCommand,
 } from '../src/tools/cpp-templates.js';
 import { handleTool } from '../src/tools/cpp.js';
 import { asUnrestrictedPath } from './helpers/path-isolation.js';
@@ -64,7 +65,8 @@ describe('cpp-templates renderScaffold', () => {
 
   it('SConstruct 引用 ./godot-cpp 且输出 bin/libgdexample', () => {
     const s = renderScaffold(ctx).find(f => f.path === 'SConstruct')!.content;
-    expect(s).toContain('SConscript("godot-cpp/SConstruct")');
+    // ctx.godotVersion='4.6' 属 v10 轨 → 显式 api_version
+    expect(s).toContain('SConscript("godot-cpp/SConstruct", {"api_version": "4.6"})');
     expect(s).toContain('libgdexample');
   });
 
@@ -82,8 +84,46 @@ describe('cpp-templates renderScaffold', () => {
     expect(CLASS_NAME_RE.test('2DThing')).toBe(false);    // 数字开头
   });
 
-  it('SUPPORTED_GODOT_VERSIONS 含 4.4/4.5/4.6', () => {
-    expect([...SUPPORTED_GODOT_VERSIONS]).toEqual(['4.4', '4.5', '4.6']);
+  it('SUPPORTED_GODOT_VERSIONS 含 4.4/4.5/4.6/4.7', () => {
+    expect([...SUPPORTED_GODOT_VERSIONS]).toEqual(['4.4', '4.5', '4.6', '4.7']);
+  });
+
+  it('分轨:v10 轨(4.6/4.7)SConstruct 传 api_version,README 用 master clone', () => {
+    for (const ver of ['4.6', '4.7'] as const) {
+      const files = renderScaffold({ ...ctx, godotVersion: ver });
+      const s = files.find(f => f.path === 'SConstruct')!.content;
+      const readme = files.find(f => f.path === 'README.md')!.content;
+      expect(s).toContain(`{"api_version": "${ver}"}`);
+      expect(readme).toContain('git clone https://github.com/godotengine/godot-cpp godot-cpp');
+      // 回归锚:godot-cpp 无 godot-4.6-stable/4.7-stable ref,不得再生成该 clone 指引
+      expect(readme).not.toContain(`-b godot-${ver}-stable`);
+      expect(godotCppCloneCommand(ver)).not.toContain('-b ');
+    }
+  });
+
+  it('分轨:旧轨(4.4/4.5)SConstruct 不传 api_version,README 用 stable 分支 clone', () => {
+    for (const ver of ['4.4', '4.5'] as const) {
+      const files = renderScaffold({ ...ctx, godotVersion: ver });
+      const s = files.find(f => f.path === 'SConstruct')!.content;
+      const readme = files.find(f => f.path === 'README.md')!.content;
+      expect(s).toContain('SConscript("godot-cpp/SConstruct")');
+      expect(s).not.toContain('api_version');
+      expect(readme).toContain(`git clone -b godot-${ver}-stable https://github.com/godotengine/godot-cpp godot-cpp`);
+      expect(godotCppCloneCommand(ver)).toContain(`-b godot-${ver}-stable`);
+    }
+  });
+
+  it('分轨:isGodotCppV10Track 判定', () => {
+    expect(isGodotCppV10Track('4.6')).toBe(true);
+    expect(isGodotCppV10Track('4.7')).toBe(true);
+    expect(isGodotCppV10Track('4.5')).toBe(false);
+    expect(isGodotCppV10Track('4.4')).toBe(false);
+  });
+
+  it('.gdextension compatibility_minimum 在 4.7 下随版本写入', () => {
+    const v47 = renderScaffold({ ...ctx, godotVersion: '4.7' })
+      .find(f => f.path === 'example.gdextension')!.content;
+    expect(v47).toContain('compatibility_minimum = "4.7"');
   });
 });
 
@@ -100,7 +140,8 @@ describe('cpp scaffold_gdextension handleTool', () => {
       {} as any);
     const parsed = JSON.parse(r!.content[0].text);
     expect(parsed.files).toHaveLength(8);
-    expect(parsed.godot_cpp_clone_hint).toContain('godot-4.6-stable'); // 默认版本
+    // 默认版本 4.7(v10 轨)→ master clone,无 -b stable ref
+    expect(parsed.godot_cpp_clone_hint).toBe('git clone https://github.com/godotengine/godot-cpp godot-cpp');
     expect(fsMock.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('src'), { recursive: true });
     expect(fsMock.writeFileSync).toHaveBeenCalledTimes(8);
   });
@@ -121,10 +162,12 @@ describe('cpp scaffold_gdextension handleTool', () => {
   });
 
   it('非法 godot_version → 报错', async () => {
-    const r = await handleTool('cpp',
-      { action: 'scaffold_gdextension', project_path: '/proj/ext', godot_version: '3.5' },
-      {} as any);
-    expect(r!.content[0].text).toContain('Error');
+    for (const bad of ['3.5', '4.8']) {
+      const r = await handleTool('cpp',
+        { action: 'scaffold_gdextension', project_path: '/proj/ext', godot_version: bad },
+        {} as any);
+      expect(r!.content[0].text).toContain('Error');
+    }
   });
 
   it('目标已存在非空 + 未 force → 拒绝', async () => {

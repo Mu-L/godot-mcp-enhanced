@@ -1373,12 +1373,13 @@
           },
           "godot_version": {
             "type": "string",
-            "description": "Godot 版本（4.4/4.5/4.6，决定 godot-cpp clone tag 与 .gdextension compatibility_minimum，默认 4.6）",
-            "default": "4.6",
+            "description": "Godot 版本（4.4–4.7。决定 godot-cpp clone ref 与 SConstruct api_version、.gdextension compatibility_minimum；4.6/4.7 走 godot-cpp master(v10)+api_version（无 godot-4.x-stable ref），4.4/4.5 用 godot-4.x-stable 分支。默认 4.7）",
+            "default": "4.7",
             "enum": [
               "4.4",
               "4.5",
-              "4.6"
+              "4.6",
+              "4.7"
             ]
           },
           "force": {
@@ -1435,8 +1436,8 @@
       },
       "size": {
         "descBytes": 283,
-        "schemaBytes": 826,
-        "totalBytes": 1109
+        "schemaBytes": 971,
+        "totalBytes": 1254
       },
       "annotations": {
         "readOnlyHint": false,
@@ -3752,8 +3753,8 @@
           },
           "godot_version": {
             "type": "string",
-            "description": "CI 中使用的 Godot 版本（默认 4.4）",
-            "default": "4.4"
+            "description": "CI 中使用的 Godot 版本（默认 4.7）",
+            "default": "4.7"
           },
           "force": {
             "type": "boolean",

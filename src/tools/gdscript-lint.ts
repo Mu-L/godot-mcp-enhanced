@@ -153,7 +153,9 @@ function hasTypeContext(precedingLines: string[], typeNames: string[]): boolean 
 // ─── Lint Metadata ──────────────────────────────────────────────────────────
 
 const LINT_VERSION = {
-  godot_target: "4.6",
+  // 2026-08-19 升 4.7：与 docs/api/extension_api.json（4.7.stable 快照）恢复一致；
+  // L025 已含 4.7 accessibility breaking 规则。last_reviewed 保持规则集逐条审阅日（本次仅升 target 声明）。
+  godot_target: "4.7",
   last_reviewed: "2026-06-29",
   rules_count: 25,
 };

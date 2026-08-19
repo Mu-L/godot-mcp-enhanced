@@ -17,6 +17,6 @@ describe('generateCiTemplate', () => {
 
   it('应使用默认版本号', () => {
     const yaml = generateCiTemplate();
-    expect(yaml).toContain('4.4');
+    expect(yaml).toContain('4.7');
   });
 });

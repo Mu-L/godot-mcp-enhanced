@@ -70,7 +70,7 @@ export function getToolDefinitions(): Tool[] {
           claude_md: { type: 'boolean', description: '创建/追加 CLAUDE.md 验证规则（默认 true）', default: true },
           agents_md: { type: 'boolean', description: '创建/追加 AGENTS.md 项目规则（ZCode/Codex/Cursor 等遵循 AGENTS.md 标准的客户端读取，默认 true）', default: true },
           ci: { type: 'boolean', description: '生成 GitHub Actions CI workflow（默认 false）', default: false },
-          godot_version: { type: 'string', description: 'CI 中使用的 Godot 版本（默认 4.4）', default: '4.4' },
+          godot_version: { type: 'string', description: 'CI 中使用的 Godot 版本（默认 4.7）', default: '4.7' },
           force: { type: 'boolean', description: '覆盖已有配置（默认 false）', default: false },
           key: { type: 'string', description: '配置键（write_config，如 "application/config/name"）' },
           value: { type: 'string', description: '配置值（write_config）' },
@@ -681,7 +681,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
 
 // ─── CI template generator ────────────────────────────────────────────────────
 
-export function generateCiTemplate(godotVersion: string = '4.4'): string {
+export function generateCiTemplate(godotVersion: string = '4.7'): string {
   const downloadVersion = godotVersion.includes('-') ? godotVersion : `${godotVersion}-stable`;
   const baseUrl = 'https://github.com/godotengine/godot/releases/download';
   const filename = `Godot_v${downloadVersion}_linux.x86_64`;
@@ -723,11 +723,11 @@ jobs:
 // 后缀字符集仅字母/数字/点,无引号/换行/括号等注入载体,注入面保持封闭。
 const GODOT_VERSION_RE = /^\d+\.\d+(\.\d+)?(-[A-Za-z0-9.]+)?$/;
 
-/** 解析并校验 args.godot_version。缺省返回 '4.4';非法格式返回 null(调用方 return
+/** 解析并校验 args.godot_version。缺省返回 '4.7';非法格式返回 null(调用方 return
  *  invalidGodotVersionResult)。非 string 类型(如 number)同样拒绝。 */
 function parseGodotVersionArg(args: Record<string, unknown>): string | null {
   const raw = args.godot_version;
-  if (raw === undefined || raw === null || raw === '') return '4.4';
+  if (raw === undefined || raw === null || raw === '') return '4.7';
   if (typeof raw !== 'string' || !GODOT_VERSION_RE.test(raw)) return null;
   return raw;
 }

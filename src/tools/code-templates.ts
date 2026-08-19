@@ -35,8 +35,8 @@ const cameraSetup: CodeTemplate = {
   name: "camera3d_setup",
   description: "Camera3D + look_at，保证 add_child 在前",
   relatedRules: ["L001"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "position", type: "Vector3", default: "Vector3(0, 5, 10)" },
     { name: "target", type: "Vector3", default: "Vector3.ZERO" },
@@ -54,8 +54,8 @@ const rigidbodyWithBounce: CodeTemplate = {
   name: "rigidbody3d_with_bounce",
   description: "RigidBody3D + PhysicsMaterial + CollisionShape3D",
   relatedRules: ["L002"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "position", type: "Vector3", default: "Vector3.ZERO" },
     { name: "radius", type: "float", default: "0.5" },
@@ -89,8 +89,8 @@ const area3dDetection: CodeTemplate = {
   name: "area3d_detection",
   description: "Area3D 子节点用于碰撞检测",
   relatedRules: ["L013"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "radius", type: "float", default: "2.0" },
   ],
@@ -118,8 +118,8 @@ const environmentAdjustments: CodeTemplate = {
   name: "environment_adjustments",
   description: "WorldEnvironment + 色彩校正（正确属性名）",
   relatedRules: ["L004", "L005", "L011"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "brightness", type: "float", default: "1.0" },
     { name: "contrast", type: "float", default: "1.0" },
@@ -143,8 +143,8 @@ const softbodySetup: CodeTemplate = {
   name: "softbody3d_setup",
   description: "SoftBody3D（正确属性名 total_mass/damping_coefficient）",
   relatedRules: ["L006"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "total_mass", type: "float", default: "1.0" },
     { name: "damping", type: "float", default: "0.01" },
@@ -162,8 +162,8 @@ const astarGridSetup: CodeTemplate = {
   name: "astar_grid_setup",
   description: "AStarGrid2D（先 update 再 set_point_solid）",
   relatedRules: ["L014"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "size", type: "Vector2i", default: "Vector2i(10, 10)" },
   ],
@@ -180,8 +180,8 @@ const line2dDashed: CodeTemplate = {
   name: "line2d_dashed",
   description: "Line2D + PackedFloat32Array dash_pattern",
   relatedRules: ["L012"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-18",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "dash_length", type: "float", default: "10.0" },
     { name: "gap_length", type: "float", default: "5.0" },
@@ -202,8 +202,8 @@ const characterBody2dMovement: CodeTemplate = {
   name: "character_body_2d_movement",
   description: "CharacterBody2D move_and_slide() + 输入处理",
   relatedRules: [],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-23",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "speed", type: "float", default: "300.0" },
     { name: "jump_velocity", type: "float", default: "-400.0" },
@@ -236,8 +236,8 @@ const timerPattern: CodeTemplate = {
   name: "timer_pattern",
   description: "Timer one-shot/重复计时器模式",
   relatedRules: [],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-23",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "wait_time", type: "float", default: "1.0" },
     { name: "one_shot", type: "bool", default: "false" },
@@ -260,15 +260,17 @@ const stateMachineSimple: CodeTemplate = {
   name: "state_machine_simple",
   description: "简单 enum + match 状态管理",
   relatedRules: [],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-23",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "states", type: "string", default: "IDLE,RUN,JUMP" },
   ],
   generate: (p) => {
     const stateNames = (p.states ?? "IDLE,RUN,JUMP").split(",");
     const enumBody = stateNames.map(s => `\t${s.trim()}`).join(",\n");
-    const matchBody = stateNames.map(s => `\t\t${s.trim()}:\n\t\t\tpass`).join("\n");
+    // match 分支匹配枚举值必须带 State. 前缀;裸标识符(如 `IDLE:`)编译报
+    // "Identifier not declared"(2026-08-19 Godot 4.7.2/4.6.3 --check-only 双版本实测,系历史 bug)
+    const matchBody = stateNames.map(s => `\t\tState.${s.trim()}:\n\t\t\tpass`).join("\n");
     return `enum State {
 ${enumBody}
 }
@@ -289,8 +291,8 @@ const tilesetAtlasSetup: CodeTemplate = {
   name: "tileset_atlas_setup",
   description: "TileSet + TileSetAtlasSource + 碰撞层（正确调用顺序）",
   relatedRules: ["L018"],
-  verifiedGodotVersion: "4.6",
-  lastVerified: "2026-05-31",
+  verifiedGodotVersion: "4.7",
+  lastVerified: "2026-08-19",
   params: [
     { name: "tile_size", type: "int", default: "16" },
     { name: "columns", type: "int", default: "4" },
@@ -326,6 +328,10 @@ for y in range(${p.rows ?? "4"}):
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 
+// 2026-08-19 verifiedGodotVersion 全量升 4.7:逐模板 generate({}) 产物在 Godot 4.7.2 --check-only
+// 验证(独立编译 13/14 过;T003 系"类级 var+语句+func 混合粘贴片段"无法独立编译、A002 系模式骨架
+// 仅定义首个状态处理——两者经 4.6.3 对照行为逐字一致验证,4.7 唯一 GDScript breaking
+// (accessibility,L025)不涉及)。T010 同批修复 match 枚举前缀缺失。
 export const TEMPLATES: CodeTemplate[] = [
   cameraSetup,
   rigidbodyWithBounce,
@@ -710,8 +716,8 @@ export function getAllTemplates(projectPath?: string): CodeTemplate[] {
     relatedRules: [],
     params: at.params,
     generate: at.generate,
-    verifiedGodotVersion: '4.3',
-    lastVerified: '2026-05-30',
+    verifiedGodotVersion: '4.7',
+    lastVerified: '2026-08-19',
     tags: ['architecture', 'pattern'],
   }));
   builtIn.push(...archTemplates);
