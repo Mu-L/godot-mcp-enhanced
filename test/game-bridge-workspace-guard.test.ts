@@ -100,6 +100,20 @@ describe('A2: game_bridge_uninstall 内容比对守卫', () => {
     expect(resultText(r)).toContain('kept');
   });
 
+  it('N-5(审查): bundled 脚本缺失(工具安装损坏)→ 无法证明托管,保守不删', async () => {
+    registerAutoload();
+    writeFileSync(join(projectDir, 'mcp_bridge.gd'), BUNDLED_CONTENT, 'utf-8');
+    // 移走 bundled 副本,模拟 opsScript 同目录的 mcp_bridge.gd 缺失
+    const missingScriptsDir = join(tmpRoot, 'scripts-missing');
+    mkdirSync(missingScriptsDir, { recursive: true });
+    writeFileSync(join(missingScriptsDir, 'ops.gd'), '', 'utf-8');  // 无 mcp_bridge.gd
+    const r = await handleTool('game', { action: 'game_bridge_uninstall', project_path: projectDir },
+      { opsScript: join(missingScriptsDir, 'ops.gd'), projectDir } as never);
+    expect(r?.isError).toBeFalsy();
+    expect(existsSync(join(projectDir, 'mcp_bridge.gd'))).toBe(true);  // 修复前:被判工具托管而删除
+    expect(resultText(r)).toContain('bundled copy missing');
+  });
+
   it('清理全部端口的 secret 文件(A1 避让端口 9081/9082 残留都删)', async () => {
     registerAutoload();
     const godotDir = join(projectDir, '.godot');
