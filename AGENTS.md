@@ -279,6 +279,8 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 ### 发版前额外门禁
 
+**默认不发版**(2026-08-19 用户定规):小版本迭代(feature/fix 批)合并即可,不随批走版本链——版本号不 bump、README 版本表不加行、matrix 按 package.json 当前版本生成;变更记录进 CHANGELOG `[Unreleased]` 段(Keep a Changelog 标准做法)。仅当用户明确说「发版/打 tag/发 release」时,才 bump 版本 + 跑下面第 4 项门禁 + `version-sync` + CHANGELOG 段定版 + README 版本行。
+
 发版(打 tag / 发 release)前,在上述三项基础上额外跑:
 
 4. **`verify_delivery`**(MCP 工具,非 npm script)— 端到端交付门禁:场景树完整性 + 脚本健康 + 性能 + 自定义断言。这是发版的硬性门禁,不通过不发版。
@@ -470,3 +472,4 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
 | 2026-07-22 | 第二轮审查修正:补全 MCP 子系统表丢失的 8 行(粒子/TileMap/动画/导航/材质/信号/音频/工作流,含 rule 文件归属);清理第 190 行与「独立副本」声明的措辞矛盾 |
 | 2026-07-27 | 加「改动 `.claude/rules/` 后」+ 「plan 落地后必出第三方审查文档」+ 「完成前必登 memory」三段强制流程（源于 2026-07-27 get_node_layout PR 第三方审查反馈 + 用户反馈 memory/review 双断档） |
 | 2026-08-16 | 双副本内容一致性 CI 从 advisory 假接线升级为 STRICT 阻断(`check-rules-content-sync.mjs` 归一化收紧+双向对账,`ci.yml` 传 `STRICT=1`);历史 drift 8/9 文件已清零;「改动 `.claude/rules/` 后」与「独立副本同步约束」两段同步更新 |
+| 2026-08-19 | 「发版前额外门禁」节新增"默认不发版"定规(小版本迭代不 bump 版本/不走版本链,变更进 CHANGELOG [Unreleased];仅用户明确要求发版时才 bump+verify_delivery)——源于 tileset 批次用户反馈 |
