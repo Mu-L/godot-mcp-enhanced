@@ -66,6 +66,15 @@ COMMIT_RESULT: {"results":[{"error":"navigation_layer 99 out of range","ok":fals
 
 三类越界/缺瓦片全部结构化报错,进程正常退出不崩溃。
 
+### commit-n2(审查 N-2 修复验证:非 TileSet 资源 + 缺失资源)
+
+```
+COMMIT_RESULT: {"results":[{"error":"Resource is not a TileSet","ok":false,"op":"tileset_physics_layer_add","tileset_path":"res://scenes/Level.tscn"},{"error":"TileSet resource not found","ok":false,"op":"tileset_physics_layer_add","tileset_path":"res://assets/missing.tres"}],"saved":true,"success":true}
+```
+
+- `tileset_path` 指向 `.tscn`(load 返回 PackedScene,非 null 非 TileSet)→ `is TileSet` 守卫结构化报错(修复前:对 PackedScene 调 `get_physics_layers_count()` 运行时崩溃,无 COMMIT_RESULT)。
+- 无 loader 的资源(如 `.txt`)与缺失路径一样走 `TileSet resource not found`(load 返回 null)。
+
 ## 引擎 API 实测注记(文档 vs 实现偏差)
 
 | API | 文档声明 | 4.6.3 实测 |

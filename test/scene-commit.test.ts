@@ -798,6 +798,33 @@ describe('TileSet layer/data ops: validateCommitOperations', () => {
     ])).toMatch(/type.*(int|float|bool|string|color|vector2)/i);
   });
 
+  it('审查 N-1: type 传原型链属性名(constructor)不绕过白名单', () => {
+    // `in` 查原型链时 constructor/toString 会通过白名单并生成非法 GD;hasOwnProperty 判定须拒绝
+    const err = validateCommitOperations([
+      { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'd', type: 'constructor' },
+    ]);
+    expect(err).toMatch(/type.*(int|float|bool|string|color|vector2)/i);
+  });
+
+  it('审查 N-2: 全部 9 资源 op 的生成物含 is TileSet 守卫(非 TileSet 资源结构化报错)', () => {
+    const ops = [
+      { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' },
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+      { op: 'tileset_physics_layer_set', tileset_path: 'res://assets/tiles.tres', layer: 0, collision_layer: 1 },
+      { op: 'tileset_physics_layer_remove', tileset_path: 'res://assets/tiles.tres', layer: 0 },
+      { op: 'tileset_navigation_layer_add', tileset_path: 'res://assets/tiles.tres' },
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'rect' },
+      { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'x' },
+      { op: 'tile_custom_data_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, layer: 0, value: 1 },
+      { op: 'tile_collision_clear', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0 },
+    ];
+    const script = generateCommitScript('res://scenes/Level.tscn', ops as never, true, true);
+    // 精确匹配 `is TileSet):`(不带右括号会误中 `is TileSetAtlasSource`)
+    const guardCount = script.split('is TileSet):').length - 1;
+    expect(guardCount).toBe(9);
+    expect(script).toContain('"error": "Resource is not a TileSet"');
+  });
+
   it('accepts tile_custom_data_set and rejects missing value', () => {
     expect(validateCommitOperations([
       { op: 'tile_custom_data_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, layer: 0, value: 12.5 },

@@ -170,7 +170,9 @@ function validateOpFields(idx: number, opType: string, op: Record<string, unknow
         || optNum('alternative_tile') || needNum('navigation_layer');
     }
     case 'tileset_custom_data_layer_add': {
-      if (op.type !== undefined && (!isStr(op.type) || !(op.type in CUSTOM_DATA_TYPES))) {
+      // 审查 N-1:`in` 查原型链,constructor/toString 等可绕白名单 → 生成非法 GD;用自有属性判定
+      if (op.type !== undefined
+        && (!isStr(op.type) || !Object.prototype.hasOwnProperty.call(CUSTOM_DATA_TYPES, op.type))) {
         return `${at}: "type" must be one of int/float/bool/string/color/vector2`;
       }
       return needResPath('tileset_path') || needStr('name');
@@ -474,6 +476,9 @@ function tileGuardChain(
 \tif ts${idx} == null:
 \t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "TileSet resource not found"})
 ${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "Resource is not a TileSet"})
+${errAction}
 \telse:
 \t\tvar src${idx} = ts${idx}.get_source(${opts.sid})
 \t\tif src${idx} == null:
@@ -642,6 +647,9 @@ ${errAction}
 \tif ts${idx} == null:
 \t\t_results.append({"op": "tileset_physics_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
 ${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "tileset_physics_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "Resource is not a TileSet"})
+${errAction}
 \telse:
 \t\tvar lid${idx} = ts${idx}.get_physics_layers_count()
 \t\tts${idx}.add_physics_layer()
@@ -690,6 +698,9 @@ ${oneWayLine}\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path"
 \tif ts${idx} == null:
 \t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
 ${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": false, "error": "Resource is not a TileSet"})
+${errAction}
 \telse:
 \t\tif ${op.layer} < 0 or ${op.layer} >= ts${idx}.get_physics_layers_count():
 \t\t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": false, "error": "physics_layer ${op.layer} out of range"})
@@ -705,6 +716,9 @@ ${setLines}${maskLines}\t\t\t_results.append({"op": "tileset_physics_layer_set",
 \tvar ts${idx} = load("${tsp}")
 \tif ts${idx} == null:
 \t\t_results.append({"op": "tileset_physics_layer_remove", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "tileset_physics_layer_remove", "tileset_path": "${tsp}", "ok": false, "error": "Resource is not a TileSet"})
 ${errAction}
 \telse:
 \t\tif ${op.layer} < 0 or ${op.layer} >= ts${idx}.get_physics_layers_count():
@@ -724,6 +738,9 @@ ${err3}
 \tvar ts${idx} = load("${tsp}")
 \tif ts${idx} == null:
 \t\t_results.append({"op": "tileset_navigation_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "tileset_navigation_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "Resource is not a TileSet"})
 ${errAction}
 \telse:
 \t\tvar lid${idx} = ts${idx}.get_navigation_layers_count()
@@ -768,6 +785,9 @@ ${szLine}\t\t\t\tvar np${idx} := NavigationPolygon.new()
 \tvar ts${idx} = load("${tsp}")
 \tif ts${idx} == null:
 \t\t_results.append({"op": "tileset_custom_data_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telif not (ts${idx} is TileSet):
+\t\t_results.append({"op": "tileset_custom_data_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "Resource is not a TileSet"})
 ${errAction}
 \telse:
 \t\tvar lid${idx} = ts${idx}.get_custom_data_layers_count()

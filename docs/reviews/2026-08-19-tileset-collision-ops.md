@@ -83,3 +83,31 @@ npm run version-check → 版本元数据一致(0.32.7)
 npm run check:budget → 3 既有 warn(engine/game/ui 描述长度,历史遗留)/ 0 error
 端到端 Godot 4.6.3   → 正向/负向/幂等/重载断言全过(详见上文;证据链留痕改进见教训 1)
 ```
+
+---
+
+## 扩展批第二审(2026-08-19,commit c148ee4 之后)
+
+审查对象:层配置扩展批 7 op(physics set/remove、navigation add/set、custom data add/set、collision clear)。**总体判定:SHIPPED WITH NITS(无 Blocking)**。
+
+### 逐维度结论(审查者静态实测摘要)
+
+1. **设计正确性 通过**:tileGuardChain 缩进逐行核验(尾部 `else:` 3-tab,四 op 写体 4-tab 恰挂下一级);layer 越界 countExpr 与 layerLabel 三组一一对应;NavigationPolygon 顶点索引与顶点数严格一致(0..n-1 不越界);physics_layer_set 仅生成提供的字段;remove 双向越界守卫。
+2. **TS-GD 一致性 通过**:16 op enum 三处逐字同步(COMMIT_OPERATIONS/index.ts 真实 schema/DEPRECATED 副本);CUSTOM_DATA_TYPES 六映射完整;DEPRECATED 副本确认不注册(生产仅 import handleCommitAction)。
+3. **测试质量 通过**:tile_navigation_set %2e%2e 用例删 TILESET_RESOURCE_OPS 成员即红(接线判别成立);负向覆盖 at-least-one/shape/points 注入/bad type/missing value/非 res:// 路径。
+4. **部署同步 通过**:CHANGELOG/README/matrix/tool-docs/rule-templates(正确地未触发双副本约束)逐项一致;points 去内层 schema 后运行时 F-5 逐项校验真兜底。
+5. **安全 通过**:TILESET_RESOURCE_OPS 9 成员与写盘 op 集合**双向精确对账**(不多不少);serializeGdValue 的 `_type` override 分支缺 number 守卫为 pre-existing(node_property/node_add 既有),非本批引入,scanGdscriptSandbox 二线覆盖 commit 路径。
+6. **端到端证据链 通过**:负向错误消息三处与代码逐字匹配;11 op 序列与重载断言逐项对应代码行为。
+
+### Nits 与处置
+
+| # | 问题 | 处置 |
+|---|---|---|
+| N-1 | `op.type in CUSTOM_DATA_TYPES` 查原型链,`constructor` 等可绕白名单 → 生成非法 GD | ✅ 已修:hasOwnProperty.call 判定 + `type:'constructor'` 负向测试 |
+| N-2 | 资源 op 仅守卫 null 未守卫 `is TileSet`,非 TileSet 资源(如 .tscn)运行时崩溃无 COMMIT_RESULT | ✅ 已修:9 op 全部加 `elif not (ts is TileSet)` 结构化报错 + 生成物计数测试 + 真引擎验证(见证据文档 commit-n2:`Resource is not a TileSet`) |
+
+### 工程教训(已登 memory)
+
+1. `in` 操作符做对象白名单判定的原型链陷阱(constructor/toString 绕过)——一律 hasOwnProperty/Object.keys().includes()。
+2. "集合成员 ↔ 写盘 op"精确对账是写路径安全的审查锚点:单一事实源(TILESET_RESOURCE_OPS)同时驱动 save 收集与 handler 校验,配套"删成员即红"接线测试。
+3. guard 链 helper 化重构的缩进核验要以"尾部 else: 的 tab 数 + 1"为锚,不信任描述中的绝对 tab 数。
