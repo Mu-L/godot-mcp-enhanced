@@ -72,6 +72,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **T5a 措辞修正**（4 处）：border 四边各异「以 style_verify 数值暴露」→ 准确语义——style_verify 期望/实测同源（同一翻译产出）恒绿暴露不了，真暴露渠道是 ui_pixel_verify 像素采样（规则双副本 + README v0.32.1 行 + CHANGELOG 0.32.1 段）。
 - **T5c 孙层措辞精确化**（5 处）+ 七槽互指注释：「孙层为近似覆盖」→「孙层由 layout_verify 近似覆盖（非 flow_verify，期望相对输入父原点，容器排布后天然带偏移）」（规则双副本 + measure `_note` + 翻译器 B-2 warning + layout-diff 注释）；STYLEBOX_SLOTS（TS）与 measure 生成脚本 `_all_slots`（GD）双份硬编码加互指注释。
 
+> [0.32.2] 2026-08-18 同日短命 bump（0.32.1→0.32.2→0.32.3 连续，pickaxe 7fce9e2/5c0b87d 证实），变更已并入 [0.32.3] 段；npm 无独立发布（versions 实测无此号）。
+
 ## [0.32.1] - 2026-08-18
 
 ### Added — 原型翻译层 verify 层（style_verify + flow_verify，PR-2）
@@ -245,6 +247,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Docs
 
 - `.claude/rules/godot-mcp-ui.md` 与 `src/tools/rule-templates.ts` UI 模板段双副本同步：工具清单补 `ui_measure_layout` 行、新增 rect/justify/布局收敛闭环三小节、description 关键词补 `ui_measure_layout`/`测量`/`rect`（修复 Task 3 审查 Minor：关键词列表未含 measure）。
+
+> [0.30.1] 2026-08-16 同日短命 bump（0.30.0→0.30.1→0.30.2 连续，pickaxe dcc62fa/0e19620 证实），ui_measure_layout 等变更已并入 [0.30.2] 段；npm 无独立发布（versions 实测无此号）。
 
 ## [0.30.0] - 2026-08-15
 
@@ -795,11 +799,6 @@ AI 可写标准化 GDScript 测试套件（`extends McpTestSuite`），editor �
 - `setup` / `doctor` 日志标 `(global)`/`(project)` 让用户知情改了哪些全局配置
 - Cherry Studio entry 含 `type:"stdio"`（schema enum 强制，唯一需 type 的 client）
 - 注：client adapter 是 CLI 侧配置，不进 capability-matrix（非 MCP 工具能力）
-
-## [0.24.0] - 2026-07-25
-
-### Added — Self-update（Godot AI 追赶 3/3）
-
 - 新增 `self_update` 工具（action=check/update）：check 查 npm 最新版 + 各项目 addon 版本漂移（只读，免确认）；update 覆盖安装包内 addon 到指定项目（需确认，三层路径校验 + 降级保护）
 - MCP 服务端启动异步查 npm registry，有新版 stderr 提示（24h 缓存，失败静默）
 - 单工具 + action enum 设计避 `guard.ts:65` confirm 门旁路；readOnly 模式拒整工具
