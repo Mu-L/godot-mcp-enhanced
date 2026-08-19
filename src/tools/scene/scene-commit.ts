@@ -8,6 +8,7 @@ import { BLOCKED_PROPS } from './helpers.js';
 export const COMMIT_OPERATIONS = [
   'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
   'tileset_assign', 'node_property', 'node_add',
+  'tileset_physics_layer_add', 'tile_collision_set',
 ] as const;
 
 export type CommitOp = typeof COMMIT_OPERATIONS[number];
@@ -59,6 +60,18 @@ function validateOpFields(idx: number, opType: string, op: Record<string, unknow
     !isNum(op[key]) ? `${at}: "${key}" must be a finite number` : null;
   const optNum = (key: string): string | null =>
     op[key] !== undefined && !isNum(op[key]) ? `${at}: optional "${key}" must be a finite number` : null;
+  const optBool = (key: string): string | null =>
+    op[key] !== undefined && typeof op[key] !== 'boolean' ? `${at}: optional "${key}" must be a boolean` : null;
+  // tileset 写盘 op 的资源路径浅校验(生成器层,无项目根上下文):
+  // res:// 前缀 + 明文 .. 段拒绝。URL 编码/symlink 等绕过形态由 handler 层
+  // resolveWithinRoot 纵深拦截(scene-commit-tool.ts handleCommitAction)。
+  const needResPath = (key: string): string | null => {
+    if (!isStr(op[key])) return `${at}: "${key}" must be a string`;
+    const p = op[key] as string;
+    if (!p.startsWith('res://')) return `${at}: "${key}" must start with res:// (got non-project path)`;
+    if (p.split('/').includes('..')) return `${at}: "${key}" contains path traversal segments`;
+    return null;
+  };
 
   switch (opType) {
     case 'tile_set': {
@@ -89,6 +102,31 @@ function validateOpFields(idx: number, opType: string, op: Record<string, unknow
       const parentErr = op.parent !== undefined && !isStr(op.parent)
         ? `${at}: optional "parent" must be a string` : null;
       return needStr('name') || needStr('type') || parentErr;
+    }
+    case 'tileset_physics_layer_add': {
+      return needResPath('tileset_path') || optNum('collision_layer') || optNum('collision_mask');
+    }
+    case 'tile_collision_set': {
+      const shape = op.shape;
+      if (shape !== 'rect' && shape !== 'polygon') {
+        return `${at}: "shape" must be "rect" or "polygon"`;
+      }
+      if (shape === 'rect' && op.points !== undefined) {
+        return `${at}: "points" must be omitted when shape is "rect" (rect 生成全格四点)`;
+      }
+      if (shape === 'polygon') {
+        const pts = op.points;
+        if (!Array.isArray(pts) || pts.length === 0) {
+          return `${at}: "points" must be a non-empty array for polygon shape`;
+        }
+        for (let j = 0; j < pts.length; j++) {
+          if (!isVec2(pts[j])) {
+            return `${at}: points[${j}] must be {x:number, y:number}`;
+          }
+        }
+      }
+      return needResPath('tileset_path') || needNum('source_id') || needVec2('atlas')
+        || optNum('alternative_tile') || needNum('physics_layer') || optBool('one_way');
     }
     default:
       return null;
@@ -145,9 +183,45 @@ interface NodeAddOp {
   properties?: Record<string, unknown>;
 }
 
+// TileSet 碰撞配置(2026-08-19,依据可行性评估 §2.3):两 op 直接修改外部 .tres 资源
+// (MVP 排除内嵌 TileSet——tileset_assign 已确立外部 .tres 模式),save 分支对每个
+// 被改 tileset 单独走 tmp+rename 原子写。tileset_path 限定 res:// 项目内(needResPath
+// 浅校验 + handler 层 resolveWithinRoot 纵深,防 ResourceSaver 越界写)。
+interface TilesetPhysicsLayerAddOp {
+  op: 'tileset_physics_layer_add';
+  tileset_path: string;
+  collision_layer?: number;
+  collision_mask?: number;
+}
+
+interface TileCollisionSetOp {
+  op: 'tile_collision_set';
+  tileset_path: string;
+  source_id: number;
+  atlas: { x: number; y: number };
+  alternative_tile?: number;
+  physics_layer: number;
+  shape: 'rect' | 'polygon';
+  /** polygon 模式必填自定义点集;rect 模式必须省略(全格四点运行时由 tile_size 生成,等价编辑器按 F) */
+  points?: Array<{ x: number; y: number }>;
+  one_way?: boolean;
+}
+
 export type CommitOperation =
   | TileSetOp | TileFillOp | TileEraseOp | TileClearOp
-  | TilesetAssignOp | NodePropertyOp | NodeAddOp;
+  | TilesetAssignOp | NodePropertyOp | NodeAddOp
+  | TilesetPhysicsLayerAddOp | TileCollisionSetOp;
+
+/** 碰撞两 op 是唯一直接修改外部 .tres 资源(非场景实例)的 op——save 分支据此收集待保存资源。 */
+export function collectTilesetPaths(operations: CommitOperation[]): string[] {
+  const paths = new Set<string>();
+  for (const op of operations) {
+    if (op.op === 'tileset_physics_layer_add' || op.op === 'tile_collision_set') {
+      paths.add(op.tileset_path);
+    }
+  }
+  return [...paths];
+}
 
 /** Validate a string is a safe GDScript identifier (property name, type name, etc.) */
 function isSafeIdentifier(s: string): boolean {
@@ -192,6 +266,9 @@ export function generateCommitScript(
   stopOnError: boolean = true,
 ): string {
   const hasFill = operations.some(op => op.op === 'tile_fill');
+  // 碰撞 op 修改的外部 .tres 资源(去重):save 时逐个原子写盘。
+  // load() 走 ResourceCache,多个 op 引用同一路径返回同一实例,去重后保存一次即可。
+  const tilesetPaths = collectTilesetPaths(operations);
   const opBlocks: string[] = [];
 
   for (let i = 0; i < operations.length; i++) {
@@ -204,12 +281,21 @@ export function generateCommitScript(
   // saved:err==OK 并存,磁盘满/权限失败(EACCES/ENOSPC)时 COMMIT_RESULT 报成功(假成功),
   // AI 与 middleware 把写盘失败当成功。save=false 分支无保存动作,success:true 是"无保存失败"
   // 的预期语义,保持不变(handleCommitAction 仅在 save 时对 saved:false 置 isError)。
+  // 场景保存保持原内联(tmp+rename);tileset 保存走 _save_resource helper(同模式抽函数,
+  // 仅在有 tileset op 时生成,不影响纯节点 commit 的既有生成物)。
+  const tilesetSaveBlock = (save && tilesetPaths.length > 0)
+    ? `\tfor _p in [${tilesetPaths.map(p => `"${escapeForGdLiteral(p)}"`).join(', ')}]:\n\t\tvar _tres = load(_p)\n\t\tif _tres != null:\n\t\t\tvar _te := _save_resource(_tres, _p)\n\t\t\tif _te != OK:\n\t\t\t\terr = _te\n`
+    : '';
   const saveBlock = save
-    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n\tprint("COMMIT_RESULT: " + JSON.stringify({"success": err == OK, "saved": err == OK, "results": _results}))`
+    ? `\t# --- Save ---\n\tvar packed = PackedScene.new()\n\tpacked.pack(inst)\n\tvar _full := "${sp}"\n\tvar _ext := _full.get_extension()\n\tvar _tmp := _full + ".tmp." + _ext\n\tif FileAccess.file_exists(_tmp):\n\t\tDirAccess.remove_absolute(_tmp)\n\tvar err := ResourceSaver.save(packed, _tmp)\n\tif err != OK:\n\t\tDirAccess.remove_absolute(_tmp)\n\telse:\n\t\tvar _ren := DirAccess.rename_absolute(_tmp, _full)\n\t\tif _ren != OK:\n\t\t\tDirAccess.remove_absolute(_tmp)\n\t\t\terr = _ren\n${tilesetSaveBlock}\tprint("COMMIT_RESULT: " + JSON.stringify({"success": err == OK, "saved": err == OK, "results": _results}))`
     : `\tprint("COMMIT_RESULT: " + JSON.stringify({"success": true, "saved": false, "results": _results}))`;
 
   const fillHelper = hasFill
     ? `\nfunc _fill_tiles(node, rx, ry, rw, rh, sid, atlas, alt):\n\tfor cy in range(ry, ry + rh):\n\t\tfor cx in range(rx, rx + rw):\n\t\t\tnode.set_cell(Vector2i(cx, cy), sid, atlas, alt)\n`
+    : '';
+
+  const saveResHelper = (save && tilesetPaths.length > 0)
+    ? `\nfunc _save_resource(res, full: String) -> int:\n\tvar tmp := full + ".tmp." + full.get_extension()\n\tif FileAccess.file_exists(tmp):\n\t\tDirAccess.remove_absolute(tmp)\n\tvar e := ResourceSaver.save(res, tmp)\n\tif e != OK:\n\t\tDirAccess.remove_absolute(tmp)\n\t\treturn e\n\tvar ren := DirAccess.rename_absolute(tmp, full)\n\tif ren != OK:\n\t\tDirAccess.remove_absolute(tmp)\n\t\treturn ren\n\treturn OK\n`
     : '';
 
   const stopBlock = stopOnError
@@ -220,7 +306,7 @@ export function generateCommitScript(
 
 var _results = []
 var _has_error = false
-${fillHelper}
+${fillHelper}${saveResHelper}
 func _initialize():
 \tvar scene = load("${sp}")
 \tif scene == null:
@@ -239,6 +325,10 @@ function generateOpBlock(index: number, op: CommitOperation, stopOnError: boolea
   const errAction = stopOnError
     ? '\t\t_has_error = true'
     : '\t\t# continue despite error';
+  // elif 链在 else 块内,守卫失败动作需更深缩进(tile_collision_set 守卫链)
+  const errAt = (tabs: number) => stopOnError
+    ? `${'\t'.repeat(tabs)}_has_error = true`
+    : `${'\t'.repeat(tabs)}# continue despite error`;
 
   switch (op.op) {
     case 'tile_set': {
@@ -362,6 +452,76 @@ ${errAction}
 \t\tparent${idx}.add_child(child${idx})
 \t\tchild${idx}.owner = inst
 \t\t_results.append({"op": "node_add", "name": "${name}", "ok": true})`;
+    }
+    case 'tileset_physics_layer_add': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const layerLines = op.collision_layer !== undefined
+        ? `\t\tts${idx}.set_physics_layer_collision_layer(lid${idx}, ${op.collision_layer})\n`
+        : '';
+      const maskLines = op.collision_mask !== undefined
+        ? `\t\tts${idx}.set_physics_layer_collision_mask(lid${idx}, ${op.collision_mask})\n`
+        : '';
+      return `
+\t# --- Op ${idx}: tileset_physics_layer_add ---
+\tvar ts${idx} = load("${tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "tileset_physics_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tvar lid${idx} = ts${idx}.get_physics_layers_count()
+\t\tts${idx}.add_physics_layer()
+${layerLines}${maskLines}\t\t_results.append({"op": "tileset_physics_layer_add", "tileset_path": "${tsp}", "ok": true, "layer_id": lid${idx}})`;
+    }
+    case 'tile_collision_set': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const alt = op.alternative_tile ?? 0;
+      const sid = op.source_id;
+      const phys = op.physics_layer;
+      const ax = op.atlas.x;
+      const ay = op.atlas.y;
+      const err3 = errAt(3);
+      // rect:全格四点运行时由 tile_size 生成(等价编辑器碰撞编辑器按 F);polygon:字面量点集。
+      // PackedVector2Array 构造器只接受 Array(不接受 Vector2 可变参)——端到端 Godot 4.6.3 实测。
+      const pointsExpr = op.shape === 'rect'
+        ? `PackedVector2Array([Vector2(0, 0), Vector2(sz${idx}.x, 0), Vector2(sz${idx}.x, sz${idx}.y), Vector2(0, sz${idx}.y)])`
+        : `PackedVector2Array([${op.points!.map(p => `Vector2(${p.x}, ${p.y})`).join(', ')}])`;
+      // 嵌套层级:op(1)→ else(2)→ else(3)→ td 守卫 else(4),sz/one_way 行在 4-tab 层
+      const szLine = op.shape === 'rect'
+        ? `\t\t\t\tvar sz${idx} = ts${idx}.get_tile_size()\n`
+        : '';
+      const oneWayLine = op.one_way !== undefined
+        ? `\t\t\t\ttd${idx}.set_collision_polygon_one_way(${phys}, 0, ${op.one_way})\n`
+        : '';
+      const pointsCount = op.shape === 'rect' ? 4 : op.points!.length;
+      return `
+\t# --- Op ${idx}: tile_collision_set ---
+\tvar ts${idx} = load("${tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tvar src${idx} = ts${idx}.get_source(${sid})
+\t\tif src${idx} == null:
+\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Source ${sid} not found"})
+${err3}
+\t\telif not (src${idx} is TileSetAtlasSource):
+\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Source ${sid} is not a TileSetAtlasSource (collision requires atlas source)"})
+${err3}
+\t\telif not src${idx}.has_tile(Vector2i(${ax}, ${ay})):
+\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Tile (${ax}, ${ay}) not in atlas"})
+${err3}
+\t\telif ${phys} < 0 or ${phys} >= ts${idx}.get_physics_layers_count():
+\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "physics_layer ${phys} out of range"})
+${err3}
+\t\telse:
+\t\t\tvar td${idx} = src${idx}.get_tile_data(Vector2i(${ax}, ${ay}), ${alt})
+\t\t\tif td${idx} == null:
+\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "TileData unavailable (alternative_tile ${alt} not created?)"})
+${errAt(4)}
+\t\t\telse:
+\t\t\t\ttd${idx}.set_collision_polygons_count(${phys}, 1)
+${szLine}\t\t\t\ttd${idx}.set_collision_polygon_points(${phys}, 0, ${pointsExpr})
+${oneWayLine}\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": true, "physics_layer": ${phys}, "points_count": ${pointsCount}})`;
     }
   }
 }

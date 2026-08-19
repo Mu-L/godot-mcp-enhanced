@@ -9,12 +9,14 @@ import { executeGdscript } from '../../gdscript-executor.js';
 import { generateCommitScript, validateCommitOperations, type CommitOperation } from './scene-commit.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { opsErrorResult } from '../shared.js';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 
 export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] scene-commit-tool module is absorbed into scene. Do not register directly.`);
   return [{
     name: 'scene_commit',
-    description: '批量执行场景修改操作（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add），合并为一次 Godot 进程调用。适合需要持久化的批量修改。',
+    description: '批量执行场景修改操作（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set），合并为一次 Godot 进程调用。适合需要持久化的批量修改。',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -26,14 +28,20 @@ export function getToolDefinitions(): Tool[] {
           items: {
             type: 'object',
             properties: {
-              op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add'] },
+              op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add', 'tileset_physics_layer_add', 'tile_collision_set'] },
               node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径（tile 操作必需）' },
               coords: { type: 'object', description: '图块坐标 {x, y}' },
               region: { type: 'object', description: '矩形区域 {x, y, w, h}' },
               source_id: { type: 'number', description: 'TileSet 源 ID' },
               atlas: { type: 'object', description: '图集坐标 {x, y}' },
               alternative_tile: { type: 'number', description: '替代图块索引（默认 0）' },
-              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign）' },
+              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set）' },
+              collision_layer: { type: 'number', description: 'tileset_physics_layer_add: 碰撞层位掩码（可选）' },
+              collision_mask: { type: 'number', description: 'tileset_physics_layer_add: 碰撞遮罩位掩码（可选）' },
+              physics_layer: { type: 'number', description: 'tile_collision_set: 物理 layer 索引（0 起）' },
+              shape: { type: 'string', enum: ['rect', 'polygon'], description: 'tile_collision_set: rect=全格四点；polygon=自定义点集' },
+              points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } }, description: 'tile_collision_set polygon 模式点集 [{x,y}]' },
+              one_way: { type: 'boolean', description: 'tile_collision_set: 单向碰撞（可选）' },
               path: { type: 'string', description: '节点路径（node_property）' },
               property: { type: 'string', description: '属性名' },
               value: { description: '属性值' },
@@ -76,6 +84,25 @@ export async function handleCommitAction(
   const validationError = validateCommitOperations(operations);
   if (validationError) {
     return opsErrorResult('INVALID_PARAMS', validationError);
+  }
+
+  // 碰撞 op(tileset_physics_layer_add / tile_collision_set)经 ResourceSaver 写 .tres——
+  // tileset_path 是写盘参数,必须过项目内校验(deny-by-default,防越界写)。
+  // validateCommitOperations 已做 res:// 前缀 + 明文 .. 浅校验;此处对已存在的 .tres 追加
+  // resolveWithinRoot realpath 纵深校验(拦 URL 编码/symlink 等绕过浅校验的形态,
+  // memory: file-path-args-whitelist-blindspot)。不存在的路径无覆写面——GD 侧 load null
+  // 走 "TileSet resource not found" 结构化错误,放行到执行层。
+  for (const op of operations) {
+    if (op.op === 'tileset_physics_layer_add' || op.op === 'tile_collision_set') {
+      const rel = normalizeUserProjectPath(op.tileset_path as string);
+      if (existsSync(resolve(p, rel))) {
+        try {
+          resolveWithinRoot(p, rel);
+        } catch {
+          return opsErrorResult('INVALID_PARAMS', `Op tileset_path escapes project root: ${String(op.tileset_path)}`);
+        }
+      }
+    }
   }
 
   // F-1 (批 F, 2026-08-14): editor 场景写守卫——commit 走 headless spawn 写盘(不在 editor-method-map),

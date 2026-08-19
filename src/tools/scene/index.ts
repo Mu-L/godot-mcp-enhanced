@@ -79,18 +79,24 @@ export function getToolDefinitions(): Tool[] {
           // commit 参数
           operations: {
             type: 'array',
-            description: 'commit: 批量操作列表（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add）',
+            description: 'commit: 批量操作列表（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set）',
             items: {
               type: 'object',
               properties: {
-                op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add'] },
+                op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add', 'tileset_physics_layer_add', 'tile_collision_set'] },
                 node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径（tile 操作必需）' },
                 coords: { type: 'object', description: '图块坐标 {x, y}' },
                 region: { type: 'object', description: '矩形区域 {x, y, w, h}' },
                 source_id: { type: 'number', description: 'TileSet 源 ID' },
                 atlas: { type: 'object', description: '图集坐标 {x, y}' },
                 alternative_tile: { type: 'number', description: '替代图块索引（默认 0）' },
-                tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign）' },
+                tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set；碰撞两 op 限 res:// 项目内 .tres）' },
+                collision_layer: { type: 'number', description: 'tileset_physics_layer_add: 碰撞层位掩码（可选）' },
+                collision_mask: { type: 'number', description: 'tileset_physics_layer_add: 碰撞遮罩位掩码（可选）' },
+                physics_layer: { type: 'number', description: 'tile_collision_set: 物理 layer 索引（0 起）' },
+                shape: { type: 'string', enum: ['rect', 'polygon'], description: 'tile_collision_set: rect=全格四点（等价编辑器按 F）；polygon=自定义点集' },
+                points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } }, description: 'tile_collision_set polygon 模式点集 [{x,y}]（rect 模式省略）' },
+                one_way: { type: 'boolean', description: 'tile_collision_set: 单向碰撞（可选，默认 false）' },
                 path: { type: 'string', description: '节点路径（node_property）' },
                 property: { type: 'string', description: '属性名' },
                 value: { description: '属性值' },

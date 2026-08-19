@@ -287,10 +287,11 @@ describe('scene-commit: generateCommitScript', () => {
     expect(script).toContain('"cells_affected": 50');
   });
 
-  it('exports COMMIT_OPERATIONS with all 7 ops', () => {
+  it('exports COMMIT_OPERATIONS with all 9 ops', () => {
     expect(COMMIT_OPERATIONS).toEqual([
       'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
       'tileset_assign', 'node_property', 'node_add',
+      'tileset_physics_layer_add', 'tile_collision_set',
     ]);
   });
 
@@ -468,5 +469,237 @@ describe('Imp-1: scene_commit BLOCKED_PROPS (防绕过 edit_node S1 拦截)', ()
     );
     expect(script).toContain('.speed = 200');
     expect(script).not.toContain('is blocked');  // 无 BLOCKED_PROPS 警告(模板其他处的 "ok":false 与此无关)
+  });
+});
+
+// ─── TileSet 碰撞配置 op（tileset_physics_layer_add / tile_collision_set，2026-08-19）───
+// 依据可行性评估 D:\workspace\Obsidian\GodotMCP\系统文档\可行性评估-TileSet碰撞配置工具-2026-08-18.md §2.3
+// 安全约束:两 op 会经 ResourceSaver 写 .tres → tileset_path 必须限定 res:// 项目内(deny-by-default)。
+describe('TileSet collision ops: validateCommitOperations', () => {
+  it('accepts tileset_physics_layer_add without optional fields', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' },
+    ])).toBeNull();
+  });
+
+  it('accepts tileset_physics_layer_add with collision_layer/mask', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres', collision_layer: 1, collision_mask: 3 },
+    ])).toBeNull();
+  });
+
+  it('rejects tileset_physics_layer_add with non-string tileset_path', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_add', tileset_path: 42 },
+    ]);
+    expect(err).toMatch(/tileset_path.*string/);
+  });
+
+  it('rejects tileset_physics_layer_add with non-numeric collision_layer', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres', collision_layer: '1' },
+    ]);
+    expect(err).toMatch(/collision_layer.*finite number/);
+  });
+
+  it('rejects tileset_physics_layer_add tileset_path without res:// prefix (写盘越界面)', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_add', tileset_path: 'C:/evil/outside.tres' },
+    ]);
+    expect(err).toMatch(/res:\/\//);
+  });
+
+  it('accepts tile_collision_set with shape=rect', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+    ])).toBeNull();
+  });
+
+  it('accepts tile_collision_set with shape=polygon + points', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'polygon', points: [{ x: 0, y: 0 }, { x: 16, y: 0 }, { x: 16, y: 16 }], one_way: true },
+    ])).toBeNull();
+  });
+
+  it('rejects tile_collision_set with invalid shape', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'circle' },
+    ]);
+    expect(err).toMatch(/shape.*"rect" or "polygon"/);
+  });
+
+  it('rejects tile_collision_set polygon without points', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'polygon' },
+    ]);
+    expect(err).toMatch(/points.*non-empty array.*polygon/);
+  });
+
+  it('rejects tile_collision_set polygon with empty points', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'polygon', points: [] },
+    ]);
+    expect(err).toMatch(/points.*non-empty array.*polygon/);
+  });
+
+  it('rejects tile_collision_set rect with points (防歧义:rect 点集运行时生成)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect', points: [{ x: 0, y: 0 }] },
+    ]);
+    expect(err).toMatch(/points.*omitted.*rect/);
+  });
+
+  it('rejects tile_collision_set points item with injected string coord (F-5 注入向量)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'polygon', points: [{ x: 'OS.execute("sh",["-c","rm -rf ~"])', y: 0 }] },
+    ]);
+    expect(err).toMatch(/points\[0\].*\{x:number.*y:number\}/);
+  });
+
+  it('rejects tile_collision_set with non-numeric physics_layer', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 'zero', shape: 'rect' },
+    ]);
+    expect(err).toMatch(/physics_layer.*finite number/);
+  });
+
+  it('rejects tile_collision_set with non-boolean one_way', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect', one_way: 'yes' },
+    ]);
+    expect(err).toMatch(/one_way.*boolean/);
+  });
+
+  it('rejects tile_collision_set tileset_path with traversal segments (写盘越界面)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_collision_set', tileset_path: 'res://../outside.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+    ]);
+    expect(err).toMatch(/traversal/);
+  });
+});
+
+describe('TileSet collision ops: generateCommitScript', () => {
+  it('generates add_physics_layer + layer/mask + layer_id for tileset_physics_layer_add', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres', collision_layer: 1, collision_mask: 3 }],
+      true,
+    );
+    expect(script).toContain('add_physics_layer()');
+    expect(script).toContain('set_physics_layer_collision_layer(');
+    expect(script).toContain('set_physics_layer_collision_mask(');
+    // 上报新 layer_id(添加前的 count 即新层索引)
+    expect(script).toContain('"layer_id": lid1');
+    // 资源不存在守卫
+    expect(script).toContain('TileSet resource not found');
+  });
+
+  it('omits set_physics_layer_collision_* when layer/mask not given', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' }],
+      true,
+    );
+    expect(script).toContain('add_physics_layer()');
+    expect(script).not.toContain('set_physics_layer_collision_layer(');
+    expect(script).not.toContain('set_physics_layer_collision_mask(');
+  });
+
+  it('generates full guard chain for tile_collision_set rect', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 2, y: 3 }, physics_layer: 0, shape: 'rect' }],
+      true,
+    );
+    // 守卫链:atlas source 类型 + has_tile + physics_layer 越界
+    expect(script).toContain('is TileSetAtlasSource');
+    expect(script).toContain('.has_tile(Vector2i(2, 3)');
+    expect(script).toContain('get_physics_layers_count()');
+    expect(script).toContain('.get_tile_data(Vector2i(2, 3)');
+    expect(script).toContain('.set_collision_polygons_count(0, 1)');
+    // rect 模式四点来自运行时瓦片尺寸(等价编辑器按 F)
+    expect(script).toContain('.get_tile_size()');
+    expect(script).toContain('PackedVector2Array(');
+  });
+
+  it('generates literal PackedVector2Array for polygon shape', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'polygon', points: [{ x: 0, y: 0 }, { x: 16, y: 0 }, { x: 8, y: 12 }] }],
+      true,
+    );
+    expect(script).toContain('PackedVector2Array([Vector2(0, 0), Vector2(16, 0), Vector2(8, 12)])');
+    expect(script).not.toContain('.get_tile_size()');
+  });
+
+  it('generates one_way when requested', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect', one_way: true }],
+      true,
+    );
+    expect(script).toContain('.set_collision_polygon_one_way(0, 0, true)');
+  });
+
+  it('saves modified TileSets via atomic _save_resource when save=true', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' }],
+      true,
+    );
+    expect(script).toContain('func _save_resource(');
+    expect(script).toContain('"res://assets/tiles.tres"');
+  });
+
+  it('deduplicates tileset save for multiple ops on the same resource', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [
+        { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' },
+        { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+      ],
+      true,
+    );
+    // save 数组字面量只含该路径一次(load 缓存同一实例,去重保存);未去重会含两次
+    const saveArr = script.match(/for _p in \[[^\]]*\]:/g) ?? [];
+    expect(saveArr).toHaveLength(1);
+    expect(saveArr[0]).toBe('for _p in ["res://assets/tiles.tres"]:');
+  });
+
+  it('does not generate tileset save section when no tileset ops', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_set', node_path: 'G', coords: { x: 1, y: 1 }, source_id: 0, atlas: { x: 0, y: 0 } }],
+      true,
+    );
+    expect(script).not.toContain('for _p in [');
+    expect(script).not.toContain('func _save_resource(');
+    // 场景保存仍走 tmp+rename(内联,不抽 helper——见实现说明)
+    expect(script).toContain('ResourceSaver.save');
+  });
+
+  it('does not save TileSets when save=false', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' }],
+      false,
+    );
+    expect(script).not.toContain('ResourceSaver.save');
+    expect(script).toContain('"saved": false');
+  });
+
+  it('mixes tileset ops with node ops in sequence', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [
+        { op: 'tileset_physics_layer_add', tileset_path: 'res://assets/tiles.tres' },
+        { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+        { op: 'node_property', path: 'Player', property: 'speed', value: 100 },
+      ],
+      true,
+    );
+    expect(script).toContain('var ts1 = load(');
+    expect(script).toContain('var ts2 = load(');
+    expect(script).toContain('.speed = 100');
   });
 });
