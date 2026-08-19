@@ -68,6 +68,8 @@ import * as qa from '../tools/qa/index.js';  // v0.30 B 批：QA 测试套件编
 import * as analysis from '../tools/analysis/index.js';  // v0.30 C 批：理解层 signal_map/impact_check
 import * as help from '../tools/help.js';
 import * as audit from '../tools/audit.js';  // G3 (2026-08-13): 操作审计日志查询
+import * as uidOps from '../tools/uid-ops.js';  // P1-1 (2026-08-19): Godot 4.4+ 文件 UID 管理
+import * as translationOps from '../tools/translation-ops.js';  // P1-2 (2026-08-19): 翻译文件读写/注册
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -114,6 +116,8 @@ const ALL_MODULES: ToolModule[] = [
   analysis,
   help,
   audit,
+  uidOps,
+  translationOps,
 ];
 
 // ─── Tag injection ─────────────────────────────────────────────────────────────

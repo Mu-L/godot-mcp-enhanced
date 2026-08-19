@@ -194,6 +194,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   engine: { description: '引擎内省（实时 ClassDB）', tools: ['engine'], requires: ['editor'] },
   android: { description: 'Android deploy', tools: ['android'], requires: [] },
   selfupdate: { description: '自更新', tools: ['self_update'], requires: [] },
+  resources: { description: '资源管理(UID/翻译)', tools: ['uid', 'translation'], requires: [] },
   dynamic: { description: '动态工具（Godot 端注册但 MCP 侧未定义）', tools: ['godot_advanced_tool', 'godot_list_dynamic_routes'], requires: [] },
 };
 
