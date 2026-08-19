@@ -199,7 +199,7 @@ export function generateCommitScript(
     opBlocks.push(generateOpBlock(i, op, stopOnError));
   }
 
-  const sp = gdEscape(scenePath);
+  const sp = escapeForGdLiteral(scenePath);
   // F-2 (批 F, 2026-08-14): save=true 分支顶层 success 绑定 err == OK——原硬编码 true 与
   // saved:err==OK 并存,磁盘满/权限失败(EACCES/ENOSPC)时 COMMIT_RESULT 报成功(假成功),
   // AI 与 middleware 把写盘失败当成功。save=false 分支无保存动作,success:true 是"无保存失败"
@@ -243,7 +243,7 @@ function generateOpBlock(index: number, op: CommitOperation, stopOnError: boolea
   switch (op.op) {
     case 'tile_set': {
       const alt = op.alternative_tile ?? 0;
-      const np = gdEscape(op.node_path);
+      const np = escapeForGdLiteral(op.node_path);
       return `
 \t# --- Op ${idx}: tile_set ---
 \tvar n${idx} = inst.get_node_or_null("${np}")
@@ -257,7 +257,7 @@ ${errAction}
     case 'tile_fill': {
       const alt = op.alternative_tile ?? 0;
       const cells = op.region.w * op.region.h;
-      const np = gdEscape(op.node_path);
+      const np = escapeForGdLiteral(op.node_path);
       return `
 \t# --- Op ${idx}: tile_fill ---
 \tvar n${idx} = inst.get_node_or_null("${np}")
@@ -269,7 +269,7 @@ ${errAction}
 \t\t_results.append({"op": "tile_fill", "node_path": "${np}", "ok": true, "cells_affected": ${cells}})`;
     }
     case 'tile_erase': {
-      const np = gdEscape(op.node_path);
+      const np = escapeForGdLiteral(op.node_path);
       return `
 \t# --- Op ${idx}: tile_erase ---
 \tvar n${idx} = inst.get_node_or_null("${np}")
@@ -281,7 +281,7 @@ ${errAction}
 \t\t_results.append({"op": "tile_erase", "node_path": "${np}", "ok": true})`;
     }
     case 'tile_clear': {
-      const np = gdEscape(op.node_path);
+      const np = escapeForGdLiteral(op.node_path);
       return `
 \t# --- Op ${idx}: tile_clear ---
 \tvar n${idx} = inst.get_node_or_null("${np}")
@@ -293,8 +293,8 @@ ${errAction}
 \t\t_results.append({"op": "tile_clear", "node_path": "${np}", "ok": true})`;
     }
     case 'tileset_assign': {
-      const np = gdEscape(op.node_path);
-      const tsp = gdEscape(op.tileset_path);
+      const np = escapeForGdLiteral(op.node_path);
+      const tsp = escapeForGdLiteral(op.tileset_path);
       return `
 \t# --- Op ${idx}: tileset_assign ---
 \tvar n${idx} = inst.get_node_or_null("${np}")
@@ -306,7 +306,7 @@ ${errAction}
 \t\t_results.append({"op": "tileset_assign", "node_path": "${np}", "ok": true})`;
     }
     case 'node_property': {
-      const p = gdEscape(op.path);
+      const p = escapeForGdLiteral(op.path);
       // Imp-1 (2026-06-24 审查): node_property 直接赋值绕过 edit_node 的 S1 拦截(实测持久化)。
       // 命中 BLOCKED_PROPS 返回明确警告,与 edit_node S1 一致(不静默 drop)。
       if (BLOCKED_PROPS.has(op.property)) {
@@ -347,7 +347,8 @@ ${errAction}
           .join('\n') + '\n'
         : '';
       // I-5: parent='.' 表示根节点,保留 '.' 让 get_node_or_null('.') 命中根(原代码转空串导致必失败)
-      const parentPath = op.parent === '.' ? '.' : gdEscape(op.parent);
+      // T2b: parentPath 纯字面量内插(get_node_or_null/%unique-name 语法合法),escapeForGdLiteral
+      const parentPath = op.parent === '.' ? '.' : escapeForGdLiteral(op.parent);
       const name = gdEscape(op.name);
       return `
 \t# --- Op ${idx}: node_add ---

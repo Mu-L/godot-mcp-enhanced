@@ -201,7 +201,9 @@ slot 是 AI 可控字符串拼进生成的 GDScript(`add_theme_stylebox_override
 2. 像素采样容差:中心点/角点阈值(抗锯齿底噪)集成实测校准;
 3. Label normal 槽 headless 实测(§7 已列验收命令)——若引擎行为与文档不符(如 override 不渲染),badge 映射降级为外包 Panel 方案;
 4. ~~ProgressBar 有 override 时的实际钳制值~~ **已答(v4,Task 4 实测)**:no override→27 / bg-only→23 / fill-only→27 / bg+fill→23(所有组合都被钳);规则 7 已据此恢复无条件预警,实测数据写入 warning 文案与集成测试断言(`test/integration/ui-import-integration.test.ts` 三组合用例);
-5. flow_verify 容差:直接子层 Δ 的合理阈值(容器排布 vs flex 排布的固有数值差)实测校准,可能大于几何 verify 的 2px。
+5. ~~flow_verify 容差:直接子层 Δ 的合理阈值(容器排布 vs flex 排布的固有数值差)实测校准,可能大于几何 verify 的 2px~~ **已答(2026-08-18,生产路径 genUiImportSingleScript 真跑 Godot 4.7.1 实测)**:
+   - **flow FILL h=39 根因**:Holder 外层 Panel 比例锚点 float32 残差(anchor_top=100/720=0.138888895511627)→ 容器实测 h=39.9999923706055;HBoxContainer 给 FILL 子的高度整数截断 → floor(39.9999924)=**39(精确整数,而位置保留浮点残差 y=100.0000076)**。dh=+7 为系统性 FILL 拉伸(32→39)非噪声;修正渠道 = 原型侧等高输入或后续翻译规则垂直 size_flags 映射(维持开放,非本层);
+   - **flow 容差维持 2**:系统性偏差是 flow_verify 的价值(如实红),加宽容差只会隐藏;1px 锚点截断噪声成分已在 2px 内。
 
 ## 11. 审查消解记录(第三方审查 + 专业再修正)
 

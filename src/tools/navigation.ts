@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, validateVector3, appendRuntimePersistWarning } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, escapeForGdLiteral, validateVector3, appendRuntimePersistWarning } from './shared.js';
 import { validateTimeout } from './shared/validation.js';
 import { ff } from './shared/value-serializer.js';
 
@@ -64,9 +64,9 @@ export function genCreateRegionScript(
 
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar parent = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar parent = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _nav = NavigationRegion3D.new()
@@ -79,7 +79,7 @@ func _initialize():
 \tvar _mesh = NavigationMesh.new()
 \t_nav.navigation_mesh = _mesh
 ${bakeBlock}
-\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationRegion3D", "parent": "${gdEscape(parentPath)}", "baked": _baked})
+\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationRegion3D", "parent": "${escapeForGdLiteral(parentPath)}", "baked": _baked})
 \t_mcp_done()
 ${BAKE_WAIT_HELPER}
 `;
@@ -90,19 +90,19 @@ export function genBakeMeshScript(nodePath: string): string {
 
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _nav = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _nav = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _nav == null:
-\t\t_mcp_output("error", "NavigationRegion3D not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "NavigationRegion3D not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (_nav is NavigationRegion3D):
-\t\t_mcp_output("error", "Node is not a NavigationRegion3D: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node is not a NavigationRegion3D: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \t_nav.bake_navigation_mesh()
 \tvar _bake_wait_ok = await _wait_bake_done(_nav, 110000)
 \tvar _bake_ok = _bake_wait_ok and _nav.navigation_mesh != null and _nav.navigation_mesh.get_vertices().size() > 0
-\t_mcp_output("baked", {"node": "${gdEscape(nodePath)}", "success": _bake_ok})
+\t_mcp_output("baked", {"node": "${escapeForGdLiteral(nodePath)}", "success": _bake_ok})
 \t_mcp_done()
 ${BAKE_WAIT_HELPER}
 `;
@@ -120,9 +120,9 @@ export function genCreateAgentScript(
 
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar parent = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar parent = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _agent = NavigationAgent3D.new()
@@ -135,7 +135,7 @@ func _initialize():
 \t_agent.path_desired_distance = ${pathDesiredDistance}
 \t_agent.target_desired_distance = ${targetDesiredDistance}
 \t_agent.avoidance_enabled = ${avoidanceEnabled}
-\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationAgent3D", "parent": "${gdEscape(parentPath)}"})
+\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationAgent3D", "parent": "${escapeForGdLiteral(parentPath)}"})
 \t_mcp_done()
 `;
 }
@@ -193,17 +193,17 @@ function genSetParamsScript(
 
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar _agent = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar _agent = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif _agent == null:
-\t\t_mcp_output("error", "NavigationAgent3D not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "NavigationAgent3D not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (_agent is NavigationAgent3D):
-\t\t_mcp_output("error", "Node is not a NavigationAgent3D: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node is not a NavigationAgent3D: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 ${setBlock}
-\t_mcp_output("updated", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("updated", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -219,9 +219,9 @@ export function genCreateLinkScript(
 
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar parent = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar parent = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar _link = NavigationLink3D.new()
@@ -233,7 +233,7 @@ func _initialize():
 \t_link.start_position = Vector3(${startPosition.x}, ${startPosition.y}, ${startPosition.z})
 \t_link.end_position = Vector3(${endPosition.x}, ${endPosition.y}, ${endPosition.z})
 \t_link.bidirectional = ${bidirectional}
-\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationLink3D", "parent": "${gdEscape(parentPath)}", "bidirectional": ${bidirectional}})
+\t_mcp_output("created", {"name": "${gdEscape(nodeName)}", "type": "NavigationLink3D", "parent": "${escapeForGdLiteral(parentPath)}", "bidirectional": ${bidirectional}})
 \t_mcp_done()
 `;
 }
@@ -245,7 +245,7 @@ export function genNavQueryScript(
 ): string {
   let regionBlock: string;
   if (navigationRegion) {
-    regionBlock = `\tvar region_node = _mcp_get_node("${gdEscape(navigationRegion)}")
+    regionBlock = `\tvar region_node = _mcp_get_node("${escapeForGdLiteral(navigationRegion)}")
 \tif region_node and region_node is NavigationRegion3D:
 \t\tmap_rid = NavigationServer3D.region_get_map(region_node.get_region_rid())
 \telse:

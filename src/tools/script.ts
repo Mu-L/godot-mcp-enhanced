@@ -12,7 +12,7 @@ import { runImport } from './import-check.js';
 import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { getTemplateSuggestion } from './code-templates.js';
-import { gdEscape, opsErrorResult } from './shared.js';
+import { opsErrorResult, escapeForGdLiteral } from './shared.js';
 import { runDotnetBuild } from './shared/validation.js';
 
 const execFileAsync = promisify(execFile);
@@ -888,7 +888,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       let testCode = 'extends GutTest\n\n';
       testCode += `var ${testTarget}  # Instance under test\n\n`;
       testCode += 'func before_each():\n';
-      testCode += `\t${testTarget} = load("${gdEscape(scriptResPath)}").new()\n\n`;
+      testCode += `\t${testTarget} = load("${escapeForGdLiteral(scriptResPath)}").new()\n\n`;
       testCode += 'func after_each():\n';
       testCode += `\tif is_instance_valid(${testTarget}):\n`;
       testCode += `\t\t${testTarget}.free()\n\n`;

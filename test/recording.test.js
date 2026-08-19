@@ -10,6 +10,18 @@ vi.mock('../src/tools/game-bridge.js', async () => {
   };
 });
 
+// T2c (debt-cleanup-20260818): recording_save 的 events_json 转义发生在 handler
+// (gdEscape→escapeForGdLiteral),genRecordingSaveScript 只接收已转义串,
+// 故须 mock executor 捕获生成的 GDScript 文本。文件内其余用例均不触真实 executor。
+vi.mock('../src/gdscript-executor.js', () => ({
+  executeGdscriptTrusted: vi.fn(async () => ({
+    success: true, compile_success: true, compile_error: '',
+    errors: [], run_success: true, run_error: '',
+    outputs: [{ key: 'saved', value: '{}' }],
+    raw_output: '', duration_ms: 10,
+  })),
+}));
+
 import {
   getToolDefinitions,
   sanitizeRecordingFileName,
@@ -140,6 +152,38 @@ describe('genRecordingSaveScript', () => {
 });
 
 // ─── genRecordingLoadScript ─────────────────────────────────────────────────
+
+// T2c (debt-cleanup-20260818): events_json 消费点是 genRecordingSaveScript 里
+// JSON.parse_string("...") 的字面量实参(纯值,不参与 % 格式化)。validateEventsJson
+// 只校验 version/events 结构,事件对象附加字段(如 text)原样透传——含 % 的值被
+// gdEscape 双写后落盘内容 ≠ 用户传入(round-trip 破坏)。
+describe('T2c: recording_save events_json 含 % 不双写(JSON.parse_string 字面量 round-trip)', () => {
+  it('events 含 % 的字符串字段原样进生成脚本', async () => {
+    const { executeGdscriptTrusted } = await import('../src/gdscript-executor.js');
+    let capturedCode = '';
+    executeGdscriptTrusted.mockImplementationOnce(async (opts) => {
+      capturedCode = opts.code;
+      return {
+        success: true, compile_success: true, compile_error: '',
+        errors: [], run_success: true, run_error: '',
+        outputs: [{ key: 'saved', value: '{}' }],
+        raw_output: '', duration_ms: 10,
+      };
+    });
+    const eventsJson = JSON.stringify({
+      version: 1, duration_ms: 0,
+      events: [{ type: 'text', text: '50% done', time_offset: 0 }],
+    });
+    const fakeCtx = { findGodot: async () => '/fake/godot', projectDir: '/fake/p' };
+    await handleTool('recording', {
+      action: 'recording_save', project_path: '/fake/p', events_json: eventsJson,
+    }, fakeCtx);
+
+    expect(capturedCode).toContain('50% done');
+    expect(capturedCode).not.toContain('50%%');
+  });
+});
+
 
 describe('genRecordingLoadScript', () => {
   it('generates GDScript that reads from res://recordings/', () => {

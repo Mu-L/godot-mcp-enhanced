@@ -7,7 +7,7 @@
 // actionRisks 已标 'write'(ui/index.ts)。MAX_DRAW_OPS=200 已有 DoS 防护。
 // 未来若扩展 DRAW_OP_KINDS(如加 load_texture/clear/execute),须重新评估是否需 gate 或独立 SAFETY 层。
 
-import { gdEscape, SCENE_TREE_HEADER } from '../shared.js';
+import { escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
 import { ensureNumber } from '../shared/validation.js';
 import { DRAW_OP_KINDS, colorToGd } from './types.js';
 import type { DrawOp } from './types.js';
@@ -78,7 +78,8 @@ function drawOpToGd(op: DrawOp): string {
       const text = String(op.text ?? '');
       const pos = numArr(op.position, 2);
       const fs = op.font_size == null ? 16 : ensureNumber(op.font_size, 'string.font_size');
-      return `\tnode.draw_string(ThemeDB.fallback_font, Vector2(${pos[0]}, ${pos[1]}), "${gdEscape(text)}", HORIZONTAL_ALIGNMENT_LEFT, -1, ${fs}, ${col(op.color)})`;
+      // 渲染文本(纯字面量,非 % 格式串):"50%" 应原样渲染而非 "50%%" → escapeForGdLiteral
+      return `\tnode.draw_string(ThemeDB.fallback_font, Vector2(${pos[0]}, ${pos[1]}), "${escapeForGdLiteral(text)}", HORIZONTAL_ALIGNMENT_LEFT, -1, ${fs}, ${col(op.color)})`;
     }
     default:
       throw new Error(`Unknown draw op kind: "${op.kind}". Must be one of: ${DRAW_OP_KINDS.join(', ')}`);
@@ -100,12 +101,12 @@ export function genUiDrawRecipeScript(
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not node is Control:
@@ -116,11 +117,11 @@ func _initialize():
 ${drawLines || '\t\tpass'}
 \tnode.draw.connect(_draw_fn)
 \tnode.queue_redraw()
-\t_mcp_output("draw_recipe_attached", {"node": "${gdEscape(nodePath)}", "ops_count": ${ops.length}})
+\t_mcp_output("draw_recipe_attached", {"node": "${escapeForGdLiteral(nodePath)}", "ops_count": ${ops.length}})
 \t# P2-6 验证闭环:await 一帧让 _draw 触发,再读回绘制结果确认生效(非 fire-and-forget)
 \tawait process_frame
 \tvar _draw_attached = node.draw.is_connected(_draw_fn)
-\t_mcp_output("draw_result", {"node": "${gdEscape(nodePath)}", "ops_count": ${ops.length}, "draw_signal_connected": _draw_attached, "node_valid": is_instance_valid(node)})
+\t_mcp_output("draw_result", {"node": "${escapeForGdLiteral(nodePath)}", "ops_count": ${ops.length}, "draw_signal_connected": _draw_attached, "node_valid": is_instance_valid(node)})
 \t_mcp_done()
 `;
 }

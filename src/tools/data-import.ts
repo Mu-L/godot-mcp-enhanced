@@ -28,8 +28,10 @@ import type { Tool } from "@modelcontextprotocol/server";
 
 // T3: generateImportScript — 生成 GDScript 脚本,CSV 值通过 FileAccess.get_csv_line 运行时读取
 // (零进脚本字符串 = CRITICAL-1 注入根治)。4 参数(classPath/outputDir/filenameCol/csvTmpPath)
-// 经 gdEscape 转义后插值,防闭串注入。
-import { gdEscape, MARKER_RESULT } from './shared.js';
+// 经转义后插值,防闭串注入。T2b: 路径三参数(classPath/outputDir/csvTmpPath)是纯字面量内插
+// (FileAccess/load 目录操作),% 原样(escapeForGdLiteral)——gdEscape 双写 %% 会破坏含 % 的路径;
+// filenameCol 是 CSV 列名(名类),维持 gdEscape。
+import { gdEscape, escapeForGdLiteral, MARKER_RESULT } from './shared.js';
 import { validateTimeout } from './shared/validation.js';
 
 export interface ImportScriptOpts {
@@ -47,10 +49,10 @@ export interface ImportScriptOpts {
 // handler 侧 JSON.parse 还原。
 const GDSCRIPT_TEMPLATE = (cp: string, od: string, fc: string, csv: string) => `extends SceneTree
 var _mcp_outputs := []
-var _class_path := "${gdEscape(cp)}"
-var _output_dir := "${gdEscape(od)}"
+var _class_path := "${escapeForGdLiteral(cp)}"
+var _output_dir := "${escapeForGdLiteral(od)}"
 var _filename_col := "${gdEscape(fc)}"
-var _csv_path := "${gdEscape(csv)}"
+var _csv_path := "${escapeForGdLiteral(csv)}"
 var _errors := []
 var _generated := []
 var _row_count := 0

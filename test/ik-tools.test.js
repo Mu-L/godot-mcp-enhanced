@@ -99,6 +99,12 @@ describe('genIkSetScript', () => {
     expect(script).toContain('RightArm');
     expect(script).toContain('Vector3(0.1, 0.2, 0.3)');
   });
+  it('sets target_nodepath as literal (含 % 不双写)', () => {
+    // I-1a 回归:NodePath(...) 是纯字面量构造(同构 animtree anim_player),gdEscape 双写 %% 属误伤
+    const script = genIkSetScript('root/IK', { target_nodepath: 'root/Target%A' });
+    expect(script).toContain('NodePath("root/Target%A")');
+    expect(script).not.toContain('Target%%A');
+  });
 });
 
 // ─── genListBonesScript ─────────────────────────────────────────────────────

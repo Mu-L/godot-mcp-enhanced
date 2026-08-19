@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { gdEscape, ff } from './shared.js';
+import { escapeForGdLiteral, ff } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -290,10 +290,10 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar _search_root: Node = _root
-\tif "${gdEscape(nodePath)}" != "":
-\t\t_search_root = _mcp_get_node("${gdEscape(nodePath)}")
+\tif "${escapeForGdLiteral(nodePath)}" != "":
+\t\t_search_root = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \t\tif _search_root == null:
-\t\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t\t_mcp_done()
 \t\t\treturn
 \tvar _results: Array = []
@@ -327,10 +327,10 @@ func _initialize():
 \t\t_mcp_done()
 \t\treturn
 \tvar _search_root: Node = _root
-\tif "${gdEscape(nodePath)}" != "":
-\t\t_search_root = _mcp_get_node("${gdEscape(nodePath)}")
+\tif "${escapeForGdLiteral(nodePath)}" != "":
+\t\t_search_root = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \t\tif _search_root == null:
-\t\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t\t_mcp_done()
 \t\t\treturn
 \tvar _results: Array = []

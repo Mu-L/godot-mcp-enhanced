@@ -34,10 +34,10 @@ const GEO = {
   ],
 };
 
-// build 执行成功输出(genUiBuildLayoutScript 产物:layout_built + persist + 可选 warnings)
+// build 执行成功输出(单 spawn 合成脚本产物:persist;PR-4 尾部替换后真实脚本不输出 layout_built,
+// 终审 M-2 已删该死键——mock shape 对齐真实输出)
 function buildOutputs() {
   return [
-    { key: 'layout_built', value: JSON.stringify({ parent: '/root', root_type: 'Panel', root_name: '_PrototypeRoot' }) },
     { key: 'persist', value: JSON.stringify({ saved: true }) },
   ];
 }
@@ -228,6 +228,8 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
     const parsed = JSON.parse(textOf(result));
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('Parent not found: /root');
+    // PR-4 终审 M-1:锁 uiErrorMapper 谓词(msg 含 'not found' → NODE_NOT_FOUND,src/tools/ui/index.ts uiErrorMapper)
+    expect(parsed.error_code).toBe('NODE_NOT_FOUND');
   });
 });
 

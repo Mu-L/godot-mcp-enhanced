@@ -50,7 +50,7 @@ describe('parseCsv 前置校验', () => {
 });
 
 describe('generateImportScript (CRITICAL-1 注入防护)', () => {
-  it('4 参数经 gdEscape 嵌入', () => {
+  it('4 参数经 escapeForGdLiteral 嵌入', () => {
     const s = generateImportScript({ classPath: 'res://r.gd', outputDir: 'res://out', filenameCol: 'id', csvTmpPath: 'tmp.csv' });
     expect(s).toContain('res://r.gd');
     expect(s).toContain('load(');

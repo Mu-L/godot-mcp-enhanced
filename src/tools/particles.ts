@@ -4,7 +4,7 @@ import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape, validateVector3, clampParam, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
+import { normalizeNodePath, gdEscape, escapeForGdLiteral, validateVector3, clampParam, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import { ff } from './shared/value-serializer.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -73,9 +73,9 @@ function genParticlesCreateScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar parent = _mcp_get_node("${gdEscape(parentPath)}")
+\tvar parent = _mcp_get_node("${escapeForGdLiteral(parentPath)}")
 \tif parent == null:
-\t\t_mcp_output("error", "Parent node not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent node not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar node = ${nodeType}.new()
@@ -137,16 +137,16 @@ function genSetEmissionScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is GPUParticles2D or node is GPUParticles3D):
 \t\t_mcp_output("error", "Node is not a GPUParticles type: " + node.get_class())
 \t\t_mcp_done()
 \t\treturn${lines}
-\t_mcp_output("emission_set", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("emission_set", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -191,16 +191,16 @@ function genSetProcessScript(
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is GPUParticles2D or node is GPUParticles3D):
 \t\t_mcp_output("error", "Node is not a GPUParticles type: " + node.get_class())
 \t\t_mcp_done()
 \t\treturn${lines}
-\t_mcp_output("process_set", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("process_set", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -245,16 +245,16 @@ function genLoadPresetScript(nodePath: string, preset: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is GPUParticles2D or node is GPUParticles3D):
 \t\t_mcp_output("error", "Node is not a GPUParticles type: " + node.get_class())
 \t\t_mcp_done()
 \t\treturn${lines}
-\t_mcp_output("preset_loaded", {"node": "${gdEscape(nodePath)}", "preset": "${gdEscape(preset)}"})
+\t_mcp_output("preset_loaded", {"node": "${escapeForGdLiteral(nodePath)}", "preset": "${gdEscape(preset)}"})
 \t_mcp_done()
 `;
 }
@@ -263,9 +263,9 @@ function genSetMaterialScript(nodePath: string): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
-\tvar node = _mcp_get_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not (node is GPUParticles2D or node is GPUParticles3D):
@@ -274,7 +274,7 @@ func _initialize():
 \t\treturn
 \tvar mat = ParticleProcessMaterial.new()
 \tnode.process_material = mat
-\t_mcp_output("material_set", {"node": "${gdEscape(nodePath)}", "material_type": "ParticleProcessMaterial"})
+\t_mcp_output("material_set", {"node": "${escapeForGdLiteral(nodePath)}", "material_type": "ParticleProcessMaterial"})
 \t_mcp_done()
 `;
 }

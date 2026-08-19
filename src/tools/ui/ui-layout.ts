@@ -1,6 +1,12 @@
 // UI layout operations: ui_set_layout, ui_get_layout, ui_build_layout.
 
-import { gdEscape, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
+// 路径类内插(scenePath/nodePath/parentPath)走 escapeForGdLiteral(Task 2,
+// debt-cleanup-20260818):它们只内嵌进纯字符串字面量(load/node 查找/错误信息/persist
+// _full/layout_built 输出),不参与 % 格式化——gdEscape 会把路径中 % 双写成 %%,含 % 的
+// 路径被静默改写导致加载/查找失败。node name/type/property key 仍走 gdEscape(name 含 %
+// 被 Godot 命名规则禁止、type 来自白名单、key 经 BLOCKED_PROPS 校验——零真实风险面,
+// 保持不动;且二者共享 escapeGdStringCore,引号/反斜杠/换行/Tab 转义完全一致)。
+import { gdEscape, escapeForGdLiteral, valueToGd, SCENE_TREE_HEADER } from '../shared.js';
 import { CONTROL_TYPES, ANCHOR_PRESETS, STYLEBOX_SLOTS, colorToGd } from './types.js';
 import { solveAnchors, CONTAINER_CONTROL_TYPES } from './anchor-solver.js';
 import type { Rect } from './anchor-solver.js';
@@ -61,19 +67,19 @@ export function genUiSetLayoutScript(
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not node is Control:
 \t\t_mcp_output("error", "Node is not a Control: " + node.get_class())
 \t\t_mcp_done()
 \t\treturn${lines}
-\t_mcp_output("layout_set", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("layout_set", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -86,12 +92,12 @@ export function genUiGetLayoutScript(
 ): string {
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar node = _mcp_get_scene_node("${gdEscape(nodePath)}")
+\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")
 \tif node == null:
-\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")
+\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")
 \t\t_mcp_done()
 \t\treturn
 \tif not node is Control:
@@ -732,7 +738,7 @@ export function genUiBuildLayoutScript(
 \t\t\tn.set_owner(_mcp_scene_instance)
 \tvar packed = PackedScene.new()
 \tpacked.pack(_mcp_scene_instance)
-\tvar _full := "${gdEscape(scenePath)}"
+\tvar _full := "${escapeForGdLiteral(scenePath)}"
 \tvar _ext := _full.get_extension()
 \tvar _tmp := _full + ".tmp." + _ext
 \tif FileAccess.file_exists(_tmp):
@@ -752,18 +758,18 @@ export function genUiBuildLayoutScript(
 
   return `${SCENE_TREE_HEADER}
 func _initialize():
-\tif not _mcp_load_scene("${gdEscape(scenePath)}"):
+\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):
 \t\t_mcp_done()
 \t\treturn
-\tvar root = _mcp_get_scene_node("${gdEscape(parentPath)}")
+\tvar root = _mcp_get_scene_node("${escapeForGdLiteral(parentPath)}")
 \tif root == null:
-\t\t_mcp_output("error", "Parent not found: ${gdEscape(parentPath)}")
+\t\t_mcp_output("error", "Parent not found: ${escapeForGdLiteral(parentPath)}")
 \t\t_mcp_done()
 \t\treturn
 \tvar parent = root
 \tvar node: Node
 ${buildBlock}${warningLines}${persistBlock}
-\t_mcp_output("layout_built", {"parent": "${gdEscape(parentPath)}", "root_type": "${gdEscape(rootType)}", "root_name": "${gdEscape(tree.name)}"})
+\t_mcp_output("layout_built", {"parent": "${escapeForGdLiteral(parentPath)}", "root_type": "${gdEscape(rootType)}", "root_name": "${gdEscape(tree.name)}"})
 \t_mcp_done()
 `;
 }

@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath, resolveWithinRoot } from '../helpers.js';
 import { executeGdscriptTrusted } from '../gdscript-executor.js';
-import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape } from './shared.js';
+import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, escapeForGdLiteral } from './shared.js';
 import { sendToBridge, setBridgeProjectDir, BridgeNotConnectedError, BridgeTimeoutError } from './game-bridge.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -246,7 +246,11 @@ export async function handleTool(
         // Path safety: validate the generated file name resolves within project
         const fileName = generateRecordingFileName();
         resolveWithinRoot(projectPath, `recordings/${fileName}`);
-        const escapedJson = gdEscape(eventsJson);
+        // T2c (debt-cleanup-20260818): events_json 消费点是 genRecordingSaveScript 里
+        // JSON.parse_string("...") 的字面量实参(纯值,不参与 % 格式化);validateEventsJson
+        // 只校验 version/events 结构,事件对象附加字段原样透传——gdEscape 双写含 % 的值
+        // 会破坏落盘内容与用户输入的 round-trip。
+        const escapedJson = escapeForGdLiteral(eventsJson);
         const script = genRecordingSaveScript(fileName, escapedJson);
         const result = await executeGdscriptTrusted({
           godotPath: godot,

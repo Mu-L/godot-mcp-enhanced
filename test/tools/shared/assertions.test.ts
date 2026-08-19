@@ -23,7 +23,7 @@ describe('wrapAssertionCode — ASSERT 协议生成(反假绿)', () => {
     expect(code).toContain('ASSERT');
   });
 
-  it('expected 注入到 wrapper 且经 gdEscape 防 GDScript 注入', () => {
+  it('expected 注入到 wrapper 且经 escapeForGdLiteral 防 GDScript 注入', () => {
     // 正常 expected 被注入
     const code = wrapAssertionCode('_mcp_output("assert_result","x")', 'd', true, 'safe_value');
     expect(code).toContain('safe_value');
@@ -31,5 +31,19 @@ describe('wrapAssertionCode — ASSERT 协议生成(反假绿)', () => {
     const evil = 'x") ; print("injected"); #';
     const evilCode = wrapAssertionCode('_mcp_output("assert_result","x")', 'd', true, evil);
     expect(evilCode).not.toContain('print("injected")');
+  });
+
+  it('expected 含 % 时按字面量转义不双写(纯字符串比较上下文,非 % 格式串)', () => {
+    // I-1b 回归:expected 消费于 `if _ar == "..."` 纯比较,gdEscape 双写 %% 会致含 % 断言恒误报
+    const code = wrapAssertionCode('_mcp_output("assert_result","x")', 'd', true, 'progress 50%');
+    expect(code).toContain('progress 50%');
+    expect(code).not.toContain('50%%');
+  });
+
+  it('description 含 % 时按字面量转义不双写(print 显示上下文)', () => {
+    // I-1c 回归:_desc 仅用于 print 显示,gdEscape 双写 %% 会致显示文案 "100%%"
+    const code = wrapAssertionCode('_mcp_output("assert_result","x")', 'HP 100% 后仍存活', true, 'x');
+    expect(code).toContain('HP 100%');
+    expect(code).not.toContain('100%%');
   });
 });

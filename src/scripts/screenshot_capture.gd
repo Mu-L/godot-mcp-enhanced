@@ -166,28 +166,26 @@ func _has_text(node: Node, substring: String) -> bool:
 	return false
 
 
-## 采样检测图片是否为均匀色（空白）。采样约 100 个像素，
-## 如果 95% 以上与第一个像素颜色一致则判定为空白。
-func _detect_blank_image(img: Image) -> bool:
+## 采样检测图片是否为均匀色（空白）。10x10 网格分层采样（每格中心），任意尺寸下
+## 覆盖整幅；95% 以上采样与首个采样点颜色一致则判定为空白。
+## 修复（2026-08-18，PR-3 终审挂账）：旧版线性 step=total/100 在 step 整除宽度时
+## 退化为最左单列采样（800x600 实测 x 恒 0），左列均匀而非全图均匀时误报 BLANK。
+static func _detect_blank_image(img: Image) -> bool:
 	var w := img.get_width()
 	var h := img.get_height()
 	if w == 0 or h == 0:
 		return true
-
-	var total_pixels := w * h
-	var step := maxi(1, total_pixels / 100)
-	var first_color: Color = img.get_pixel(0, 0)
-	var sample_count := 0
+	var first_color: Color = img.get_pixel(mini(w - 1, w / 20), mini(h - 1, h / 20))
 	var uniform_count := 0
-
-	for i in range(0, total_pixels, step):
-		var x := i % w
-		var y := i / w
-		var c := img.get_pixel(x, y)
-		sample_count += 1
-		if abs(c.r - first_color.r) < 0.01 and abs(c.g - first_color.g) < 0.01 and abs(c.b - first_color.b) < 0.01 and abs(c.a - first_color.a) < 0.01:
-			uniform_count += 1
-
+	var sample_count := 0
+	for gy in 10:
+		for gx in 10:
+			var x := mini(w - 1, (gx * 2 + 1) * w / 20)
+			var y := mini(h - 1, (gy * 2 + 1) * h / 20)
+			var c := img.get_pixel(x, y)
+			sample_count += 1
+			if abs(c.r - first_color.r) < 0.01 and abs(c.g - first_color.g) < 0.01 and abs(c.b - first_color.b) < 0.01 and abs(c.a - first_color.a) < 0.01:
+				uniform_count += 1
 	return sample_count > 0 and float(uniform_count) / float(sample_count) > 0.95
 
 

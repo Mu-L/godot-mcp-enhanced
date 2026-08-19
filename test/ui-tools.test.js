@@ -242,6 +242,24 @@ describe('genUiSetThemeScript', () => {
     expect(script).toContain('_mcp_output("loaded"');
   });
 
+  it('T2b (debt-cleanup-20260818): save themePath 含 % 不双写——纯字面量内插走 escapeForGdLiteral', () => {
+    // themePath 消费点全部为纯字符串字面量(get_base_dir/_full/_mcp_output 字典),
+    // 不参与 % 格式化——gdEscape 会把 a%b 双写成 a%%b 导致含 % 的资源路径被静默改写。
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save', 'res://themes/a%b.tres');
+    expect(script).toContain('var dir = "res://themes/a%b.tres".get_base_dir()');
+    expect(script).toContain('var _full := "res://themes/a%b.tres"');
+    // :90 outputValue(TS 字符串拼接进 _mcp_output 字典字面量)同为纯字面量
+    expect(script).toContain('{"resource_path": "res://themes/a%b.tres"}');
+    expect(script).not.toContain('a%%b');
+  });
+
+  it('T2b: load themePath 含 % 不双写', () => {
+    const script = genUiSetThemeScript('/scene.tscn', '/root/Panel', 'load', 'res://themes/a%b.tres');
+    expect(script).toContain('var res = load("res://themes/a%b.tres")');
+    expect(script).toContain('Failed to load theme from: res://themes/a%b.tres');
+    expect(script).not.toContain('a%%b');
+  });
+
   it('throws for save without theme_path', () => {
     expect(() => genUiSetThemeScript('/scene.tscn', '/root/Panel', 'save')).toThrow(/theme_path is required/);
   });
@@ -360,6 +378,14 @@ describe('genUiDrawRecipeScript', () => {
     const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
     expect(script).toContain('draw_string');
     expect(script).toContain('16');
+  });
+
+  it('generates string draw op with % text rendered as-is (literal escape, not doubled)', () => {
+    // I-1d 回归:draw_string 渲染文本是纯字面量(非 % 格式串),"50%" 不应被双写成 "50%%"
+    const ops = [{ kind: 'string', text: 'Progress: 50%', position: [10, 30], color: [1, 1, 1, 1] }];
+    const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
+    expect(script).toContain('"Progress: 50%"');
+    expect(script).not.toContain('50%%');
   });
 
   it('generates multiple ops in sequence', () => {

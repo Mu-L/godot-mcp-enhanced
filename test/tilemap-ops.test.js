@@ -120,6 +120,17 @@ describe('genTilemapPasteScript', () => {
     const script = genTilemapPasteScript('/root/Map', { x: 5, y: 5 }, pattern, 0);
     expect(script).toContain('set_cell');
   });
+  // T2c (debt-cleanup-20260818): patternJson 消费点是 JSON.parse_string("...") 的
+  // 字面量实参(纯值,不参与 % 格式化)。handler 只校验 cells 是数组,pattern 附加字段
+  // 原样透传 JSON.stringify——含 % 的字符串值被 gdEscape 双写后 round-trip 破坏
+  // (parse 出 "50%%" ≠ 用户传入 "50%")。双断言锁 % 原样。
+  it('T2c: pattern JSON 含 % 不双写(JSON.parse_string 字面量 round-trip)', () => {
+    const pattern = { cells: [{ coords: [0, 0], source_id: 1, atlas_coords: [0, 0], alternative_tile: 0 }], size: { w: 1, h: 1 }, note: '50%' };
+    const script = genTilemapPasteScript('/root/Map', { x: 5, y: 5 }, pattern, 0);
+    // JSON 字面量内 " 被(无条件)转义为 \",% 需原样不被双写
+    expect(script).toContain('\\"note\\":\\"50%\\"');
+    expect(script).not.toContain('50%%');
+  });
 });
 
 describe('genTilemapSetTransformScript', () => {

@@ -10,7 +10,7 @@
 // (I-B 拍板:并集左侧是期望——「override 没设上」的节点 has_override=false 也必须被读到,
 // 以默认主题数值 diff 暴露;右侧补手写树/手动 override 场景)。
 
-import { gdEscape, escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
+import { escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
 
 /** PR-4 抽取:styleExpect 期望清单 parse 注入行(genUiMeasureScript._initialize 与
  * ui-import-single._measure_go 共用一份构造与转义,防双份漂移)。
@@ -29,8 +29,8 @@ export function genUiMeasureScript(
   maxDepth: number,
   styleExpect?: ReadonlyArray<{ path: string; slots: readonly string[] }>,
 ): string {
-  const sp = gdEscape(scenePath);
-  const np = nodePath ? gdEscape(nodePath) : '';
+  const sp = escapeForGdLiteral(scenePath);
+  const np = nodePath ? escapeForGdLiteral(nodePath) : '';
   const depth = Math.max(1, Math.min(64, Math.floor(Number.isFinite(maxDepth) ? maxDepth : 16)));
   // 修正(brief 运行期 Parse Error,2026-08-18 真跑 Godot 实测):brief 原文把
   // `var _style_expect: Dictionary = {}` 注入 _initialize() 函数体内——GDScript 函数
@@ -41,7 +41,10 @@ export function genUiMeasureScript(
   // 以 'var _frames := 0' 为截取锚点拼接 build+measure 单进程脚本,锚点之前的新增声明
   // 会被截掉 → 拼接产物 _walk 引用未声明标识符。
   // PR-4:ui-import-single.ts 同以该锚点截取(见其组装注释)。
-  // scenePath/nodePath 注入维持 gdEscape 不变。
+  // scenePath/nodePath 内插走 escapeForGdLiteral(Task 2,debt-cleanup-20260818):sp/np 只
+  // 内嵌进纯字符串字面量(load 调用/np 查找/错误信息),不参与 % 格式化——gdEscape 为 %
+  // 格式化场景设计会把路径中 % 双写成 %%,含 % 的文件名(如 res://a%b.tscn)被静默改写
+  // 导致加载失败;引号/反斜杠/换行/Tab 等共享转义两入口相同(escapeGdStringCore),切换零损失。
   const styleInit = genStyleExpectInit(styleExpect);
   return `${SCENE_TREE_HEADER}
 

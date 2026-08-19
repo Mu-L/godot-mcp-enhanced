@@ -113,7 +113,7 @@ Each workflow ships with a checklist + common-deviation tips, keeping AI on-rail
 
 ## Tools (43)
 
-> **43 MCP tools** (merged tool definitions, 200+ actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
+> **43 MCP tools** (merged tool definitions, 241 actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
 
 ## MCP Resources
 

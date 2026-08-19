@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
-import { normalizeNodePath, gdEscape } from './shared.js';
+import { normalizeNodePath, escapeForGdLiteral } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, appendRuntimePersistWarning } from './shared.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 
@@ -53,7 +53,7 @@ function layerArg(layer: number | undefined): string {
 
 /** Generate the standard node-fetch + null-check preamble. */
 function nodePreamble(nodePath: string): string {
-  return `\tvar node = _mcp_get_node("${gdEscape(nodePath)}")\n\tif node == null:\n\t\t_mcp_output("error", "Node not found: ${gdEscape(nodePath)}")\n\t\t_mcp_done()\n\t\treturn`;
+  return `\tvar node = _mcp_get_node("${escapeForGdLiteral(nodePath)}")\n\tif node == null:\n\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")\n\t\t_mcp_done()\n\t\treturn`;
 }
 
 /** Generate `if TileMap: ... elif TileMapLayer: ... else: error` branch with early-return on else. */
@@ -169,7 +169,7 @@ func _initialize():
 \t_mcp_load_main_scene()
 ${nodePreamble(nodePath)}
 ${tilemapBranch(`${tileMapClear}\n`, '\t\tnode.clear()\n')}
-\t_mcp_output("cleared", {"node": "${gdEscape(nodePath)}"})
+\t_mcp_output("cleared", {"node": "${escapeForGdLiteral(nodePath)}"})
 \t_mcp_done()
 `;
 }
@@ -202,11 +202,14 @@ export function genTilemapPasteScript(
   const pasteBody = (prefix: string) =>
     `\t\tfor cell in pattern["cells"]:\n\t\t\tvar cx = cell["coords"][0] + tx\n\t\t\tvar cy = cell["coords"][1] + ty\n\t\t\tnode.set_cell(${prefix}Vector2i(cx, cy), cell["source_id"], Vector2i(cell["atlas_coords"][0], cell["atlas_coords"][1]), cell["alternative_tile"])\n`;
 
+  // T2c (debt-cleanup-20260818): patternJson 消费点是 JSON.parse_string("...") 的
+  // 字面量实参(纯值,不参与 % 格式化);handler 只校验 cells 是数组,pattern 附加
+  // 字段原样透传 JSON.stringify——gdEscape 双写含 % 的值会破坏 round-trip。
   return `${SCENE_TREE_HEADER}
 func _initialize():
 \t_mcp_load_main_scene()
 ${nodePreamble(nodePath)}
-\tvar pattern = JSON.parse_string("${gdEscape(patternJson)}")
+\tvar pattern = JSON.parse_string("${escapeForGdLiteral(patternJson)}")
 \tvar tx = ${targetCoords.x}
 \tvar ty = ${targetCoords.y}
 ${tilemapBranch(pasteBody(la), pasteBody(''))}
