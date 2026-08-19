@@ -1982,7 +1982,7 @@
           },
           "port": {
             "type": "number",
-            "description": "game_bridge_install: 桥接监听端口（当前忽略，始终 9081）",
+            "description": "game_bridge_install: 期望的起始监听端口(实际端口由游戏侧 env GODOT_MCP_BRIDGE_PORT 设起点,被占自动递增避让;此参数不影响行为,保留兼容)。实际端口见 ping 响应与实例 registry",
             "default": 9081
           },
           "source_script_path": {
@@ -2126,8 +2126,8 @@
       },
       "size": {
         "descBytes": 1117,
-        "schemaBytes": 5368,
-        "totalBytes": 6485
+        "schemaBytes": 5518,
+        "totalBytes": 6635
       },
       "annotations": {
         "readOnlyHint": false,
@@ -4011,7 +4011,7 @@
           },
           "timeout": {
             "type": "number",
-            "description": "自动停止秒数（默认 30）",
+            "description": "自动停止秒数（默认 30。游戏冷启动 >30s 的项目传更大值如 120；wait_for_bridge 时自动取 max(bridge_timeout+10, timeout) 防与 bridge 就绪 race）",
             "default": 30
           },
           "wait_for_bridge": {
@@ -4028,6 +4028,15 @@
             "type": "string",
             "description": "测试脚本或目录路径（默认 res://test/）",
             "default": "res://test/"
+          },
+          "quit_flag": {
+            "type": "string",
+            "enum": [
+              "gquit",
+              "gexit"
+            ],
+            "default": "gquit",
+            "description": "run_tests 的 GUT 退出标志。默认 gquit(GUT ≤9.5);GUT 9.6+ 移除 -gquit(报 Unknown arguments: -gquit)时切 gexit"
           },
           "events_json": {
             "type": "string",
@@ -4063,6 +4072,7 @@
         "wait_for_bridge",
         "bridge_timeout",
         "test_script",
+        "quit_flag",
         "events_json",
         "file_name",
         "speed",
@@ -4102,8 +4112,8 @@
       },
       "size": {
         "descBytes": 98,
-        "schemaBytes": 1532,
-        "totalBytes": 1630
+        "schemaBytes": 1886,
+        "totalBytes": 1984
       },
       "annotations": {
         "readOnlyHint": false,
