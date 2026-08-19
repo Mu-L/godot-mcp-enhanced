@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.5] - 2026-08-19
+
+### Fixed — 债务清理批
+
+- **screenshot_capture 空白检测采样退化修复**：`screenshot_capture.gd` 步进采样在整除视口上退化为最左单列（step 精确整除时采样点全落同列）→ 换 10×10 网格分层采样；screenshot 工具族 800×600 类视口不再误报 BLANK hint；GD 真跑回归测试含「左列均匀 + 其余噪声」铁证用例（该输入下旧算法必假报 BLANK、新算法正确放行）。
+- **gdEscape→escapeForGdLiteral 转义类闭类（三批）**：按上下文语义分流——① 三变量名上下文 22 文件（标识符位禁 `%`）；② 路径类变体 + test-framework 混合上下文拆分（`_path_escape` 等中间层）；③ 四处任意值类（expected/emit args/JSON payload）。效果：纯字面量上下文含 `%` 的路径与值不再被双写（`gdEscape` 会把 `%` 转义成 `%%`，字面量上下文属误伤）；唯一 `%` 格式串上下文（test-framework:176）维持 `gdEscape`。
+- **PR-4 终审 Minor 清账**：M-1 uiErrorMapper 断言强化 / M-2 mock 死键清理 / M-5 标点修正；M-3 已随 PR#37 CI 修复消解，不再重复处理。**M-4 决策注记：executor timeout 30s 维持**——单 spawn 实测 2935ms 余量 ~10x，不随双倍工作量调整。
+- **README 正文口径三处修复**：235→241×2、36→43、205→241 + README.en 同款（116 行 200+→241 actions）。
+
+### Changed
+
+- **check-tool-count 防复发**：新增 4 个数字口径 pattern（覆盖「工具数/action 数」双类声明），防护面 20→24 处。
+- **spec §10.5 两决策输入落答**（实验数据 2026-08-18，生产路径 genUiImportSingleScript 真跑 4.7.1 实测）：flow FILL h=39 根因 = Holder 外层 Panel 比例锚点 float32 残差（anchor_top=100/720=0.138888895511627）→ 容器实测 h=39.9999923706055 + HBoxContainer 给 FILL 子的高度整数截断 floor(39.9999924)=39（位置保留浮点残差 y=100.0000076）；dh=+7 为系统性 FILL 拉伸非噪声，修正渠道维持开放（原型侧等高输入或后续翻译规则垂直映射）。flow 容差**维持 2**——系统性偏差是 flow_verify 的价值（如实红），加宽容差只会隐藏；1px 锚点截断噪声成分已在 2px 内。集成测试注释同步根因指针（`test/integration/ui-import-integration.test.ts`）。
+- **挂账移交**：`valueToGd` 序列化器全消费点审计 + test-framework `property`/`signalName`/`methodName` 三点转义上下文归类——本批未动（超出小批范围），留后续批。
+
 ## [0.32.4] - 2026-08-18
 
 ### Changed — 原型翻译层单 spawn 合成（ui_import_prototype 内部链，PR-4）

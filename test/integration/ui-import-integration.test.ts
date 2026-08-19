@@ -300,6 +300,7 @@ describe.skipIf(!run)('ui_import_prototype 集成验收(真跑 Godot)', () => {
     // dy=-4 / dh=+7 / dx=0 / dw=0。系统性固有偏差,flow_verify 如实暴露(spec §4.2
     // 偏差即价值),ok=false(tolerance=2)不伪装全绿;修正属原型侧(给 flow 子节点与
     // 容器等高的 rect)或后续翻译规则(垂直 size_flags 映射),不属本层。
+    // (根因已挖:float32 比例锚点残差 39.9999924+HBoxContainer FILL 子高度整数截断→39,spec §10.5 已答)
     for (const e of fv) {
       expect(Math.round(e.delta.dy), `${e.path} dy=${e.delta.dy}`).toBe(-4);
       expect(Math.round(e.delta.dh), `${e.path} dh=${e.delta.dh}`).toBe(7);
