@@ -9,7 +9,23 @@ export const COMMIT_OPERATIONS = [
   'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
   'tileset_assign', 'node_property', 'node_add',
   'tileset_physics_layer_add', 'tile_collision_set',
+  'tileset_physics_layer_set', 'tileset_physics_layer_remove',
+  'tileset_navigation_layer_add', 'tile_navigation_set',
+  'tileset_custom_data_layer_add', 'tile_custom_data_set',
+  'tile_collision_clear',
 ] as const;
+
+/**
+ * 直接修改外部 .tres TileSet 资源(非场景实例)的 op——save 分支据此收集待保存资源,
+ * handler 层据此对 tileset_path 做项目内校验。physics/navigation/custom data 三层全可编程。
+ */
+export const TILESET_RESOURCE_OPS: ReadonlySet<string> = new Set([
+  'tileset_physics_layer_add', 'tile_collision_set',
+  'tileset_physics_layer_set', 'tileset_physics_layer_remove',
+  'tileset_navigation_layer_add', 'tile_navigation_set',
+  'tileset_custom_data_layer_add', 'tile_custom_data_set',
+  'tile_collision_clear',
+]);
 
 export type CommitOp = typeof COMMIT_OPERATIONS[number];
 
@@ -72,6 +88,28 @@ function validateOpFields(idx: number, opType: string, op: Record<string, unknow
     if (p.split('/').includes('..')) return `${at}: "${key}" contains path traversal segments`;
     return null;
   };
+  // shape/points 校验(tile_collision_set 与 tile_navigation_set 共用形态)
+  const validateShapePoints = (): string | null => {
+    const shape = op.shape;
+    if (shape !== 'rect' && shape !== 'polygon') {
+      return `${at}: "shape" must be "rect" or "polygon"`;
+    }
+    if (shape === 'rect' && op.points !== undefined) {
+      return `${at}: "points" must be omitted when shape is "rect" (rect 生成全格四点)`;
+    }
+    if (shape === 'polygon') {
+      const pts = op.points;
+      if (!Array.isArray(pts) || pts.length === 0) {
+        return `${at}: "points" must be a non-empty array for polygon shape`;
+      }
+      for (let j = 0; j < pts.length; j++) {
+        if (!isVec2(pts[j])) {
+          return `${at}: points[${j}] must be {x:number, y:number}`;
+        }
+      }
+    }
+    return null;
+  };
 
   switch (opType) {
     case 'tile_set': {
@@ -107,26 +145,44 @@ function validateOpFields(idx: number, opType: string, op: Record<string, unknow
       return needResPath('tileset_path') || optNum('collision_layer') || optNum('collision_mask');
     }
     case 'tile_collision_set': {
-      const shape = op.shape;
-      if (shape !== 'rect' && shape !== 'polygon') {
-        return `${at}: "shape" must be "rect" or "polygon"`;
-      }
-      if (shape === 'rect' && op.points !== undefined) {
-        return `${at}: "points" must be omitted when shape is "rect" (rect 生成全格四点)`;
-      }
-      if (shape === 'polygon') {
-        const pts = op.points;
-        if (!Array.isArray(pts) || pts.length === 0) {
-          return `${at}: "points" must be a non-empty array for polygon shape`;
-        }
-        for (let j = 0; j < pts.length; j++) {
-          if (!isVec2(pts[j])) {
-            return `${at}: points[${j}] must be {x:number, y:number}`;
-          }
-        }
-      }
+      const shapeErr = validateShapePoints();
+      if (shapeErr) return shapeErr;
       return needResPath('tileset_path') || needNum('source_id') || needVec2('atlas')
         || optNum('alternative_tile') || needNum('physics_layer') || optBool('one_way');
+    }
+    case 'tileset_physics_layer_set': {
+      if (op.collision_layer === undefined && op.collision_mask === undefined) {
+        return `${at}: at least one of "collision_layer"/"collision_mask" is required`;
+      }
+      return needResPath('tileset_path') || needNum('layer')
+        || optNum('collision_layer') || optNum('collision_mask');
+    }
+    case 'tileset_physics_layer_remove': {
+      return needResPath('tileset_path') || needNum('layer');
+    }
+    case 'tileset_navigation_layer_add': {
+      return needResPath('tileset_path') || optNum('layers');
+    }
+    case 'tile_navigation_set': {
+      const shapeErr = validateShapePoints();
+      if (shapeErr) return shapeErr;
+      return needResPath('tileset_path') || needNum('source_id') || needVec2('atlas')
+        || optNum('alternative_tile') || needNum('navigation_layer');
+    }
+    case 'tileset_custom_data_layer_add': {
+      if (op.type !== undefined && (!isStr(op.type) || !(op.type in CUSTOM_DATA_TYPES))) {
+        return `${at}: "type" must be one of int/float/bool/string/color/vector2`;
+      }
+      return needResPath('tileset_path') || needStr('name');
+    }
+    case 'tile_custom_data_set': {
+      return needResPath('tileset_path') || needNum('source_id') || needVec2('atlas')
+        || optNum('alternative_tile') || needNum('layer')
+        || (op.value === undefined ? `${at}: "value" is required` : null);
+    }
+    case 'tile_collision_clear': {
+      return needResPath('tileset_path') || needNum('source_id') || needVec2('atlas')
+        || optNum('alternative_tile') || needNum('physics_layer');
     }
     default:
       return null;
@@ -207,16 +263,94 @@ interface TileCollisionSetOp {
   one_way?: boolean;
 }
 
+// ─── 层配置扩展批(2026-08-19):physics 修改/删除 + navigation 层 + custom data 层 ───
+// API 依据本地 godot-docs 核对;navigation 是对象级 set_navigation_polygon(layer, NavigationPolygon)
+// (与 collision 的 set_collision_polygon_points 点集式不对称,生成代码独立)。
+
+interface TilesetPhysicsLayerSetOp {
+  op: 'tileset_physics_layer_set';
+  tileset_path: string;
+  layer: number;
+  collision_layer?: number;
+  collision_mask?: number;
+}
+
+interface TilesetPhysicsLayerRemoveOp {
+  op: 'tileset_physics_layer_remove';
+  tileset_path: string;
+  layer: number;
+}
+
+interface TilesetNavigationLayerAddOp {
+  op: 'tileset_navigation_layer_add';
+  tileset_path: string;
+  layers?: number;
+}
+
+interface TileNavigationSetOp {
+  op: 'tile_navigation_set';
+  tileset_path: string;
+  source_id: number;
+  atlas: { x: number; y: number };
+  alternative_tile?: number;
+  navigation_layer: number;
+  shape: 'rect' | 'polygon';
+  points?: Array<{ x: number; y: number }>;
+}
+
+/** custom data layer 的 value 类型白名单 → Variant.Type 枚举(引擎侧) */
+export const CUSTOM_DATA_TYPES: Readonly<Record<string, string>> = {
+  int: 'TYPE_INT', float: 'TYPE_FLOAT', bool: 'TYPE_BOOL',
+  string: 'TYPE_STRING', color: 'TYPE_COLOR', vector2: 'TYPE_VECTOR2',
+};
+
+interface TilesetCustomDataLayerAddOp {
+  op: 'tileset_custom_data_layer_add';
+  tileset_path: string;
+  name: string;
+  type?: string;
+}
+
+interface TileCustomDataSetOp {
+  op: 'tile_custom_data_set';
+  tileset_path: string;
+  source_id: number;
+  atlas: { x: number; y: number };
+  alternative_tile?: number;
+  layer: number;
+  value: unknown;
+}
+
+interface TileCollisionClearOp {
+  op: 'tile_collision_clear';
+  tileset_path: string;
+  source_id: number;
+  atlas: { x: number; y: number };
+  alternative_tile?: number;
+  physics_layer: number;
+}
+
 export type CommitOperation =
   | TileSetOp | TileFillOp | TileEraseOp | TileClearOp
   | TilesetAssignOp | NodePropertyOp | NodeAddOp
-  | TilesetPhysicsLayerAddOp | TileCollisionSetOp;
+  | TilesetPhysicsLayerAddOp | TileCollisionSetOp
+  | TilesetPhysicsLayerSetOp | TilesetPhysicsLayerRemoveOp
+  | TilesetNavigationLayerAddOp | TileNavigationSetOp
+  | TilesetCustomDataLayerAddOp | TileCustomDataSetOp
+  | TileCollisionClearOp;
 
-/** 碰撞两 op 是唯一直接修改外部 .tres 资源(非场景实例)的 op——save 分支据此收集待保存资源。 */
+/** 类型谓词:TILESET_RESOURCE_OPS 集合与 union 的桥(has() 无法窄化,显式声明成员都有 tileset_path)。 */
+function isTilesetResourceOp(
+  op: CommitOperation,
+): op is Extract<CommitOperation, { tileset_path: string }> {
+  return TILESET_RESOURCE_OPS.has(op.op);
+}
+
+/** 资源层配置 op 直接修改外部 .tres(非场景实例)——save 分支据此收集待保存资源。 */
 export function collectTilesetPaths(operations: CommitOperation[]): string[] {
   const paths = new Set<string>();
   for (const op of operations) {
-    if (op.op === 'tileset_physics_layer_add' || op.op === 'tile_collision_set') {
+    if (isTilesetResourceOp(op)) {
       paths.add(op.tileset_path);
     }
   }
@@ -320,6 +454,48 @@ ${saveBlock}
 `;
 }
 
+/**
+ * per-tile 守卫链(tile_collision_set / tile_navigation_set / tile_custom_data_set / tile_collision_clear
+ * 四 op 共用形态):load tileset → source 存在 → TileSetAtlasSource → has_tile → layer 越界
+ * → get_tile_data 非空。返回以 td 守卫的 `else:` 结尾,调用方接 5-tab 写体与上报。
+ */
+function tileGuardChain(
+  idx: number,
+  opts: {
+    opName: string; tsp: string; sid: number; ax: number; ay: number; alt: number;
+    layerIdx: number | string; countExpr: string; layerLabel: string;
+  },
+  errAction: string, stopOnError: boolean,
+): string {
+  const err3 = stopOnError ? '\t\t\t_has_error = true' : '\t\t\t# continue despite error';
+  const err4 = stopOnError ? '\t\t\t\t_has_error = true' : '\t\t\t\t# continue despite error';
+  return `
+\tvar ts${idx} = load("${opts.tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tvar src${idx} = ts${idx}.get_source(${opts.sid})
+\t\tif src${idx} == null:
+\t\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "Source ${opts.sid} not found"})
+${err3}
+\t\telif not (src${idx} is TileSetAtlasSource):
+\t\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "Source ${opts.sid} is not a TileSetAtlasSource (requires atlas source)"})
+${err3}
+\t\telif not src${idx}.has_tile(Vector2i(${opts.ax}, ${opts.ay})):
+\t\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "Tile (${opts.ax}, ${opts.ay}) not in atlas"})
+${err3}
+\t\telif ${opts.layerIdx} < 0 or ${opts.layerIdx} >= ${opts.countExpr}:
+\t\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "${opts.layerLabel} ${opts.layerIdx} out of range"})
+${err3}
+\t\telse:
+\t\t\tvar td${idx} = src${idx}.get_tile_data(Vector2i(${opts.ax}, ${opts.ay}), ${opts.alt})
+\t\t\tif td${idx} == null:
+\t\t\t\t_results.append({"op": "${opts.opName}", "tileset_path": "${opts.tsp}", "ok": false, "error": "TileData unavailable (alternative_tile ${opts.alt} not created?)"})
+${err4}
+\t\t\telse:`;
+}
+
 function generateOpBlock(index: number, op: CommitOperation, stopOnError: boolean): string {
   const idx = index + 1;
   const errAction = stopOnError
@@ -329,7 +505,6 @@ function generateOpBlock(index: number, op: CommitOperation, stopOnError: boolea
   const errAt = (tabs: number) => stopOnError
     ? `${'\t'.repeat(tabs)}_has_error = true`
     : `${'\t'.repeat(tabs)}# continue despite error`;
-
   switch (op.op) {
     case 'tile_set': {
       const alt = op.alternative_tile ?? 0;
@@ -475,17 +650,13 @@ ${layerLines}${maskLines}\t\t_results.append({"op": "tileset_physics_layer_add",
     case 'tile_collision_set': {
       const tsp = escapeForGdLiteral(op.tileset_path);
       const alt = op.alternative_tile ?? 0;
-      const sid = op.source_id;
       const phys = op.physics_layer;
-      const ax = op.atlas.x;
-      const ay = op.atlas.y;
-      const err3 = errAt(3);
       // rect:全格四点运行时由 tile_size 生成(等价编辑器碰撞编辑器按 F);polygon:字面量点集。
       // PackedVector2Array 构造器只接受 Array(不接受 Vector2 可变参)——端到端 Godot 4.6.3 实测。
       const pointsExpr = op.shape === 'rect'
         ? `PackedVector2Array([Vector2(0, 0), Vector2(sz${idx}.x, 0), Vector2(sz${idx}.x, sz${idx}.y), Vector2(0, sz${idx}.y)])`
         : `PackedVector2Array([${op.points!.map(p => `Vector2(${p.x}, ${p.y})`).join(', ')}])`;
-      // 嵌套层级:op(1)→ else(2)→ else(3)→ td 守卫 else(4),sz/one_way 行在 4-tab 层
+      // 嵌套层级:guard(1-4)→ td 守卫 else 体(5),sz/one_way 行在 5-tab 层
       const szLine = op.shape === 'rect'
         ? `\t\t\t\tvar sz${idx} = ts${idx}.get_tile_size()\n`
         : '';
@@ -493,35 +664,143 @@ ${layerLines}${maskLines}\t\t_results.append({"op": "tileset_physics_layer_add",
         ? `\t\t\t\ttd${idx}.set_collision_polygon_one_way(${phys}, 0, ${op.one_way})\n`
         : '';
       const pointsCount = op.shape === 'rect' ? 4 : op.points!.length;
+      const guard = tileGuardChain(idx, {
+        opName: 'tile_collision_set', tsp, sid: op.source_id,
+        ax: op.atlas.x, ay: op.atlas.y, alt,
+        layerIdx: phys, countExpr: `ts${idx}.get_physics_layers_count()`, layerLabel: 'physics_layer',
+      }, errAction, stopOnError);
       return `
-\t# --- Op ${idx}: tile_collision_set ---
+\t# --- Op ${idx}: tile_collision_set ---${guard}
+${szLine}\t\t\t\ttd${idx}.set_collision_polygons_count(${phys}, 1)
+\t\t\t\ttd${idx}.set_collision_polygon_points(${phys}, 0, ${pointsExpr})
+${oneWayLine}\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": true, "physics_layer": ${phys}, "points_count": ${pointsCount}})`;
+    }
+    case 'tileset_physics_layer_set': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const err3 = errAt(3);
+      const setLines = op.collision_layer !== undefined
+        ? `\t\t\tts${idx}.set_physics_layer_collision_layer(${op.layer}, ${op.collision_layer})\n`
+        : '';
+      const maskLines = op.collision_mask !== undefined
+        ? `\t\t\tts${idx}.set_physics_layer_collision_mask(${op.layer}, ${op.collision_mask})\n`
+        : '';
+      return `
+\t# --- Op ${idx}: tileset_physics_layer_set ---
 \tvar ts${idx} = load("${tsp}")
 \tif ts${idx} == null:
-\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+\t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
 ${errAction}
 \telse:
-\t\tvar src${idx} = ts${idx}.get_source(${sid})
-\t\tif src${idx} == null:
-\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Source ${sid} not found"})
-${err3}
-\t\telif not (src${idx} is TileSetAtlasSource):
-\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Source ${sid} is not a TileSetAtlasSource (collision requires atlas source)"})
-${err3}
-\t\telif not src${idx}.has_tile(Vector2i(${ax}, ${ay})):
-\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "Tile (${ax}, ${ay}) not in atlas"})
-${err3}
-\t\telif ${phys} < 0 or ${phys} >= ts${idx}.get_physics_layers_count():
-\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "physics_layer ${phys} out of range"})
+\t\tif ${op.layer} < 0 or ${op.layer} >= ts${idx}.get_physics_layers_count():
+\t\t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": false, "error": "physics_layer ${op.layer} out of range"})
 ${err3}
 \t\telse:
-\t\t\tvar td${idx} = src${idx}.get_tile_data(Vector2i(${ax}, ${ay}), ${alt})
-\t\t\tif td${idx} == null:
-\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": false, "error": "TileData unavailable (alternative_tile ${alt} not created?)"})
-${errAt(4)}
-\t\t\telse:
-\t\t\t\ttd${idx}.set_collision_polygons_count(${phys}, 1)
-${szLine}\t\t\t\ttd${idx}.set_collision_polygon_points(${phys}, 0, ${pointsExpr})
-${oneWayLine}\t\t\t\t_results.append({"op": "tile_collision_set", "tileset_path": "${tsp}", "ok": true, "physics_layer": ${phys}, "points_count": ${pointsCount}})`;
+${setLines}${maskLines}\t\t\t_results.append({"op": "tileset_physics_layer_set", "tileset_path": "${tsp}", "ok": true, "layer": ${op.layer}})`;
+    }
+    case 'tileset_physics_layer_remove': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const err3 = errAt(3);
+      return `
+\t# --- Op ${idx}: tileset_physics_layer_remove ---
+\tvar ts${idx} = load("${tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "tileset_physics_layer_remove", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tif ${op.layer} < 0 or ${op.layer} >= ts${idx}.get_physics_layers_count():
+\t\t\t_results.append({"op": "tileset_physics_layer_remove", "tileset_path": "${tsp}", "ok": false, "error": "physics_layer ${op.layer} out of range"})
+${err3}
+\t\telse:
+\t\t\tts${idx}.remove_physics_layer(${op.layer})
+\t\t\t_results.append({"op": "tileset_physics_layer_remove", "tileset_path": "${tsp}", "ok": true, "layer": ${op.layer}})`;
+    }
+    case 'tileset_navigation_layer_add': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const layerLines = op.layers !== undefined
+        ? `\t\tts${idx}.set_navigation_layer_layers(lid${idx}, ${op.layers})\n`
+        : '';
+      return `
+\t# --- Op ${idx}: tileset_navigation_layer_add ---
+\tvar ts${idx} = load("${tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "tileset_navigation_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tvar lid${idx} = ts${idx}.get_navigation_layers_count()
+\t\tts${idx}.add_navigation_layer()
+${layerLines}\t\t_results.append({"op": "tileset_navigation_layer_add", "tileset_path": "${tsp}", "ok": true, "layer_id": lid${idx}})`;
+    }
+    case 'tile_navigation_set': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const alt = op.alternative_tile ?? 0;
+      const nav = op.navigation_layer;
+      // navigation 与 collision API 不对称:对象级 set_navigation_polygon(layer, NavigationPolygon),
+      // 需构造 vertices + add_polygon(顶点索引)(class_navigationpolygon.rst 文档示例同款)
+      const pointsExpr = op.shape === 'rect'
+        ? `PackedVector2Array([Vector2(0, 0), Vector2(sz${idx}.x, 0), Vector2(sz${idx}.x, sz${idx}.y), Vector2(0, sz${idx}.y)])`
+        : `PackedVector2Array([${op.points!.map(p => `Vector2(${p.x}, ${p.y})`).join(', ')}])`;
+      const pointsCount = op.shape === 'rect' ? 4 : op.points!.length;
+      const indices = Array.from({ length: pointsCount }, (_, i) => i).join(', ');
+      const szLine = op.shape === 'rect'
+        ? `\t\t\t\tvar sz${idx} = ts${idx}.get_tile_size()\n`
+        : '';
+      const guard = tileGuardChain(idx, {
+        opName: 'tile_navigation_set', tsp, sid: op.source_id,
+        ax: op.atlas.x, ay: op.atlas.y, alt,
+        layerIdx: nav, countExpr: `ts${idx}.get_navigation_layers_count()`, layerLabel: 'navigation_layer',
+      }, errAction, stopOnError);
+      return `
+\t# --- Op ${idx}: tile_navigation_set ---${guard}
+${szLine}\t\t\t\tvar np${idx} := NavigationPolygon.new()
+\t\t\t\tnp${idx}.vertices = ${pointsExpr}
+\t\t\t\tnp${idx}.add_polygon(PackedInt32Array([${indices}]))
+\t\t\t\ttd${idx}.set_navigation_polygon(${nav}, np${idx})
+\t\t\t\t_results.append({"op": "tile_navigation_set", "tileset_path": "${tsp}", "ok": true, "navigation_layer": ${nav}, "points_count": ${pointsCount}})`;
+    }
+    case 'tileset_custom_data_layer_add': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const name = escapeForGdLiteral(op.name);
+      const typeLine = op.type !== undefined
+        ? `\t\tts${idx}.set_custom_data_layer_type(lid${idx}, ${CUSTOM_DATA_TYPES[op.type]})\n`
+        : '';
+      return `
+\t# --- Op ${idx}: tileset_custom_data_layer_add ---
+\tvar ts${idx} = load("${tsp}")
+\tif ts${idx} == null:
+\t\t_results.append({"op": "tileset_custom_data_layer_add", "tileset_path": "${tsp}", "ok": false, "error": "TileSet resource not found"})
+${errAction}
+\telse:
+\t\tvar lid${idx} = ts${idx}.get_custom_data_layers_count()
+\t\tts${idx}.add_custom_data_layer()
+\t\tts${idx}.set_custom_data_layer_name(lid${idx}, "${name}")
+${typeLine}\t\t_results.append({"op": "tileset_custom_data_layer_add", "tileset_path": "${tsp}", "ok": true, "layer_id": lid${idx}, "name": "${name}"})`;
+    }
+    case 'tile_custom_data_set': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const alt = op.alternative_tile ?? 0;
+      const guard = tileGuardChain(idx, {
+        opName: 'tile_custom_data_set', tsp, sid: op.source_id,
+        ax: op.atlas.x, ay: op.atlas.y, alt,
+        layerIdx: op.layer, countExpr: `ts${idx}.get_custom_data_layers_count()`, layerLabel: 'custom data layer',
+      }, errAction, stopOnError);
+      return `
+\t# --- Op ${idx}: tile_custom_data_set ---${guard}
+\t\t\t\ttd${idx}.set_custom_data_by_layer_id(${op.layer}, ${serializeGdValue(op.value)})
+\t\t\t\t_results.append({"op": "tile_custom_data_set", "tileset_path": "${tsp}", "ok": true, "layer": ${op.layer}})`;
+    }
+    case 'tile_collision_clear': {
+      const tsp = escapeForGdLiteral(op.tileset_path);
+      const alt = op.alternative_tile ?? 0;
+      const phys = op.physics_layer;
+      const guard = tileGuardChain(idx, {
+        opName: 'tile_collision_clear', tsp, sid: op.source_id,
+        ax: op.atlas.x, ay: op.atlas.y, alt,
+        layerIdx: phys, countExpr: `ts${idx}.get_physics_layers_count()`, layerLabel: 'physics_layer',
+      }, errAction, stopOnError);
+      return `
+\t# --- Op ${idx}: tile_collision_clear ---${guard}
+\t\t\t\ttd${idx}.set_collision_polygons_count(${phys}, 0)
+\t\t\t\t_results.append({"op": "tile_collision_clear", "tileset_path": "${tsp}", "ok": true, "physics_layer": ${phys}})`;
     }
   }
 }

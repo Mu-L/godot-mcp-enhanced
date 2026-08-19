@@ -144,4 +144,20 @@ describe('scene commit tileset ops: tileset_path 项目内校验', () => {
     expect(executeGdscript).toHaveBeenCalledTimes(1);
     expect(result.isError).toBeFalsy();
   });
+
+  it('扩展批 op(tile_navigation_set)%2e%2e 编码穿越(文件存在)→ handler 集合接线兜底', async () => {
+    // TILESET_RESOURCE_OPS 集合接线判别:浅校验放行 %2e%2e 编码形态,handler 层对扩展批
+    // 资源 op(9 个)逐个 realpath 校验——删掉集合内 tile_navigation_set 即红。
+    mkdirSync(join(dirRef.path!, '%2e%2e'));
+    writeFileSync(join(dirRef.path!, '%2e%2e', 'nav.tres'), '');
+
+    const result = await handleTool('scene', commitArgs([
+      { op: 'tile_navigation_set', tileset_path: 'res://%2e%2e/nav.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'rect' },
+    ]), ctx);
+
+    const text = result.content?.[0]?.text ?? '';
+    expect(result.isError).toBe(true);
+    expect(text).toContain('escapes project root');
+    expect(executeGdscript).not.toHaveBeenCalled();
+  });
 });

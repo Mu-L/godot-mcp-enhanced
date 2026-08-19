@@ -4383,14 +4383,14 @@
           },
           "instance_path": {
             "type": "string",
-            "description": "instance_scene: 要实例化的场景文件（res://scenes/player.tscn）"
+            "description": "要实例化的场景（res://…tscn）"
           },
           "property": {
             "type": "string",
             "description": "set_instance_property: 属性名"
           },
           "value": {
-            "description": "set_instance_property: 属性值（string/number/bool/null/array）"
+            "description": "属性值（set_instance_property）"
           },
           "load_autoloads": {
             "type": "boolean",
@@ -4398,11 +4398,11 @@
           },
           "type": {
             "type": "string",
-            "description": "create_3d_node: 节点类型（仅限白名单）"
+            "description": "类型（create_3d_node，白名单）"
           },
           "name": {
             "type": "string",
-            "description": "create_3d_node: 节点名称"
+            "description": "名称（create_3d_node）"
           },
           "parent": {
             "type": "string",
@@ -4410,7 +4410,7 @@
           },
           "operations": {
             "type": "array",
-            "description": "commit: 批量操作列表（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set）",
+            "description": "commit: 批量操作列表（enum 见 op 字段；铺设/TileSet 层配置/节点）",
             "items": {
               "type": "object",
               "properties": {
@@ -4425,12 +4425,19 @@
                     "node_property",
                     "node_add",
                     "tileset_physics_layer_add",
-                    "tile_collision_set"
+                    "tile_collision_set",
+                    "tileset_physics_layer_set",
+                    "tileset_physics_layer_remove",
+                    "tileset_navigation_layer_add",
+                    "tile_navigation_set",
+                    "tileset_custom_data_layer_add",
+                    "tile_custom_data_set",
+                    "tile_collision_clear"
                   ]
                 },
                 "node_path": {
                   "type": "string",
-                  "description": "TileMap/TileMapLayer 节点路径（tile 操作必需）"
+                  "description": "TileMap/TileMapLayer 节点路径"
                 },
                 "coords": {
                   "type": "object",
@@ -4454,19 +4461,31 @@
                 },
                 "tileset_path": {
                   "type": "string",
-                  "description": "TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set；碰撞两 op 限 res:// 项目内 .tres）"
+                  "description": "TileSet .tres 路径（层配置 9 op 限 res:// 项目内）"
                 },
                 "collision_layer": {
                   "type": "number",
-                  "description": "tileset_physics_layer_add: 碰撞层位掩码（可选）"
+                  "description": "物理层位掩码（physics add/set）"
                 },
                 "collision_mask": {
                   "type": "number",
-                  "description": "tileset_physics_layer_add: 碰撞遮罩位掩码（可选）"
+                  "description": "物理遮罩位掩码（physics add/set）"
                 },
                 "physics_layer": {
                   "type": "number",
-                  "description": "tile_collision_set: 物理 layer 索引（0 起）"
+                  "description": "物理 layer 索引，0 起（collision set/clear）"
+                },
+                "layer": {
+                  "type": "number",
+                  "description": "layer 索引，0 起（physics set/remove、cdata set）"
+                },
+                "layers": {
+                  "type": "number",
+                  "description": "导航层位掩码（navigation add，可选）"
+                },
+                "navigation_layer": {
+                  "type": "number",
+                  "description": "导航 layer 索引，0 起（navigation set）"
                 },
                 "shape": {
                   "type": "string",
@@ -4474,26 +4493,23 @@
                     "rect",
                     "polygon"
                   ],
-                  "description": "tile_collision_set: rect=全格四点（等价编辑器按 F）；polygon=自定义点集"
+                  "description": "rect=全格四点;polygon=自定义点集"
                 },
                 "points": {
                   "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "x": {
-                        "type": "number"
-                      },
-                      "y": {
-                        "type": "number"
-                      }
-                    }
-                  },
-                  "description": "tile_collision_set polygon 模式点集 [{x,y}]（rect 模式省略）"
+                  "description": "polygon 点集 [{x,y}]（rect 省略;逐项运行时校验）"
                 },
                 "one_way": {
                   "type": "boolean",
-                  "description": "tile_collision_set: 单向碰撞（可选，默认 false）"
+                  "description": "单向碰撞（collision set，默认 false）"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "节点名（node_add）/数据层名（cdata add）"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "节点类型（node_add）/int|float|bool|string|color|vector2（cdata add）"
                 },
                 "path": {
                   "type": "string",
@@ -4504,19 +4520,11 @@
                   "description": "属性名"
                 },
                 "value": {
-                  "description": "属性值"
+                  "description": "属性值（node_property）/数据值（cdata set，须匹配层类型）"
                 },
                 "parent": {
                   "type": "string",
                   "description": "父节点路径（node_add）"
-                },
-                "name": {
-                  "type": "string",
-                  "description": "节点名称（node_add）"
-                },
-                "type": {
-                  "type": "string",
-                  "description": "节点类型（node_add）"
                 }
               }
             }
@@ -4527,7 +4535,7 @@
           },
           "stop_on_error": {
             "type": "boolean",
-            "description": "commit: 遇错是否停止（默认 true）。false 时失败 op 不阻止后续 op 与已修改资源（含 .tres）写盘，逐项结果见 results"
+            "description": "遇错是否停止（默认 true;false 时失败不阻止后续与 .tres 写盘）"
           },
           "godot_path": {
             "type": "string",
@@ -4605,8 +4613,8 @@
       },
       "size": {
         "descBytes": 277,
-        "schemaBytes": 5851,
-        "totalBytes": 6128
+        "schemaBytes": 5980,
+        "totalBytes": 6257
       },
       "annotations": {
         "readOnlyHint": false,

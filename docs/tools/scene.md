@@ -56,16 +56,16 @@
 | `include_signals` | boolean |  | inspect_node: 包含信号连接（默认 true） |
 | `include_properties` | boolean |  | inspect_node: 包含属性值（默认 true） |
 | `nodes` | array |  | batch_add_nodes: 节点定义数组 |
-| `instance_path` | string |  | instance_scene: 要实例化的场景文件（res://scenes/player.tscn） |
+| `instance_path` | string |  | 要实例化的场景（res://…tscn） |
 | `property` | string |  | set_instance_property: 属性名 |
-| `value` | any |  | set_instance_property: 属性值（string/number/bool/null/array） |
+| `value` | any |  | 属性值（set_instance_property） |
 | `load_autoloads` | boolean |  | 是否加载 Autoload 上下文（默认 true） |
-| `type` | string |  | create_3d_node: 节点类型（仅限白名单） |
-| `name` | string |  | create_3d_node: 节点名称 |
+| `type` | string |  | 类型（create_3d_node，白名单） |
+| `name` | string |  | 名称（create_3d_node） |
 | `parent` | string |  | create_3d_node: 父节点路径（默认 root） |
-| `operations` | array |  | commit: 批量操作列表（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set） |
+| `operations` | array |  | commit: 批量操作列表（enum 见 op 字段；铺设/TileSet 层配置/节点） |
 | `save` | boolean |  | commit: 是否保存到文件（默认 true） |
-| `stop_on_error` | boolean |  | commit: 遇错是否停止（默认 true）。false 时失败 op 不阻止后续 op 与已修改资源（含 .tres）写盘，逐项结果见 results |
+| `stop_on_error` | boolean |  | 遇错是否停止（默认 true;false 时失败不阻止后续与 .tres 写盘） |
 | `godot_path` | string |  | 覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量） |
 
 ## 风险分布

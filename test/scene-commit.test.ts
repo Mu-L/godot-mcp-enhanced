@@ -287,11 +287,16 @@ describe('scene-commit: generateCommitScript', () => {
     expect(script).toContain('"cells_affected": 50');
   });
 
-  it('exports COMMIT_OPERATIONS with all 9 ops', () => {
+  it('exports COMMIT_OPERATIONS with all 16 ops after layer/data expansion', () => {
+    expect(COMMIT_OPERATIONS.length).toBe(16);
     expect(COMMIT_OPERATIONS).toEqual([
       'tile_set', 'tile_fill', 'tile_erase', 'tile_clear',
       'tileset_assign', 'node_property', 'node_add',
       'tileset_physics_layer_add', 'tile_collision_set',
+      'tileset_physics_layer_set', 'tileset_physics_layer_remove',
+      'tileset_navigation_layer_add', 'tile_navigation_set',
+      'tileset_custom_data_layer_add', 'tile_custom_data_set',
+      'tile_collision_clear',
     ]);
   });
 
@@ -701,5 +706,241 @@ describe('TileSet collision ops: generateCommitScript', () => {
     expect(script).toContain('var ts1 = load(');
     expect(script).toContain('var ts2 = load(');
     expect(script).toContain('.speed = 100');
+  });
+});
+
+// ─── TileSet 层配置扩展批(physics set/remove + navigation + custom data + collision clear,2026-08-19)───
+// 把 TileSet 三大层(physics/navigation/custom data)全部纳入可编程配置面;API 依据本地 godot-docs
+// class_tileset.rst/class_tiledata.rst/class_navigationpolygon.rst 核对(navigation 是对象级
+// set_navigation_polygon(layer, NavigationPolygon),与 collision 点集式不对称)。
+describe('TileSet layer/data ops: validateCommitOperations', () => {
+  it('accepts tileset_physics_layer_set with collision_layer only', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_physics_layer_set', tileset_path: 'res://assets/tiles.tres', layer: 0, collision_layer: 2 },
+    ])).toBeNull();
+  });
+
+  it('rejects tileset_physics_layer_set with neither collision_layer nor collision_mask', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_set', tileset_path: 'res://assets/tiles.tres', layer: 0 },
+    ]);
+    expect(err).toMatch(/at least one/i);
+  });
+
+  it('rejects tileset_physics_layer_set with non-numeric layer', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_set', tileset_path: 'res://assets/tiles.tres', layer: 'zero', collision_layer: 1 },
+    ]);
+    expect(err).toMatch(/layer.*finite number/);
+  });
+
+  it('accepts tileset_physics_layer_remove', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_physics_layer_remove', tileset_path: 'res://assets/tiles.tres', layer: 0 },
+    ])).toBeNull();
+  });
+
+  it('rejects tileset_physics_layer_remove tileset_path without res:// (写盘越界面)', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_physics_layer_remove', tileset_path: '../outside.tres', layer: 0 },
+    ]);
+    expect(err).toMatch(/res:\/\//);
+  });
+
+  it('accepts tileset_navigation_layer_add with optional layers', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_navigation_layer_add', tileset_path: 'res://assets/tiles.tres', layers: 2 },
+    ])).toBeNull();
+  });
+
+  it('rejects tileset_navigation_layer_add with non-numeric layers', () => {
+    const err = validateCommitOperations([
+      { op: 'tileset_navigation_layer_add', tileset_path: 'res://assets/tiles.tres', layers: 'two' },
+    ]);
+    expect(err).toMatch(/layers.*finite number/);
+  });
+
+  it('accepts tile_navigation_set rect and polygon', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'rect' },
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 1, y: 0 }, navigation_layer: 0, shape: 'polygon', points: [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 4, y: 8 }] },
+    ])).toBeNull();
+  });
+
+  it('rejects tile_navigation_set with invalid shape / polygon without points', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'circle' },
+    ])).toMatch(/shape.*"rect" or "polygon"/);
+    expect(validateCommitOperations([
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'polygon' },
+    ])).toMatch(/points.*non-empty array.*polygon/);
+  });
+
+  it('rejects tile_navigation_set points injection (F-5)', () => {
+    const err = validateCommitOperations([
+      { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'polygon', points: [{ x: 1, y: 'OS.execute("x")' }] },
+    ]);
+    expect(err).toMatch(/points\[0\].*\{x:number.*y:number\}/);
+  });
+
+  it('accepts tileset_custom_data_layer_add with name and type', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'damage', type: 'float' },
+    ])).toBeNull();
+  });
+
+  it('rejects tileset_custom_data_layer_add missing name / bad type', () => {
+    expect(validateCommitOperations([
+      { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres' },
+    ])).toMatch(/name.*string/);
+    expect(validateCommitOperations([
+      { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'd', type: 'quaternion' },
+    ])).toMatch(/type.*(int|float|bool|string|color|vector2)/i);
+  });
+
+  it('accepts tile_custom_data_set and rejects missing value', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_custom_data_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, layer: 0, value: 12.5 },
+    ])).toBeNull();
+    expect(validateCommitOperations([
+      { op: 'tile_custom_data_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, layer: 0 },
+    ])).toMatch(/value.*required/);
+  });
+
+  it('accepts tile_collision_clear', () => {
+    expect(validateCommitOperations([
+      { op: 'tile_collision_clear', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0 },
+    ])).toBeNull();
+  });
+});
+
+describe('TileSet layer/data ops: generateCommitScript', () => {
+  it('tileset_physics_layer_set 生成位掩码修改 + 越界守卫(仅提供的字段)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_set', tileset_path: 'res://assets/tiles.tres', layer: 0, collision_mask: 5 }],
+      true,
+    );
+    expect(script).toContain('.set_physics_layer_collision_mask(0, 5)');
+    expect(script).not.toContain('.set_physics_layer_collision_layer(');
+    expect(script).toContain('get_physics_layers_count()');
+    expect(script).toContain('physics_layer 0 out of range');
+  });
+
+  it('tileset_physics_layer_remove 生成 remove + 守卫', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_physics_layer_remove', tileset_path: 'res://assets/tiles.tres', layer: 1 }],
+      true,
+    );
+    expect(script).toContain('.remove_physics_layer(1)');
+    expect(script).toContain('get_physics_layers_count()');
+  });
+
+  it('tileset_navigation_layer_add 生成 add_navigation_layer + 可选 layers + layer_id', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_navigation_layer_add', tileset_path: 'res://assets/tiles.tres', layers: 2 }],
+      true,
+    );
+    expect(script).toContain('add_navigation_layer()');
+    expect(script).toContain('.set_navigation_layer_layers(lid1, 2)');
+    expect(script).toContain('"layer_id": lid1');
+  });
+
+  it('tile_navigation_set rect 生成 NavigationPolygon 构造 + 越界守卫', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'rect' }],
+      true,
+    );
+    expect(script).toContain('NavigationPolygon.new()');
+    expect(script).toContain('.vertices = PackedVector2Array(');
+    expect(script).toContain('.add_polygon(PackedInt32Array(');
+    expect(script).toContain('.set_navigation_polygon(0, np1)');
+    expect(script).toContain('get_navigation_layers_count()');
+    expect(script).toContain('get_tile_size()');
+  });
+
+  it('tile_navigation_set polygon 生成字面点集', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'polygon', points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] }],
+      true,
+    );
+    expect(script).toContain('PackedVector2Array([Vector2(1, 2), Vector2(3, 4)])');
+    expect(script).not.toContain('.get_tile_size()');
+  });
+
+  it('tileset_custom_data_layer_add 生成 name + type 映射', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'damage', type: 'float' }],
+      true,
+    );
+    expect(script).toContain('add_custom_data_layer()');
+    expect(script).toContain('.set_custom_data_layer_name(lid1, "damage")');
+    expect(script).toContain('.set_custom_data_layer_type(lid1, TYPE_FLOAT)');
+    expect(script).toContain('"layer_id": lid1');
+  });
+
+  it('tileset_custom_data_layer_add 无 type 不生成 set_custom_data_layer_type', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/tiles.tres', name: 'flag' }],
+      true,
+    );
+    expect(script).toContain('.set_custom_data_layer_name(lid1, "flag")');
+    expect(script).not.toContain('.set_custom_data_layer_type(');
+  });
+
+  it('tile_custom_data_set 生成 set_custom_data_by_layer_id + 守卫', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_custom_data_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, layer: 0, value: 12.5 }],
+      true,
+    );
+    expect(script).toContain('.set_custom_data_by_layer_id(0, 12.5)');
+    expect(script).toContain('get_custom_data_layers_count()');
+    expect(script).toContain('.has_tile(Vector2i(0, 0))');
+  });
+
+  it('tile_collision_clear 生成 set_collision_polygons_count(x, 0)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [{ op: 'tile_collision_clear', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0 }],
+      true,
+    );
+    expect(script).toContain('.set_collision_polygons_count(0, 0)');
+    expect(script).toContain('get_physics_layers_count()');
+  });
+
+  it('新 layer/data op 同样进 tileset 保存链(collectTilesetPaths 扩展)', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [
+        { op: 'tileset_navigation_layer_add', tileset_path: 'res://assets/nav.tres' },
+        { op: 'tileset_custom_data_layer_add', tileset_path: 'res://assets/data.tres', name: 'x' },
+        { op: 'tileset_physics_layer_remove', tileset_path: 'res://assets/nav.tres', layer: 0 },
+      ],
+      true,
+    );
+    const saveArr = script.match(/for _p in \[[^\]]*\]:/g) ?? [];
+    expect(saveArr).toHaveLength(1);
+    expect(saveArr[0]).toContain('res://assets/nav.tres');
+    expect(saveArr[0]).toContain('res://assets/data.tres');
+  });
+
+  it('tile_navigation_set 与 tile_collision_set 混用各自守卫独立', () => {
+    const script = generateCommitScript(
+      'res://scenes/Level.tscn',
+      [
+        { op: 'tile_collision_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+        { op: 'tile_navigation_set', tileset_path: 'res://assets/tiles.tres', source_id: 0, atlas: { x: 0, y: 0 }, navigation_layer: 0, shape: 'rect' },
+      ],
+      true,
+    );
+    expect(script).toContain('ts1.get_physics_layers_count()');
+    expect(script).toContain('ts2.get_navigation_layers_count()');
   });
 });

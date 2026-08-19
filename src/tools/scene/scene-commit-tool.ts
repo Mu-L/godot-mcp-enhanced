@@ -6,7 +6,7 @@ import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
 import { executeGdscript } from '../../gdscript-executor.js';
-import { generateCommitScript, validateCommitOperations, type CommitOperation } from './scene-commit.js';
+import { generateCommitScript, validateCommitOperations, TILESET_RESOURCE_OPS, type CommitOperation } from './scene-commit.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { opsErrorResult } from '../shared.js';
 import { existsSync } from 'fs';
@@ -16,7 +16,7 @@ export function getToolDefinitions(): Tool[] {
   console.warn(`[DEPRECATED] scene-commit-tool module is absorbed into scene. Do not register directly.`);
   return [{
     name: 'scene_commit',
-    description: '批量执行场景修改操作（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set），合并为一次 Godot 进程调用。适合需要持久化的批量修改。',
+    description: '批量执行场景修改操作（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add + TileSet 资源层配置 9 op），合并为一次 Godot 进程调用。适合需要持久化的批量修改。',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -28,26 +28,29 @@ export function getToolDefinitions(): Tool[] {
           items: {
             type: 'object',
             properties: {
-              op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add', 'tileset_physics_layer_add', 'tile_collision_set'] },
+              op: { type: 'string', enum: ['tile_set', 'tile_fill', 'tile_erase', 'tile_clear', 'tileset_assign', 'node_property', 'node_add', 'tileset_physics_layer_add', 'tile_collision_set', 'tileset_physics_layer_set', 'tileset_physics_layer_remove', 'tileset_navigation_layer_add', 'tile_navigation_set', 'tileset_custom_data_layer_add', 'tile_custom_data_set', 'tile_collision_clear'] },
               node_path: { type: 'string', description: 'TileMap/TileMapLayer 节点路径（tile 操作必需）' },
               coords: { type: 'object', description: '图块坐标 {x, y}' },
               region: { type: 'object', description: '矩形区域 {x, y, w, h}' },
               source_id: { type: 'number', description: 'TileSet 源 ID' },
               atlas: { type: 'object', description: '图集坐标 {x, y}' },
               alternative_tile: { type: 'number', description: '替代图块索引（默认 0）' },
-              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set；碰撞两 op 限 res:// 项目内 .tres）' },
-              collision_layer: { type: 'number', description: 'tileset_physics_layer_add: 碰撞层位掩码（可选）' },
-              collision_mask: { type: 'number', description: 'tileset_physics_layer_add: 碰撞遮罩位掩码（可选）' },
-              physics_layer: { type: 'number', description: 'tile_collision_set: 物理 layer 索引（0 起）' },
-              shape: { type: 'string', enum: ['rect', 'polygon'], description: 'tile_collision_set: rect=全格四点；polygon=自定义点集' },
-              points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } }, description: 'tile_collision_set polygon 模式点集 [{x,y}]' },
+              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign + 层配置 9 op；层配置 op 限 res:// 项目内 .tres）' },
+              collision_layer: { type: 'number', description: 'tileset_physics_layer_add/set: 碰撞层位掩码' },
+              collision_mask: { type: 'number', description: 'tileset_physics_layer_add/set: 碰撞遮罩位掩码' },
+              physics_layer: { type: 'number', description: 'tile_collision_set/clear: 物理 layer 索引（0 起）' },
+              layer: { type: 'number', description: 'tileset_physics_layer_set/remove 与 tile_custom_data_set: layer 索引（0 起）' },
+              layers: { type: 'number', description: 'tileset_navigation_layer_add: 导航层位掩码（可选）' },
+              navigation_layer: { type: 'number', description: 'tile_navigation_set: 导航 layer 索引（0 起）' },
+              shape: { type: 'string', enum: ['rect', 'polygon'], description: 'tile_collision_set/tile_navigation_set: rect=全格四点；polygon=自定义点集' },
+              points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } }, description: 'polygon 模式点集 [{x,y}]' },
               one_way: { type: 'boolean', description: 'tile_collision_set: 单向碰撞（可选）' },
+              name: { type: 'string', description: '节点名称（node_add）/自定义数据层名（tileset_custom_data_layer_add）' },
+              type: { type: 'string', description: '节点类型（node_add）/数据层类型 int|float|bool|string|color|vector2（可选）' },
               path: { type: 'string', description: '节点路径（node_property）' },
               property: { type: 'string', description: '属性名' },
-              value: { description: '属性值' },
+              value: { description: '属性值（node_property）/自定义数据值（tile_custom_data_set）' },
               parent: { type: 'string', description: '父节点路径（node_add）' },
-              name: { type: 'string', description: '节点名称（node_add）' },
-              type: { type: 'string', description: '节点类型（node_add）' },
             },
             required: ['op'],
           },
@@ -86,21 +89,20 @@ export async function handleCommitAction(
     return opsErrorResult('INVALID_PARAMS', validationError);
   }
 
-  // 碰撞 op(tileset_physics_layer_add / tile_collision_set)经 ResourceSaver 写 .tres——
+  // TileSet 资源 op(物理/导航/自定义数据层,共 9 个)经 ResourceSaver 写 .tres——
   // tileset_path 是写盘参数,必须过项目内校验(deny-by-default,防越界写)。
   // validateCommitOperations 已做 res:// 前缀 + 明文 .. 浅校验;此处对已存在的 .tres 追加
   // resolveWithinRoot realpath 纵深校验(拦 URL 编码/symlink 等绕过浅校验的形态,
   // memory: file-path-args-whitelist-blindspot)。不存在的路径无覆写面——GD 侧 load null
   // 走 "TileSet resource not found" 结构化错误,放行到执行层。
   for (const op of operations) {
-    if (op.op === 'tileset_physics_layer_add' || op.op === 'tile_collision_set') {
-      const rel = normalizeUserProjectPath(op.tileset_path as string);
-      if (existsSync(resolve(p, rel))) {
-        try {
-          resolveWithinRoot(p, rel);
-        } catch {
-          return opsErrorResult('INVALID_PARAMS', `Op tileset_path escapes project root: ${String(op.tileset_path)}`);
-        }
+    if (!TILESET_RESOURCE_OPS.has(op.op as string)) continue;
+    const rel = normalizeUserProjectPath(op.tileset_path as string);
+    if (existsSync(resolve(p, rel))) {
+      try {
+        resolveWithinRoot(p, rel);
+      } catch {
+        return opsErrorResult('INVALID_PARAMS', `Op tileset_path escapes project root: ${String(op.tileset_path)}`);
       }
     }
   }
