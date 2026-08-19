@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.32.7] - 2026-08-19
+## [Unreleased]
 
 ### Added — scene_commit 新增 TileSet 资源层配置 9 op(14 个 Godot MCP 竞品中首创,physics/navigation/custom data 三层全可编程,消除「AI 铺瓦片后必须手动配置层」断点)
 

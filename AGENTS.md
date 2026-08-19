@@ -279,6 +279,8 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 ### 发版前额外门禁
 
+**默认不发版**(2026-08-19 用户定规):小版本迭代(feature/fix 批)合并即可,不随批走版本链——版本号不 bump、README 版本表不加行、matrix 按 package.json 当前版本生成;变更记录进 CHANGELOG `[Unreleased]` 段(Keep a Changelog 标准做法)。仅当用户明确说「发版/打 tag/发 release」时,才 bump 版本 + 跑下面第 4 项门禁 + `version-sync` + CHANGELOG 段定版 + README 版本行。
+
 发版(打 tag / 发 release)前,在上述三项基础上额外跑:
 
 4. **`verify_delivery`**(MCP 工具,非 npm script)— 端到端交付门禁:场景树完整性 + 脚本健康 + 性能 + 自定义断言。这是发版的硬性门禁,不通过不发版。
