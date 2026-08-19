@@ -111,3 +111,17 @@ npm run check:budget → 3 既有 warn(engine/game/ui 描述长度,历史遗留)
 1. `in` 操作符做对象白名单判定的原型链陷阱(constructor/toString 绕过)——一律 hasOwnProperty/Object.keys().includes()。
 2. "集合成员 ↔ 写盘 op"精确对账是写路径安全的审查锚点:单一事实源(TILESET_RESOURCE_OPS)同时驱动 save 收集与 handler 校验,配套"删成员即红"接线测试。
 3. guard 链 helper 化重构的缩进核验要以"尾部 else: 的 tab 数 + 1"为锚,不信任描述中的绝对 tab 数。
+
+---
+
+## 合并前终审(2026-08-19,PR#41 @ 3d90772 → Nit 修复 1496e6f)
+
+**总体判定:APPROVE(1 个低严重度 Nit,已修)**。终审重点为未审过的发版链撤销 commit 与分支终态:
+
+- **版本回退完整性**:package.json/package-lock(两处)/manifest/plugin.cfg/server.json(双处)/Dockerfile/使用指南/matrix 全部实测 0.32.6;CHANGELOG `[Unreleased]` 全文件唯一且 9 op 内容完整;README 版本表最新 v0.32.6;matrix 16 op enum 完整(版本回退未丢 schema)。
+- **活配置零残留**:全仓 `0\.32\.7` 仅命中本审查文档 5 处历史记录,语境合理。
+- **终态互锁**:COMMIT_OPERATIONS 16 / TILESET_RESOURCE_OPS 9 / tileGuardChain 4 调用点 / is TileSet 守卫(5 内联+guardChain×4=生成脚本 9 处,测试用 `is TileSet):` 精确计数锁定)/ N-1 hasOwnProperty 修复在位。
+- **约束核查**:双副本未触碰(正确)、check:gdscript 不适用(无 .gd 改动)成立。
+- **Nit(已修)**:AGENTS.md 变更日志表补登 2026-08-19 行(1496e6f);另记历史观察:CHANGELOG 存在两个 0.24.0 重复段(2026-07-25 遗留,与本分支无关,留文档清理批)。
+
+合并链:CI 三 job 绿(Godot 4.6.3/4.7.1/check)→ merge commit efce861。发版状态:**未发版**(版本 0.32.6,变更记 [Unreleased],按用户定规小版本迭代默认不发版)。
