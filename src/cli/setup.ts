@@ -4,8 +4,8 @@ import { findGodot } from '../core/godot-finder.js';
 import { ALL_ADAPTERS } from './clients/index.js';
 import { getErrorMessage } from '../types.js';
 
-/** I-08: 检测 MCP command/args — 改进安装方式判断 */
-function detectMcpCommand(): { command: string; args: string[] } {
+/** I-08: 检测 MCP command/args — 改进安装方式判断(setup/configure 共用) */
+export function detectMcpCommand(): { command: string; args: string[] } {
   const entryPath = process.argv[1] ?? '';
 
   // 优先检查 npm_lifecycle_event 判断运行上下文

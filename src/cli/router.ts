@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __cliDir = dirname(fileURLToPath(import.meta.url));
 const __rootDir = join(__cliDir, '..', '..');
 
-const SUBCOMMANDS = ['setup', 'doctor', 'init', 'dashboard', 'qa'] as const;
+const SUBCOMMANDS = ['setup', 'configure', 'doctor', 'init', 'dashboard', 'qa'] as const;
 export type Subcommand = typeof SUBCOMMANDS[number];
 
 export function parseSubcommand(args: string[]): { subcommand: Subcommand; rest: string[] } | null {
@@ -29,6 +29,11 @@ export async function routeCommand(args: string[]): Promise<void> {
     case 'setup': {
       const { runSetup } = await import('./setup.js');
       await runSetup(parsed.rest);
+      break;
+    }
+    case 'configure': {
+      const { runConfigure } = await import('./configure.js');
+      await runConfigure(parsed.rest);
       break;
     }
     case 'doctor': {
@@ -76,6 +81,7 @@ godot-mcp-enhanced — Godot AI 开发环境
 用法:
   godot-mcp-enhanced                  启动 MCP 服务器（stdio 模式）
   godot-mcp-enhanced setup            一键配置 AI 客户端
+  godot-mcp-enhanced configure <客户端>  定向配置单个客户端（--list 列出全部，--force 强制）
   godot-mcp-enhanced doctor           环境诊断
   godot-mcp-enhanced init <name>      创建 Godot 项目
   godot-mcp-enhanced dashboard        启动监控面板

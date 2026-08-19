@@ -21,7 +21,7 @@ describe('router', () => {
     });
 
     it('parses all valid subcommands', () => {
-      for (const cmd of ['setup', 'doctor', 'init', 'dashboard'] as const) {
+      for (const cmd of ['setup', 'configure', 'doctor', 'init', 'dashboard'] as const) {
         expect(parseSubcommand([cmd])).toEqual({ subcommand: cmd, rest: [] });
       }
     });
