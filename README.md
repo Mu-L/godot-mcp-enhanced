@@ -532,6 +532,8 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
 | `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
 | `DEBUG` | 启用详细日志 | `false` |
+| `GODOT_MCP_BRIDGE_PORT` | game bridge 起始监听端口（被占自动递增避让至 +9;多实例并存安全,实际端口写入实例 registry,ping 响应带 pid/project 指纹） | `9081` |
+| `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` | `true`=confirm 类写操作跳过 out-of-band 确认（⚠️ 削弱安全防线;生产环境设此值 server 拒绝启动,详见使用指南 12.12） | `false` |
 | `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
 | `GODOT_MCP_PROFILE` | 工具 profile(basic/lite/minimal/full/bridge_dev/3d_dev 或逗号组名)。**默认 basic**(BREAKING from full;lite 9 组省 ~60% context,RCE action 经 action-gate 默认 gated)。回退全量:`GODOT_MCP_PROFILE=full` 或 `--profile=full` | `basic` |
 

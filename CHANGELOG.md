@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 反馈批次处理（bridge 多实例劫持 / mcp_bridge.gd 工作区污染 / headless save_scene 抹 uid / run_tests GUT 9.6 兼容）
+
+**Bridge 多实例端口劫持根治（2026-08-19 反馈）**
+- GD 侧（`src/scripts/mcp_bridge.gd`）：listen 前主动 connect 探测端口占用（Windows 下两个进程 bind 同一端口可能都"成功"，流量实际都到先占实例——listen 错误码测不出），被占自动递增避让（9081→9090）；env `GODOT_MCP_BRIDGE_PORT` 可设起点；端口全失败的 warning 附 Windows 保留端口段（`netsh ... excludedportrange`）排查提示；ping 响应新增 `pid`/`project` 实例指纹（连错实例一眼可辨）。
+- 实例 registry 升级双写：machine-level（`~/.godot-mcp/instances/`，MCP server 解析源）+ project-level（原有）。
+- TS 侧（`src/tools/game-bridge.ts`）：新增 `resolveBridgePort`——按 projectPath 匹配最新存活心跳条目（capabilities 过滤 server 自注册条目，>5min 无心跳的超龄条目忽略）解析实际端口，连接/auth 探测/secret 路径全链路接入；registry 不可读时回落 9081（旧版 GD 完全兼容）。
+- 双实例 e2e 验证：两实例 9081/9082 各自 auth+ping 通，pid 指纹可区分。
+
+**mcp_bridge.gd 工作区污染守卫（2026-08-18 反馈）**
+- `game_bridge_install`：目标 `mcp_bridge.gd` 内容与工具自带版本不同（项目自管/git tracked + 本地修改）时**不覆盖**（保留用户版本并在响应中说明）；一致才覆盖刷新。
+- `game_bridge_uninstall`：内容不同时**不删除**（只清 autoload 注册）；uninstall 同时清理全部端口的 secret 文件（避让端口残留）。
+
+**headless 场景写盘保留 uid（2026-07-19 反馈）**
+- `_save_atomic` 新增 `preserve_uids_from` 参数：save 后按原文快照文本回填 `[gd_scene]` header uid 与 `[ext_resource]` uid（按 path 匹配、已有不覆盖、失败不阻断 save）。根因：`pack()` 新建 PackedScene 的 uid 为空（ResourceSaver 便不写 `uid=`）、ext uid 依赖 ResourceUID 注册表（headless 未 import 缺失）；Resource 无公开 uid 属性（4.6.3 实测），文本回填是唯一兼容 4.5-4.7 的修法。
+- `save_scene`/`add_node`/`edit_node`/`batch_add_nodes`/`load_sprite` 传原路径；`create_scene`（新文件）/`resave_resources`（语义=重生成）不传。
+- e2e 验证（Godot 4.6.3）：修前 header+ext uid 全丢 → 修后全保留；`edit_node` 属性持久化与 `batch_add_nodes` res:// 资源绑定（ExtResource 落盘）同轮验证通过。
+
+**runtime 工具**
+- `run_tests` 新增 `quit_flag` 参数（`gquit`/`gexit`，默认 `gquit` 保持兼容）——GUT 9.6+ 移除 `-gquit`（报 `Unknown arguments`）时切 `gexit`（2026-07-04 反馈）。
+- `run_project` 的 `timeout` schema 描述补强：明示冷启动 >30s 项目可传大值（自 0.24 起 `computeRunTimeout` 已无上限，仅下限 5）与 `wait_for_bridge` 自动 `max(bridge_timeout+10, timeout)` 语义（2026-08-14 反馈）。
+
 ### Added — scene_commit 新增 TileSet 资源层配置 9 op(14 个 Godot MCP 竞品中首创,physics/navigation/custom data 三层全可编程,消除「AI 铺瓦片后必须手动配置层」断点)
 
 **碰撞(physics)**
