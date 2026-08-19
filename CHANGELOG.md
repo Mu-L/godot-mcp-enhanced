@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 分发优先批（竞品横扫行动:P0-2 configure / P1-1 UID / P1-2 翻译 / 新 resources 组）
+
+- **`skills` 子命令 + skills 分发（P2-2,对标 godogen 分流路线）**:`build:skills` 双输出（.claude/skills/ 仓库自用 + 顶层 skills/ 分发源,后者进 npm files）;`godot-mcp-enhanced skills [list|install]` 一条命令把打包的 6 个 Claude Code skills（godot-router 路由器/godot-mcp-safe-edit 安全编辑/godot-mcp-verify-loop 验证闭环/godot-mcp-bridge-e2e/screenshot-verify 截图留证/godot-tween-taste Tween 审计）装入 `~/.claude/skills/`,`--target <目录>` 装项目级、`--force` 覆盖、幂等 skip。安装摩擦低于手工 MCP 配置（对标 godogen 5.5k★ 分流验证的"安装摩擦是分发核心变量"）。load_skill 生态复用度评估:打包 skills/ 目录（SKILL.md 子目录结构）可直接经 `GODOT_SKILL_LIBRARIES` 注册为 load_skill 库（其 walkMd 递归扫 .md,格式天然兼容）,无需额外适配。
+
+- **`configure <client>` 一键配置子命令（P0-2）**：定向配置单个 AI 客户端，替代手工 docs/使用指南-Warp.md。`--list` 列出全部支持客户端与安装/配置状态；`--force` 越过未检测闸与幂等跳过（客户端装在非默认位置/提前预置配置）；客户端名归一化匹配（"claude-code" ≡ "Claude Code" ≡ "CLAUDE CODE"）。`setup` 的 `detectMcpCommand` 导出共用。
+- **Warp 适配器（第 14 客户端）**：写 `<项目>/.warp/.mcp.json`（project scope），`working_directory` 显式设为项目根（使用指南-Warp §5 最大坑：Warp spawn 的 cwd 默认不是 Godot 项目，resolveProjectPath 每次 WARN）；配置后提示 Warp 项目级审批闸步骤；env 白名单保留/损坏 JSON 备份/原子写+mode 保持对齐其他 13 adapter。
+- **`uid` 工具（P1-1,4 action,Godot 4.4+ 文件 UID 管理）**:`uid_scan` 全量扫描（缺 .uid 资源 + 孤儿 .uid）/`uid_get` 查询（批量）/`uid_set` 写 .uid（指定 uid、按路径确定性生成 `ResourceUID.create_id_for_path` 与编辑器一致、`fix_missing` 批量修复）/`uid_check_refs` 悬空 `uid://` 引用检测。主数据源为文件系统 .uid（非 headless 下可能过期/缺失的 uid_cache.bin）；脚本走 `executeGdscriptTrusted`（工具自生成 + TS 侧 uid 正则/sanitizeResPath/extensions 白名单校验,对齐 data-import/material-ops 模式）。真机 Godot 4.6.3 全链验证（scan 识别缺失/孤儿 → set 生成 → get 读回 → fix_missing 幂等 → check_refs 抓悬空引用）。
+- **`translation` 工具（P1-2,3 action,翻译文件管理,纯 TS）**:`translation_read` 读 CSV（Godot 国际化表格）/PO（gettext,含多行 msgid/msgstr 与 Language header）条目（limit 截断防大文件撑爆上下文）/`translation_write` 写 Godot 兼容 CSV（RFC 4180 转义:逗号/引号/换行;原子写）/`translation_register` 把 .translation/.po 注册进 project.godot `internationalization/locale/translations`（合并去重/幂等/`remove=true` 反向移除;csv 拒绝——CSV→.translation 编译属编辑器导入器职责,诚实边界）。全部文件 IO 过 `resolveWithinRoot` 白名单 + 负向测试（路径遍历/幽灵文件/坏扩展/坏语言码）。
+- **TOOL_GROUPS 新增 `resources` 组**（uid + translation,无 editor/bridge 依赖）;工具总数 43→45、action 241→248（read 124/write 98/destructive 10/process 16,matrix 实测）,README/README.en/manifest/server.json/distribution/migration/规则双副本 24 处计数同步。
+
 ### Added — Godot 4.7.x 适配批(4.7.1/4.7.2 维护版正式发布跟进;两版官方声明零 API 不兼容)
 
 - **cpp scaffold 支持 `godot_version=4.7`**:枚举扩为 `4.4–4.7`,默认 4.7。godot-cpp 自 v10(独立版本号,master 分支)起不再发布 `godot-{ver}-stable` ref,故分轨——4.6/4.7 生成 `git clone`(master)+ SConstruct 显式 `{"api_version": "{ver}"}`(官方推荐,防 master 默认 target 漂移);4.4/4.5 保持旧 `godot-{ver}-stable` 分支。clone 命令收敛为 `godotCppCloneCommand()` 单一来源(README 模板与工具返回值共用)。

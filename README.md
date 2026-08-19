@@ -4,7 +4,7 @@
 > 「系统化安全防护 + 三层架构 + 运行时控制」的开源方案。
 
 给 AI(Claude Code、Cursor、CodeBuddy 等 MCP 客户端)一个能真正读、写、跑、验证 Godot 项目的
-工具层:43 个 MCP 工具(merged,共 241 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
+工具层:45 个 MCP 工具(merged,共 248 个 action;完整清单见 [capability-matrix](docs/capability-matrix.md))覆盖场景/脚本/UI/动画/物理/粒子/导航/音频/测试/导出/3D 参数化资产(asset:11 shape + 路径阵列 + batch 原子 undo),三层架构
 (headless + editor + game bridge)+ 路径白名单 / 注入防御 / sandbox 安全体系。
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
@@ -19,7 +19,7 @@
 |---|:---:|:---:|:---:|:---:|:---:|
 | 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] | 免费 [^p4] |
 | 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] | ✅ [^p4] |
-| 工具数 | **43** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] | 386 [^p4] |
+| 工具数 | **45** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] | 386 [^p4] |
 | 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — | 部分(TCP token) [^p4] |
 | 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] | TS server + 编辑器插件 TCP [^p4] |
 | **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ | ✅ 11 个 runtime 工具 [^p4] |
@@ -142,9 +142,9 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 ## 工具一览
 
-> 共 43 个 MCP 工具(merged tool definition,共 241 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
+> 共 45 个 MCP 工具(merged tool definition,共 248 个 action),以下按 action 逐项展开全部操作;权威清单见 [capability-matrix](docs/capability-matrix.md)。
 >
-> **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:43**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:241**(matrix 的 risk 聚合 read 120+write 95+destructive 10+process 16)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
+> **关于「工具数」**:本项目用 merged tool 架构——每个顶层 MCP 工具(如 `scene`)聚合多个 action(如 `read_scene`/`add_node`/`save_scene`)。**顶层工具数:45**(`tools/list` 返回条目数,与 capability-matrix 一致);**action 总数:248**(matrix 的 risk 聚合 read 124+write 98+destructive 10+process 16)。对比竞品统一用「顶层工具数」口径。两个数字均由 `npm run build-matrix` 从代码自动生成,CI 漂移检测守护。
 
 ### 执行工具
 
@@ -425,6 +425,18 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 | `editor_sync_start` | 启动场景树实时监听（推送 node_added/node_removed 事件） |
 | `editor_sync_stop` | 停止场景树监听 |
 
+### 资源管理工具（UID / 翻译）
+
+| 工具 | 说明 |
+|------|------|
+| `uid_scan` | 扫描项目内全部资源文件的 UID 状态（Godot 4.4+ `.uid`）：缺 `.uid` 的资源、孤儿 `.uid`（主文件不存在） |
+| `uid_get` | 查询文件 UID（单个/批量，`res://` 路径） |
+| `uid_set` | 写 `.uid` 文件：指定 uid / 按路径确定性生成（与编辑器一致）/ `fix_missing` 批量修复缺失 |
+| `uid_check_refs` | 扫描文本资源中的 `uid://` 引用，检测悬空引用（引用的 UID 不在项目 `.uid` 集合中） |
+| `translation_read` | 读 CSV（Godot 国际化表格）/ PO（gettext）翻译条目（语言 + 键值对，支持截断） |
+| `translation_write` | 写/创建 Godot 兼容 CSV 翻译表（`keys` + 每语言一列；CSV→`.translation` 编译由编辑器导入完成） |
+| `translation_register` | 把 `.translation`/`.po` 资源注册进 `project.godot` 的 `internationalization/locale/translations`（`remove=true` 反向移除） |
+
 > ⚠️ 运行时工具(物理 / 动画 / UI / 粒子 / TileMap / 材质等)仅在 headless 执行上下文生效,
 > **不持久化到 .tscn**;需持久化用 `add_node` + `save_scene`。
 
@@ -500,7 +512,7 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 
 #### Warp
 [Warp 终端](https://www.warp.dev/) 原生支持 MCP。**Settings → Agents → MCP servers → + Add → CLI Server**，粘贴与上面相同的 json（`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`）；也可写入 `~/.warp/.mcp.json`，或开启「Auto-spawn servers from third-party agents」直接复用上面的 Claude Code 配置（零额外配置）。
-> ✅ 协议层实测通过（43 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
+> ✅ 协议层实测通过（45 工具全发现、inputSchema 完整、无 integer 参数兼容风险）；⚠️ Warp GUI 端到端待补（本机未装 Warp）。完整步骤、兼容性核对表、env / `working_directory` 说明见 [使用指南-Warp](docs/使用指南-Warp.md)。
 
 #### ZCode（智谱 GLM-5.2 ADE）
 [ZCode](https://zcode.z.ai/) 原生支持 MCP。**设置 → MCP 服务器 → 新建**（stdio，`command: npx`、`args: ["-y", "godot-mcp-enhanced"]`），或写入 `<项目根>/.zcode/config.json` / `.agents/mcp.json`。**关键**：ZCode 不读 `CLAUDE.md`，只读 workspace 根 `AGENTS.md`——运行 `setup_project_rules`（默认双写）生成 `AGENTS.md` 让 godot 规则生效。
@@ -510,6 +522,14 @@ CodeBuddy 文档（2026-06-27 实测）支持外部 stdio MCP Server：**设置 
 ```bash
 npx godot-mcp-enhanced setup
 # 自动检测：Godot 路径 + AI 客户端 + 写入配置
+
+npx godot-mcp-enhanced configure warp
+# 定向配置单个客户端（--list 列出全部 14 个，--force 越过未检测闸）
+
+npx godot-mcp-enhanced skills install
+# 打包的 6 个 Claude Code skills（路由器/安全编辑/验证闭环/bridge E2E/截图留证/Tween 审计）
+# 一条命令装入 ~/.claude/skills/（--target <目录> 装项目级，--force 覆盖），
+# 指导 AI 更好地调用 godot-mcp 工具——安装摩擦低于手工 MCP 配置，配合 configure 使用
 ```
 
 ### 首次使用
