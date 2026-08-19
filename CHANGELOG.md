@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.6] - 2026-08-19
+
+### Added — tilemap 支持可选 scene_path(对任意场景操作,不再局限主场景;PR#36 外部贡献集成)
+
+- **`tilemap` 八个 action 新增可选 `scene_path`**:传入时用 `_mcp_load_scene()` 加载指定场景、`_mcp_get_scene_node()` 在其中解析节点(自动剥离 `root/` 前缀与场景根节点名,`"root/Ground"`/`"Ground"`/`"TrackA/Ground"` 均可);省略时生成脚本逐字节不变(仍 `_mcp_load_main_scene()` + `_mcp_get_node()`,有测试锁定)。此前八个生成器一律硬编码加载 `application/run/main_scene`——主场景是菜单的项目(常见布局)无论怎么写 `node_path` 都只拿到 `TILEMAP_NOT_FOUND`,报错形态还误导排查方向。
+- `scene_path` 经 `resolveWithinRoot(normalizeUserProjectPath(...))` 白名单归一(同 ui 工具),越界 → INVALID_PARAMS;九处重复 preamble 收敛为 `scenePreamble` helper。
+- 集成对齐(基于 0.32.1 时代 fork 基底):转义按债务批约定对齐 escapeForGdLiteral;handler 越界映射 INVALID_PARAMS + `../` 逃逸负向测试;matrix 重生成。作者 @thefireKS 在真 Godot 4.6.2 项目端到端验证(575 cells 解码)。
+
 ## [0.32.5] - 2026-08-19
 
 ### Fixed — 债务清理批

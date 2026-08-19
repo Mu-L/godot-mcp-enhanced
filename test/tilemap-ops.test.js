@@ -176,3 +176,142 @@ describe('genTilemapReadScript empty region', () => {
     expect(script).toContain('node.get_class() == "TileMapLayer"');
   });
 });
+
+describe('scene_path targeting', () => {
+  const SCENE = '/proj/scenes/levels/TrackA.tscn';
+  // The shared header *defines* both loaders, so assertions must target the call
+  // inside _initialize, not the bare function name.
+  const MAIN_CALL = '\n\t_mcp_load_main_scene()\n';
+  const sceneCall = (p) => `if not _mcp_load_scene("${p}"):`;
+
+  it('defaults to the main scene when scenePath is omitted', () => {
+    const script = genTilemapReadScript('root/Ground');
+    expect(script).toContain(MAIN_CALL);
+    expect(script).toContain('var node = _mcp_get_node("root/Ground")');
+    expect(script).not.toContain(sceneCall(SCENE));
+  });
+
+  it('loads the named scene and resolves the node inside it', () => {
+    const script = genTilemapReadScript('root/Ground', undefined, undefined, SCENE);
+    expect(script).toContain(sceneCall(SCENE));
+    expect(script).toContain('var node = _mcp_get_scene_node("root/Ground")');
+    expect(script).not.toContain(MAIN_CALL);
+  });
+
+  it('keeps the node null-check on both paths', () => {
+    for (const script of [
+      genTilemapReadScript('root/Ground'),
+      genTilemapReadScript('root/Ground', undefined, undefined, SCENE),
+    ]) {
+      expect(script).toContain('Node not found: root/Ground');
+    }
+  });
+
+  it('escapes quotes in scenePath', () => {
+    const script = genTilemapReadScript('root/Ground', undefined, undefined, 'a"b.tscn');
+    expect(script).toContain('_mcp_load_scene("a\\"b.tscn")');
+  });
+
+  it('is honoured by every generator', () => {
+    const pattern = { cells: [{ coords: [0, 0], source_id: 1, atlas_coords: [0, 0], alternative_tile: 0 }], size: { w: 1, h: 1 } };
+    const scripts = [
+      genTilemapReadScript('root/M', undefined, 0, SCENE),
+      genTilemapSetCellScript('root/M', { x: 1, y: 1 }, 1, { x: 0, y: 0 }, 0, 0, SCENE),
+      genTilemapEraseCellScript('root/M', { x: 1, y: 1 }, 0, SCENE),
+      genTilemapFillRectScript('root/M', { x: 0, y: 0, w: 2, h: 2 }, 1, { x: 0, y: 0 }, 0, 0, SCENE),
+      genTilemapClearScript('root/M', 0, false, SCENE),
+      genTilemapCopyScript('root/M', { x: 0, y: 0, w: 2, h: 2 }, 0, SCENE),
+      genTilemapPasteScript('root/M', { x: 5, y: 5 }, pattern, 0, SCENE),
+      genTilemapSetTransformScript('root/M', { x: 1, y: 1 }, true, false, false, 0, SCENE),
+    ];
+    for (const script of scripts) {
+      expect(script).toContain(sceneCall(SCENE));
+      expect(script).toContain('var node = _mcp_get_scene_node("root/M")');
+      expect(script).not.toContain(MAIN_CALL);
+    }
+  });
+});
+
+// ─── handler 级 scene_path 白名单负向 + 解析透传(PR#36 集成补)────────────────
+// 模式沿 test/ui-import-prototype.test.ts 逃逸用例:isolatePathEnv 白名单隔离 +
+// mock executeGdscript(tilemap 走 executeGdscript 非 trusted)+ 不触达断言。
+import { vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { isolatePathEnv } from './helpers/path-isolation.js';
+import { createToolContext } from './helpers/tool-context.js';
+import { mockSuccessResult } from './helpers/mock-results.js';
+import { handleTool as tilemapHandleTool } from '../src/tools/tilemap-ops.js';
+
+const { execMock } = vi.hoisted(() => ({ execMock: vi.fn() }));
+vi.mock('../src/gdscript-executor.js', () => ({
+  executeGdscript: execMock,
+  executeGdscriptTrusted: vi.fn(),
+}));
+
+describe('scene_path handler 白名单与解析', () => {
+  let tmpProj;
+  let restore;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tmpProj = mkdtempSync(join(tmpdir(), 'tilemap-scene-path-'));
+    writeFileSync(join(tmpProj, 'project.godot'), '[application]\nname="Test"\n');
+    restore = isolatePathEnv({ allowed: [tmpProj] });
+  });
+  afterEach(() => {
+    restore?.();
+    rmSync(tmpProj, { recursive: true, force: true });
+  });
+  const ctx = () => {
+    const c = createToolContext(tmpProj);
+    c.findGodot = async () => '/fake/godot';
+    return c;
+  };
+
+  it('../ 逃逸 → INVALID_PARAMS,不触达 executor', async () => {
+    const result = await tilemapHandleTool('tilemap', {
+      action: 'tilemap_read', project_path: tmpProj, node_path: 'root/Ground',
+      scene_path: '../outside/level.tscn',
+    }, ctx());
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(result.content);
+    expect(text).toContain('INVALID_PARAMS');
+    expect(text).toMatch(/traversal|越权|非法/i);
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
+  it('白名单外绝对路径 → INVALID_PARAMS,不触达 executor', async () => {
+    const result = await tilemapHandleTool('tilemap', {
+      action: 'tilemap_read', project_path: tmpProj, node_path: 'root/Ground',
+      scene_path: join(tmpdir(), 'outside-evil.tscn'),
+    }, ctx());
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain('INVALID_PARAMS');
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
+  it('空字符串 scene_path → INVALID_PARAMS(终审 M-1 判空),不触达 executor', async () => {
+    const result = await tilemapHandleTool('tilemap', {
+      action: 'tilemap_read', project_path: tmpProj, node_path: 'root/Ground',
+      scene_path: '',
+    }, ctx());
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain('INVALID_PARAMS');
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
+  it('合法 scene_path → resolveWithinRoot 解析后的绝对路径注入生成脚本', async () => {
+    execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{ key: 'read', value: '{}' }] }));
+    const result = await tilemapHandleTool('tilemap', {
+      action: 'tilemap_read', project_path: tmpProj, node_path: 'root/Ground',
+      scene_path: 'levels/TrackA.tscn',
+    }, ctx());
+    expect(result.isError).toBeFalsy();
+    const code = execMock.mock.calls[0][0].code;
+    // 分隔符无关断言:resolveWithinRoot 产物为绝对路径(Win 反斜杠经转义),匹配文件名即可
+    expect(code).toMatch(/_mcp_load_scene\(".*TrackA\.tscn"\)/);
+    expect(code).toContain('_mcp_get_scene_node("/root/Ground")');
+    expect(code).not.toContain('\n\t_mcp_load_main_scene()\n');  // 调用形态;SCENE_TREE_HEADER 内含函数定义,裸名会误匹配
+  });
+});
