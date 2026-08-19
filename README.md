@@ -15,20 +15,23 @@
 > 免费的 Coding-Solo 仅 13 个。真正稀缺的不是工具数量,而是「免费 + 开源 + 系统化安全防护」——安全维度在赛道内几乎无人设防。
 > 数据截至 2026-06-27(stars / 工具数 / 价格均可能变化,详见各项目仓库)。
 
-| 维度 | **本项目** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp |
-|---|:---:|:---:|:---:|:---:|
-| 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] |
-| 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] |
-| 工具数 | **43** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
-| 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — |
-| 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
-| **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ |
-| Godot 4.5–4.7 兼容矩阵 | **✅** | — | — | — |
-| 中文工具描述 | **✅** | — | — | ❌ |
+| 维度 | **本项目** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp | yanhuifair/Godot-MCP [^p4] |
+|---|:---:|:---:|:---:|:---:|:---:|
+| 价格 | **免费** | $15 买断 [^p1] | $19 买断 [^p2] | 免费 [^p3] | 免费 [^p4] |
+| 开源 | **✅ MIT** | ❌ server 预编译闭源 [^p1] | ❌ [^p2] | ✅ [^p3] | ✅ [^p4] |
+| 工具数 | **43** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] | 386 [^p4] |
+| 安全特性 | **✅ 路径白名单 / 注入防御 / sandbox / 确认令牌 / 输出防伪** | — | — | — | 部分(TCP token) [^p4] |
+| 架构 | **三层 headless + editor + bridge** | 单 editor WS [^p1] | stdio [^p1] | headless CLI [^p1] | TS server + 编辑器插件 TCP [^p4] |
+| **运行时控制（engine-level）** | **✅ game bridge：读运行时状态 / 输入模拟 / 录制回放 / frame-verify** | ❌ 仅文件·编辑器层 | ❌ | ❌ | ✅ 11 个 runtime 工具 [^p4] |
+| **确定性 playtest（冻结/单帧/随机锁定）** | **✅ freeze / step_until 条件步进 / `playtest.seed` RNG 锁定 + fixed_delta / snapshot-restore** | — | — | — | ✅ freeze→step→screenshot(无 RNG 锁定/条件步进)[^p4][^p5] |
+| Godot 4.5–4.7 兼容矩阵 | **✅** | — | — | — | —(仅声明 4.x)[^p4] |
+| 中文工具描述 | **✅** | — | — | ❌ | ❌ |
 
 [^p1]: https://github.com/youichi-uda/godot-mcp-pro README(含其自带竞品对比表),抓取 2026-06-27
 [^p2]: GDAI MCP,数据转引自 godot-mcp-pro 对比表,2026-06-27
 [^p3]: https://github.com/Coding-Solo/godot-mcp,抓取 2026-06-27
+[^p4]: https://github.com/yanhuifair/Godot-MCP,抓取 2026-08-19(工具数 386 为 `grep -c "registry.register(" src/tools/register.ts` 实测)
+[^p5]: 该仓库 README 声称「freeze/step/screenshot **No other public Godot MCP does this**」——与事实不符:本项目的 `playtest.freeze` / `step_until`(结构化条件步进)与 [satelliteoflove/godot-mcp](https://github.com/satelliteoflove/godot-mcp)(2025-12 起)的 deterministic playtesting 均早于该声明,供读者自行核对。
 
 _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;欢迎 PR 修正。_
 
@@ -531,6 +534,8 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_PROJECT_PATH` | 默认项目路径 | 自动检测 cwd（向上搜索 project.godot） |
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
 | `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
+| `GODOT_MCP_BRIDGE_PORT` | game bridge 起始监听端口（被占自动递增避让至 +9;多实例并存安全,实际端口写入实例 registry,ping 响应带 pid/project 指纹） | `9081` |
+| `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` | `true`=confirm 类写操作跳过 out-of-band 确认（⚠️ 削弱安全防线;生产环境设此值 server 拒绝启动,详见使用指南 12.12） | `false` |
 | `DEBUG` | 启用详细日志 | `false` |
 | `GODOT_MCP_BRIDGE_PORT` | game bridge 起始监听端口（被占自动递增避让至 +9;多实例并存安全,实际端口写入实例 registry,ping 响应带 pid/project 指纹） | `9081` |
 | `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` | `true`=confirm 类写操作跳过 out-of-band 确认（⚠️ 削弱安全防线;生产环境设此值 server 拒绝启动,详见使用指南 12.12） | `false` |
