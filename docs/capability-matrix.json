@@ -4527,7 +4527,7 @@
           },
           "stop_on_error": {
             "type": "boolean",
-            "description": "commit: 遇错是否停止（默认 true）"
+            "description": "commit: 遇错是否停止（默认 true）。false 时失败 op 不阻止后续 op 与已修改资源（含 .tres）写盘，逐项结果见 results"
           },
           "godot_path": {
             "type": "string",
@@ -4605,8 +4605,8 @@
       },
       "size": {
         "descBytes": 277,
-        "schemaBytes": 5745,
-        "totalBytes": 6022
+        "schemaBytes": 5851,
+        "totalBytes": 6128
       },
       "annotations": {
         "readOnlyHint": false,

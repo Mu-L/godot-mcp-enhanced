@@ -95,6 +95,22 @@ describe('scene commit tileset ops: tileset_path 项目内校验', () => {
     expect(executeGdscript).not.toHaveBeenCalled();
   });
 
+  it('tile_collision_set %2e%2e 编码穿越(文件存在)→ handler 层 realpath 纵深兜底(审查 Nit-1)', async () => {
+    // res://../ 明文形态被浅校验拦;本用例覆盖 tile_collision_set 分支的 handler 层
+    // resolveWithinRoot 路径(与 tileset_physics_layer_add 分支代码对称,补专属判别)。
+    mkdirSync(join(dirRef.path!, '%2e%2e'));
+    writeFileSync(join(dirRef.path!, '%2e%2e', 'evil.tres'), '');
+
+    const result = await handleTool('scene', commitArgs([
+      { op: 'tile_collision_set', tileset_path: 'res://%2e%2e/evil.tres', source_id: 0, atlas: { x: 0, y: 0 }, physics_layer: 0, shape: 'rect' },
+    ]), ctx);
+
+    const text = result.content?.[0]?.text ?? '';
+    expect(result.isError).toBe(true);
+    expect(text).toContain('escapes project root');
+    expect(executeGdscript).not.toHaveBeenCalled();
+  });
+
   it('合法 res:// tileset_path(文件尚不存在)→ 校验放行透传,由 GD 侧 resource not found 守卫兜底', async () => {
     // existsSync 对目标 .tres 返回 false(其余路径保持 true 供 requireScenePath 等守卫)
     mockExists.mockImplementation((f: unknown) => !String(f).replace(/\\/g, '/').includes('assets/tiles.tres'));

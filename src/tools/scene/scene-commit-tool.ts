@@ -35,7 +35,7 @@ export function getToolDefinitions(): Tool[] {
               source_id: { type: 'number', description: 'TileSet 源 ID' },
               atlas: { type: 'object', description: '图集坐标 {x, y}' },
               alternative_tile: { type: 'number', description: '替代图块索引（默认 0）' },
-              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set）' },
+              tileset_path: { type: 'string', description: 'TileSet 资源路径（tileset_assign/tileset_physics_layer_add/tile_collision_set；碰撞两 op 限 res:// 项目内 .tres）' },
               collision_layer: { type: 'number', description: 'tileset_physics_layer_add: 碰撞层位掩码（可选）' },
               collision_mask: { type: 'number', description: 'tileset_physics_layer_add: 碰撞遮罩位掩码（可选）' },
               physics_layer: { type: 'number', description: 'tile_collision_set: 物理 layer 索引（0 起）' },

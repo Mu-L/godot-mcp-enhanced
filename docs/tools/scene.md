@@ -65,7 +65,7 @@
 | `parent` | string |  | create_3d_node: 父节点路径（默认 root） |
 | `operations` | array |  | commit: 批量操作列表（tile_set/tile_fill/tile_erase/tile_clear/tileset_assign/node_property/node_add/tileset_physics_layer_add/tile_collision_set） |
 | `save` | boolean |  | commit: 是否保存到文件（默认 true） |
-| `stop_on_error` | boolean |  | commit: 遇错是否停止（默认 true） |
+| `stop_on_error` | boolean |  | commit: 遇错是否停止（默认 true）。false 时失败 op 不阻止后续 op 与已修改资源（含 .tres）写盘，逐项结果见 results |
 | `godot_path` | string |  | 覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量） |
 
 ## 风险分布
