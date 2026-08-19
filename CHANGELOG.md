@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.7] - 2026-08-19
+
+### Added — scene_commit 新增 TileSet 碰撞配置两 op(14 个 Godot MCP 竞品中首创,消除「AI 铺瓦片后必须手动画碰撞」断点)
+
+- **`tileset_physics_layer_add`**:向外部 `.tres` TileSet 添加 physics layer(`add_physics_layer`),可选 `collision_layer`/`collision_mask` 位掩码,上报新 layer_id。
+- **`tile_collision_set`**:为 atlas 瓦片配置碰撞多边形——`shape:"rect"` 全格四点(运行时由 `tile_size` 生成,等价编辑器按 F);`shape:"polygon"` 自定义 `{x,y}[]` 点集;可选 `one_way` 单向碰撞。守卫链:source 存在 → 是 TileSetAtlasSource → `has_tile` → `physics_layer` 越界 → TileData 可用,全部结构化报错不崩溃。
+- **保存分支扩展**:commit 含碰撞 op 时,被改 `.tres`(去重)逐个走 tmp+rename 原子写(`_save_resource` helper,与场景保存同模式);纯节点 commit 生成物零变化(有测试锁定)。
+- **安全分层**:生成器层浅校验(`res://` 前缀 + 明文 `..` 段拒绝)+ handler 层对已存在 `.tres` 的 `resolveWithinRoot` realpath 纵深(URL 编码 `%2e%2e` 绕过浅校验的形态被兜底拦截,负向测试);不存在的路径放行至 GD 侧 "TileSet resource not found" 守卫(无覆写面)。
+- 端到端 Godot 4.6.3 实测抓出两处文档与实现偏差并修正生成器:`PackedVector2Array` 构造器只接受 Array(可变参形式 Parse Error);`has_tile` 实际只接受 1 参(文档声明带默认 `alternative_tile` 参)。
+- MVP 边界:排除内嵌 TileSet(subresource 链路复杂,`tileset_assign` 已确立外部 `.tres` 模式)。
+
 ## [0.32.6] - 2026-08-19
 
 ### Added — tilemap 支持可选 scene_path(对任意场景操作,不再局限主场景;PR#36 外部贡献集成)
