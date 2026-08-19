@@ -291,6 +291,16 @@ describe('scene_path handler 白名单与解析', () => {
     expect(execMock).not.toHaveBeenCalled();
   });
 
+  it('空字符串 scene_path → INVALID_PARAMS(终审 M-1 判空),不触达 executor', async () => {
+    const result = await tilemapHandleTool('tilemap', {
+      action: 'tilemap_read', project_path: tmpProj, node_path: 'root/Ground',
+      scene_path: '',
+    }, ctx());
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain('INVALID_PARAMS');
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
   it('合法 scene_path → resolveWithinRoot 解析后的绝对路径注入生成脚本', async () => {
     execMock.mockResolvedValueOnce(mockSuccessResult({ outputs: [{ key: 'read', value: '{}' }] }));
     const result = await tilemapHandleTool('tilemap', {

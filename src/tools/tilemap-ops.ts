@@ -375,6 +375,9 @@ export async function handleTool(
     // resolveGeometryInput 模式;PR#36 集成时补,原实现裸抛)。
     let scenePath: string | undefined;
     if (args.scene_path !== undefined && args.scene_path !== null) {
+      if (String(args.scene_path).trim() === '') {
+        return opsErrorResult('INVALID_PARAMS', 'scene_path 非法: 空字符串(省略该参数则用主场景)');
+      }
       try {
         scenePath = resolveWithinRoot(projectPath, normalizeUserProjectPath(args.scene_path as string));
       } catch (err) {
