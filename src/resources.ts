@@ -191,7 +191,7 @@ Set load_autoloads: true (default) to access project autoloads.
 
 ## Installation
 1. **game_bridge_install** — copies mcp_bridge.gd to project and registers autoload
-2. Run the game — the bridge starts a TCP server on port 9081
+2. Run the game — the bridge starts a TCP server on port 9081 (auto-increments to 9090 if occupied)
 
 ## Querying Game State
 - game_query method ping — check bridge is alive
@@ -233,7 +233,7 @@ Tokens expire after 3 minutes, single-use, max 100 pending.
 
 ## Game Bridge Connection Refused
 - Ensure game is running with bridge autoload
-- Check port 9081 is not blocked
+- Check ports 9081-9090 are not blocked/reserved (bridge auto-avoids occupied ones)
 - Look for "[MCP Bridge] Listening" in Godot output
 
 ## READ_ONLY_MODE

@@ -38,8 +38,10 @@ describe('A5 契约: _save_atomic preserve_uids_from(源码断言)', () => {
   });
 
   it('回填仅补缺失 uid 不覆盖已有,失败不阻断 save', () => {
-    const restore = gd.slice(gd.indexOf('func _restore_uids_in_file'), gd.indexOf('func _dir_ensure') >= 0 ? gd.indexOf('func _dir_ensure') : undefined);
-    expect(restore).toContain('not stripped.contains("uid=")');  // 已有不覆盖
+    // N-7(审查): _restore_uids_in_file 是 godot_operations.gd 最后一个函数之前的有界段,
+    // 直接切到文件尾(该文件没有 _dir_ensure —— 那在 mcp_bridge.gd)。
+    const restore = gd.slice(gd.indexOf('func _restore_uids_in_file'));
+    expect(restore).toContain('not stripped.contains(\' uid="\')');  // 已有不覆盖(N-6 后带前导空格)
   });
 });
 

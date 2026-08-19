@@ -1123,9 +1123,10 @@ func _restore_uids_in_file(path: String, uids: Dictionary) -> void:
 		var line := String(lines[i])
 		var stripped := line.strip_edges()
 		var need_uid := ""
-		if scene_uid != "" and stripped.begins_with("[gd_scene") and not stripped.contains("uid="):
+		# N-6(审查): 带前导空格防 guid= 类子串误判
+		if scene_uid != "" and stripped.begins_with("[gd_scene") and not stripped.contains(' uid="'):
 			need_uid = scene_uid
-		elif not ext_uids.is_empty() and stripped.begins_with("[ext_resource") and not stripped.contains("uid="):
+		elif not ext_uids.is_empty() and stripped.begins_with("[ext_resource") and not stripped.contains(' uid="'):
 			var p := _extract_tscn_attr(stripped, "path")
 			if p != "" and ext_uids.has(p):
 				need_uid = String(ext_uids[p])

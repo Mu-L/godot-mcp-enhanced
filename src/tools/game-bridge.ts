@@ -915,16 +915,17 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
         // A2 (2026-08-18 反馈): 仅当脚本内容与工具自带版本一致(工具托管拷贝)才删除;
         // 内容不同(项目自管/git tracked + 用户修改)则保留并提示,防 uninstall 删掉 tracked 文件。
+        // N-5(审查): bundled 脚本缺失(工具安装损坏)时无法证明是工具托管 → 保守不删。
         const scriptPath = join(projectPath, BRIDGE_SCRIPT_NAME);
         let uninstallNote = '';
         if (existsSync(scriptPath)) {
           const bundledScript = join(dirname(ctx.opsScript), BRIDGE_SCRIPT_NAME);
-          const toolManaged = !existsSync(bundledScript)
-            || readFileSync(bundledScript, 'utf-8') === readFileSync(scriptPath, 'utf-8');
+          const toolManaged = existsSync(bundledScript)
+            && readFileSync(bundledScript, 'utf-8') === readFileSync(scriptPath, 'utf-8');
           if (toolManaged) {
             unlinkSync(scriptPath);
           } else {
-            uninstallNote = ` ${BRIDGE_SCRIPT_NAME} differs from bundled version — kept (delete manually if unwanted).`;
+            uninstallNote = ` ${BRIDGE_SCRIPT_NAME} differs from bundled version (or bundled copy missing) — kept (delete manually if unwanted).`;
           }
         }
 

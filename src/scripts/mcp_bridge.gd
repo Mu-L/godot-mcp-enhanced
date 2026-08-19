@@ -619,6 +619,10 @@ func _restrict_secret_permissions(path: String) -> void:
 func _start_registry_heartbeat() -> void:
 	_instance_id = str(OS.get_process_id()) + "_" + str(Time.get_ticks_msec())
 	# Machine-level registry
+	# N-2(审查·已知限制): OS.get_data_dir() 默认三平台两次 base_dir 归一到用户主目录,
+	# 与 TS 侧 instance-manager.getDefaultRegistryDir(~/.godot-mcp/instances) 对齐;
+	# 但 Linux/macOS 显式设置 XDG_DATA_HOME 时 GD 写 $XDG_DATA_HOME 上两级、TS 仍读 ~ 下,
+	# 两侧漂移 → resolveBridgePort 回落 9081(A1 退化为旧行为,无害不炸)。容器/Flatpak 环境留意。
 	var machine_dir: String = OS.get_data_dir().get_base_dir().get_base_dir().path_join(".godot-mcp").path_join("instances")
 	# Project-level registry
 	var project_dir: String = ProjectSettings.globalize_path("user://").path_join(".godot").path_join("mcp-instances")

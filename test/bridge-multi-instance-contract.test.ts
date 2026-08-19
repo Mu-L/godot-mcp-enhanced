@@ -54,6 +54,9 @@ describe('A1: mcp_bridge.gd 端口探测避让 + registry + ping 指纹', () => 
   it('A1-f: registry machine-level 双写(_registry_files 数组,machine_dir 也写)', () => {
     const heartbeat = sliceBetween('func _start_registry_heartbeat', 'func _write_registry_entry');
     expect(heartbeat.includes('_registry_files = ['), '缺双位置赋值').toBe(true);
+    // N-3(审查): 锁定 GD 侧 machine 路径推导表达式——TS 侧 getDefaultRegistryDir 按
+    // "两次 base_dir 归一到 home" 镜像,GD 重构为一次 base_dir 时此处必须红。
+    expect(heartbeat.includes('OS.get_data_dir().get_base_dir().get_base_dir()'), 'machine 路径推导被改动(TS 镜像将漂移)').toBe(true);
     const writeFn = sliceBetween('func _write_registry_entry', 'func _stop_registry_heartbeat');
     expect(writeFn.includes('for registry_file in _registry_files:'), '缺循环双写').toBe(true);
     const stopFn = sliceBetween('func _stop_registry_heartbeat', 'func _dir_ensure');
