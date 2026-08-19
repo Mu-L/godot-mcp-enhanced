@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Godot 4.7.x 适配批(4.7.1/4.7.2 维护版正式发布跟进;两版官方声明零 API 不兼容)
+
+- **cpp scaffold 支持 `godot_version=4.7`**:枚举扩为 `4.4–4.7`,默认 4.7。godot-cpp 自 v10(独立版本号,master 分支)起不再发布 `godot-{ver}-stable` ref,故分轨——4.6/4.7 生成 `git clone`(master)+ SConstruct 显式 `{"api_version": "{ver}"}`(官方推荐,防 master 默认 target 漂移);4.4/4.5 保持旧 `godot-{ver}-stable` 分支。clone 命令收敛为 `godotCppCloneCommand()` 单一来源(README 模板与工具返回值共用)。
+- 逐模板真验证:`TEMPLATES`(11)+架构模板(4)的 `generate({})` 产物在 **Godot 4.7.2** `--check-only` 独立编译 13/14 过(T003 混合粘贴片段/A002 模式骨架经 4.6.3 对照行为逐字一致定性),`verifiedGodotVersion` 全量升 4.7、`lastVerified` 2026-08-19;4.7 唯一 GDScript breaking(accessibility,L025)不涉及。
+
+### Fixed
+
+- **cpp scaffold 4.6 选项先行 bug**:原模板生成 `git clone -b godot-4.6-stable ...`,该分支/tag 在 godotengine/godot-cpp 不存在(2026-08-19 GitHub API 实测:分支仅 4.0–4.5),用户照 README 执行必失败——随分轨改造一并修复。
+- **T010(state_machine_simple)产物永远编不过**:match 分支生成裸枚举标识符(如 `IDLE:`),缺 `State.` 前缀,Godot 4.6.3/4.7.2 双版本 `--check-only` 均报 "Identifier not declared"(历史 bug,原 `verified 4.6` 从未独立编译验证);修复为 `State.IDLE:` 形态并补测试断言。
+
+### Changed
+
+- **CI Godot 矩阵 4.7.1 → 4.7.2**(`ci.yml` godot-matrix + `editor-e2e.yml`):本地 Godot 4.7.2 实测 `check:gdscript` errors=0 + 模板验证全绿后才切;4.7.2 Linux asset URL 经 GitHub API 核实存在。
+- `create_project`/CI 模板默认 `godot_version` `4.4`→`4.7`(与 README "已测试 4.7" 口径一致)。
+- `gdscript-lint` `godot_target` `4.6`→`4.7`,与 `docs/api/extension_api.json`(已 4.7.stable 快照)恢复一致;回归登记 `api-db-version-stale` 移 FIXED(135/8 计数同步,detect 查 4.6 残留防回退)。
+
 ### Added — scene_commit 新增 TileSet 资源层配置 9 op(14 个 Godot MCP 竞品中首创,physics/navigation/custom data 三层全可编程,消除「AI 铺瓦片后必须手动配置层」断点)
 
 **碰撞(physics)**

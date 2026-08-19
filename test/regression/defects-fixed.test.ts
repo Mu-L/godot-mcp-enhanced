@@ -17,7 +17,7 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
     ).toBe(0);
   });
 
-  it('FIXED_DEFECTS 覆盖 80 条且无重名', () => {
+  it('FIXED_DEFECTS 覆盖 135 条且无重名', () => {
     // 31 = 19（原 FIXED）+ 3（2026-06-27 probe 实测 detect=0 移 fixed：gdscript-gen-null-root-deref /
     //   launcher-no-error-listener / plugin-no-super-call；后者 2026-07-04 detect 反转——
     //   654b162 误加 super 触发 4.6.2+ parse error,移除 6 处 super 后 detect 计数"原生类虚函数有 super"=0 防回归）
@@ -155,9 +155,11 @@ describe('DEFECT fixed 防复发（硬断言 detect() === 0）', () => {
 //   +2(2026-08-09 治理批次): test-framework-validatepath-no-root-check(SEC-P2-1 requireProjectPath) +
 //   gd-secret-write-no-symlink-guard(SEC-P2-2 readlink+LinkType 双副本);合计 133。
 //   +1(2026-08-10 P0-2 续): animtree-write-confirmation(animtree 5 写操作改 write 触发确认门);合计 134。
-    expect(FIXED_DEFECTS.length).toBe(134);
+//   +1(2026-08-19): api-db-version-stale(extension_api.json 已升 4.7.stable 官方快照,
+//   gdscript-lint godot_target 同批升 4.7 恢复一致性;detect 查 4.6 残留=0,回退即红);合计 135。
+    expect(FIXED_DEFECTS.length).toBe(135);
     const keys = FIXED_DEFECTS.map(d => d.key);
-    expect(new Set(keys).size, '存在重名 key').toBe(134);
+    expect(new Set(keys).size, '存在重名 key').toBe(135);
     // 全部 status=fixed
     for (const d of FIXED_DEFECTS) {
       expect(d.status, `${d.key} status 应为 fixed`).toBe('fixed');

@@ -9,7 +9,7 @@ import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
 import {
-  renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE,
+  renderScaffold, PARENT_CLASS_WHITELIST, SUPPORTED_GODOT_VERSIONS, CLASS_NAME_RE, godotCppCloneCommand,
 } from './cpp-templates.js';
 
 const ACTIONS = ['scaffold_gdextension'] as const;
@@ -34,9 +34,9 @@ export function getToolDefinitions(): Tool[] {
           parent_class: { type: 'string', description: '父类（Godot 内置类白名单，默认 Node）', default: 'Node' },
           godot_version: {
             type: 'string',
-            description: 'Godot 版本（4.4/4.5/4.6，决定 godot-cpp clone tag 与 .gdextension compatibility_minimum，默认 4.6）',
-            default: '4.6',
-            enum: ['4.4', '4.5', '4.6'],
+            description: 'Godot 版本（4.4–4.7。决定 godot-cpp clone ref 与 SConstruct api_version、.gdextension compatibility_minimum；4.6/4.7 走 godot-cpp master(v10)+api_version（无 godot-4.x-stable ref），4.4/4.5 用 godot-4.x-stable 分支。默认 4.7）',
+            default: '4.7',
+            enum: ['4.4', '4.5', '4.6', '4.7'],
           },
           force: { type: 'boolean', description: '目标已存在且非空时是否覆盖（默认 false）', default: false },
         },
@@ -60,7 +60,7 @@ export async function handleTool(
 
   const className = (args.class_name as string) || 'Example';
   const parentClass = (args.parent_class as string) || 'Node';
-  const godotVersion = (args.godot_version as string) || '4.6';
+  const godotVersion = (args.godot_version as string) || '4.7';
   const force = args.force === true;
 
   // 白名单前置校验（fail-fast，写盘前拒绝，避免半成品）
@@ -93,7 +93,7 @@ export async function handleTool(
   return textResult(JSON.stringify({
     files: files.map(f => f.path),
     gdextension_path: join(projectPath, `${lib}.gdextension`),
-    godot_cpp_clone_hint: `git clone -b godot-${godotVersion}-stable https://github.com/godotengine/godot-cpp godot-cpp`,
+    godot_cpp_clone_hint: godotCppCloneCommand(godotVersion),
   }, null, 2));
 }
 

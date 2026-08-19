@@ -257,13 +257,22 @@ export const FIXED_DEFECTS: DefectEntry[] = [
       const callsChildCleanup = /has_method\(\s*["']cleanup["']\s*\)[\s\S]*?\.cleanup\(\)/.test(ch);
       return (hasCleanup && hasModulesLoop && callsChildCleanup) ? 0 : 1;
     } },
-  // godot-version-hardcoded-create-project 2026-06-28 修复移 FIXED（下条）。剩 api-db-version-stale /
-  // lint-rule-no-targeted-test / lint-missing-4-7-accessibility-breaking 3 条仍 OPEN（原 fixed 真未修）。
+  // godot-version-hardcoded-create-project 2026-06-28 修复移 FIXED（下条）。剩 lint-rule-no-targeted-test /
+  // lint-missing-4-7-accessibility-breaking 2 条仍 OPEN（原 fixed 真未修）。
+  // api-db-version-stale 2026-08-19 移 FIXED（下下条）：extension_api.json 已升 4.7 + lint target 同步。
   { key: 'godot-version-hardcoded-create-project', status: 'fixed', severity: 'IMPORTANT', dimension: 'Compatibility',
     // 修复：create_project case 用 godotVersion 变量（args.godot_version || '4.4'）替代 project.godot
     // features PackedStringArray + main.gd Hello Godot 的硬编码 "4.6"。detect 查原字面量形态，
     // 修复后 src/tools/project.ts 无 "4.6" 字面量 → detect=0；复发（重新硬编码）即 >0。
     detect: () => countMatchesInFile('src/tools/project.ts', /PackedStringArray\(["']4\.6["']\)|Hello,\s*Godot\s*4\.6/g) },
+  { key: 'api-db-version-stale', status: 'fixed', severity: 'IMPORTANT', dimension: 'Completeness',
+    // 2026-08-19 移 FIXED：extension_api.json 已升 4.7.stable.official（header version_minor=7），
+    // gdscript-lint godot_target 同步升 '4.7'（同批），恢复 2026-06-28 暂缓决策要求的一致性。
+    // detect 查 4.6 残留形态 → 0；API 库回退 4.6 即 >0（防复发）。
+    detect: () => {
+      const hdr = readSrc('docs/api/extension_api.json').slice(0, 2000);
+      return /4\.6\.\d+\.stable\.official|"version_minor"\s*:\s*6/.test(hdr) ? 1 : 0;
+    } },
   { key: 'lint-missing-4-7-accessibility-breaking', status: 'fixed', severity: 'IMPORTANT', dimension: 'Completeness',
     // 修复：src/tools/gdscript-lint.ts 加 L025 规则（DisplayServer accessibility 方法/枚举移到 AccessibilityServer，
     // GH-116839 4.7 breaking change）。detect 查 gdscript-lint.ts 含 accessibility_live/GH-116839，L025 注释
@@ -1578,15 +1587,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
   // 原 fixed，实测真未修（M2 Task 2 闭环）
   // 2026-06-28 godot-version-hardcoded-create-project 修复（create_project 参数化 godot_version 到
   // project.godot features + main.gd）detect=0 移 FIXED 防复发。原 open 条目已删除。
-  { key: 'api-db-version-stale', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
-    // [项目级决策/暂缓 2026-06-28] extension_api.json 4.6.2 与 gdscript-lint godot_target='4.6' 一致。
-    // 升 4.7 是 API 基线决策（影响全项目工具 + 需 Godot 4.7 重生成 dump-extension-api），非单 defect 可决。
-    // lint-missing-4-7-accessibility 已补 4.7 前瞻规则（L025），无需升库。baseline=1 保留防恶化。
-    baseline: 1,
-    detect: () => {
-      const hdr = readSrc('docs/api/extension_api.json').slice(0, 2000);
-      return /4\.6\.\d+\.stable\.official|"version_minor"\s*:\s*6/.test(hdr) ? 1 : 0;
-    } },
+  // 2026-08-19 api-db-version-stale 同样移 FIXED（extension_api.json 已 4.7，detect=0），原 open 条目已删除。
   { key: 'lint-rule-no-targeted-test', status: 'open', severity: 'IMPORTANT', dimension: 'Completeness',
     // [WONTFIX 2026-06-28] defects.md 从未存在（git log --all 无记录），L023/L024 规则无规格定义，
     // 不凭空设计（避免瞎猜）。lint 完整性由 L001-L022 + L025 共 23 条规则 + 全部定向测试覆盖。

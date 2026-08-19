@@ -50,16 +50,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb xdotool
 
-      # 装 Godot 4.7.1 stable Linux editor（带 X11 支持，非 headless 版）
-      - name: Install Godot 4.7.1 editor (Linux X11)
+      # 装 Godot 4.7.2 stable Linux editor（带 X11 支持，非 headless 版）
+      - name: Install Godot 4.7.2 editor (Linux X11)
         run: |
           set -e
           curl -L --fail -o /tmp/godot.zip \
-            https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
           mkdir -p /tmp/godot-bin
           unzip -o /tmp/godot.zip -d /tmp/godot-bin
-          chmod +x /tmp/godot-bin/Godot_v4.7.1-stable_linux.x86_64
-          echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.7.1-stable_linux.x86_64" >> "$GITHUB_ENV"
+          chmod +x /tmp/godot-bin/Godot_v4.7.2-stable_linux.x86_64
+          echo "GODOT_PATH=/tmp/godot-bin/Godot_v4.7.2-stable_linux.x86_64" >> "$GITHUB_ENV"
 
       # I-1 (2026-08-14 第三方审查): real-project/addons/ 是 gitignored 本地副本,
       # CI 全新 checkout 缺失 → hasProject false → 全部 editor-e2e 静默 skip(工作流

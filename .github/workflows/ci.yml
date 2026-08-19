@@ -103,7 +103,7 @@ jobs:
         # 与 e2e-full L1/L2 段(同用 real-project 的 Godot 进程)在全量并发调度下竞态:
         # 预热"成功"返回但 cache 未生成 → suite 稳定红(master 靠文件调度顺序侥幸不撞,
         # v0.30 新增测试文件改变调度后暴露)。真 Godot 集成覆盖不降:matrix job
-        # (4.6.3+4.7.1)的 7 文件隔离集稳定跑它且绿。
+        # (4.6.3+4.7.2)的 7 文件隔离集稳定跑它且绿。
         run: npx vitest run --maxWorkers=2 --exclude test/game-bridge.test.ts --exclude test/tools/data-import-integration.test.ts --coverage --reporter=default --reporter=json --outputFile=coverage/test-report.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
@@ -157,7 +157,7 @@ jobs:
   # exited unexpectedly)。本地 Windows 零复现(fs.watch 行为不同)。Windows 守护退本地
   # (开发者跑 vitest run 验证 game-bridge.test.ts + process-state win32 分支)。详见 issue #15。
 
-  # Godot 多版本矩阵（4.6.3 + 4.7.1）：编译门禁（gdscript-only gate 真 blocking）+ E2E。
+  # Godot 多版本矩阵（4.6.3 + 4.7.2）：编译门禁（gdscript-only gate 真 blocking）+ E2E。
   # check job 的 gdscript blocking 经 score:gate（6 维）；本 job 不跑 score（无 lcov/audit），
   # 用独立 gdscript-only gate 消费 coverage/gdscript-report.json。
   godot-matrix:
@@ -171,9 +171,9 @@ jobs:
           - name: "4.6.3"
             url: "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip"
             bin: "Godot_v4.6.3-stable_linux.x86_64"
-          - name: "4.7.1"
-            url: "https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
-            bin: "Godot_v4.7.1-stable_linux.x86_64"
+          - name: "4.7.2"
+            url: "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+            bin: "Godot_v4.7.2-stable_linux.x86_64"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
