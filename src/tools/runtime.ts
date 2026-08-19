@@ -84,10 +84,11 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
-          timeout: { type: 'number', description: '自动停止秒数（默认 30）', default: 30 },
+          timeout: { type: 'number', description: '自动停止秒数（默认 30。游戏冷启动 >30s 的项目传更大值如 120；wait_for_bridge 时自动取 max(bridge_timeout+10, timeout) 防与 bridge 就绪 race）', default: 30 },
           wait_for_bridge: { type: 'boolean', default: false, description: 'true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)' },
           bridge_timeout: { type: 'number', default: 10, description: 'wait_for_bridge 轮询总预算(秒,默认 10)' },
           test_script: { type: 'string', description: '测试脚本或目录路径（默认 res://test/）', default: 'res://test/' },
+          quit_flag: { type: 'string', enum: ['gquit', 'gexit'], default: 'gquit', description: 'run_tests 的 GUT 退出标志。默认 gquit(GUT ≤9.5);GUT 9.6+ 移除 -gquit(报 Unknown arguments: -gquit)时切 gexit' },
           // ── Recording parameters (merged, v0.18.0) ──
           events_json: { type: 'string', description: '录制：JSON 格式的事件序列字符串' },
           file_name: { type: 'string', description: '录制保存:始终自动命名 recording_YYYYMMDD_HHmmss.json(file_name 入参被忽略);但 file_name 须匹配 recording_*.json 格式(否则 INVALID_FILE_NAME),禁止含 / \\\\ ..' },
@@ -305,6 +306,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
       const testScript = rawTestScript;
       const godot = await ctx.findGodot();
+      // A4 (2026-07-04 反馈): GUT 退出标志参数化。默认 -gquit(GUT ≤9.5 惯例,GUT 9.6+ 移除);
+      // 白名单二选一,非法值回落 gquit(值只拼进 spawn args 数组,无注入面,白名单是行为兜底)。
+      const quitFlag = args.quit_flag === 'gexit' ? 'gexit' : 'gquit';
 
       return new Promise((resolve) => {
         let settled = false;
@@ -312,7 +316,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           '--headless', '--path', p,
           '--script', 'addons/gut/gut_cmdln.gd',
           '-gdir', testScript,
-          '-gquit',
+          `-${quitFlag}`,
         ], { stdio: ['pipe', 'pipe', 'pipe'], env: buildSafeEnv() });
         // P1-1: 注册到 _spawnedGodotPids，close/崩溃可清理 in-flight run_tests spawn。
         // 原 only-run_project 注册（runtime.ts:224）致 close() 清不到 run_tests 进程 +
