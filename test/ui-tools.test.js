@@ -380,6 +380,14 @@ describe('genUiDrawRecipeScript', () => {
     expect(script).toContain('16');
   });
 
+  it('generates string draw op with % text rendered as-is (literal escape, not doubled)', () => {
+    // I-1d 回归:draw_string 渲染文本是纯字面量(非 % 格式串),"50%" 不应被双写成 "50%%"
+    const ops = [{ kind: 'string', text: 'Progress: 50%', position: [10, 30], color: [1, 1, 1, 1] }];
+    const script = genUiDrawRecipeScript('/scene.tscn', 'root/Panel', ops);
+    expect(script).toContain('"Progress: 50%"');
+    expect(script).not.toContain('50%%');
+  });
+
   it('generates multiple ops in sequence', () => {
     const ops = [
       { kind: 'rect', position: [0, 0], size: [200, 100], color: [0, 0, 0, 1] },

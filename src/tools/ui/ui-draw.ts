@@ -7,7 +7,7 @@
 // actionRisks 已标 'write'(ui/index.ts)。MAX_DRAW_OPS=200 已有 DoS 防护。
 // 未来若扩展 DRAW_OP_KINDS(如加 load_texture/clear/execute),须重新评估是否需 gate 或独立 SAFETY 层。
 
-import { gdEscape, escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
+import { escapeForGdLiteral, SCENE_TREE_HEADER } from '../shared.js';
 import { ensureNumber } from '../shared/validation.js';
 import { DRAW_OP_KINDS, colorToGd } from './types.js';
 import type { DrawOp } from './types.js';
@@ -78,7 +78,8 @@ function drawOpToGd(op: DrawOp): string {
       const text = String(op.text ?? '');
       const pos = numArr(op.position, 2);
       const fs = op.font_size == null ? 16 : ensureNumber(op.font_size, 'string.font_size');
-      return `\tnode.draw_string(ThemeDB.fallback_font, Vector2(${pos[0]}, ${pos[1]}), "${gdEscape(text)}", HORIZONTAL_ALIGNMENT_LEFT, -1, ${fs}, ${col(op.color)})`;
+      // 渲染文本(纯字面量,非 % 格式串):"50%" 应原样渲染而非 "50%%" → escapeForGdLiteral
+      return `\tnode.draw_string(ThemeDB.fallback_font, Vector2(${pos[0]}, ${pos[1]}), "${escapeForGdLiteral(text)}", HORIZONTAL_ALIGNMENT_LEFT, -1, ${fs}, ${col(op.color)})`;
     }
     default:
       throw new Error(`Unknown draw op kind: "${op.kind}". Must be one of: ${DRAW_OP_KINDS.join(', ')}`);

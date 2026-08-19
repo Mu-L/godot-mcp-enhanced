@@ -120,7 +120,8 @@ export function genIkSetScript(nodePath: string, props: Record<string, unknown>)
     } else if (key === 'bone_name') {
       lines.push(`\tik_node.bone_name = "${gdEscape(String(val))}"`);
     } else if (key === 'target_nodepath') {
-      lines.push(`\tik_node.target_nodepath = NodePath("${gdEscape(String(val))}")`);
+      // 纯字面量构造(非 % 格式串),含 % 的 NodePath 不应被双写 → escapeForGdLiteral(同构 animtree.ts anim_player)
+      lines.push(`\tik_node.target_nodepath = NodePath("${escapeForGdLiteral(String(val))}")`);
     } else if (key === 'use_magnet') {
       lines.push(`\tik_node.use_magnet = ${val}`);
     } else if (key === 'magnet_position') {
