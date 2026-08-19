@@ -422,7 +422,7 @@ export async function handleTool(
     // 连上但卡住 → TIMEOUT;真正 GDScript 执行错误才 SCRIPT_EXEC_FAILED。
     if (err instanceof BridgeNotConnectedError) {
       return opsErrorResult(ERROR_CODES.BRIDGE_NOT_CONNECTED, msg, {
-        suggestion: '录制/回放需要 Game Bridge 连接。Ensure: 1) game_bridge_install 已调用, 2) 游戏正在运行(F5 或 run_project), 3) 检查 .godot/mcp_bridge_9081.secret。',
+        suggestion: '录制/回放需要 Game Bridge 连接。Ensure: 1) game_bridge_install 已调用, 2) 游戏正在运行(F5 或 run_project), 3) 检查 .godot/ 下的 mcp_bridge_*.secret(端口被占自动避让,非固定 9081)。',
       });
     }
     if (err instanceof BridgeTimeoutError) {

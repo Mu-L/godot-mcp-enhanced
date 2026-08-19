@@ -3,9 +3,15 @@ extends Node
 
 ## MCP Bridge Autoload — TCP + NDJSON protocol
 ## Install as autoload in project.godot to enable runtime game control via MCP.
-## Default port: 9081
+## Default port: 9081 (env GODOT_MCP_BRIDGE_PORT 可覆盖起点;被占时递增避让,见 _start_server)
 
-const PORT := 9081
+# A1 (2026-08-19 反馈 bridge 9081 多实例劫持): 端口不再固定 —— Windows 下两个 Godot 实例
+# bind 同一端口可能都"成功"(流量实际都到先占实例),listen 错误码不可靠;listen 前主动 connect
+# 探测端口是否已有服务在听,被占则递增避让(起点起最多 PORT_ATTEMPTS 个),实际端口写入
+# machine+project 双 registry,由 MCP server 侧 resolveBridgePort 解析。
+const PORT_DEFAULT := 9081
+const PORT_ATTEMPTS := 10  # 默认区间 9081..9090,与 core/instance-manager.ts DEFAULT_PORT_START/END 对齐
+var _port := PORT_DEFAULT
 const MAX_AUTH_FAILS := 5
 const LOCKOUT_BASE_SECONDS := 30.0
 const LOCKOUT_MAX_SECONDS := 300.0
@@ -17,7 +23,9 @@ const INACTIVITY_TIMEOUT := 60.0
 # ─── Instance Registry (Phase 2b) ─────────────────────────────────────────
 const REGISTRY_HEARTBEAT_INTERVAL := 30.0
 var _registry_heartbeat_timer: Timer = null
-var _registry_file: String = ""
+# A1: 双位置心跳 —— machine-level(<data-dir>/.godot-mcp/instances)是 MCP server
+# (TS resolveBridgePort)的解析源;project-level(user://.godot/mcp-instances)供项目内排查。
+var _registry_files: Array[String] = []
 var _instance_id: String = ""
 
 var _server: TCPServer = null
@@ -127,7 +135,7 @@ func _ready() -> void:
 	# 否则 TCP 死锁(附录 F.1 BLOCKING)。注意 BLOCKED_PROPERTIES 禁远程 set process_mode,本地 _ready 设不冲突。
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# Headless 也启动 Bridge: run_project 跑 headless 游戏需 Bridge 通信(DisplayServer=headless)。
-	# --headless --script 场景若端口被占, _start_server 的 listen() 失败会安全跳过(warning+return)。
+	# --headless --script 场景若端口全被占, _start_server 的探测+避让全失败会安全跳过(warning+return)。
 	_start_server()
 
 
@@ -376,13 +384,9 @@ func _start_server() -> void:
 		push_error("[MCP Bridge][SECURITY] Secret generation failed — Bridge server not started")
 		_secret = ""
 		return
-	_server = TCPServer.new()
-	var err := _server.listen(PORT, "127.0.0.1")
-	if err != OK:
-		push_warning("[MCP Bridge] Failed to listen on port %d: %d" % [PORT, err])
-		_server = null
+	if not _bind_available_port():
 		return
-	print("[MCP Bridge] Listening on 127.0.0.1:%d" % PORT)
+	print("[MCP Bridge] Listening on 127.0.0.1:%d" % _port)
 	# C-01: Secret file MUST be in project .godot/ — never fall back to tmpdir.
 	# Writing to tmpdir (globally readable on Linux) allows local privilege escalation.
 	var proj_dir := _get_project_dir()
@@ -394,7 +398,7 @@ func _start_server() -> void:
 	var godot_dir := proj_dir + "/.godot"
 	if not DirAccess.dir_exists_absolute(godot_dir):
 		DirAccess.make_dir_recursive_absolute(godot_dir)
-	_secret_file = godot_dir + "/mcp_bridge_%d.secret" % PORT
+	_secret_file = godot_dir + "/mcp_bridge_%d.secret" % _port
 	# S4 (2026-06-23): 固定 secret 模式(本地测试,env GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true)。
 	# secret 文件存在且有效则复用,跳过重生+写入,打破"重生→_restrict 收紧只读→下次写失败
 	# abort→_exit_tree 删除→MCP 端 5min TTL 缓存不同步"的死循环。默认 false 保持每次重生(安全)。
@@ -413,6 +417,56 @@ func _start_server() -> void:
 		return
 	# Instance registry heartbeat (Phase 2b)
 	_start_registry_heartbeat()
+
+
+## A1 (2026-08-19 反馈): 端口绑定 —— 探测占用 + 递增避让。
+## env GODOT_MCP_BRIDGE_PORT 设起点(默认 9081);每个候选端口先 connect 探测(已有服务在听
+## 则让位 —— Windows 双 bind 可"成功"但流量全到先占实例,listen 错误码测不出),再 listen
+## (保留端口段/权限等 listen 失败同样递增,见 2026-08-14 反馈 Hyper-V 保留段 9046-9145 覆盖 9081)。
+## 成功时 _server 已建立且 _port 为实际端口;全部失败返回 false(Bridge 禁用,游戏继续跑)。
+func _bind_available_port() -> bool:
+	var start_port := PORT_DEFAULT
+	var env_port := OS.get_environment("GODOT_MCP_BRIDGE_PORT")
+	if env_port != "" and env_port.is_valid_int():
+		start_port = clampi(int(env_port), 1, 65535)
+	for i in PORT_ATTEMPTS:
+		var candidate: int = start_port + i
+		if _port_in_use(candidate):
+			print("[MCP Bridge] Port %d already served by another instance, trying %d" % [candidate, candidate + 1])
+			continue
+		var server := TCPServer.new()
+		var err := server.listen(candidate, "127.0.0.1")
+		if err == OK:
+			_server = server
+			_port = candidate
+			return true
+		push_warning("[MCP Bridge] listen(%d) failed (err %d), trying next port" % [candidate, err])
+	_port = PORT_DEFAULT
+	push_warning("[MCP Bridge] No available port in %d-%d — Bridge disabled. " % [start_port, start_port + PORT_ATTEMPTS - 1] +
+		"If netstat shows no listener on these ports, check Windows reserved port ranges: " +
+		"netsh interface ipv4 show excludedportrange protocol=tcp")
+	return false
+
+
+## connect 探测端口是否已有服务在听(能建立 TCP 连接 = 占用)。
+## localhost 连非监听端口立即 REFUSED(ms 级),探测 10 个候选端口最坏 ~1s,仅 _ready 一次性开销。
+## poll() 必须显式调 —— StreamPeerTCP 状态不自动推进,缺 poll 时 get_status 恒停留
+## CONNECTING,探测恒判"空闲"(e2e 实测:缺 poll 时探测形同虚设,靠 listen err 22 兜底;
+## 真实劫持场景 Windows 双 bind 不报错,探测是唯一防线)。
+func _port_in_use(port: int) -> bool:
+	var probe := StreamPeerTCP.new()
+	probe.connect_to_host("127.0.0.1", port)
+	for i in 20:  # 最多 ~100ms 等待连接结果
+		probe.poll()
+		var status := probe.get_status()
+		if status == StreamPeerTCP.STATUS_CONNECTED:
+			probe.disconnect_from_host()
+			return true
+		if status == StreamPeerTCP.STATUS_ERROR:
+			break
+		OS.delay_msec(5)
+	probe.disconnect_from_host()
+	return false
 
 ## Compat: Godot 4.6 renamed TCPServer.accept() to take_connection()
 func _server_take_connection() -> StreamPeerTCP:
@@ -565,13 +619,21 @@ func _restrict_secret_permissions(path: String) -> void:
 func _start_registry_heartbeat() -> void:
 	_instance_id = str(OS.get_process_id()) + "_" + str(Time.get_ticks_msec())
 	# Machine-level registry
+	# N-2(审查·已知限制): OS.get_data_dir() 默认三平台两次 base_dir 归一到用户主目录,
+	# 与 TS 侧 instance-manager.getDefaultRegistryDir(~/.godot-mcp/instances) 对齐;
+	# 但 Linux/macOS 显式设置 XDG_DATA_HOME 时 GD 写 $XDG_DATA_HOME 上两级、TS 仍读 ~ 下,
+	# 两侧漂移 → resolveBridgePort 回落 9081(A1 退化为旧行为,无害不炸)。容器/Flatpak 环境留意。
 	var machine_dir: String = OS.get_data_dir().get_base_dir().get_base_dir().path_join(".godot-mcp").path_join("instances")
 	# Project-level registry
 	var project_dir: String = ProjectSettings.globalize_path("user://").path_join(".godot").path_join("mcp-instances")
 	_dir_ensure(machine_dir)
 	_dir_ensure(project_dir)
-	# Write to project-level (machine-level is optional for later)
-	_registry_file = project_dir.path_join(_instance_id + ".json")
+	# A1: 双写 —— machine-level 是 MCP server(TS resolveBridgePort)解析实际端口的来源;
+	# project-level 保留(项目内排查实例状态用)。
+	_registry_files = [
+		machine_dir.path_join(_instance_id + ".json"),
+		project_dir.path_join(_instance_id + ".json"),
+	]
 	_write_registry_entry()
 	# Timer
 	_registry_heartbeat_timer = Timer.new()
@@ -583,28 +645,29 @@ func _start_registry_heartbeat() -> void:
 
 
 func _write_registry_entry() -> void:
-	if _registry_file == "":
+	if _registry_files.is_empty():
 		return
 	var entry: Dictionary = {
 		"id": _instance_id,
 		"projectPath": ProjectSettings.globalize_path("res://"),
 		"projectName": ProjectSettings.get_setting("application/config/name"),
-		"port": PORT,
+		"port": _port,
 		"pid": OS.get_process_id(),
 		"lastSeen": Time.get_datetime_string_from_system(),
 		"godotVersion": Engine.get_version_info().get("string", "unknown"),
 		"capabilities": ["registry-heartbeat"],
 	}
 	var json: String = JSON.stringify(entry, "	")
-	# Atomic write: temp file -> rename
-	var tmp_file: String = _registry_file + ".tmp"
-	var f: FileAccess = FileAccess.open(tmp_file, FileAccess.WRITE)
-	if f == null:
-		push_warning("[MCP Bridge] Failed to write registry entry: %s" % FileAccess.get_open_error())
-		return
-	f.store_string(json)
-	f.close()
-	DirAccess.rename_absolute(tmp_file, _registry_file)
+	for registry_file in _registry_files:
+		# Atomic write: temp file -> rename
+		var tmp_file: String = registry_file + ".tmp"
+		var f: FileAccess = FileAccess.open(tmp_file, FileAccess.WRITE)
+		if f == null:
+			push_warning("[MCP Bridge] Failed to write registry entry: %s" % FileAccess.get_open_error())
+			continue
+		f.store_string(json)
+		f.close()
+		DirAccess.rename_absolute(tmp_file, registry_file)
 
 
 func _stop_registry_heartbeat() -> void:
@@ -612,10 +675,11 @@ func _stop_registry_heartbeat() -> void:
 		_registry_heartbeat_timer.stop()
 		_registry_heartbeat_timer.queue_free()
 		_registry_heartbeat_timer = null
-	# Clean up registry file on exit
-	if _registry_file != "" and FileAccess.file_exists(_registry_file):
-		DirAccess.remove_absolute(_registry_file)
-	_registry_file = ""
+	# Clean up registry files on exit
+	for registry_file in _registry_files:
+		if registry_file != "" and FileAccess.file_exists(registry_file):
+			DirAccess.remove_absolute(registry_file)
+	_registry_files.clear()
 
 
 func _dir_ensure(dir: String) -> void:
@@ -853,7 +917,16 @@ func _cmd_ping() -> Dictionary:
 	var scene_path := ""
 	if get_tree().current_scene:
 		scene_path = get_tree().current_scene.scene_file_path
-	return {"pong": true, "version": PROTOCOL_VERSION, "scene": scene_path, "fps": Engine.get_frames_per_second()}
+	# A1 (2026-08-19 反馈): pid + project 指纹 —— 多实例并存时客户端可校验响应来自目标实例
+	# (9081 曾被先占旧实例劫持,返回的数据属于另一项目,无任何迹象)。
+	return {
+		"pong": true,
+		"version": PROTOCOL_VERSION,
+		"scene": scene_path,
+		"fps": Engine.get_frames_per_second(),
+		"pid": OS.get_process_id(),
+		"project": ProjectSettings.globalize_path("res://"),
+	}
 
 
 func _cmd_get_tree(params: Dictionary) -> Variant:

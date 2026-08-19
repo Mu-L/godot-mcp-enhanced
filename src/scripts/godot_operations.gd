@@ -515,7 +515,7 @@ func add_node(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var save_error = _save_atomic(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path, absolute_scene_path)  # A5: 回填原 uid
 		if save_error == OK:
 			print("Node '%s' of type '%s' added successfully" % [params.node_name, params.node_type])
 		else:
@@ -569,7 +569,7 @@ func edit_node(params):
 	var packed_scene = PackedScene.new()
 	var result = packed_scene.pack(scene_root)
 	if result == OK:
-		var save_error = _save_atomic(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path, absolute_scene_path)  # A5: 回填原 uid
 		if save_error == OK:
 			print("Node '%s' edited successfully" % params.node_path)
 		else:
@@ -652,7 +652,7 @@ func batch_add_nodes(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var save_error = _save_atomic(packed_scene, absolute_scene_path)
+		var save_error = _save_atomic(packed_scene, absolute_scene_path, absolute_scene_path)  # A5: 回填原 uid
 		if save_error == OK:
 			print("Batch add completed: %d/%d nodes added to %s" % [added_count, nodes.size(), params.scene_path])
 			if failed_count > 0:
@@ -727,7 +727,7 @@ func load_sprite(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var error = _save_atomic(packed_scene, full_scene_path)
+		var error = _save_atomic(packed_scene, full_scene_path, full_scene_path)  # A5: 回填原 uid
 		if error == OK:
 			print("Sprite loaded successfully with texture: " + full_texture_path)
 			scene_root.free()
@@ -856,7 +856,7 @@ func save_scene(params):
 	var result = packed_scene.pack(scene_root)
 
 	if result == OK:
-		var error = _save_atomic(packed_scene, save_path)
+		var error = _save_atomic(packed_scene, save_path, full_scene_path)  # A5: 回填原文件 uid(save_path 可为 new_path)
 		if error == OK:
 			print("Scene saved successfully to: " + save_path)
 			scene_root.free()
@@ -1036,21 +1036,112 @@ func resave_resources(params):
 # B7: 原子化资源写——tmp+rename 防超时 kill 落在 save 中途产半截损坏 .tres/.tscn 阻塞项目加载。
 # tmp 必须以目标扩展名结尾(ResourceSaver 按扩展名分派 saver, 裸 .tmp 返回 err 15)。
 # 对齐 data-import.ts:188 已验证范例 + memory resourcesaver-extension-dispatch。
-func _save_atomic(res, full_path: String) -> int:
+# A5 (2026-08-19 反馈 headless save_scene 抹 uid): 场景写盘可选传 preserve_uids_from(原
+# .tscn 路径),save 后按原文回填 [gd_scene]/[ext_resource] 的 uid 属性 —— pack() 新建
+# PackedScene 的 uid 为空(ResourceSaver 便不写 uid=),ext uid 依赖 ResourceUID 注册表
+# (headless 未 import 时缺失),两者都致 uid 全丢(git diff 噪音 + uid 引用断)。
+# Resource 无公开 uid 属性(4.6.3 实测 Invalid access),文本回填是唯一兼容 4.5-4.7 的方法。
+# resave_resources 语义=重生成 uid,不传此参;create_scene 新文件无原 uid 可保,不传。
+func _save_atomic(res, full_path: String, preserve_uids_from: String = "") -> int:
 	var ext := full_path.get_extension()  # tres/res/tscn/gd/shader/gdshader
 	var tmp := full_path + ".tmp." + ext
 	# B7: 写前清同路径旧 tmp(防上次同路径 crash 残留阻塞本次 save)
 	if FileAccess.file_exists(tmp):
 		DirAccess.remove_absolute(tmp)
+	var uids := _extract_uids(preserve_uids_from)
 	var save_err: int = ResourceSaver.save(res, tmp)
 	if save_err != OK:
 		DirAccess.remove_absolute(tmp)  # save 失败清半截 tmp
 		return save_err
+	if not uids.is_empty():
+		# 回填失败不阻断 save(uid 丢失是降级非错误,主体场景已正确落盘)
+		_restore_uids_in_file(tmp, uids)
 	var rename_err: int = DirAccess.rename_absolute(tmp, full_path)
 	if rename_err != OK:
 		DirAccess.remove_absolute(tmp)  # rename 失败清 tmp
 		return rename_err
 	return OK
+
+
+# A5: 提取 .tscn 文本的 uid 快照。{"sceneUid": String, "ext": {res://path: uid}}。
+# path 不存在/读失败返空 dict(调用方跳过回填)。ext uid 按 path 建映射(重序列化后
+# ext_resource 行顺序/索引会变,path 是稳定键)。
+func _extract_uids(path: String) -> Dictionary:
+	var result := {"sceneUid": "", "ext": {}}
+	if path == "" or not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return {}
+	var content := f.get_as_text()
+	f.close()
+	var ext_map: Dictionary = result["ext"]
+	for line in content.split("\n"):
+		var stripped := String(line).strip_edges()
+		if stripped.begins_with("[gd_scene") and String(result["sceneUid"]) == "":
+			var u := _extract_tscn_attr(stripped, "uid")
+			if u != "":
+				result["sceneUid"] = u
+		elif stripped.begins_with("[ext_resource"):
+			var p := _extract_tscn_attr(stripped, "path")
+			var eu := _extract_tscn_attr(stripped, "uid")
+			if p != "" and eu != "" and not ext_map.has(p):
+				ext_map[p] = eu
+	return result
+
+
+# A5: 提取 header 行内 `key="value"` 属性值(仅 [gd_scene/[ext_resource 单行结构)。
+func _extract_tscn_attr(line: String, key: String) -> String:
+	var marker := key + "=\""
+	var idx := line.find(marker)
+	if idx == -1:
+		return ""
+	var start := idx + marker.length()
+	var end_idx := line.find("\"", start)
+	if end_idx == -1:
+		return ""
+	return line.substr(start, end_idx - start)
+
+
+# A5: 把 uid 快照回填进已 save 的 .tscn 文本(仅补缺失的 uid= 属性,已有不覆盖)。
+# 非 .tscn 文件跳过(.tres 无 [gd_scene] 行,天然不匹配)。
+func _restore_uids_in_file(path: String, uids: Dictionary) -> void:
+	if path.get_extension() != "tscn":
+		return
+	var scene_uid := String(uids.get("sceneUid", ""))
+	var ext_uids: Dictionary = uids.get("ext", {})
+	if scene_uid == "" and ext_uids.is_empty():
+		return
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var content := f.get_as_text()
+	f.close()
+	var lines: Array = content.split("\n")
+	var changed := false
+	for i in lines.size():
+		var line := String(lines[i])
+		var stripped := line.strip_edges()
+		var need_uid := ""
+		# N-6(审查): 带前导空格防 guid= 类子串误判
+		if scene_uid != "" and stripped.begins_with("[gd_scene") and not stripped.contains(' uid="'):
+			need_uid = scene_uid
+		elif not ext_uids.is_empty() and stripped.begins_with("[ext_resource") and not stripped.contains(' uid="'):
+			var p := _extract_tscn_attr(stripped, "path")
+			if p != "" and ext_uids.has(p):
+				need_uid = String(ext_uids[p])
+		if need_uid != "":
+			# trim_suffix("]") 去行尾 ] 再去右侧空白(GDScript rstrip 必须传字符集,不能无参)
+			lines[i] = line.trim_suffix("]").strip_edges(false, true) + " uid=\"%s\"]" % need_uid
+			changed = true
+	if not changed:
+		return
+	var out := FileAccess.open(path, FileAccess.WRITE)
+	if out == null:
+		log_info("UID restore skipped (cannot rewrite: %s)" % path)
+		return
+	out.store_string("\n".join(lines))
+	out.close()
 
 
 # B7 启动清理: 扫 res:// 残留 *.tmp.{tres,tscn,res}(_save_atomic 超时 kill 半截产物)。

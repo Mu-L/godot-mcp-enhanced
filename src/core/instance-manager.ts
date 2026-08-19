@@ -79,7 +79,7 @@ const DEFAULT_STALE_TIMEOUT_MS = 70000; // 30s × 2 + 10s jitter margin
 const DEFAULT_PORT_START = 9081;
 const DEFAULT_PORT_END = 9090;
 
-function getDefaultRegistryDir(): string {
+export function getDefaultRegistryDir(): string {
   return join(homedir(), '.godot-mcp', 'instances');
 }
 

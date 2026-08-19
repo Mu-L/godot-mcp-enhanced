@@ -407,6 +407,46 @@ describe('runtime handleTool — run_tests', () => {
     const spawnArgs = spawn.mock.calls[0];
     expect(spawnArgs[1]).toContain('--headless');
     expect(spawnArgs[1]).toContain('addons/gut/gut_cmdln.gd');
+    expect(spawnArgs[1]).toContain('-gquit');  // 默认 gquit(GUT ≤9.5 惯例,行为兼容)
+  });
+
+  // A4 (2026-07-04 反馈): GUT 9.6+ 移除 -gquit(报 Unknown arguments: -gquit)
+  it('quit_flag=gexit spawns with -gexit (GUT 9.6+)', async () => {
+    const proc = mockProc();
+    setupSpawnMock(proc);
+    const ctx = createMockCtx();
+    const resultPromise = handleTool('runtime', {
+      action: 'run_tests',
+      project_path: '/fake/project',
+      quit_flag: 'gexit',
+    }, ctx);
+
+    emitProcessEvents(proc, 'Tests: 5 Passed');
+
+    const result = await resultPromise;
+    expect(result).not.toBeNull();
+    const spawnArgs = spawn.mock.calls[0];
+    expect(spawnArgs[1]).toContain('-gexit');
+    expect(spawnArgs[1]).not.toContain('-gquit');
+  });
+
+  it('quit_flag 非法值回落 gquit(白名单兜底)', async () => {
+    const proc = mockProc();
+    setupSpawnMock(proc);
+    const ctx = createMockCtx();
+    const resultPromise = handleTool('runtime', {
+      action: 'run_tests',
+      project_path: '/fake/project',
+      quit_flag: '--evil-flag',
+    }, ctx);
+
+    emitProcessEvents(proc, 'Tests: 5 Passed');
+
+    const result = await resultPromise;
+    expect(result).not.toBeNull();
+    const spawnArgs = spawn.mock.calls[0];
+    expect(spawnArgs[1]).toContain('-gquit');
+    expect(spawnArgs[1]).not.toContain('--evil-flag');
   });
 });
 
