@@ -132,6 +132,14 @@ describe('T010 StateMachine 模板', () => {
     expect(tpl.generate({})).toContain('match current_state');
   });
 
+  it('match 分支用 State. 前缀匹配枚举值(裸标识符编译报未声明,2026-08-19 修复)', () => {
+    const code = tpl.generate({});
+    expect(code).toContain('State.IDLE:');
+    expect(code).toContain('State.RUN:');
+    expect(code).toContain('State.JUMP:');
+    expect(code).not.toMatch(/^\t\tIDLE:/m);
+  });
+
   it('默认状态列表包含 IDLE, RUN, JUMP', () => {
     const code = tpl.generate({});
     expect(code).toContain('IDLE');

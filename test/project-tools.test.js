@@ -345,7 +345,7 @@ describe('project-tools handleTool — create_project', () => {
     expect(mainGd).not.toContain('4.6');
   });
 
-  it('create_project 默认 godot_version=4.4(未传时)', async () => {
+  it('create_project 默认 godot_version=4.7(未传时)', async () => {
     const ctx = createMockCtx();
     const newProject = join(dir, 'DefaultVer');
 
@@ -355,7 +355,7 @@ describe('project-tools handleTool — create_project', () => {
     }, ctx);
 
     const projectGodot = readFileSync(join(newProject, 'project.godot'), 'utf-8');
-    expect(projectGodot).toContain('PackedStringArray("4.4")');
+    expect(projectGodot).toContain('PackedStringArray("4.7")');
   });
 
   it('create_project project_name 换行转义:注入段落被抑制(批 K P3)', async () => {

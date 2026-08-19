@@ -378,7 +378,7 @@ describe('SEC-P1-1 B-1: create_project 第4写入面(godot_version / project_nam
     expect(projectGodot).toContain('config/features=PackedStringArray("4.7.1")');
   });
 
-  it('create_project 缺省 godot_version 默认 4.4 正常', async () => {
+  it('create_project 缺省 godot_version 默认 4.7 正常', async () => {
     const { handleTool } = await import('../src/tools/project.js');
     const ctx = { findGodot: async () => '/fake/godot' };
     const newDir = join(tmpDir, 'default-proj');
@@ -388,7 +388,7 @@ describe('SEC-P1-1 B-1: create_project 第4写入面(godot_version / project_nam
     }, ctx);
 
     expect(res.isError).not.toBe(true);
-    expect(readFileSync(join(newDir, 'scripts', 'main.gd'), 'utf-8')).toContain('Hello, Godot 4.4!');
+    expect(readFileSync(join(newDir, 'scripts', 'main.gd'), 'utf-8')).toContain('Hello, Godot 4.7!');
   });
 
   it('create_project template project_name 注释换行注入 OS.execute 被 SANDBOX_VIOLATION 拦截,脚手架 .gd 不落盘', async () => {
