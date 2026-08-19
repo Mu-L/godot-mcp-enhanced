@@ -1,6 +1,6 @@
 import { createConnection, Socket } from 'net';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, chmodSync, statSync, lstatSync, renameSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, chmodSync, statSync, lstatSync, renameSync, readdirSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { userInfo } from 'os';
 import { execFileSync } from 'child_process';
 import type { ChildProcess } from 'child_process';
@@ -13,6 +13,7 @@ import { launchDashboardOnce } from '../dashboard/launcher.js';
 import { parseAutoloadNames } from '../gdscript-executor.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
+import { getDefaultRegistryDir } from '../core/instance-manager.js';
 
 const BRIDGE_PORT = 9081;
 const BRIDGE_HOST = 'localhost';
@@ -56,6 +57,62 @@ export function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10
 
 // ─── TCP client for Bridge communication ────────────────────────────────────
 
+// ─── A1 (2026-08-19 反馈 bridge 9081 多实例劫持): 实际端口解析 ────────────────
+// GD 侧 mcp_bridge.gd 启动时把 projectPath/port/pid/lastSeen 写入 machine-level
+// registry(30s 心跳,退出删除),端口被占时自动递增避让。TS 侧按 projectPath 匹配
+// 最新存活条目取实际端口;registry 不可读/无匹配/条目全部超龄(崩溃残留)时回落 9081,
+// 对旧版 GD(不写 machine registry)完全兼容。
+const BRIDGE_REGISTRY_MAX_AGE_MS = 5 * 60 * 1000;  // 心跳 30s,容 10 个心跳周期
+
+/** 镜像 GD 侧 machine registry 目录。GD: OS.get_data_dir().get_base_dir().get_base_dir()/
+ *  .godot-mcp/instances —— 实测三平台(Win %APPDATA%/Linux ~/.local/share/mac ~/Library/
+ *  Application Support)两次 base_dir 都归一到用户主目录,与 instance-manager.getDefaultRegistryDir
+ *  (既有实现,~/.godot-mcp/instances)一致,直接复用防两处推导漂移。 */
+export function machineRegistryInstancesDir(): string {
+  return getDefaultRegistryDir();
+}
+
+/** 项目路径归一化(分隔符统一 + Windows 大小写不敏感)用于跨进程 projectPath 匹配。 */
+export function normalizeProjectKey(p: string): string {
+  const r = resolve(p).replace(/[/\\]+/g, '/');
+  return process.platform === 'win32' ? r.toLowerCase() : r;
+}
+
+/** 解析 projectPath 对应 bridge 实例的实际监听端口(见区块注释);失败回落 BRIDGE_PORT。
+ *  registryDir 参数仅供单测注入,生产走 machineRegistryInstancesDir()。 */
+export function resolveBridgePort(projectPath: string, registryDir: string = machineRegistryInstancesDir()): number {
+  if (!projectPath) return BRIDGE_PORT;
+  try {
+    const dir = registryDir;
+    const want = normalizeProjectKey(projectPath);
+    const now = Date.now();
+    let best: { port: number; lastSeen: number } | null = null;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      let entry: { projectPath?: unknown; port?: unknown; lastSeen?: unknown; capabilities?: unknown };
+      try {
+        entry = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as typeof entry;
+      } catch { continue; }  // 损坏条目(崩溃 .tmp 残留等)容错跳过
+      if (typeof entry.port !== 'number') continue;
+      // 同目录还住着 server 自注册条目(capabilities=['ts-http-receiver']),只认 bridge 心跳条目
+      if (!Array.isArray(entry.capabilities) || !entry.capabilities.includes('registry-heartbeat')) continue;
+      if (typeof entry.projectPath !== 'string' || normalizeProjectKey(entry.projectPath) !== want) continue;
+      // GD Time.get_datetime_string_from_system() 输出无时区 ISO 串,JS 按本地时区解析,同机一致。
+      const lastSeen = typeof entry.lastSeen === 'string' ? Date.parse(entry.lastSeen) : NaN;
+      if (!Number.isFinite(lastSeen) || now - lastSeen > BRIDGE_REGISTRY_MAX_AGE_MS) continue;
+      if (!best || lastSeen > best.lastSeen) best = { port: entry.port, lastSeen };
+    }
+    return best?.port ?? BRIDGE_PORT;
+  } catch {
+    return BRIDGE_PORT;  // 目录不存在(旧版 GD / bridge 未跑过)
+  }
+}
+
+/** 按实际端口拼 secret 文件路径(GD 侧 secret 文件名含避让后的端口)。 */
+function bridgeSecretPathFor(projectDir: string, port: number): string {
+  return join(projectDir, '.godot', `mcp_bridge_${port}.secret`);
+}
+
 export interface BridgeResponse {
   id: number | null;
   result?: unknown;
@@ -66,7 +123,6 @@ let _nextRequestId = 1;
 let _permWarned = false;
 let _cachedSecret: string | null = null;
 let _projectDir: string | null = null;
-let _cachedSecretPath: string | null = null;
 let _cachedSecretAt: number = 0;
 // A-06: 5-minute TTL balances file I/O overhead vs attack window exposure.
 // Shorter TTL increases fs reads; longer TTL extends the window if secret is compromised.
@@ -155,14 +211,14 @@ function _stopKeepalive(): void {
   }
 }
 
-/** Find the bridge secret file in project .godot dir. Throws if project dir not set. */
+/** Find the bridge secret file in project .godot dir. Throws if project dir not set.
+ *  A1: 不缓存路径 —— 多实例起停会使 registry 解析出的端口变化,每次按 resolveBridgePort 现算
+ *  (secret 内容缓存见 readBridgeSecret,不受影响)。 */
 function findBridgeSecretPath(): string {
-  if (_cachedSecretPath) return _cachedSecretPath;
   if (!_projectDir) {
     throw new Error('Bridge secret path requested before game_bridge_install set project directory');
   }
-  _cachedSecretPath = join(_projectDir, '.godot', `mcp_bridge_${BRIDGE_PORT}.secret`);
-  return _cachedSecretPath;
+  return bridgeSecretPathFor(_projectDir, resolveBridgePort(_projectDir));
 }
 
 function readBridgeSecret(): string | null {
@@ -270,7 +326,9 @@ async function _doConnect(timeout: number): Promise<Socket> {
   }
 
   return new Promise((resolve, reject) => {
-    const sock = createConnection({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
+    // A1: 实际端口来自 registry 解析(多实例避让后可能非 9081)
+    const port = resolveBridgePort(_projectDir ?? '');
+    const sock = createConnection({ port, host: BRIDGE_HOST }, () => {
       sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
     });
 
@@ -413,7 +471,6 @@ export function setBridgeProjectDir(projectDir: string | null): void {
       `Ensure no concurrent cross-project bridge calls (bridge is per-server single-project).`);
   }
   _projectDir = projectDir;
-  _cachedSecretPath = null;
   _cachedSecret = null;
   _connectionLock = null;
   // G-1: 切项目 = 旧连接语义终结 — 清订阅登记(旧项目订阅对新项目无意义) + 停 keepalive
@@ -543,7 +600,7 @@ export function getToolDefinitions(): Tool[] {
             enum: [...ACTIONS],
             description: '操作类型',
           },
-          port: { type: 'number', description: 'game_bridge_install: 桥接监听端口（当前忽略，始终 9081）', default: 9081 },
+          port: { type: 'number', description: 'game_bridge_install: 期望的起始监听端口(实际端口由游戏侧 env GODOT_MCP_BRIDGE_PORT 设起点,被占自动递增避让;此参数不影响行为,保留兼容)。实际端口见 ping 响应与实例 registry', default: 9081 },
           source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload）' },
           method: {
             type: 'string',
@@ -772,16 +829,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
     switch (action) {
       case 'game_bridge_install': {
         const projectPath = requireProjectPath(args);
-        const port = (args.port as number) || 9081;
         const scriptsDir = dirname(ctx.opsScript);
         const bridgeSrc = join(scriptsDir, BRIDGE_SCRIPT_NAME);
 
         if (!existsSync(bridgeSrc)) {
           return textResult(`Error: Bridge script not found at ${bridgeSrc}`);
         }
-
-        const destScript = join(projectPath, BRIDGE_SCRIPT_NAME);
-        copyFileSync(bridgeSrc, destScript);
 
         const configPath = join(projectPath, 'project.godot');
         if (!existsSync(configPath)) {
@@ -792,10 +845,26 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         // G-5: 幂等/迁移检查用行首精确匹配(键名短,裸 includes 会误命中注释等文本)。
         // 新键存在 → 已注册跳过;仅旧带前缀键存在 → 迁移(删旧行写新行,旧项目自愈)。
         const hasNewKey = new RegExp(`^${AUTOLOAD_KEY}\\s*=`,'m').test(config);
-        if (hasNewKey) {
-          return textResult(`MCP Bridge autoload already registered. Script copied to ${destScript}.`);
-        }
         const hasLegacyKey = new RegExp(`^${AUTOLOAD_KEY_LEGACY}\\s*=`,'m').test(config);
+
+        // A2 (2026-08-18 反馈): mcp_bridge.gd 托管语义 —— 目标已存在且内容与工具自带版本不同
+        // (项目自管/git tracked + 本地修改)时**不覆盖**,保留现有文件并明确告知;内容一致
+        // (工具拷贝的原样)才覆盖刷新(升级场景)。拷贝放在幂等检查前只做一次,已注册同样遵守。
+        const destScript = join(projectPath, BRIDGE_SCRIPT_NAME);
+        let scriptNote = '';
+        if (existsSync(destScript)) {
+          if (readFileSync(bridgeSrc, 'utf-8') !== readFileSync(destScript, 'utf-8')) {
+            scriptNote = `existing ${BRIDGE_SCRIPT_NAME} differs from bundled version — kept as-is (not overwritten); delete it manually to force refresh.`;
+          } else {
+            copyFileSync(bridgeSrc, destScript);
+          }
+        } else {
+          copyFileSync(bridgeSrc, destScript);
+        }
+
+        if (hasNewKey) {
+          return textResult(`MCP Bridge autoload already registered. ${scriptNote || `Script copied to ${destScript}.`}`);
+        }
         if (hasLegacyKey) {
           config = config.split('\n').filter(line => !line.startsWith(AUTOLOAD_KEY_LEGACY + '=')).join('\n');
         }
@@ -814,7 +883,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         renameSync(tmpPath, configPath);
         return textResult(JSON.stringify({
           success: true,
-          message: `MCP Bridge installed. Autoload registered on port ${port}.`,
+          // A1: 端口自动避让(起点 9081,被占递增至 9090;实际端口见 instance registry + ping 响应 pid/project 指纹)
+          message: `MCP Bridge installed. Listens on ${BRIDGE_PORT}+ (auto-increments when occupied; ping response carries pid/project to verify target instance).${scriptNote ? ' ' + scriptNote : ''}`,
           script_path: `res://${BRIDGE_SCRIPT_NAME}`,
           autoload_key: AUTOLOAD_KEY,
         }));
@@ -843,21 +913,36 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
         renameSync(tmpPath, configPath);
 
+        // A2 (2026-08-18 反馈): 仅当脚本内容与工具自带版本一致(工具托管拷贝)才删除;
+        // 内容不同(项目自管/git tracked + 用户修改)则保留并提示,防 uninstall 删掉 tracked 文件。
         const scriptPath = join(projectPath, BRIDGE_SCRIPT_NAME);
+        let uninstallNote = '';
         if (existsSync(scriptPath)) {
-          unlinkSync(scriptPath);
+          const bundledScript = join(dirname(ctx.opsScript), BRIDGE_SCRIPT_NAME);
+          const toolManaged = !existsSync(bundledScript)
+            || readFileSync(bundledScript, 'utf-8') === readFileSync(scriptPath, 'utf-8');
+          if (toolManaged) {
+            unlinkSync(scriptPath);
+          } else {
+            uninstallNote = ` ${BRIDGE_SCRIPT_NAME} differs from bundled version — kept (delete manually if unwanted).`;
+          }
         }
 
-        // A-07: Clean up secret file on uninstall
-        const secretPath = join(projectPath, '.godot', `mcp_bridge_${BRIDGE_PORT}.secret`);
-        if (existsSync(secretPath)) {
-          try { unlinkSync(secretPath); } catch { /* best effort */ }
+        // A-07 + A1: 清理所有端口的 secret(端口避让后 9081..909x 均可能有残留)
+        const godotDir = join(projectPath, '.godot');
+        if (existsSync(godotDir)) {
+          try {
+            for (const name of readdirSync(godotDir)) {
+              if (name.startsWith('mcp_bridge_') && name.endsWith('.secret')) {
+                try { unlinkSync(join(godotDir, name)); } catch { /* best effort */ }
+              }
+            }
+          } catch { /* best effort */ }
         }
         _cachedSecret = null;
-        _cachedSecretPath = null;
         _invalidateSocket();
 
-        return textResult(JSON.stringify({ success: true, message: 'MCP Bridge uninstalled.' }));
+        return textResult(JSON.stringify({ success: true, message: `MCP Bridge uninstalled.${uninstallNote}` }));
       }
 
       // P2-1: Autoload overrides —— 启动游戏前注入任意调试脚本(日志钩子/状态快照等)
@@ -1115,7 +1200,6 @@ export function resetBridgeState(): void {
   _permWarned = false;
   _cachedSecret = null;
   _projectDir = null;
-  _cachedSecretPath = null;
   _cachedSecretAt = 0;
   _connectionLock = null;
   _sendLock = Promise.resolve();
@@ -1138,8 +1222,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, Math.max(0, ms)));
 }
 
-/** 单次 TCP auth 探测(独立 socket,即建即毁)。成功返回 true。 */
-function probeOnce(secretPath: string): Promise<boolean> {
+/** 单次 TCP auth 探测(独立 socket,即建即毁)。成功返回 true。
+ *  A1: port 由调用方传入(registry 解析的实际端口,secret 文件与监听端口必须一致)。 */
+function probeOnce(secretPath: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     let secret: string;
@@ -1149,7 +1234,7 @@ function probeOnce(secretPath: string): Promise<boolean> {
       resolve(false);
       return;
     }
-    const sock = createConnection({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
+    const sock = createConnection({ port, host: BRIDGE_HOST }, () => {
       sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
     });
     const timer = setTimeout(() => {
@@ -1184,7 +1269,9 @@ export async function isBridgeReady(
   timeoutMs: number,
   opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
 ): Promise<BridgeReadyResult> {
-  const secretPath = join(projectDir, '.godot', `mcp_bridge_${BRIDGE_PORT}.secret`);
+  // A1: 实际端口来自 registry 解析(避让端口下 secret 文件名同步变化)。
+  const port = resolveBridgePort(projectDir);
+  const secretPath = bridgeSecretPathFor(projectDir, port);
   const deadline = Date.now() + Math.max(0, timeoutMs);
   const interval = 500;
 
@@ -1196,13 +1283,13 @@ export async function isBridgeReady(
       // ctx 状态变化(runningProcess !== proc)不等于 bridge 不可用:当前 proc 可能仍活。
       // 多 godot/端口冲突场景:新 spawn 的 proc 因 bind 失败 exit 触发 close,但另一 godot 的 bridge
       // 仍服务 9081。先 probeOnce 探测实际可用性,避免误报 process exited 而漏判 bridge ready。
-      if (existsSync(secretPath) && await probeOnce(secretPath)) {
+      if (existsSync(secretPath) && await probeOnce(secretPath, port)) {
         return { ready: true, reason: 'bridge ready' };
       }
       return { ready: false, reason: 'process exited during probe' };
     }
     if (existsSync(secretPath)) {
-      if (await probeOnce(secretPath)) return { ready: true, reason: 'bridge ready' };
+      if (await probeOnce(secretPath, port)) return { ready: true, reason: 'bridge ready' };
     }
     if (Date.now() >= deadline) {
       return existsSync(secretPath)
