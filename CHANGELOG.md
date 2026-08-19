@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **mcp_bridge.gd 工作区污染守卫（2026-08-18 反馈）**
 - `game_bridge_install`：目标 `mcp_bridge.gd` 内容与工具自带版本不同（项目自管/git tracked + 本地修改）时**不覆盖**（保留用户版本并在响应中说明）；一致才覆盖刷新。
-- `game_bridge_uninstall`：内容不同时**不删除**（只清 autoload 注册）；uninstall 同时清理全部端口的 secret 文件（避让端口残留）。
+- `game_bridge_uninstall`：内容不同时**不删除**（只清 autoload 注册）；自带 bundled 脚本缺失（工具安装损坏，无法证明托管）时同样保守不删（增量复审 N-5 收紧）；uninstall 同时清理全部端口的 secret 文件（避让端口残留）。
 
 **headless 场景写盘保留 uid（2026-07-19 反馈）**
 - `_save_atomic` 新增 `preserve_uids_from` 参数：save 后按原文快照文本回填 `[gd_scene]` header uid 与 `[ext_resource]` uid（按 path 匹配、已有不覆盖、失败不阻断 save）。根因：`pack()` 新建 PackedScene 的 uid 为空（ResourceSaver 便不写 `uid=`）、ext uid 依赖 ResourceUID 注册表（headless 未 import 缺失）；Resource 无公开 uid 属性（4.6.3 实测），文本回填是唯一兼容 4.5-4.7 的修法。

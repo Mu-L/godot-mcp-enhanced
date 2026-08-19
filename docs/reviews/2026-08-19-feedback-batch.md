@@ -52,3 +52,8 @@
 
 ## 验证证据(审查后 Nit 修复)
 - lint 0 错 / check:gdscript errors=0 / 单文件重跑:scene-uid 5 + workspace-guard 7 + 契约 9 + game-bridge 30 + runtime 43 全绿;e2e-full 71 passed(全量并发下 3 个既有 flaky 时序用例单跑即绿,与本批无逻辑关联)
+
+## 增量复审后记(f7b364b 之后)
+- **增量复审(commit `1aef11b`/`4318cf8`/`f7b364b`)判定 APPROVE WITH NITS**:8 项 Nit 处置逐项核验吻合(N-5 新用例经红/绿推演确认真锁定新行为;N-6 三副本 src/build/fixture 逐字一致;N-4 未触碰 rule-templates 不触发 bump;matrix 静态比对无漂移),仓库级约束零触碰。
+- `f7b364b` 补 N-5 行为缺口用例后 workspace-guard 为 **8 用例**;增量复审建议的三项实测已由实现者补跑:22 tests 全绿 / lint 0 错 / build 绿 / **build-matrix 重建后 0 diff**(证实无漂移结论)。
+- 增量复审的 3 个文档级 nit 已处置:CHANGELOG uninstall 条目补 N-5 第三分支(bundled 缺失保守不删);本报告回填此后记。
