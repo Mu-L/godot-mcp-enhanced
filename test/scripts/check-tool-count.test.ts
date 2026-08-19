@@ -14,7 +14,7 @@ const AC = 5;  // fixture action 总数
 /** 写齐所有 RULES 涉及的文件，工具数统一用 n（默认权威值 TC） */
 function writeAllFiles(root: string, n: number = TC, a: number = AC) {
   writeFileSync(join(root, 'README.md'),
-    `工具层:${n} 个 MCP 工具(merged,共 ${a} 个 action)\n| 工具数 | **${n}** |\n> 共 ${n} 个 MCP 工具(merged tool definition\n协议层实测通过（${n} 工具全发现`);
+    `工具层:${n} 个 MCP 工具(merged,共 ${a} 个 action)\n| 工具数 | **${n}** |\n> 共 ${n} 个 MCP 工具(merged tool definition,共 ${a} 个 action)\n**顶层工具数:${n}**\n**action 总数:${a}**\n协议层实测通过（${n} 工具全发现`);
   writeFileSync(join(root, 'manifest.json'),
     `{"description":"and ${n} merged tools","long_description":"provides ${n} merged MCP tools"}`);
   writeFileSync(join(root, 'README.en.md'),

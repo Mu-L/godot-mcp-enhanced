@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed — 原型翻译层单 spawn 合成（ui_import_prototype 内部链，PR-4）
 
-- **单进程优化**：`ui_import_prototype` 内部链 build→persist→reload→measure 由两次 Godot spawn（首版实测 ~6s）合成单 spawn（新独立脚本模板 `src/tools/ui/ui-import-single.ts`；二轮审阅 N-2 拍板：不扩 ui-measure、不动共享 `_mcp_load_scene`）；reload 用 `ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)` 绕过 ResourceCache——同进程裸 load 二载命中缓存旧实例 → verify 全红（spec §6 B-1）；「篡改磁盘后 reload 测出差异」断言（换 Hacked 场景/垃圾内容两例集成用例）证明 reload 真读磁盘；reload 失败错误内嵌「build 已持久化，可重跑 ui_measure_layout」恢复语义（persist 先于 measure 既有顺序保持）；实测耗时 2935ms(RTS 23 节点一次调用;两次 spawn 历史基线 ~6s,降约 51%)。capture 不并入（`ui_pixel_verify` 保持独立调用）。
+- **单进程优化**：`ui_import_prototype` 内部链 build→persist→reload→measure 由两次 Godot spawn（首版实测 ~6s）合成单 spawn（新独立脚本模板 `src/tools/ui/ui-import-single.ts`；二轮审阅 N-2 拍板：不扩 ui-measure、不动共享 `_mcp_load_scene`）；reload 用 `ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)` 绕过 ResourceCache——同进程裸 load 二载命中缓存旧实例 → verify 全红（spec §6 B-1）；「篡改磁盘后 reload 测出差异」断言（换 Hacked 场景/垃圾内容两例集成用例）证明 reload 真读磁盘；reload 失败错误内嵌「build 已持久化，可重跑 ui_measure_layout」恢复语义（persist 先于 measure 既有顺序保持）；实测耗时 2935ms（RTS 23 节点一次调用；两次 spawn 历史基线 ~6s，降约 51%）。capture 不并入（`ui_pixel_verify` 保持独立调用）。
 - **规则双副本措辞精确化（PR-3 终审 M-1/M-2/M-7）**：内缩公式补 `max(0,·)` 下限（短边<4 回落 0，防负内缩）；`alpha<1` → `alpha<0.999`（对齐代码窄界）；未映射控件采样预期红进规则文档（与 build_warnings 样式丢失警告互为印证）。
 
 ## [0.32.3] - 2026-08-18

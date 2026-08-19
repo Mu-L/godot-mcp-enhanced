@@ -53,6 +53,14 @@ const RULES = [
       { re: /\| 工具数 \| \*\*(\d+)\*\*/, expectKey: 'toolCount', desc: 'README:22 对比表' },
       { re: /共\s*(\d+)\s*个 MCP 工具\(merged tool definition/, expectKey: 'toolCount', desc: 'README:140 工具一览' },
       { re: /协议层实测通过（(\d+) 工具全发现/, expectKey: 'toolCount', desc: 'README:496 Warp 实测' },
+      // Task 3(2026-08-19)防复发:README 正文 action 数与 :144 双口径曾漂移(235/36/205),
+      // 旧 20 处校验只覆盖工具数不覆盖正文 action 数。正则锚定正文专属措辞
+      // (merged, / merged tool definition, / 顶层工具数: / action 总数:),
+      // 版本表历史行无这些措辞(grep 已核),不会误伤。
+      { re: /个 MCP 工具\(merged,共\s*(\d+)\s*个 action/, expectKey: 'actionCount', desc: 'README:7 正文 action 数' },
+      { re: /个 MCP 工具\(merged tool definition,共\s*(\d+)\s*个 action/, expectKey: 'actionCount', desc: 'README:142 工具一览 action 数' },
+      { re: /\*\*顶层工具数:(\d+)\*\*/, expectKey: 'toolCount', desc: 'README:144 顶层工具数' },
+      { re: /\*\*action 总数:(\d+)\*\*/, expectKey: 'actionCount', desc: 'README:144 action 总数' },
     ],
   },
   {
