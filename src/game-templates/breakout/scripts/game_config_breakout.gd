@@ -1,6 +1,6 @@
 class_name GameConfigBreakout
 extends Resource
-## 打砖块调参资源(tuning/breakout.csv → csv_to_resources 重导 → 重启生效)。
+## 打砖块调参资源(tuning-src/breakout.csv → csv_to_resources 重导 → 重启生效)。
 
 @export var paddle_width: float = 120.0
 @export var ball_speed: float = 6.0

@@ -56,10 +56,57 @@ function locateEocd(buf: Buffer): number {
   throw new InternalError('zip: end-of-central-directory signature not found (not a zip file?)');
 }
 
+function u64le(buf: Buffer, off: number): number {
+  return buf.readUInt32LE(off) + buf.readUInt32LE(off + 4) * 0x1_0000_0000;
+}
+
+/** zip64 支持(Godot 官方 export templates .tpz 即 zip64):EOCD 的 CD offset/size/条目数
+ *  为 0xFFFFFFFF 时,从 EOCD64 locator 前溯 EOCD64 记录取 8 字节真值;CD 条目内
+ *  csize/usize/localOffset 为 0xFFFFFFFF 时读 zip64 extra field。 */
+function readEocdValues(buf: Buffer, eocd: number): { entryCount: number; cdOffset: number; cdSize: number } {
+  let entryCount = buf.readUInt16LE(eocd + 10);
+  let cdOffset = buf.readUInt32LE(eocd + 16);
+  let cdSize = buf.readUInt32LE(eocd + 12);
+  const zip64Needed = cdOffset === 0xffffffff || cdSize === 0xffffffff || entryCount === 0xffff || buf.readUInt16LE(eocd + 8) === 0xffff;
+  if (zip64Needed) {
+    // EOCD64 locator 恰在 EOCD 前(20 字节):sig 0x07064b50 + ... + EOCD64 offset(8B,偏移 8)
+    const locator = eocd - 20;
+    if (locator >= 0 && buf.readUInt32LE(locator) === 0x07064b50) {
+      const e64 = u64le(buf, locator + 8);
+      if (buf.readUInt32LE(e64) === 0x06064b50) {
+        entryCount = u64le(buf, e64 + 32);
+        cdSize = u64le(buf, e64 + 40);
+        cdOffset = u64le(buf, e64 + 48);
+      }
+    }
+    if (cdOffset === 0xffffffff) throw new InternalError('zip: zip64 EOCD not found but needed');
+  }
+  return { entryCount, cdOffset, cdSize };
+}
+
+/** CD 条目的 zip64 extra field(header id 0x0001)按需补真值(顺序:usize,csize,localOffset,disk)。 */
+function entry64Fix(buf: Buffer, extraStart: number, extraLen: number, e: { compressedSize: number; uncompressedSize: number; localHeaderOffset: number }): void {
+  if (e.compressedSize !== 0xffffffff && e.uncompressedSize !== 0xffffffff && e.localHeaderOffset !== 0xffffffff) return;
+  let p = extraStart;
+  const end = extraStart + extraLen;
+  while (p + 4 <= end) {
+    const id = buf.readUInt16LE(p);
+    const size = buf.readUInt16LE(p + 2);
+    if (id === 0x0001) {
+      let q = p + 4;
+      if (e.uncompressedSize === 0xffffffff && q + 8 <= end) { e.uncompressedSize = u64le(buf, q); q += 8; }
+      if (e.compressedSize === 0xffffffff && q + 8 <= end) { e.compressedSize = u64le(buf, q); q += 8; }
+      if (e.localHeaderOffset === 0xffffffff && q + 8 <= end) { e.localHeaderOffset = u64le(buf, q); q += 8; }
+      return;
+    }
+    p += 4 + size;
+  }
+}
+
 function readCentralDirectory(buf: Buffer): ZipEntry[] {
   const eocd = locateEocd(buf);
-  const entryCount = buf.readUInt16LE(eocd + 10);
-  let offset = buf.readUInt32LE(eocd + 16);  // CD offset
+  const { entryCount, cdOffset } = readEocdValues(buf, eocd);
+  let offset = cdOffset;  // CD offset
   const entries: ZipEntry[] = [];
   for (let i = 0; i < entryCount; i++) {
     if (offset + 46 > buf.length || buf.readUInt32LE(offset) !== CD_ENTRY_SIG) {
@@ -68,12 +115,18 @@ function readCentralDirectory(buf: Buffer): ZipEntry[] {
     const fnLen = buf.readUInt16LE(offset + 28);
     const extraLen = buf.readUInt16LE(offset + 30);
     const commentLen = buf.readUInt16LE(offset + 32);
-    entries.push({
-      name: buf.toString('utf-8', offset + 46, offset + 46 + fnLen),
-      compression: buf.readUInt16LE(offset + 10),
+    const fields = {
       compressedSize: buf.readUInt32LE(offset + 20),
       uncompressedSize: buf.readUInt32LE(offset + 24),
       localHeaderOffset: buf.readUInt32LE(offset + 42),
+    };
+    entry64Fix(buf, offset + 46 + fnLen, extraLen, fields);
+    entries.push({
+      name: buf.toString('utf-8', offset + 46, offset + 46 + fnLen),
+      compression: buf.readUInt16LE(offset + 10),
+      compressedSize: fields.compressedSize,
+      uncompressedSize: fields.uncompressedSize,
+      localHeaderOffset: fields.localHeaderOffset,
     });
     offset += 46 + fnLen + extraLen + commentLen;
   }

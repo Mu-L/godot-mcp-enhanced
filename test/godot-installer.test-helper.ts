@@ -73,3 +73,56 @@ export function buildSampleZip(zipPath: string): void {
     { name: 'sample_dir/bin.dat', data: Buffer.from(Array.from({ length: 1024 }, (_, i) => i % 251)), compression: 8 },
   ]);
 }
+
+/** 构造 zip64 形态最小 zip:EOCD 字段全 0xFFFFFFFF + EOCD64 locator/记录 + CD 条目
+ * 的 csize/usize/localOffset 0xFFFFFFFF + zip64 extra field 真值(批 4b:官方 tpz 即 zip64)。 */
+export function buildZip64Sample(zipPath: string): void {
+  const name = 'dir/big.bin';
+  const nameBuf = Buffer.from(name, 'utf-8');
+  const data = Buffer.from('zip64-payload');
+
+  const localOffset = 0;
+  const localHeader = Buffer.alloc(30);
+  localHeader.writeUInt32LE(0x04034b50, 0);
+  localHeader.writeUInt16LE(0, 8);            // store
+  localHeader.writeUInt16LE(nameBuf.length, 26);
+  localHeader.writeUInt16LE(0, 28);
+
+  const cdOffset = localHeader.length + nameBuf.length + data.length;
+
+  // zip64 extra field(仅 localOffset 真值;csize/usize 用 CD 32 位字段直接写真值,
+  // 0xFFFFFFFF 只出现在 localOffset——覆盖 entry64Fix 的 offset 分支)
+  const extra = Buffer.alloc(4 + 8);
+  extra.writeUInt16LE(0x0001, 0);
+  extra.writeUInt16LE(8, 2);
+  extra.writeBigUInt64LE(BigInt(localOffset), 4);
+
+  const cd = Buffer.alloc(46);
+  cd.writeUInt32LE(0x02014b50, 0);
+  cd.writeUInt16LE(0, 10);                    // store
+  cd.writeUInt32LE(data.length, 20);          // csize 真值
+  cd.writeUInt32LE(data.length, 24);          // usize 真值
+  cd.writeUInt16LE(nameBuf.length, 28);
+  cd.writeUInt16LE(extra.length, 30);
+  cd.writeUInt32LE(0xffffffff, 42);           // localOffset → zip64 extra
+
+  const cdSize = cd.length + nameBuf.length + extra.length;
+
+  const eocd64 = Buffer.alloc(56);
+  eocd64.writeUInt32LE(0x06064b50, 0);
+  eocd64.writeBigUInt64LE(BigInt(44), 4);     // 本记录 size(minus 12)
+  eocd64.writeBigUInt64LE(1n, 32);            // total entries
+  eocd64.writeBigUInt64LE(BigInt(cdSize), 40);
+  eocd64.writeBigUInt64LE(BigInt(cdOffset), 48);
+
+  const locator = Buffer.alloc(20);
+  locator.writeUInt32LE(0x07064b50, 0);
+  locator.writeBigUInt64LE(BigInt(cdOffset + cdSize), 8);  // EOCD64 offset
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt32LE(0xffffffff, 12);         // cdSize → zip64
+  eocd.writeUInt32LE(0xffffffff, 16);         // cdOffset → zip64
+
+  writeFileSync(zipPath, Buffer.concat([localHeader, nameBuf, data, cd, nameBuf, extra, eocd64, locator, eocd]));
+}

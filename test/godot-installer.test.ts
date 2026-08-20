@@ -273,11 +273,78 @@ describe('extractZip(零依赖 zip reader)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('zip64 形态解压(EOCD64 locator/记录 + CD 条目 zip64 extra;批 4b 官方 tpz 即 zip64)', async () => {
+    const { buildZip64Sample } = await import('./godot-installer.test-helper.js');
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip64-'));
+    const zip = join(dir, 's.tpz');
+    buildZip64Sample(zip);
+    await m.extractZip(zip, dir);
+    expect(readFileSync(join(dir, 'dir', 'big.bin')).toString()).toBe('zip64-payload');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('损坏 zip(无 EOCD 签名)抛错不写半成品', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-bad-'));
     const badZip = join(dir, 'bad.zip');
     writeFileSync(badZip, Buffer.from('this is not a zip at all'));
     await expect(m.extractZip(badZip, dir)).rejects.toThrow(/zip/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// ─── 断点续传(批 4b:1GB@787MB 断连实测催生;N-4 补自动化回归)────────────────
+
+describe('downloadWithProgress 断点续传', () => {
+  beforeEach(() => { vi.unstubAllGlobals(); });
+  afterAll(() => { vi.unstubAllGlobals(); });
+
+  /** 构造中途断连的 Response body:推完 prefix 字节后流 error(模拟远端断开)。 */
+  function abortedBody(prefix: Buffer): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(prefix));
+        setTimeout(() => controller.error(new Error('simulated disconnect')), 5);
+      },
+    });
+  }
+
+  it('断连后带 Range 续传:206 append 拼接完整', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-resume-'));
+    const dest = join(dir, 'big.tpz');
+    const full = Buffer.from('0123456789ABCDEFGHIJ');  // 20B
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
+      call++;
+      const range = init?.headers?.['range'];
+      if (call === 1) {
+        return new Response(abortedBody(full.subarray(0, 10)), { status: 200 });
+      }
+      // 重试:若 10B 已 flush(N-3 竞态不显形)→ 206 续传尾段;
+      // 若未 flush(磁盘 0B)→ 200 全量重下。两分支行为都正确,断言以最终产物为准
+      if (range === 'bytes=10-') return new Response(full.subarray(10), { status: 206 });
+      return new Response(full, { status: 200 });
+    }));
+    await m.downloadWithProgress('https://github.com/godotengine/godot/releases/download/4.7.2-stable/big.tpz', dest);
+    vi.unstubAllGlobals();
+    expect(call).toBe(2);
+    expect(readFileSync(dest).toString()).toBe(full.toString());
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('服务器忽略 Range 回 200:整文件重写(不 append 旧残留)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-restart-'));
+    const dest = join(dir, 'big.tpz');
+    writeFileSync(dest, 'STALE-RESIDUE', 'utf-8');
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call++;
+      return call === 1
+        ? new Response(abortedBody(Buffer.from('HALF-')), { status: 200 })
+        : new Response('FULL-CONTENT', { status: 200 });  // 重试:不支持 Range → 200 全量
+    }));
+    await m.downloadWithProgress('https://github.com/godotengine/godot/releases/download/4.7.2-stable/big.tpz', dest);
+    vi.unstubAllGlobals();
+    expect(readFileSync(dest).toString()).toBe('FULL-CONTENT');  // 无旧残留拼接
     rmSync(dir, { recursive: true, force: true });
   });
 });

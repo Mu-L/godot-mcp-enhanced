@@ -1,0 +1,119 @@
+/**
+ * 批 4b:零依赖静态文件服务器(127.0.0.1 专用)——serve Web 导出目录供浏览器试玩。
+ *
+ * 安全(spec §3 批 4b):仅绑定回环地址(不对外);路径穿越防护(绝对路径/`..`/
+ * 盘符/反斜杠全拒,recording.ts sanitize 同款语义;先 decodeURIComponent 再校验,
+ * 防 %2e%2e 编码绕过);目录不列不 serve(仅文件);无 CGI/无上传。
+ */
+import { createServer, type Server } from 'http';
+import { createReadStream, existsSync, statSync } from 'fs';
+import { join, extname, normalize, sep } from 'path';
+import { InternalError } from '../core/tool-errors.js';
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.wasm': 'application/wasm',
+  '.pck': 'application/octet-stream',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.ttf': 'font/ttf',
+  '.woff2': 'font/woff2',
+  '.css': 'text/css',
+};
+
+/** 请求路径安全化:返回相对 root 的绝对文件路径;穿越形态 → throw(403)。 */
+export function sanitizeRequestPath(rawUrlPath: string, rootDir: string): string {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawUrlPath);
+  } catch {
+    throw new InternalError('path traversal: bad encoding');
+  }
+  const cleaned = decoded.replace(/\\/g, '/');
+  if (cleaned.startsWith('/') || /^[a-zA-Z]:/.test(cleaned) || cleaned.split('/').includes('..')) {
+    throw new InternalError(`path traversal rejected: ${rawUrlPath}`);
+  }
+  const rel = cleaned === '' ? 'index.html' : cleaned;
+  const abs = normalize(join(rootDir, rel));
+  if (abs !== rootDir && !abs.startsWith(rootDir + sep)) {
+    throw new InternalError(`path traversal escaped root: ${rawUrlPath}`);
+  }
+  return abs;
+}
+
+export interface RunningWebServer {
+  server: Server;
+  url: string;
+  port: number;
+  close(): Promise<void>;
+}
+
+/** 起服务器(仅 127.0.0.1);listening 后 resolve。port=0 让系统分配。 */
+export function startWebServer(rootDir: string, portInput = 0): Promise<RunningWebServer> {
+  if (!existsSync(rootDir) || !statSync(rootDir).isDirectory()) {
+    return Promise.reject(new InternalError(`serve root is not a directory: ${rootDir}`));
+  }
+  const root = normalize(rootDir);
+  return new Promise<RunningWebServer>((resolveObj, rejectObj) => {
+    const server = createServer((req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'content-type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      let filePath: string;
+      try {
+        filePath = sanitizeRequestPath((req.url ?? '/').split('?')[0]!.slice(1), root);
+      } catch {
+        res.writeHead(403, { 'content-type': 'text/plain' });
+        res.end('forbidden');
+        return;
+      }
+      let stat;
+      try {
+        stat = statSync(filePath);
+      } catch {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('not found');
+        return;
+      }
+      if (stat.isDirectory()) {
+        filePath = join(filePath, 'index.html');
+        try {
+          stat = statSync(filePath);
+        } catch {
+          res.writeHead(404, { 'content-type': 'text/plain' });
+          res.end('not found');
+          return;
+        }
+      }
+      res.writeHead(200, {
+        'content-type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+        'content-length': stat.size,
+        'cache-control': 'no-store',
+      });
+      if (req.method === 'HEAD') { res.end(); return; }
+      const stream = createReadStream(filePath);
+      // N-2(审查):stat 后文件被删/独占时 open 失败若无监听会崩掉常驻 serve 进程
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
+    });
+    server.on('error', (err) => {
+      rejectObj(new InternalError(`web server error: ${(err as Error).message}`));
+    });
+    server.listen(portInput, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : portInput;
+      resolveObj({
+        server,
+        port,
+        url: `http://127.0.0.1:${port}/`,
+        close: () => new Promise<void>((done) => server.close(() => done())),
+      });
+    });
+  });
+}

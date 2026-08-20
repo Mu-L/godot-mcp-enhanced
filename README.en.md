@@ -45,9 +45,17 @@ npx godot-mcp-enhanced gif . --seconds 8 --fps 4              # arrow keys by de
 
 Bridge-driven fixed-rate screenshots + key timeline injection, with a zero-dependency hand-written GIF89a encoder (exact palette ≤256 colors / median-cut quantization); output defaults to `dist/demo.gif` inside the project; paths outside the project require y/N confirmation.
 
+**Export to the web and play in the browser**:
+
+```bash
+npx godot-mcp-enhanced web .            # auto-installs export templates (~1GB first time) → exports → serves locally
+```
+
+Headless `--export-release` (official path) + a `127.0.0.1` path-traversal-proof static server; prints `http://127.0.0.1:<port>/` to play; `web --serve-only <dir>` replays an existing export.
+
 Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
 
-> **Roadmap (honest disclosure — not yet supported)**: one-command browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
+> **Roadmap (honest disclosure — not yet supported)**: a `game_wizard` is in development. See [ROADMAP](ROADMAP.md).
 
 ## Comparison
 

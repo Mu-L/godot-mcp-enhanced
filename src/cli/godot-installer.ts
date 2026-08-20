@@ -81,7 +81,7 @@ export async function sha512File(filePath: string): Promise<string> {
 // ─── 下载执行 + installGodot 编排 ─────────────────────────────────────────────
 
 import { createWriteStream, readdirSync, readFileSync } from 'fs';
-import { mkdir, rm, chmod } from 'fs/promises';
+import { mkdir, rm, chmod, stat } from 'fs/promises';
 import { Readable } from 'stream';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
@@ -110,16 +110,39 @@ export async function fetchLatestStableTag(): Promise<string> {
 /** 流式下载到 destPath;onProgress 收到累计字节数。 */
 export async function downloadWithProgress(url: string, destPath: string, onProgress?: (bytes: number) => void): Promise<void> {
   assertAllowedDownloadUrl(url);
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) throw new InternalError(`download failed: HTTP ${res.status}`);
   await mkdir(dirname(destPath), { recursive: true });
+  const MAX_ATTEMPTS = 3;
   let received = 0;
-  const source = Readable.fromWeb(res.body as import('stream/web').ReadableStream);
-  source.on('data', (chunk: Buffer) => {
-    received += chunk.length;
-    onProgress?.(received);
-  });
-  await pipeline(source, createWriteStream(destPath));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      // 断点续传:重试时带 Range(GitHub assets 支持);首次 received=0 无 Range。
+      // 断连残留文件保留,retry 以 append 续写;服务器忽略 Range(回 200)则从头重写。
+      const headers: Record<string, string> = {};
+      if (received > 0) headers['range'] = `bytes=${received}-`;
+      const res = await fetch(url, { redirect: 'follow', headers });
+      if (!res.ok && res.status !== 206 || !res.body) {
+        throw new InternalError(`download failed: HTTP ${res.status}`);
+      }
+      const append = res.status === 206 && received > 0;
+      if (!append) received = 0;
+      const source = Readable.fromWeb(res.body as import('stream/web').ReadableStream);
+      source.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        onProgress?.(received);
+      });
+      await pipeline(source, createWriteStream(destPath, { flags: append ? 'a' : 'w' }));
+      return;
+    } catch (err) {
+      if (attempt >= MAX_ATTEMPTS) {
+        await rm(destPath, { force: true });
+        throw err;
+      }
+      // 指数退避后断点续传(大文件单流直连易被远端断开,批 4b 实测 1GB@787MB 处断)。
+      // N-3(审查):'data' 计数会领先未 flush 的写缓冲——以磁盘实际字节为续传起点
+      try { received = (await stat(destPath)).size; } catch { received = 0; }
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
 }
 
 /** SHA512 校验;不匹配即删文件(不留半成品)并抛错。 */

@@ -46,9 +46,17 @@ npx godot-mcp-enhanced gif . --seconds 8 --fps 4              # 默认方向键;
 
 bridge 定频截图 + 按键时间线注入,零依赖自写 GIF89a 编码器(≤256 色精确直通/中位切分量化);产物默认落项目内 `dist/demo.gif`,项目外路径需 y/N 确认。
 
+**导出成网页,浏览器直接玩**(分享链接前先本地试玩):
+
+```bash
+npx godot-mcp-enhanced web .            # 自动装 export templates(首次 ~1GB)→ 导出 → 起本地服务器
+```
+
+headless `--export-release` 官方路径导出 + `127.0.0.1` 防穿越静态服务器,打印 `http://127.0.0.1:<port>/` 即可浏览器游玩;之后可用 `web --serve-only <导出目录>` 直接重玩。
+
 已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
 
-> **路线图(诚实标注,当前版本尚未支持)**:浏览器一键试玩链接、`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
+> **路线图(诚实标注,当前版本尚未支持)**:`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 

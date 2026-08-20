@@ -4,7 +4,7 @@
  * 资产为独立散文件(src/game-templates/<slug>/,构建拷贝到 build/game-templates/,
  * npm files 覆盖)——GDScript 保持原样可被语法校验/编辑器打开,内容运行时 fs 读取。
  * 四件套约定(每模板必备):main.tscn / scripts/game.gd(+config gd)/ design/gdd/<slug>.md /
- * qa/<slug>.qa.md / tuning/<slug>.csv + tuning/<slug>.tres。
+ * qa/<slug>.qa.md / tuning-src/<slug>.csv(含 .gdignore,不进 Godot import)+ tuning/<slug>.tres(运行时 load)。
  */
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
@@ -30,7 +30,8 @@ export const GAME_TEMPLATES: Record<string, GameTemplateMeta> = {
       'scripts/game_config_2048.gd',
       'design/gdd/2048.md',
       'qa/2048.qa.md',
-      'tuning/2048.csv',
+      'tuning-src/2048.csv',
+      'tuning-src/.gdignore',
       'tuning/2048.tres',
     ],
   },
@@ -44,7 +45,8 @@ export const GAME_TEMPLATES: Record<string, GameTemplateMeta> = {
       'scripts/game_config_snake.gd',
       'design/gdd/snake.md',
       'qa/snake.qa.md',
-      'tuning/snake.csv',
+      'tuning-src/snake.csv',
+      'tuning-src/.gdignore',
       'tuning/snake.tres',
     ],
   },
@@ -58,7 +60,8 @@ export const GAME_TEMPLATES: Record<string, GameTemplateMeta> = {
       'scripts/game_config_breakout.gd',
       'design/gdd/breakout.md',
       'qa/breakout.qa.md',
-      'tuning/breakout.csv',
+      'tuning-src/breakout.csv',
+      'tuning-src/.gdignore',
       'tuning/breakout.tres',
     ],
   },

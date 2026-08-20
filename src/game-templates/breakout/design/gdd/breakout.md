@@ -1,6 +1,6 @@
 # 打砖块(Breakout)
 
-> 模板 slug: `breakout` · 调参: `tuning/breakout.csv` → `tuning/breakout.tres` · qa: `qa/breakout.qa.md`
+> 模板 slug: `breakout` · 调参: `tuning-src/breakout.csv` → `tuning/breakout.tres` · qa: `qa/breakout.qa.md`
 
 ## Overview
 
@@ -51,7 +51,7 @@
 | 砖列数 | `brick_cols` | 10 | 砖墙宽度 |
 | 生命 | `lives` | 3 | 容错次数 |
 
-改表工作流:编辑 `tuning/breakout.csv` → `csv_to_resources` 重导 `breakout.tres` → 重启生效。
+改表工作流:编辑 `tuning-src/breakout.csv` → `csv_to_resources` 重导 `breakout.tres` → 重启生效。
 
 ## Acceptance Criteria
 
