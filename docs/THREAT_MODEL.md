@@ -53,6 +53,15 @@ MCP client ──stdio──▶ enhanced server ──127.0.0.1:WS──▶ edit
 - **判定**:**accident guard + 本地单用户硬隔离混合**。`GODOT_MCP_UNRESTRICTED=true` 全放行(dev)。
 - **已知限制**:realpath 后到实际写文件前存在 TOCTOU 窗口(`path-utils.ts:155-156` 承认,本地场景接受)。
 
+### 2.1.1 Godot 二进制白名单 + CLI 自动安装信任链(批 2,2026-08-20)
+
+- **白名单优先级链**(`src/core/godot-finder.ts` `isGodotPathAllowed`):`GODOT_MCP_UNRESTRICTED` 旁路 → `GODOT_MCP_ALLOWED_GODOT_PATHS` env(设了即用,显式用户意图,config 被忽略)→ `~/.godot-mcp/godot-paths.json`(CLI `install` 登记的路径视为可信)→ 两者皆无 back-compat 放行(签名校验 `isGodotVersionSignature` 兜底不变)。config 容错读:文件不存在/JSON 损坏/字段非法 → 视为未登记(不放大信任面)。
+- **config 写入方唯一**:CLI `install`(`src/cli/godot-installer.ts`,用户 y/N 确认后)。AI/MCP 链路**无任何写入口**——godot-paths.json 不是 AI 可扩大的信任面。
+- **下载信任链**:下载域名硬编码白名单(github.com / objects.githubusercontent.com / api.github.com,https 强制)——**白名单只约束首跳 URL**,`redirect: 'follow'` 的重定向目标域不校验;内容的真正防线是 **SHA512 与二进制同 release 同信道**(`SHA512-SUMS.txt`,官方 releases 自带)——无论重定向到哪,拿到的内容必须匹配同源哈希,信任根 = github.com release 本身,无跨信道信任假设(spec 未决项 1 实测结论:官方不提供独立 SHA256,提供同源 SHA512)。校验失败即删,不留半成品;解压后非 Windows 平台补执行位(0o755)+ `validateGodotBinary` 回读自检(防「解压成功但不可执行」虚假成功,审查 I-1)。
+- **解压**:自写零依赖 zip reader(`src/cli/zip-extract.ts`)——系统 tar 方案废弃(Linux GNU tar 不支持 zip;Windows GNU tar 把 `C:\` 绝对路径当 host:path 远程语法)。条目名路径穿越防护(绝对路径/盘符/`..` 段任一命中 → 整包拒绝);完整性由外层 SHA512 保证,内层 CRC 不重复校验。
+- **审计**:install 成功/失败均落机器级 `~/.godot-mcp/machine-audit.jsonl`(复用 `AuditEntry` + appendFile 原子追加)。
+- **行为变化提示**:登记后白名单收紧为登记路径——用户既有的 `GODOT_PATH` 指向路径可能被拒;继续使用多 Godot 需显式设 `GODOT_MCP_ALLOWED_GODOT_PATHS` 列全(CLI install 完成提示与 README 环境变量表均已说明)。
+
 ### 2.2 GDScript 注入防御(blacklist sandbox)
 
 - **机制**:`src/gdscript-executor.ts:46-108`(`DANGEROUS_PATTERNS`)、`:421-465`(`scanGdscriptSandbox`)、`:196-249`(字符串拼接绕过检测 + `%` 格式化)。覆盖 OS.execute/kill、FileAccess.WRITE、Engine/ClassDB 反射、JavaScriptBridge.eval、str2var/bytes2var、网络回连(WebSocketPeer/HTTPClient,2026-08-07 加)等。双 opt-in 旁路(`:1054-1055`:`UNRESTRICTED` 且 `DISABLE_SAFETY`/`ALLOW_UNSAFE`)。

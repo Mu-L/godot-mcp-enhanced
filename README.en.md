@@ -19,9 +19,17 @@ New to game engines? After installing [Godot](https://godotengine.org/download),
 4. **Accept** — `qa` runs a structured suite against the *real running game* (`playtest.seed` locks RNG: same input → reproducible); `verify_delivery` gates delivery (scene-tree integrity + script health + performance);
 5. **Mistakes are cheap** — editor-tier writes all register into Godot's native undo stack: one **Ctrl+Z** reverts any AI mistake.
 
+**No Godot installed yet?** One command auto-installs it (official GitHub releases, same-source SHA512 verification, zero prerequisites):
+
+```bash
+npx godot-mcp-enhanced install        # latest stable by default; or pin a tag like 4.7.2-stable
+```
+
+It installs into `~/.godot-mcp/godot/<version>/` and registers the binary into the search chain and the path allowlist; `setup` also offers interactive installation when no Godot is detected.
+
 Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
 
-> **Roadmap (honest disclosure — not yet supported)**: a zero-prerequisite entry (auto-install Godot), built-in playable templates, one-command demo GIFs and browser play links, and a `game_wizard` are in development. For now, install Godot yourself and let the AI generate the game skeleton. See [ROADMAP](ROADMAP.md).
+> **Roadmap (honest disclosure — not yet supported)**: built-in playable templates, one-command demo GIFs and browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
 
 ## Comparison
 

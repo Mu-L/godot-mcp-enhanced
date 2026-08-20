@@ -41,8 +41,20 @@ export async function runSetup(_args: string[]): Promise<void> {
     console.log(`✓ Godot found: ${godotPath}`);
   } catch (err) {
     console.error(`✗ Godot not found: ${getErrorMessage(err)}`);
-    console.error('  Set GODOT_PATH environment variable or install Godot.');
-    process.exit(1);
+    // 批 2:TTY 环境引导官方 releases 自动安装;非交互(管道/CI)保持 exit 1 指引
+    const { confirmYesNo } = await import('./confirm.js');
+    if (await confirmYesNo('\n未找到 Godot。是否从官方 GitHub releases 自动下载安装最新 stable?')) {
+      const { installGodot } = await import('./godot-installer.js');
+      const { godotPath: installed, versionTag } = await installGodot({
+        confirm: async () => true,  // 外层已确认
+        onProgress: (msg) => console.log(`  ${msg}`),
+      });
+      console.log(`✓ Godot ${versionTag} 已安装: ${installed}`);
+      godotPath = installed;
+    } else {
+      console.error('  运行 `npx godot-mcp-enhanced install` 自动安装,或设 GODOT_PATH 指向已有 Godot。');
+      process.exit(1);
+    }
   }
 
   // 2. 检测 MCP 命令

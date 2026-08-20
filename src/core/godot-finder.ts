@@ -1,5 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'fs';
-import { join, sep } from 'path';
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { join, sep, dirname } from 'path';
+import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from './logger.js';
@@ -68,18 +69,53 @@ function isGodotVersionSignature(stdout: string): boolean {
   return (hasGodotWord && hasMajorMinor) || hasThreePartVersion || hasVersionStatus;
 }
 
+// ─── 批 2 B-3:机器级 godot-paths.json(CLI install 写入,白名单/搜索链消费)──────
+
+/** 配置文件路径:~/.godot-mcp/godot-paths.json(机器级目录惯例,同 instances/、qa-reports/)。 */
+export function getGodotPathsConfigFile(): string {
+  return join(homedir(), '.godot-mcp', 'godot-paths.json');
+}
+
 /**
- * C-SEC-godotpath: GODOT_MCP_ALLOWED_GODOT_PATHS 路径白名单(分号分隔)。
+ * 容错读取:文件不存在 / JSON 损坏 / paths 非数组 → [];
+ * 数组内仅保留非空字符串(非法元素静默剔除)。
+ */
+export function readGodotPathsConfig(): string[] {
+  try {
+    const raw = readFileSync(getGodotPathsConfigFile(), 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: number; paths?: unknown };
+    if (!Array.isArray(parsed.paths)) return [];
+    return parsed.paths.filter((p): p is string => typeof p === 'string' && p.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** 去重 + 原子写(tmp + rename,防半写状态被读到)。 */
+export function writeGodotPathsConfig(paths: string[]): void {
+  const unique = [...new Set(paths)];
+  const file = getGodotPathsConfigFile();
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = file + '.tmp';
+  writeFileSync(tmp, JSON.stringify({ version: 1, paths: unique }, null, 2) + '\n', 'utf-8');
+  renameSync(tmp, file);
+}
+
+/**
+ * C-SEC-godotpath: GODOT_MCP_ALLOWED_GODOT_PATHS 路径白名单(分号分隔,realpath 归一)。
  * 签名校验(isGodotVersionSignature)之上的硬隔离——防 AI 可控的 godot_path
  * 工具参数/project override/env 指向任意二进制被 spawn(任意代码执行)。
- * 空 env = back-compat 放行(签名校验仍兜底);UNRESTRICTED=true 旁路。
- * realpath 归一化(堵 symlink 绕过)。
+ * 批 2 优先级链:UNRESTRICTED 旁路 → env 设了即用(显式用户意图)→
+ * 机器级 godot-paths.json(CLI install 登记的路径视为可信)→ 两者皆无
+ * back-compat 放行(签名校验仍兜底)。
  */
 export function isGodotPathAllowed(candidatePath: string): boolean {
   if (process.env.GODOT_MCP_UNRESTRICTED === 'true') return true;
   const raw = process.env.GODOT_MCP_ALLOWED_GODOT_PATHS;
-  if (!raw || raw.trim() === '') return true;  // 未设 = back-compat 放行
-  const allowed = raw.split(/[;]+/).map(s => s.trim()).filter(Boolean);
+  const allowed = raw && raw.trim() !== ''
+    ? raw.split(/[;]+/).map(s => s.trim()).filter(Boolean)
+    : readGodotPathsConfig();
+  if (allowed.length === 0) return true;  // env 与 config 皆无 = back-compat 放行
   let realCandidate: string;
   try { realCandidate = safeRealPath(candidatePath); } catch { realCandidate = candidatePath; }
   const isAllowed = allowed.some(a => {
@@ -328,6 +364,20 @@ export async function findGodot(projectPath?: string): Promise<string> {
       tried.push(`GODOT_PATH=${process.env.GODOT_PATH} (failed validation)`);
     } else {
       tried.push(`GODOT_PATH=${process.env.GODOT_PATH} (not found)`);
+    }
+  }
+
+  // 3.5 批 2 B-3:机器级 godot-paths.json 候选(CLI install 登记的 Godot,
+  // 用户显式安装动作 → 优先于 PATH 里可能过期的版本;validateGodotBinary 内含白名单校验)
+  for (const candidate of readGodotPathsConfig()) {
+    if (existsSync(candidate)) {
+      if (await validateGodotBinary(candidate)) {
+        _pathCache.set(cacheKey, candidate);
+        return candidate;
+      }
+      tried.push(`godot-paths.json: ${candidate} (failed validation)`);
+    } else {
+      tried.push(`godot-paths.json: ${candidate} (not found)`);
     }
   }
 
