@@ -219,3 +219,45 @@ describe('appendMachineAuditLine(机器级审计)', () => {
     expect(last.ok).toBe(true);
   });
 });
+
+// ─── extractZip(自写零依赖 zip reader;系统 tar 方案废弃:Linux GNU tar 无 zip 支持,
+// Windows GNU tar 把 `C:\` 绝对路径当 host:path 远程语法——真机手测双杀)──────────
+
+import { readdirSync } from 'fs';
+import { buildSampleZip } from './godot-installer.test-helper.js';
+
+// fixture 代码自生成(不提交二进制,遵循 pngjs globalSetup 同款惯例)
+const SAMPLE_ZIP = join(tmpdir(), `gme-sample-${process.pid}.zip`);
+buildSampleZip(SAMPLE_ZIP);
+
+describe('extractZip(零依赖 zip reader)', () => {
+  it('解压 fixture(store/deflate 条目 + 目录条目)内容逐字节一致', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-'));
+    await m.extractZip(SAMPLE_ZIP, dir);
+    const readme = readFileSync(join(dir, 'sample_dir', 'readme.txt'), 'utf-8');
+    expect(readme).toBe('hello godot zip');
+    const bin = readFileSync(join(dir, 'sample_dir', 'bin.dat'));
+    expect(bin.length).toBe(1024);
+    expect(bin[0]).toBe(0); expect(bin[250]).toBe(250); expect(bin[251]).toBe(0); // i%251 pattern
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('zip 路径穿越防护(条目名以 ../ 或绝对路径开头 → 拒绝)', async () => {
+    // 构造带恶意条目名的 zip:手工拼 minimal zip(单 store 条目名 ../evil.txt)
+    const { buildZipWithEntryName } = await import('./godot-installer.test-helper.js');
+    const evilZip = join(tmpdir(), `gme-evil-${Date.now()}.zip`);
+    buildZipWithEntryName(evilZip, '../evil.txt', Buffer.from('pwn'));
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-evil-'));
+    await expect(m.extractZip(evilZip, dir)).rejects.toThrow(/path traversal|unsafe/i);
+    expect(existsSync(join(dir, '..', 'evil.txt'))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('损坏 zip(无 EOCD 签名)抛错不写半成品', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-bad-'));
+    const badZip = join(dir, 'bad.zip');
+    writeFileSync(badZip, Buffer.from('this is not a zip at all'));
+    await expect(m.extractZip(badZip, dir)).rejects.toThrow(/zip/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

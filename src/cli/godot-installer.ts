@@ -137,11 +137,9 @@ export async function verifyDownloadedAsset(filePath: string, expectedSha512: st
   }
 }
 
-/** 系统 tar 解压(Windows 10+ 内置 BSD tar 支持 zip;Linux/macOS 原生)。零新依赖。 */
-export async function extractZip(zipPath: string, destDir: string): Promise<void> {
-  await mkdir(destDir, { recursive: true });
-  await execFileAsync('tar', ['-xf', zipPath, '-C', destDir], { timeout: 120_000 });
-}
+/** 解压 zip(自写零依赖 reader,见 zip-extract.ts——系统 tar 方案已废弃:Linux GNU tar 无 zip 支持 + Windows GNU tar 绝对路径 host:path 坑)。 */
+import { extractZip } from './zip-extract.js';
+export { extractZip };
 
 /** 在解压目录定位 Godot 可执行文件(win: Godot_v*.exe;mac: Godot.app;linux: 无扩展名二进制)。 */
 export function findExtractedBinary(dir: string): string {
