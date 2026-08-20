@@ -57,8 +57,8 @@ describe('qa 套件(确定性契约)', () => {
   it.each(SLUGS)('%s qa-spec 围栏 JSON 合法且含 seed', (slug) => {
     const qa = readGameTemplateFiles(slug).find(f => f.path === `qa/${slug}.qa.md`)!.content;
     const match = qa.match(/```qa-spec\s*\n([\s\S]*?)```/);
-    expect(match).toBeTruthy();
-    const spec = JSON.parse(match![1]!);
+    if (!match) throw new Error(`qa-spec fence missing in ${slug}`);
+    const spec = JSON.parse(match[1]!);
     expect(typeof spec.name).toBe('string');
     expect(typeof spec.options.seed).toBe('number');
     expect(Array.isArray(spec.steps)).toBe(true);
