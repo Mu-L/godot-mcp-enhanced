@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
+
+- **`skills/game-wizard/SKILL.md`**(第 7 个打包 skill,双副本分发):四档分诊(没想法/模糊/清晰/已有项目)→ 阶段机 S0-S5(环境→造→改玩法→**qa 硬门**→导出→分享);**gate 以 qa CLI 退出码为唯一真相**(0=全 PASSED 才放行——「不问文档写了吗,问游戏跑通了吗」,对标 CCGS gate-check 的文件存在检测);改玩法纪律「GDD→调参表→代码」(能改 `tuning-src/*.csv` 不写码);非 Claude Code 客户端触达(`--target` 项目级安装 / `GODOT_SKILL_LIBRARIES` load_skill 检索 / 纯 CLI 序列直跑);首跑冷启动预热规则内置。
+- **不新增 MCP 工具**(SKILL.md 形态,零版本门禁);`skills install` 分发扫描自动识别(实测 listPackagedSkills 第 7 项)。
+- **端到端小白旅程实走(Windows+4.7.2,按向导阶段机)**:S1 `init --template=snake` → S3 qa 首跑冷启动 15.4s skipped(按向导规则预热复跑)**exit=0,7/7 PASSED** → S4 EXPORT OK + serve 200 → S5 GIF 95KB 12 帧;S2 调参链路由批 3 CSV↔tres 对应测试+`csv_to_resources` 工具承担(诚实标注:端到端沿用默认参数)。录屏属人工步骤,以 GIF 产物+本记录代素材(业务线教程素材待人工补录)。
+- README/README.en 向导段(roadmap 收官注记:六批全落地)。
+
 ### Added — 小白一条龙批 4b:Web 试玩闭环(spec B-2 处置落地)
 
 - **CLI `web <project> [--port N]` + `web --serve-only <dir>`**(router 加路由,参数双形式):findGodot → detectGodotVersion → export templates 检测/安装(y/N 确认,首次 ~1GB)→ ensureWebPreset(项目无 export_presets.cfg 时生成最小 Web preset)→ headless `--export-release`(官方路径,绕开 editor stub,超时 300s)→ 确认起服 → 打印 `http://127.0.0.1:<port>/`;Ctrl+C 优雅关服。
