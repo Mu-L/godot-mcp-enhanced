@@ -20,9 +20,17 @@
 4. **验收** — `qa` 用结构化测试套件起真游戏跑断言(`playtest.seed` 锁随机,同输入可复现);`verify_delivery` 交付门禁检查场景树完整性 + 脚本健康 + 性能;
 5. **出错不慌** — editor 层操作全进 Godot 原生 undo 栈,AI 改错一步,打开编辑器一步 **Ctrl+Z** 即回。
 
+**连 Godot 都没装?** 一条命令自动安装(官方 GitHub releases,SHA512 同源校验,零预装):
+
+```bash
+npx godot-mcp-enhanced install        # 默认 latest stable;可加版本 tag 如 4.7.2-stable
+```
+
+装到 `~/.godot-mcp/godot/<version>/` 并自动登记进搜索链与路径白名单;`setup` 在检测不到 Godot 时也会交互式引导安装。
+
 已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
 
-> **路线图(诚实标注,当前版本尚未支持)**:更省心的入口与分享出口正在开发——零预装自动安装 Godot、内置可玩模板库、一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导。当前版本请先自行安装 Godot,游戏骨架让 AI 生成或手写。见 [ROADMAP](ROADMAP.md)。
+> **路线图(诚实标注,当前版本尚未支持)**:内置可玩模板库、一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导正在开发。当前版本游戏骨架让 AI 生成或手写。见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 
@@ -581,13 +589,14 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_PATH` | Godot 可执行文件路径 | 自动搜索（PATH/注册表/Scoop/Downloads） |
 | `GODOT_PROJECT_PATH` | 默认项目路径 | 自动检测 cwd（向上搜索 project.godot） |
 | `GODOT_MCP_SEARCH_PATHS` | 额外 Godot 搜索目录（分号分隔） | 无 |
-| `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单（分号分隔,realpath 归一）。空=放行(签名校验仍兜底,适用本地单用户);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(放行) |
+| `GODOT_MCP_ALLOWED_GODOT_PATHS` | Godot 二进制路径白名单(分号分隔,realpath 归一)。空=回落 `~/.godot-mcp/godot-paths.json`(CLI `install` 登记的路径视为可信);两者皆无=back-compat 放行(签名校验仍兜底)。设了 env 则 env 优先(显式用户意图,config 被忽略);多用户/不可信环境显式列出可信 Godot 路径,防 `godot_path` 工具参数/项目 override/env 指向任意二进制被 spawn(任意代码执行) | 空(回落 config) |
 | `GODOT_MCP_BRIDGE_PORT` | game bridge 起始监听端口（被占自动递增避让至 +9;多实例并存安全,实际端口写入实例 registry,ping 响应带 pid/project 指纹） | `9081` |
 | `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` | `true`=confirm 类写操作跳过 out-of-band 确认（⚠️ 削弱安全防线;生产环境设此值 server 拒绝启动,详见使用指南 12.12） | `false` |
 | `DEBUG` | 启用详细日志 | `false` |
 | `GODOT_MCP_BRIDGE_PORT` | game bridge 起始监听端口（被占自动递增避让至 +9;多实例并存安全,实际端口写入实例 registry,ping 响应带 pid/project 指纹） | `9081` |
 | `GODOT_MCP_ALLOW_UNSAFE_CONFIRM` | `true`=confirm 类写操作跳过 out-of-band 确认（⚠️ 削弱安全防线;生产环境设此值 server 拒绝启动,详见使用指南 12.12） | `false` |
 | `GODOT_MCP_TELEMETRY` | 匿名遥测 opt-in(默认关闭,详见 [docs/telemetry.md](docs/telemetry.md)) | `false` |
+| `GODOT_MCP_INSTALL_TAG` | CLI `install` 固定版本 tag(如 `4.7.2-stable`,跳过 latest 查询;测试/复现用) | 未设(latest) |
 | `GODOT_MCP_PROFILE` | 工具 profile(basic/lite/minimal/full/bridge_dev/3d_dev 或逗号组名)。**默认 basic**(BREAKING from full;lite 9 组省 ~60% context,RCE action 经 action-gate 默认 gated)。回退全量:`GODOT_MCP_PROFILE=full` 或 `--profile=full` | `basic` |
 
 > **⚠️ BREAKING(G7)**:默认 profile 从 `full` 改 `basic`(对齐 GoPeak compact,省 AI context window)。升级后 tools/list 只暴露 basic(lite 9 组:core/bridge/animation/audio/signal/visual/code/test/profiler)。回退全量 41 工具:`GODOT_MCP_PROFILE=full`;或 AI 运行时 `manage_tools activate <groups>` 动态扩容(无需重启)。RCE action(execute_gdscript 等)始终经 action-gate gated,需 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 解锁。

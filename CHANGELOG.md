@@ -21,6 +21,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 2:Godot 自动安装 + 通用官方资产下载基建(近零依赖,仅 Node 内置)
+
+- **CLI `install [tag]` 子命令 + `setup` 缺失引导**:`npx godot-mcp-enhanced install`(默认 latest stable,`GODOT_MCP_INSTALL_TAG` 可 pin;版本 tag 白名单 `/^\d+\.\d+\.\d+-stable$/`);`setup` 检测不到 Godot 时 TTY 交互 y/N 引导安装(非 TTY 保持 exit 1 指引,不阻塞 CI)。Windows 真机手测:4.7.2-stable 全链路 15.1s(下载 SUMS+60MB zip→SHA512 校验→解压→登记→审计),`doctor` 确认发现新装二进制。
+- **下载信任链(安全子系统)**:域名硬编码白名单(github.com / objects.githubusercontent.com / api.github.com,https 强制);**SHA512 与二进制同 release 同信道**——官方 releases 自带 `SHA512-SUMS.txt`(33 条覆盖全部二进制资产;spec 未决项 1 实测结论:官方不提供独立 SHA256,提供同源 SHA512,信任根=域名白名单,无跨信道假设);校验失败即删不留半成品;流式下载/流式哈希(60MB 级不整读)。
+- **白名单架构改造(spec B-3 处置)**:`~/.godot-mcp/godot-paths.json` 机器级登记文件——`isGodotPathAllowed` 优先级链 UNRESTRICTED 旁路 → env 设了即用(显式用户意图)→ config(CLI install 登记路径视为可信)→ 两者皆无 back-compat 放行(签名校验兜底不变);config 写入方唯一(CLI install 用户确认后),**AI/MCP 链路无写入口**,不是 AI 可扩大的信任面;`findGodot` 搜索链接入 config 候选(优先于 PATH)。真机实测新语义:登记后旧 `GODOT_PATH` 指向路径被 config 白名单拦截、登记路径放行——行为正确,收紧提示已写进 install 输出与 README 环境变量表。
+- **自写零依赖 zip reader**(`src/cli/zip-extract.ts`,store+deflate,zip64/加密不需要):**系统 tar 方案被真机手测双杀**——Linux GNU tar 不支持 zip 格式;Windows(Git Bash)GNU tar 把 `C:\...` 绝对路径当 host:path 远程语法("Cannot connect to C:")。条目名路径穿越防护(绝对路径/盘符/`..` 段 → 整包拒绝,负向测试覆盖);完整性由外层 SHA512 保证,内层 CRC 不重复校验。
+- **机器级审计**:`~/.godot-mcp/machine-audit.jsonl`(install 成功/失败均记;复用 `AuditEntry`+appendFile 原子追加模式;`details` 类型加 index string 自由载荷)。
+- **export templates 基建就绪**:`downloadAsset` 通用函数资产名参数化,tpz 的解压消费留批 4b 复用(同一下载/哈希/审计链)。
+- **测试**:39 新用例(实测 `grep -c "  it(" test/godot-finder-path-config.test.ts test/godot-installer.test.ts` → 11+28):白名单优先级链 5/读写容错 5/搜索链护栏 1/URL 域名与 tag 白名单 9/平台映射 2/SUMS 解析 4/流式哈希 1/校验失败即删 2/mock fetch 下载 3/pin tag 2/机器审计 1/zip 解压 3(含路径穿越负向)/CLI 确认非 TTY 1;fixture 代码自生成(不提交二进制,遵循 pngjs globalSetup 惯例)。
+- **文档**:THREAT_MODEL 新增 §2.1.1(下载信任链+config 写入方唯一+行为变化);README/README.en 小白叙事 install 段(「零预装自动安装」从 roadmap 挪入已支持)+ 环境变量表 ALLOWED 回落语义 + GODOT_MCP_INSTALL_TAG。
+- 本批不动 MCP 工具清单/规则模板/`addons/`,不触发 matrix、check:budget 与版本硬门禁。
+
 ### Added — 小白一条龙批 1:分发/声量(路线图 spec `docs/superpowers/specs/2026-08-20-xiaobai-onestop-roadmap-design.md` 随本批入库;近零代码,纯文档)
 
 - **CCGS 集成指南** `docs/guides/ccgs-integration.md`(新目录 `docs/guides/`):面向 Claude Code Game Studios 存量用户的实战指南——互补性实测(49 agents/73 skills/24225★ 均附核查命令;全 `.claude/` grep "mcp" 零命中、`/playtest-report` 为模板生成器)、三关节点验证工作流(写码后 `run_and_verify`+`validate_scripts` → `qa run` 真跑断言 → `verify_delivery` 交付门禁)、GDD 8 段逐字同源对照表(`validate_gdd` 精确匹配 `^## <段名>$`,个别 `## Tuning` 变体判 missing 的注意项)、CCGS skill → 本项目工具动作对照 7 条、非 Claude Code 客户端触达说明;适配上游 v1.0.0 现状(最后推送 2026-05-21 实测,不承诺上游配合)。README/README.en 致谢节挂指南入口。

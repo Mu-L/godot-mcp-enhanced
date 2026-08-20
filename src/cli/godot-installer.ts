@@ -83,14 +83,10 @@ export async function sha512File(filePath: string): Promise<string> {
 import { createWriteStream, readdirSync, readFileSync } from 'fs';
 import { mkdir, rm } from 'fs/promises';
 import { Readable } from 'stream';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { appendMachineAuditLine } from '../core/audit-log.js';
 import { readGodotPathsConfig, writeGodotPathsConfig } from '../core/godot-finder.js';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * 解析要安装的版本 tag:GODOT_MCP_INSTALL_TAG(测试/复现 pin,不联网)> GitHub API latest。
@@ -235,5 +231,7 @@ export async function runInstall(args: string[]): Promise<void> {
     onProgress: (msg) => console.log(`  ${msg}`),
   });
   console.log(`\n✓ Godot ${tag} 安装完成: ${godotPath}`);
-  console.log('  已登记 ~/.godot-mcp/godot-paths.json(findGodot 搜索链 + 白名单)。');
+  console.log('  已登记 ~/.godot-mcp/godot-paths.json(findGodot 搜索链 + 路径白名单)。');
+  console.log('  注意:登记后白名单收紧为登记路径;若需继续使用其他 Godot(如 GODOT_PATH 指向的),');
+  console.log('  设 GODOT_MCP_ALLOWED_GODOT_PATHS(分号分隔)显式列出全部可信路径。');
 }
