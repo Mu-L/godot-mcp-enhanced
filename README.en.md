@@ -27,9 +27,19 @@ npx godot-mcp-enhanced install        # latest stable by default; or pin a tag l
 
 It installs into `~/.godot-mcp/godot/<version>/` and registers the binary into the search chain and the path allowlist; `setup` also offers interactive installation when no Godot is detected.
 
+**Generate a playable game directly?** Built-in templates (four-piece set: playable demo + GDD + deterministic qa suite + CSV tuning table):
+
+```bash
+npx godot-mcp-enhanced init my-game --template=2048    # or snake / breakout
+cd my-game
+npx godot-mcp-enhanced qa run qa/2048.qa.md --project .   # real-run deterministic assertions
+```
+
+Zero external assets (procedural placeholder art), runs without ever opening the editor; retune by editing `tuning/*.csv` → re-export via `csv_to_resources` → restart; `design/gdd/` ships an 8-section game design document (passes `validate_gdd`) for the AI to iterate on.
+
 Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
 
-> **Roadmap (honest disclosure — not yet supported)**: built-in playable templates, one-command demo GIFs and browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
+> **Roadmap (honest disclosure — not yet supported)**: one-command demo GIFs and browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
 
 ## Comparison
 

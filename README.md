@@ -28,9 +28,19 @@ npx godot-mcp-enhanced install        # 默认 latest stable;可加版本 tag �
 
 装到 `~/.godot-mcp/godot/<version>/` 并自动登记进搜索链与路径白名单;`setup` 在检测不到 Godot 时也会交互式引导安装。
 
+**直接生成一个能玩的游戏?** 内置可玩模板(四件套:可玩 demo + GDD + qa 确定性套件 + CSV 调参表):
+
+```bash
+npx godot-mcp-enhanced init my-game --template=2048    # 或 snake(贪吃蛇)/ breakout(打砖块)
+cd my-game
+npx godot-mcp-enhanced qa run qa/2048.qa.md --project .   # 真跑游戏跑确定性断言
+```
+
+零外部资产(色块占位美术),零编辑器预打开即可运行;改玩法 = 编辑 `tuning/*.csv` → `csv_to_resources` 重导 `.tres` → 重启生效;`design/gdd/` 内置 8 段游戏设计文档(过 `validate_gdd` 校验),AI 拿着它继续迭代。
+
 已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
 
-> **路线图(诚实标注,当前版本尚未支持)**:内置可玩模板库、一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导正在开发。当前版本游戏骨架让 AI 生成或手写。见 [ROADMAP](ROADMAP.md)。
+> **路线图(诚实标注,当前版本尚未支持)**:一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 

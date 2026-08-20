@@ -21,6 +21,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 3:可玩模板库第一期(2048/贪吃蛇/打砖块;spec 未决项 3 选型裁定)
+
+- **CLI `init <name> --template=2048|snake|breakout`**(原 `--template` 死参数赋予真实语义):一条命令落地**可玩**游戏项目四件套——①可玩 demo(`main.tscn` + scripts,色块程序化占位美术,零外部资产);②GDD(`design/gdd/<slug>.md`,8 段过自家 `validate_gdd` 零 error,自产自销;路径与 CCGS `design/gdd/` 惯例互通);③qa 确定性套件(`qa/<slug>.qa.md`,freeze+send_input_sequence 帧定时时间线+step_until 结构化条件+node_state 断言);④调参表(`tuning/<slug>.csv` + 首发 `.tres`,Custom Resource 运行时加载;改表→`csv_to_resources` 重导→重启生效)。
+- **资产形态**:独立散文件 `src/game-templates/<slug>/`(7 文件/模板;GDScript 保持原样可被语法校验)+ 新构建拷贝脚本 `scripts/copy-game-templates.mjs` + npm files 扩展 `build/game-templates/**`;注册表 `src/cli/game-templates.ts`(开发态 src/npm 态 build 探测式定位)。
+- **真机验证(Windows + Godot 4.7.2,零编辑器预打开)**:三模板游戏启动零 parse error;qa **2048 两跑 6/6 PASSED + `qa diff` NO_STATUS_CHANGE 零回归**(AC-2 确定性)、snake 两跑 7/7 + 零回归、breakout 三连跑 6/6 + 零回归。
+- **可玩性工程要点**:输入用运行时注册 action + `Input.is_action_just_pressed`(demo 探针实证模式,bridge 注入 key 设 physical_keycode 可触发);config 用动态字段访问(`cfg.get(...)`)——零编辑器预打开的新项目没有 `global_script_class_cache`,`class_name` 静态引用会 parse error;随机全用全局 RNG(`playtest.seed` 可锁)。
+- **测试方法论发现**:freeze 只锁「现在」不锁「过去」——游戏启动到 freeze 间自然帧数存在进程级漂移,**绝对终态断言**(breakout 的 lives)对此敏感需 tolerance,输入驱动型状态(2048 moves/snake steps)天然免疫;breakout lives 断言带 tolerance 1 并在套件注释说明。另:qa 首跑冷启动(资源首 import)可能超 bridge 15s 窗口,预热后稳定。
+- **测试**:15 新用例(it.each 参数化,实测 `npx vitest run test/game-templates.test.ts` 15 passed;注册表/文件实存/GDD 过校验器×3/qa JSON 契约×3/CSV↔tres 数值等价×3/init 落地);不新增 MCP 工具 → 不触发 matrix/check:budget/版本硬门禁。
+- README/README.en 小白叙事加模板段(「内置可玩模板库」从 roadmap 转已支持);plan `docs/superpowers/plans/2026-08-20-xiaobai-batch3-game-templates.md`。
+
 ### Added — 小白一条龙批 2:Godot 自动安装 + 通用官方资产下载基建(近零依赖,仅 Node 内置)
 
 - **CLI `install [tag]` 子命令 + `setup` 缺失引导**:`npx godot-mcp-enhanced install`(默认 latest stable,`GODOT_MCP_INSTALL_TAG` 可 pin;版本 tag 白名单 `/^\d+\.\d+\.\d+-stable$/`);`setup` 检测不到 Godot 时 TTY 交互 y/N 引导安装(非 TTY 保持 exit 1 指引,不阻塞 CI)。Windows 真机手测:4.7.2-stable 全链路 15.1s(下载 SUMS+86MB zip→SHA512 校验→解压→执行位修复→validate 回读自检→登记→审计),`doctor` 确认发现新装二进制。
