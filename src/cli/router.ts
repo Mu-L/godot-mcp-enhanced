@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __cliDir = dirname(fileURLToPath(import.meta.url));
 const __rootDir = join(__cliDir, '..', '..');
 
-const SUBCOMMANDS = ['setup', 'configure', 'skills', 'doctor', 'init', 'dashboard', 'qa', 'install', 'gif'] as const;
+const SUBCOMMANDS = ['setup', 'configure', 'skills', 'doctor', 'init', 'dashboard', 'qa', 'install', 'gif', 'web'] as const;
 export type Subcommand = typeof SUBCOMMANDS[number];
 
 export function parseSubcommand(args: string[]): { subcommand: Subcommand; rest: string[] } | null {
@@ -63,6 +63,11 @@ export async function routeCommand(args: string[]): Promise<void> {
       await runQa(parsed.rest);
       break;
     }
+    case 'web': {
+      const { runWeb } = await import('./web.js');
+      await runWeb(parsed.rest);
+      break;
+    }
     case 'gif': {
       const { runGif } = await import('./gif.js');
       await runGif(parsed.rest);
@@ -104,6 +109,7 @@ godot-mcp-enhanced — Godot AI 开发环境
   godot-mcp-enhanced qa run <spec>    执行 QA 测试套件（夜间跑批）
   godot-mcp-enhanced install [tag]   从官方 releases 安装 Godot(默认 latest stable;零预装上手)
   godot-mcp-enhanced gif <project>  录制 demo GIF(bridge 定频截图;--fps/--seconds/--keys/--out)
+  godot-mcp-enhanced web <project>  Web 试玩闭环(导出+127.0.0.1 服务器;--port/--serve-only)
 
 MCP 参数:
   --profile=<name>  工具 profile (full/minimal/lite)
