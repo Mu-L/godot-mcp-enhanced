@@ -105,3 +105,29 @@ describe('资产目录定位', () => {
     expect(join(dir, '2048', 'main.tscn')).toContain('game-templates');
   });
 });
+
+// ─── T2:init --template 四件套落地 ────────────────────────────────────────────
+
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { tmpdir } from 'os';
+
+describe('init --template 落地四件套', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  it('init t2048 --template=2048 → 四件套齐全 + main_scene 注册', async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'gme-init-'));
+    process.chdir(sandbox);
+    const { runInit } = await import('../src/cli/init.js');
+    await runInit(['t2048', '--template=2048']);
+    const proj = join(sandbox, 't2048');
+    for (const rel of ['project.godot', 'main.tscn', 'scripts/game.gd', 'scripts/game_config_2048.gd', 'design/gdd/2048.md', 'qa/2048.qa.md', 'tuning/2048.csv', 'tuning/2048.tres']) {
+      expect(existsSync(join(proj, rel))).toBe(true);
+    }
+    const godot = readFileSync(join(proj, 'project.godot'), 'utf-8');
+    expect(godot).toContain('run/main_scene="res://main.tscn"');
+    expect(godot).toContain('config/name="t2048"');
+    process.chdir(origCwd);  // Windows 不允许删除 cwd,先离开 sandbox 再清理
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+});
