@@ -12,7 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **超时接线(两处同款)**:game 工具 `game_input` 与 qa `input` 步骤对 `send_input_sequence` 未显式传 timeout 时按 `wall_budget_ms+10000` 自动放宽(60s 硬钳)——默认 10s/30s 会先于延迟响应超时致响应丢失。
 - **qa 接线**:`QaStepSchema` input 枚举加 `send_input_sequence`(freeze→input(send_input_sequence)→step_until→assert 编排成立)。
 - **README 叙事三连(N1/N2/S1,中英双版)**:①「AI 游戏开发的持续验证管线」定位(竞品押 authoring,本项目押 verification);②「确定性分级」表(L1 帧步进/L2 输入时序/L3 真确定性,回应竞品 "Deterministic" 术语挪用——无 RNG 锁定的帧步进不可复现);③ editor undo 叙事(8 命令模块 45 处 `create_action` 注册,核查命令随文,同赛道最宽)。
-- **测试**:16 单测+契约(`test/game-bridge-input-sequence.test.ts`:方法集/schema/qa 枚举正负向/GD 关键结构文本契约——dispatch 注册/owner 互斥第 4 处/at_frame 下限/深预检/D-1 双路径清理/双开窗者互斥还原)+ e2e 5 用例真机全绿(`test/e2e-bridge-input-sequence.test.ts`,L2 opt-in;fixture `test/fixtures/input-seq-e2e` 探针记录 `first_seen_frame` 锚定帧对齐——press 被游戏读到/release 生效/refrozen/非 frozen 直播/三类负向预检拒绝)。
+- **测试**:18 单测+契约(`test/game-bridge-input-sequence.test.ts`:方法集/schema/qa 枚举正负向/GD 关键结构文本契约——dispatch 注册/owner 互斥第 4 处/at_frame 下限/深预检/D-1 双路径清理/双开窗者互斥还原计数锁定)+ e2e 5 用例真机全绿(`test/e2e-bridge-input-sequence.test.ts`,L2 opt-in;fixture `test/fixtures/input-seq-e2e` 探针记录 `first_seen_frame` 锚定帧对齐——press 被游戏读到/release 生效/refrozen/非 frozen 直播/三类负向预检拒绝)。
+- **第三方审查处置**(SHIPPED WITH NITS,报告 `docs/reviews/2026-08-20-input-sequence.md`):**I-1 已修**——qa input 步骤显式判 result 层 `success=false`(延迟通道 wall_timeout 截断不走顶层 error promote,只查顶层 error 会把截断报 PASSED 的假绿)+ detail 改 `condense(resp.result)` 暴露诊断;**N-1 已修**(schema 补 settle 0-600/wall 1000-50000/事件≤256 范围);**N-2 已修**(还原条件计数断言锁 2 处,防 `includes` 对相同字符串只锁任一);N-3(wall_timeout 正向 e2e 场景)/N-4(超时公式与 computePlaytestTimeoutMs 收敛)记录留后续。审查两条工程教训见 memory:延迟通道响应的 success 语义断层、includes 契约计数盲区。
 - 版本号由规则模板变更硬门禁强制 bump(bridge rule 双副本加 `send_input_sequence` 行,`check:rules-sync` STRICT 通过);npm 发版待用户定夺。
 
 ## [Unreleased]

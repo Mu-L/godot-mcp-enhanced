@@ -401,7 +401,19 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       }
       const resp = await sendToBridge(step.method, step.params, inputTimeout);
       if (resp.error) return err(`bridge: ${resp.error.message}`);
-      return { status: 'PASSED', detail: `${step.method} ok` };
+      // H1 审查 I-1 修复:延迟通道 wall_timeout 截断时 GD 返回 result 层 success=false
+      // 但顶层无 JSON-RPC error(_process 直推响应不走 error promote)——只查顶层
+      // error 会把截断报 PASSED。qa 是自动判定引擎,须显式判软失败。
+      const seqResult = resp.result as Record<string, unknown> | undefined;
+      if (step.method === 'send_input_sequence' && seqResult && seqResult.success === false) {
+        return err(`send_input_sequence 截断: ${JSON.stringify({
+          wall_timeout: seqResult.wall_timeout,
+          applied_count: seqResult.applied_count,
+          total_events: seqResult.total_events,
+          frames_elapsed: seqResult.frames_elapsed,
+        })}`);
+      }
+      return { status: 'PASSED', detail: `${step.method} ok (${condense(resp.result)})` };
     }
     case 'wait': {
       const pathErr = validateBridgePath(step.params) ?? validateWaitPropertyParams(step.method, step.params);

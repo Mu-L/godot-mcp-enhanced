@@ -35,7 +35,7 @@ describe('H1 game 工具 schema 描述', () => {
   });
 
   it('timeout 描述声明延迟响应自动放宽', () => {
-    expect(tool.inputSchema.properties.timeout.description).toContain('wall_budget_ms+10000');
+    expect(tool.inputSchema.properties.timeout.description).toContain('wall_budget+10s');
   });
 });
 
@@ -124,6 +124,17 @@ describe('H1 mcp_bridge.gd 契约(文本级,防关键结构被误删)', () => {
 
   it('step_until paused 原值还原条件纳入 input_seq pending(双开窗者互斥还原)', () => {
     expect(GD_SRC).toContain('_control_step_until_pending.is_empty() and _control_input_seq_pending.is_empty() and not _control_frozen');
+  });
+
+  it('两条开窗完成路径的还原条件计数锁定(审查 N-2:防 includes 对相同字符串只锁任一)', () => {
+    // step_until(:317)与 input_sequence(:378)完成路径的 elif 还原分支字符串互含,
+    // includes 只锁一处;计数断言防对称分支被误删而不红
+    const matches = GD_SRC.match(/_control_input_seq_pending\.is_empty\(\) and not _control_frozen/g);
+    expect(matches?.length).toBe(2);
+  });
+
+  it('qa runner 判 result 层软失败(审查 I-1:wall_timeout 截断不得报 PASSED)', () => {
+    expect(QA_RUNNER_SRC).toContain('seqResult.success === false');
   });
 
   it('_process 轮询块存在(applied 如实上报 + wall_timeout 语义)', () => {
