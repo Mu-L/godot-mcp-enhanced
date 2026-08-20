@@ -6,8 +6,8 @@
  * 输入:--keys 显式序列(逗号分隔,小写);默认方向键循环(2048/snake);
  * --keys 或 --seed 未指定 keys 时按 seed 派生取样顺序(Node 侧 LCG,不依赖游戏 RNG)。
  */
-import { join, dirname, resolve } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname, resolve, sep } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { PNG } from 'pngjs';
 import type { ToolContext } from '../types.js';
 import { parseGodotConfig } from '../helpers.js';
@@ -57,15 +57,33 @@ function lcg(seed: number): () => number {
 export async function runGif(args: string[]): Promise<void> {
   const projectPath = args[0];
   if (!projectPath || !existsSync(join(projectPath, 'project.godot'))) {
-    console.error('用法: gif <project-path> [--out <path>] [--fps 2-5] [--seconds N] [--keys up,left,…] [--seed N]');
+    console.error('用法: gif <project-path> [--out <path>] [--fps 1-10] [--seconds N] [--keys up,left,…] [--seed N]');
     process.exit(2);
   }
-  const opt = (name: string): string | undefined =>
-    args.find(a => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
+  // B-1(审查):支持 `--name=value` 与 `--name value` 双形式——README 示例是空格形式,
+  // 只认等号会静默回落默认值(breakout 的 --keys 失效 → GIF 内容实质错误)
+  const opt = (name: string): string | undefined => {
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]!;
+      if (a === `--${name}`) return args[i + 1];           // 空格形式(相邻消费)
+      if (a.startsWith(`--${name}=`)) return a.split('=').slice(1).join('=');
+    }
+    return undefined;
+  };
+  const num = (name: string, fallback: number): number => {
+    const v = opt(name);
+    if (v === undefined) return fallback;
+    const n = Number(v);
+    if (!Number.isFinite(n)) {
+      console.error(`--${name} 需要数字,收到 "${v}"`);
+      process.exit(2);
+    }
+    return n;
+  };
   const outArg = opt('out');
-  const fps = Math.max(1, Math.min(10, Number(opt('fps') ?? 4)));
-  const seconds = Math.max(1, Math.min(30, Number(opt('seconds') ?? 8)));
-  const seed = Number(opt('seed') ?? 42);
+  const fps = Math.max(1, Math.min(10, num('fps', 4)));
+  const seconds = Math.max(1, Math.min(30, num('seconds', 8)));
+  const seed = num('seed', 42);
   const defaultKeys = ['up', 'right', 'down', 'left'];
   const keys = opt('keys')?.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) ?? defaultKeys;
 
@@ -73,7 +91,7 @@ export async function runGif(args: string[]): Promise<void> {
   const outPath = outArg
     ? resolve(process.cwd(), outArg)
     : join(projectAbs, 'dist', 'demo.gif');
-  if (!outPath.startsWith(projectAbs)) {
+  if (!outPath.startsWith(projectAbs + sep) && outPath !== projectAbs) {
     if (!(await confirmYesNo(`产物在项目外:${outPath}\n确认写入?`))) {
       console.error('已取消(项目内路径免确认,或用默认 dist/demo.gif)');
       process.exit(1);
@@ -100,9 +118,11 @@ export async function runGif(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const frames: RgbaFrame[] = [];
+  const capturedPngPaths: string[] = [];
+
   try {
     const delayCs = Math.round(100 / fps);
-    const frames: RgbaFrame[] = [];
     const rnd = lcg(seed);
 
     const total = fps * seconds;
@@ -121,6 +141,7 @@ export async function runGif(args: string[]): Promise<void> {
         settle_frames: 0,
       }, 20_000);
       if (seq.error) console.warn(`  ⚠ 按键注入失败(${seq.error.message})`);
+      // 注:截图/注入耗时未计入窗口预算,实际帧率略低于 --fps(demo 场景可接受)
       const elapsed = Date.now() - windowStart;
       if (elapsed < windowMs) await new Promise(r => setTimeout(r, windowMs - elapsed));
       const shotUri = `user://mcp_gif_${i}.png`;
@@ -132,17 +153,17 @@ export async function runGif(args: string[]): Promise<void> {
       }
       const local = resolveGameDataPath(projectAbs, sr.path);
       if (!local) {
-        console.error(`  ✗ 无法解析 user:// 路径:${sr.path}`);
+        console.warn(`  ⚠ 无法解析 user:// 路径:${sr.path}(残留游戏侧)`);
         continue;
       }
+      capturedPngPaths.push(local);
       const png = PNG.sync.read(readFileSync(local));
       frames.push({ width: png.width, height: png.height, data: new Uint8Array(png.data) });
       if ((i + 1) % (fps * 2) === 0) console.log(`  已采集 ${frames.length}/${total} 帧`);
     }
-    await sendToBridge('playtest.unfreeze', {}, 10_000).catch(() => {});
     if (frames.length < 2) {
-      console.error(`✗ 有效帧不足(${frames.length})`);
-      process.exit(1);
+      // 不用 process.exit:try 内 exit 旁路 finally 的 stop_project → 游戏进程残留(审查 I-1)
+      throw new Error(`有效帧不足(${frames.length})`);
     }
     console.log(`  编码 ${frames.length} 帧 → ${outPath}`);
     const gif = encodeGif(frames, delayCs);
@@ -150,7 +171,10 @@ export async function runGif(args: string[]): Promise<void> {
     writeFileSync(outPath, gif);
     console.log(`✓ demo GIF 完成: ${outPath}(${(gif.length / 1024).toFixed(0)} KB,${frames[0]!.width}×${frames[0]!.height},${frames.length} 帧@${fps}fps)`);
   } finally {
-    // teardown:停游戏(与 qa 同款,防进程残留)
+    // teardown:停游戏(与 qa 同款,防进程残留)+ 清理 user:// 侧截图残留(审查 N-2)
+    for (const f of capturedPngPaths) {
+      try { if (existsSync(f)) unlinkSync(f); } catch { /* best-effort */ }
+    }
     await runtime.handleTool('runtime', { action: 'stop_project' }, ctx).catch(() => {});
   }
 }

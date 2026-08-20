@@ -181,6 +181,22 @@ describe('lzwEncode(独立解码器往返)', () => {
     }
   });
 
+  it('空输入返回 CLEAR+EOI 合法流(审查 N-5)', () => {
+    const enc = lzwEncode(new Uint8Array(0), 2);
+    const dec = gifLzwDecode(2, enc, 0);
+    expect(dec).toEqual([]);
+  });
+
+  it('直通中量级色数(5/64/128 色,tableBits 3-7 覆盖,审查 N-5)', () => {
+    for (const colorCount of [5, 64, 128]) {
+      const rnd = lcg(colorCount * 7 + 3);
+      const indices = new Uint8Array(Array.from({ length: 777 }, () => Math.floor(rnd() * colorCount)));
+      const minCodeSize = Math.max(2, Math.ceil(Math.log2(colorCount)));
+      const enc = lzwEncode(indices, minCodeSize);
+      expect(gifLzwDecode(minCodeSize, enc, indices.length)).toEqual([...indices]);
+    }
+  });
+
   it('字典 4096 满触发 CLEAR 重置(大数据量)', () => {
     const rnd = lcg(99);
     // 高熵 256 色长序列,逼出字典满
@@ -188,8 +204,7 @@ describe('lzwEncode(独立解码器往返)', () => {
     const enc = lzwEncode(indices, 8);
     const dec = gifLzwDecode(8, enc, indices.length);
     expect(dec.length).toBe(indices.length);
-    expect(dec.slice(0, 1000)).toEqual([...indices.slice(0, 1000)]);
-    expect(dec.slice(-1000)).toEqual([...indices.slice(-1000)]);
+    expect(dec).toEqual([...indices]);  // 全量比对(审查 N-5:首尾抽样改全量)
   });
 });
 
