@@ -55,7 +55,13 @@ Headless `--export-release` (official path) + a `127.0.0.1` path-traversal-proof
 
 Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
 
-> **Roadmap (honest disclosure — not yet supported)**: a `game_wizard` is in development. See [ROADMAP](ROADMAP.md).
+**Not sure where to start?** The `game-wizard` skill: four-track triage (no idea / vague / clear / existing project) → stage machine (env → create → tweak → **hard qa gate** → export → share), every gate decided by the qa exit code — "don't ask if the doc is written, ask if the game runs":
+
+```bash
+npx godot-mcp-enhanced skills install    # installs game-wizard (plus 6 more skills); then tell the AI "make me a playable game"
+```
+
+> **Roadmap**: the six-batch one-stop journey (distribution / install / templates / GIF / Web / wizard) has fully landed; future directions in [ROADMAP](ROADMAP.md).
 
 ## Comparison
 

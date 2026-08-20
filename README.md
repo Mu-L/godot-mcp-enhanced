@@ -56,7 +56,13 @@ headless `--export-release` 官方路径导出 + `127.0.0.1` 防穿越静态服�
 
 已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
 
-> **路线图(诚实标注,当前版本尚未支持)**:`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
+**不知道从哪开始?** 一条龙向导 skill(`game-wizard`):四档分诊(没想法/模糊/清晰/已有项目)→ 阶段机(环境→造→改玩法→**qa 硬门**→导出→分享),每个 gate 以 qa 退出码为准——「不问文档写了吗,问游戏跑通了吗」:
+
+```bash
+npx godot-mcp-enhanced skills install    # 装入 game-wizard(及另外 6 个技能)后对 AI 说「帮我做一个能玩的游戏」
+```
+
+> **路线图**:一条龙六批(分发声量/install/模板/GIF/Web/向导)已全部落地;后续方向见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 
