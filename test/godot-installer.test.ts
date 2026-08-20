@@ -195,6 +195,13 @@ describe('fetchLatestStableTag(GODOT_MCP_INSTALL_TAG pin)', () => {
   });
 });
 
+describe('confirmYesNo(CLI 交互确认)', () => {
+  it('非 TTY(CI/管道)返回 false 不阻塞', async () => {
+    const { confirmYesNo } = await import('../src/cli/confirm.js');
+    expect(await confirmYesNo('test?')).toBe(false);
+  });
+});
+
 describe('appendMachineAuditLine(机器级审计)', () => {
   it('落 ~/.godot-mcp/machine-audit.jsonl 且 JSON 行合法(带 timestamp)', async () => {
     const { appendMachineAuditLine, getMachineAuditFile } = await import('../src/core/audit-log.js');

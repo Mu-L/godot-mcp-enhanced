@@ -66,7 +66,7 @@ export function buildReleaseUrls(tag: string, assetTemplate: string): { binaryUr
 export function parseSha512Sums(sumsText: string, filename: string): string {
   for (const line of sumsText.split(/\r?\n/)) {
     const match = line.match(/^([0-9a-fA-F]{128})\s\s+(.+)$/);
-    if (match && match[2].trim() === filename) return match[1].toLowerCase();
+    if (match?.[1] && match[2]?.trim() === filename) return match[1].toLowerCase();
   }
   throw new InternalError(`entry not found in SHA512-SUMS.txt: ${filename}`);
 }
@@ -222,4 +222,20 @@ export async function installGodot(opts: {
     });
     throw err;
   }
+}
+
+// ─── CLI 入口(`npx godot-mcp-enhanced install [tag]`)────────────────────────
+
+/** install 子命令:可选版本 tag 参数(默认 latest stable),交互确认后安装。 */
+export async function runInstall(args: string[]): Promise<void> {
+  const versionTag = args[0];
+  console.log('📥 Godot 自动安装(官方 GitHub releases,SHA512 同源校验)\n');
+  const { confirmYesNo } = await import('./confirm.js');
+  const { godotPath, versionTag: tag } = await installGodot({
+    versionTag,
+    confirm: () => confirmYesNo('确认下载并安装?'),
+    onProgress: (msg) => console.log(`  ${msg}`),
+  });
+  console.log(`\n✓ Godot ${tag} 安装完成: ${godotPath}`);
+  console.log('  已登记 ~/.godot-mcp/godot-paths.json(findGodot 搜索链 + 白名单)。');
 }

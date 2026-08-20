@@ -58,6 +58,7 @@ export interface AuditEntry {
     batch?: boolean;          // project_replace/create_project 批量(主路径 + 标记)
     truncated?: boolean;      // changed_files 超 MAX_CHANGED_FILES 截断
     confirmed?: boolean;      // B-1:确认后真实执行(区别于令牌请求的虚假记录)
+    [key: string]: unknown;   // 自由载荷:各工具/CLI 自定义键(如 cli install 的 versionTag/binaryUrl)
   };
 }
 
