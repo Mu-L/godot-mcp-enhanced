@@ -21,6 +21,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 4b:Web 试玩闭环(spec B-2 处置落地)
+
+- **CLI `web <project> [--port N]` + `web --serve-only <dir>`**(router 加路由,参数双形式):findGodot → detectGodotVersion → export templates 检测/安装(y/N 确认,首次 ~1GB)→ ensureWebPreset(项目无 export_presets.cfg 时生成最小 Web preset)→ headless `--export-release`(官方路径,绕开 editor stub,超时 300s)→ 确认起服 → 打印 `http://127.0.0.1:<port>/`;Ctrl+C 优雅关服。
+- **export templates 安装复用批 2 信任链**(tpz 同为官方 GitHub releases 资产:域名白名单/SHA512 同源/失败审计);安装位置 `export_templates/<ver>.stable/`(模板文件直接位于版本目录下,无中间层——本机 4.6.2 结构为证);**web 模板检测双形态**(≤4.5 裸 wasm / 4.6+ web_release.zip)。
+- **零依赖静态服务器** `src/cli/web-server.ts`:仅绑定 127.0.0.1;路径穿越防护(decode 后校验绝对路径/`..`/盘符/反斜杠/normalize 越界全拒);MIME 表(html/wasm/pck/js/png/svg/woff2 等);405/404/403 语义;目录自动落 index.html。
+- **真机端到端四连修(Windows + Godot 4.7.2)**:①官方 tpz 是 **zip64**——zip reader 补 EOCD64 locator/记录 + CD 条目 zip64 extra field(带往返测试);②1GB 下载在 787MB 处被远端断连——downloadWithProgress 加 **Range 断点续传**(3 次指数退退避,GitHub assets 支持 206);③导出器不建输出目录——预建 build/web;④**tuning CSV 被 Godot 当翻译表 import**(生成损坏 .translation)——模板结构改为 `tuning-src/`(含 .gdignore,CSV 调参源不进 import)+ `tuning/`(仅 .tres 供运行时 load),三模板四件套/注册表/测试/GDD 工作流同步。
+- **真机验证**:templates 下载(断点续传生效)→ 安装(层级正确)→ `EXPORT OK`(2048 模板 build/web 产物齐:index.html/wasm/pck/worklet)→ serve:curl **200×3**(html text/html、wasm application/wasm、pck octet-stream)+ **403×2**(穿越与编码穿越)。
+- 测试 +11(web-export.test.ts 10 + zip64 往返 1;含 raw-path 穿越负向——**%2e%2e 会被规范 URL 客户端消段,防护针对 raw 客户端**,测试用 {path} 形态直发原始串实证);README/README.en(roadmap「浏览器试玩」转已支持);零 GD 改动、不新增 MCP 工具。
+
 ### Added — 小白一条龙批 4a:demo GIF(spec B-1 处置落地)
 
 - **CLI `gif <project>` 子命令**(router 加路由):`--fps`(1-10,默认 4)/`--seconds`(1-30,默认 8)/`--keys`(逗号分隔小写键名,默认方向键循环;breakout 用 `--keys left,right`)/`--seed`(按键取样顺序,Node 侧 LCG 派生,不依赖游戏 RNG)/`--out`(默认项目内 `dist/demo.gif`;**项目外路径 y/N 确认门**,实测非 TTY 自动拒)。
