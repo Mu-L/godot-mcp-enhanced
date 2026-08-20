@@ -81,7 +81,7 @@ export async function sha512File(filePath: string): Promise<string> {
 // ─── 下载执行 + installGodot 编排 ─────────────────────────────────────────────
 
 import { createWriteStream, readdirSync, readFileSync } from 'fs';
-import { mkdir, rm, chmod } from 'fs/promises';
+import { mkdir, rm, chmod, stat } from 'fs/promises';
 import { Readable } from 'stream';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
@@ -137,7 +137,9 @@ export async function downloadWithProgress(url: string, destPath: string, onProg
         await rm(destPath, { force: true });
         throw err;
       }
-      // 指数退避后断点续传(大文件单流直连易被远端断开,批 4b 实测 1GB@787MB 处断)
+      // 指数退避后断点续传(大文件单流直连易被远端断开,批 4b 实测 1GB@787MB 处断)。
+      // N-3(审查):'data' 计数会领先未 flush 的写缓冲——以磁盘实际字节为续传起点
+      try { received = (await stat(destPath)).size; } catch { received = 0; }
       await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }

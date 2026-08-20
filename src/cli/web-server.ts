@@ -97,7 +97,10 @@ export function startWebServer(rootDir: string, portInput = 0): Promise<RunningW
         'cache-control': 'no-store',
       });
       if (req.method === 'HEAD') { res.end(); return; }
-      createReadStream(filePath).pipe(res);
+      const stream = createReadStream(filePath);
+      // N-2(审查):stat 后文件被删/独占时 open 失败若无监听会崩掉常驻 serve 进程
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
     });
     server.on('error', (err) => {
       rejectObj(new InternalError(`web server error: ${(err as Error).message}`));

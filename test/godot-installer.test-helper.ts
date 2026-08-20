@@ -124,6 +124,5 @@ export function buildZip64Sample(zipPath: string): void {
   eocd.writeUInt32LE(0xffffffff, 12);         // cdSize → zip64
   eocd.writeUInt32LE(0xffffffff, 16);         // cdOffset → zip64
 
-  const { writeFileSync } = require('fs') as typeof import('fs');
   writeFileSync(zipPath, Buffer.concat([localHeader, nameBuf, data, cd, nameBuf, extra, eocd64, locator, eocd]));
 }
