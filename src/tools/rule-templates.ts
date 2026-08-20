@@ -192,6 +192,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | \`send_mouse_click\` | 发送鼠标点击（x, y, button, pressed） |
 | \`send_mouse_move\` | 移动鼠标（x, y） |
 | \`send_text\` | 输入文本（text） |
+| \`send_input_sequence\` | H1(2026-08-20) 帧定时输入时间线（timeline=[{at_frame:1-600 开窗后第N帧, type:"action"/"key"/"mouse_click"/"mouse_move"/"touch"/"drag", ...事件参数}], settle_frames, wall_budget_ms）。延迟响应;owner 互斥同 control 层;frozen 下自动开窗播放+完成 refreeze;与 playtest.seed/fixed_delta 组合=确定性完全体。action 事件需 name 在项目 InputMap |
 
 ### 写入 — game_write
 

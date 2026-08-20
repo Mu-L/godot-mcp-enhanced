@@ -76,8 +76,9 @@ describe('D-2 [P2]: freeze 系列保存-还原游戏自身 paused(三处还原�
   it('D-2d: 还原点2 step_until 完成分支恢复原值(非 refreeze 且 pending 清空)', () => {
     // 完成逻辑在 _process 的 step_until 轮询段(非独立 func),用全文锚定:
     // elif 分支 = 最后一个开窗 entry 完成时还原,且带 not _control_frozen 防护
+    // H1 (2026-08-20): input_seq pending 同为开窗者,还原条件扩为两数组皆空
     expect(
-      gd.includes('elif _control_step_until_pending.is_empty() and not _control_frozen:'),
+      gd.includes('elif _control_step_until_pending.is_empty() and _control_input_seq_pending.is_empty() and not _control_frozen:'),
       'step_until 完成段缺 elif 还原分支'
     ).toBe(true);
     expect(gd.includes('get_tree().paused = _control_paused_saved'), '完成段缺原值还原').toBe(true);
@@ -98,9 +99,9 @@ describe('D-2 [P2]: freeze 系列保存-还原游戏自身 paused(三处还原�
     );
   });
 
-  it('D-2g [负向]: 全文件 get_tree().paused = false 仅剩开窗 1 处(原 3 处:unfreeze/开窗/断线)', () => {
+  it('D-2g [负向]: 全文件 get_tree().paused = false 仅剩开窗 2 处(step_until/input_sequence 各一;原 3 处:unfreeze/开窗/断线)', () => {
     const count = gd.split('get_tree().paused = false').length - 1;
-    expect(count, `硬设 false 应仅剩开窗 1 处,实际 ${count} 处`).toBe(1);
+    expect(count, `硬设 false 应仅剩开窗 2 处,实际 ${count} 处`).toBe(2);
   });
 });
 

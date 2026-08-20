@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.8] - 2026-08-20
+
+### Added — 确定性完全体批(护城河研究 H1 + 叙事正名;报告 `docs/research/2026-08-20-护城河方向研究.md`)
+
+- **`send_input_sequence` 帧定时输入时间线(bridge `game_input` 第 7 个方法)**:`timeline=[{at_frame:int(1-600,开窗后第 N 帧注入), type:"action"|"key"|"mouse_click"|"mouse_move"|"touch"|"drag", ...事件参数}]` + `settle_frames`(0-600)+ `wall_budget_ms`(clamp 1000-50000,D-5 同款)。**延迟响应**(step_until 同款哨兵+pending 通道,登记帧不计数);**owner 互斥**同 control 层(第 4 处校验);**frozen 状态下自动开窗播放、完成后 refreeze**(与 `playtest.freeze` 无缝组合);注入直接复用 `_cmd_send_*`(自带校验,零重复),action 类型走 `InputEventAction`;**深预检 all-or-nothing**(key 可解析/`InputMap.has_action` 存在性/at_frame 范围/类型集合/事件数 ≤256),运行时注入错误记 `applied` 如实上报不中断;响应含 `applied_count/total_events/frames_elapsed/wall_timeout/refrozen`。与 `playtest.seed`/`fixed_delta` 组合达成 **L3 真确定性完全体**(seed 锁随机+时间线锁输入+快照恢复)——竞品最高仅 L1(固定帧 step 无 RNG 锁)或 L2(输入时序无暂停/seed),详见 README「确定性分级」表。
+- **超时接线(两处同款)**:game 工具 `game_input` 与 qa `input` 步骤对 `send_input_sequence` 未显式传 timeout 时按 `wall_budget_ms+10000` 自动放宽(60s 硬钳)——默认 10s/30s 会先于延迟响应超时致响应丢失。
+- **qa 接线**:`QaStepSchema` input 枚举加 `send_input_sequence`(freeze→input(send_input_sequence)→step_until→assert 编排成立)。
+- **README 叙事三连(N1/N2/S1,中英双版)**:①「AI 游戏开发的持续验证管线」定位(竞品押 authoring,本项目押 verification);②「确定性分级」表(L1 帧步进/L2 输入时序/L3 真确定性,回应竞品 "Deterministic" 术语挪用——无 RNG 锁定的帧步进不可复现);③ editor undo 叙事(8 命令模块 45 处 `create_action` 注册,核查命令随文,同赛道最宽)。
+- **测试**:16 单测+契约(`test/game-bridge-input-sequence.test.ts`:方法集/schema/qa 枚举正负向/GD 关键结构文本契约——dispatch 注册/owner 互斥第 4 处/at_frame 下限/深预检/D-1 双路径清理/双开窗者互斥还原)+ e2e 5 用例真机全绿(`test/e2e-bridge-input-sequence.test.ts`,L2 opt-in;fixture `test/fixtures/input-seq-e2e` 探针记录 `first_seen_frame` 锚定帧对齐——press 被游戏读到/release 生效/refrozen/非 frozen 直播/三类负向预检拒绝)。
+- 版本号由规则模板变更硬门禁强制 bump(bridge rule 双副本加 `send_input_sequence` 行,`check:rules-sync` STRICT 通过);npm 发版待用户定夺。
+
 ## [Unreleased]
 
 ### Added — Godot 4.7.x 适配批(4.7.1/4.7.2 维护版正式发布跟进;两版官方声明零 API 不兼容)

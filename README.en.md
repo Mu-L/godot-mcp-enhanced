@@ -3,6 +3,7 @@
 > Free · Open Source · Secure — a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture + runtime control**.
 
 An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 45 MCP tools (merged, with 240+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
+While competitors bet on **authoring** (generation), this project bets on **verification** — QA orchestration, regression diffs, an operation audit log, and deterministic playtesting together form a **continuous verification pipeline for AI-assisted game development** (CI for AI game dev).
 
 > **Tool descriptions are in Chinese** (serving the Chinese Godot developer community; i18n PRs welcome). This English README covers positioning, comparison, security, and setup; for the full per-action tool list see the [Chinese README](README.md) and [capability-matrix](docs/capability-matrix.md).
 
@@ -36,6 +37,16 @@ _"—" means the project's public README does not disclose the capability; not n
 > **Not just a file-level bridge — engine-level runtime control.**
 > Most solutions in the field (including closed-source commercial SaaS) only let AI read/write project files — they **can't see or control a running game**.
 > This project's Game Bridge connects to a live game over TCP: read live node trees & properties, GPU viewport screenshots, property sampling, signal watching, input simulation, record-replay, plus `frame-verify` anti-cheat — closing the loop **change → run → verify**, not just editing files.
+
+> **"Determinism" levels: frame stepping ≠ true determinism.** The word "deterministic" is being stretched in this field (one project labels freeze / fixed-frame stepping as "Deterministic" — with no RNG seeding, the same input on different random states is still not reproducible). Deterministic testing actually has three levels:
+>
+> | Level | Capability | Meaning |
+> |---|---|---|
+> | **L1 frame stepping** | freeze / fixed-frame step / screenshot | "pause and inspect frame by frame" |
+> | **L2 input timeline** | frame-timed input timeline (`send_input_sequence`) | locks "what the player did on frame N" |
+> | **L3 true determinism** | `playtest.seed` RNG lock + `fixed_delta` physics step lock + `step_until` conditional stepping + `snapshot/restore` | same input + same seed ⇒ **reproducible across runs** |
+>
+> This project implements all three. As of 2026-08-20, known competitors reach at most L1 (freeze/fixed-frame step, no RNG lock) or L2 (frame-timed input, no pause, no seed). Reproducible "AI testing AI-written games" requires at least L3.
 
 > **Upgrading from [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp)?** See the **[migration guide](docs/migration-from-coding-solo.md)** — zero capability loss; gain three-tier architecture / security / verification gates / cross-version matrix.
 
@@ -86,6 +97,8 @@ Not a single connection, but three tiers split by scenario (auto-detected, non-c
 | **Headless CLI** | standalone Godot process | file R/W, batch creation, one-shot verification (default) |
 | **Editor WebSocket** | connects running editor | live scene ops, undo, scene-tree sync |
 | **Game Bridge** | TCP to running game | E2E testing, runtime debugging, input simulation, state verification |
+
+Every editor-tier write registers into Godot's native undo stack (8 command modules, 45 `create_action` call sites — verify with `grep -c "create_action" addons/godot_mcp_server/commands/*.gd`): if the AI makes a mistake, one **Ctrl+Z** in the editor reverts it. The widest undo coverage in this field.
 
 ### Closed-loop AI development
 
