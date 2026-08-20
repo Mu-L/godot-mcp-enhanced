@@ -62,7 +62,7 @@ headless `--export-release` 官方路径导出 + `127.0.0.1` 防穿越静态服�
 npx godot-mcp-enhanced skills install    # 装入 game-wizard(及另外 6 个技能)后对 AI 说「帮我做一个能玩的游戏」
 ```
 
-> **路线图**:一条龙六批(install/模板/GIF/Web/向导)已全部落地;后续方向见 [ROADMAP](ROADMAP.md)。
+> **路线图**:一条龙六批(分发声量/install/模板/GIF/Web/向导)已全部落地;后续方向见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 

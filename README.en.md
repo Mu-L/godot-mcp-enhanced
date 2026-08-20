@@ -61,7 +61,7 @@ Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Ga
 npx godot-mcp-enhanced skills install    # installs game-wizard (plus 6 more skills); then tell the AI "make me a playable game"
 ```
 
-> **Roadmap**: the six-batch one-stop journey (install / templates / GIF / Web / wizard) has fully landed; future directions in [ROADMAP](ROADMAP.md).
+> **Roadmap**: the six-batch one-stop journey (distribution / install / templates / GIF / Web / wizard) has fully landed; future directions in [ROADMAP](ROADMAP.md).
 
 ## Comparison
 
