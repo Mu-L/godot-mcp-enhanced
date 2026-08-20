@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="GameConfigSnake" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game_config_snake.gd" id="1_cfg"]
+
+[resource]
+script = ExtResource("1_cfg")
+grid_size = 20
+initial_speed_frames = 8
+initial_length = 3
+wrap_edges = false
