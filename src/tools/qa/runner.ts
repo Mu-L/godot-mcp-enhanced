@@ -390,9 +390,24 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
     case 'input': {
       const pathErr = validateBridgePath(step.params);
       if (pathErr) return err(pathErr);
-      const resp = await sendToBridge(step.method, step.params, o.step_timeout_ms);
+      // H1 审查 N-4 收敛:send_input_sequence 超时经 computePlaytestTimeoutMs 统一放宽
+      // (wall+10s;与 game-bridge 同一纯函数,不再内联公式)
+      const inputTimeout = computePlaytestTimeoutMs(step.method, step.params.wall_budget_ms, o.step_timeout_ms);
+      const resp = await sendToBridge(step.method, step.params, inputTimeout);
       if (resp.error) return err(`bridge: ${resp.error.message}`);
-      return { status: 'PASSED', detail: `${step.method} ok` };
+      // H1 审查 I-1 修复:延迟通道 wall_timeout 截断时 GD 返回 result 层 success=false
+      // 但顶层无 JSON-RPC error(_process 直推响应不走 error promote)——只查顶层
+      // error 会把截断报 PASSED。qa 是自动判定引擎,须显式判软失败。
+      const seqResult = resp.result as Record<string, unknown> | undefined;
+      if (step.method === 'send_input_sequence' && seqResult && seqResult.success === false) {
+        return err(`send_input_sequence 截断: ${JSON.stringify({
+          wall_timeout: seqResult.wall_timeout,
+          applied_count: seqResult.applied_count,
+          total_events: seqResult.total_events,
+          frames_elapsed: seqResult.frames_elapsed,
+        })}`);
+      }
+      return { status: 'PASSED', detail: `${step.method} ok (${condense(resp.result)})` };
     }
     case 'wait': {
       const pathErr = validateBridgePath(step.params) ?? validateWaitPropertyParams(step.method, step.params);

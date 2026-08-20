@@ -1,0 +1,12 @@
+; Engine configuration file.
+; H1 (2026-08-20) send_input_sequence e2e fixture:最小项目,probe.gd 运行时注册
+; action "jump"(physical SPACE),_physics_process 记录首次读到 pressed 的全局帧号。
+; 注:game_bridge_install/qa run 会在运行时写入 [autoload] 段并放置 mcp_bridge.gd——
+; 均为运行时产物,不入库(对齐 real-project 惯例,e2e afterAll / gitignore 兜底)。
+config_version=5
+
+[application]
+
+config/name="input-seq-e2e"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.5")

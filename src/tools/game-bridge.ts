@@ -590,7 +590,7 @@ export function getToolDefinitions(): Tool[] {
   return [
     {
       name: 'game',
-      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。G1 control 层: playtest.freeze (冻结游戏循环,bridge 仍响应), playtest.unfreeze (解冻), playtest.step_until (条件满足/帧尽/wall 超时即停,结构化条件 {path,property,op,value}[] AND)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
+      description: '游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag, send_input_sequence 帧定时输入时间线)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。G1 control 层: playtest.freeze (冻结游戏循环,bridge 仍响应), playtest.unfreeze (解冻), playtest.step_until (条件满足/帧尽/wall 超时即停,结构化条件 {path,property,op,value}[] AND)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -604,13 +604,13 @@ export function getToolDefinitions(): Tool[] {
           source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload）' },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
+            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag, send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
           },
           params: {
             type: 'object',
-            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}',
+            description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}, send_input_sequence {timeline:[{at_frame:1-600(开窗后第N帧),type:action|key|mouse_click|mouse_move|touch|drag,...事件参数}], settle_frames?:int(0-600), wall_budget_ms?:int(1000-50000), 事件≤256}(action 字段 name/pressed/strength?,其余 type 字段同各 send_*;frozen 下自动开窗播放+完成 refreeze)。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}',
           },
-          timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）' },
+          timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,timeout 自动放宽至 wall_budget+10s(上限 65000)' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
           node_path: { type: 'string', description: 'monitor_start: 要监控的节点路径（如 /root/Player）' },
           properties: { type: 'array', items: { type: 'string' }, description: 'monitor_start: 要监控的属性名列表（如 ["position", "health"]）' },
@@ -653,9 +653,11 @@ const WRITE_METHODS = new Set([
   'set_node_property', 'call_method',
 ]);
 
-const INPUT_METHODS = new Set([
+export const INPUT_METHODS = new Set([
   'send_key', 'send_mouse_click', 'send_mouse_move', 'send_text',
   'send_touch', 'send_drag',
+  // H1 (2026-08-20) 帧定时输入时间线:开窗+逐帧 at_frame 注入,延迟响应(同 step_until)
+  'send_input_sequence',
 ]);
 
 const WAIT_METHODS = new Set([
@@ -685,16 +687,22 @@ export const CONTROL_METHODS = new Set([
  * 其余 method 保持原行为: step 走 max(raw,30000) cap 60000;非长跑 method 原样。
  */
 export function computePlaytestTimeoutMs(method: string, wallBudgetMs: unknown, rawTimeoutMs: number): number {
-  const base = (method === 'playtest.step' || method === 'playtest.step_until')
+  // 延迟响应族(playtest.step/step_until/send_input_sequence):基础下限 30s,
+  // 默认 10s 会先于 GD 侧 wall(默认 30s)超时致响应丢失
+  const isDelayed = method === 'playtest.step' || method === 'playtest.step_until' || method === 'send_input_sequence';
+  const base = isDelayed
     ? Math.min(Math.max(rawTimeoutMs, 30000), 60000)
     : Math.min(rawTimeoutMs, 60000);
-  if (method !== 'playtest.step_until') return base;
+  if (method !== 'playtest.step_until' && method !== 'send_input_sequence') return base;
   const n = Number(wallBudgetMs);
   const wall = (wallBudgetMs === undefined || wallBudgetMs === null || !Number.isFinite(n))
     ? 30000
     : Math.max(0, Math.round(n));
-  // wall + 5s 余量,clamp 到 [1000,65000](65000 上界容纳 GD 侧超界入参 60000+5000)
-  const byBudget = clampTimeoutMs(wall + 5000, 1000, 65000, 35000);
+  // wall + 余量,clamp 到 [1000,65000]。
+  // step_until 余量 5s(65000 容纳 GD 超界入参 60000+5000);
+  // send_input_sequence 余量 10s(GD clamp 50000+10000=60000,与 base 上界一致)
+  const margin = method === 'send_input_sequence' ? 10000 : 5000;
+  const byBudget = clampTimeoutMs(wall + margin, 1000, 65000, 35000);
   return Math.max(byBudget, base);
 }
 
@@ -1007,7 +1015,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           ? rawParams as Record<string, unknown>
           : {};
         const rawTimeout = clampTimeoutMs(args.timeout);
-        const timeout = Math.min(rawTimeout, 60000);
+        // H1 (2026-08-20): send_input_sequence 延迟响应,超时经 computePlaytestTimeoutMs
+        // 统一放宽(wall+10s,审查 N-4 收敛——与 step_until 同一纯函数,不再内联公式)
+        const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, rawTimeout);
         const pathErr = validateBridgePath(params);
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);  // T-1: path /root/ 前置校验
         const response = await sendToBridge(method, params, timeout);

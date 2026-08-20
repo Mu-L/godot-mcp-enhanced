@@ -14,8 +14,10 @@ const labelField = z.string().min(1).max(120).optional();
 /** input：模拟玩家输入（bridge INPUT_METHODS 直转） */
 const inputStep = z.object({
   type: z.literal('input'),
-  method: z.enum(['send_key', 'send_mouse_click', 'send_mouse_move', 'send_text', 'send_touch', 'send_drag']),
-  /** bridge 原生参数，如 {key,pressed} / {x,y,button} / {text} */
+  method: z.enum(['send_key', 'send_mouse_click', 'send_mouse_move', 'send_text', 'send_touch', 'send_drag',
+    // H1 (2026-08-20) 帧定时输入时间线（延迟响应,qa 步骤超时需覆盖 wall_budget）
+    'send_input_sequence']),
+  /** bridge 原生参数，如 {key,pressed} / {x,y,button} / {text} / {timeline,settle_frames} */
   params: z.record(z.string(), z.unknown()),
   label: labelField,
 });

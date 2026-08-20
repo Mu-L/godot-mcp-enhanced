@@ -75,6 +75,9 @@ var _last_step_request_id: Variant = null  # step 请求的 id,供 _process_buff
 var _control_frozen: bool = false
 var _control_owner_pid: int = -1
 var _control_step_until_pending: Array = []  # [{peer_id,pid,id,frames_remaining,wall_deadline_ms,conditions,_added_this_frame}]
+# H1 (2026-08-20) 帧定时输入时间线:同款延迟通道。开窗后逐帧计数,at_frame 匹配帧注入事件
+# (注入复用 _cmd_send_*,零重复);完成/墙钟超时 push 响应 +(若原 frozen)refreeze。
+var _control_input_seq_pending: Array = []  # [{peer_id,pid,id,timeline,frames_budget,wall_deadline_ms,frame_counter,applied,refreeze,_added_this_frame}]
 # 2026-08-14 审查 D-2 修复:freeze/开窗介入前保存游戏自身 paused 原值(游戏代码可能自己
 # paused=true,如暂停菜单/回合制),control 层退出(unfreeze/step_until 完成/owner 断线)
 # 时还原原值而非硬设 false。saved_valid 防重复 freeze 把维持中的 true 覆盖真实原值
@@ -82,6 +85,7 @@ var _control_step_until_pending: Array = []  # [{peer_id,pid,id,frames_remaining
 var _control_paused_saved: bool = false
 var _control_paused_saved_valid: bool = false
 var _pending_control_step_until_result: Dictionary = {}  # 临时:_handle_message 存,_process_buffer_bytes 取
+var _pending_control_input_seq_result: Dictionary = {}  # H1 同款临时变量
 # CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
 # 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
 var _error_capture: _ErrorCapture = null
@@ -310,10 +314,11 @@ func _process(_delta: float) -> void:
 			if bool(su_entry.get("refreeze", false)):
 				_control_frozen = true
 				get_tree().paused = true  # freeze 维持(游戏原值仍由 _control_paused_saved 持有,unfreeze 时还原)
-			elif _control_step_until_pending.is_empty() and not _control_frozen:
+			elif _control_step_until_pending.is_empty() and _control_input_seq_pending.is_empty() and not _control_frozen:
 				# 2026-08-14 审查 D-2 修复:最后一个开窗 entry 完成且无冻结,游戏回归自身
 				# paused 原值(而非硬设 false)。pending 非空/冻结中不还原(后续 entry 仍需
 				# 开窗推进,或由 freeze 维持、unfreeze/断线还原点统一处理)。
+				# H1 (2026-08-20):input_seq pending 同为开窗者,两数组皆空才算最后一个。
 				get_tree().paused = _control_paused_saved
 				_control_paused_saved = false
 				_control_paused_saved_valid = false
@@ -336,6 +341,65 @@ func _process(_delta: float) -> void:
 				}
 			})
 			target_peer.put_data((su_result + "\n").to_utf8_buffer())
+
+	# ─── H1 (2026-08-20) input_sequence 轮询:逐帧计数 + at_frame 匹配注入 ──
+	# 开窗模式同 step_until;注入直接复用 _cmd_send_*(自带校验),结果记 applied 如实上报。
+	if _control_input_seq_pending.size() > 0:
+		var isq_completed: Array = []
+		var isq_now_ms := Time.get_ticks_msec()
+		for isq_idx in range(_control_input_seq_pending.size()):
+			var isq_entry: Dictionary = _control_input_seq_pending[isq_idx]
+			if bool(isq_entry.get("_added_this_frame", false)):
+				isq_entry["_added_this_frame"] = false
+				continue
+			isq_entry["frame_counter"] = int(isq_entry["frame_counter"]) + 1
+			var isq_frame := int(isq_entry["frame_counter"])
+			for isq_ev in (isq_entry["timeline"] as Array):
+				var isq_e: Dictionary = isq_ev
+				if int(isq_e.get("at_frame", -1)) == isq_frame:
+					var isq_res: Variant = _inject_timeline_event(isq_e)
+					(isq_entry["applied"] as Array).append({
+						"at_frame": int(isq_e["at_frame"]),
+						"type": str(isq_e.get("type", "")),
+						"ok": not (isq_res is Dictionary and (isq_res as Dictionary).has("error")),
+						"detail": isq_res,
+					})
+			if isq_frame >= int(isq_entry["frames_budget"]) or isq_now_ms > int(isq_entry["wall_deadline_ms"]):
+				isq_entry["_wall_timeout"] = isq_now_ms > int(isq_entry["wall_deadline_ms"])
+				isq_completed.append(isq_idx)
+		isq_completed.reverse()
+		for isq_idx in isq_completed:
+			var isq_entry: Dictionary = _control_input_seq_pending[isq_idx]
+			_control_input_seq_pending.remove_at(isq_idx)
+			# refreeze / paused 原值还原:与 step_until D-2 语义对称,且需两数组皆空才算最后一个开窗者
+			if bool(isq_entry.get("refreeze", false)):
+				_control_frozen = true
+				get_tree().paused = true
+			elif _control_step_until_pending.is_empty() and _control_input_seq_pending.is_empty() and not _control_frozen:
+				get_tree().paused = _control_paused_saved
+				_control_paused_saved = false
+				_control_paused_saved_valid = false
+			var isq_peer_id: int = int(isq_entry["peer_id"])
+			var isq_target: StreamPeerTCP = null
+			for p in _peers:
+				if p.get_instance_id() == isq_peer_id:
+					isq_target = p
+					break
+			if isq_target == null:
+				continue
+			var isq_result := JSON.stringify({
+				"id": isq_entry["id"],
+				"result": {
+					"success": not bool(isq_entry.get("_wall_timeout", false)),
+					"applied": isq_entry["applied"],
+					"applied_count": (isq_entry["applied"] as Array).size(),
+					"total_events": (isq_entry["timeline"] as Array).size(),
+					"frames_elapsed": int(isq_entry["frame_counter"]),
+					"wall_timeout": bool(isq_entry.get("_wall_timeout", false)),
+					"refrozen": bool(isq_entry.get("refreeze", false)),
+				}
+			})
+			isq_target.put_data((isq_result + "\n").to_utf8_buffer())
 
 	# ─── Property monitor sampling (C-07: per-peer) ─────────────────────────
 	var dead_monitors: Array = []
@@ -785,6 +849,22 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				"refreeze": bool(su_payload.get("refreeze", false)),
 				"_added_this_frame": true,
 			})
+		elif response.begins_with("__PLAYTEST_CONTROL_INPUT_SEQ__"):
+			# H1: input_sequence 同款登记(_process 逐帧计数注入)
+			var isq_payload: Dictionary = _pending_control_input_seq_result
+			_pending_control_input_seq_result = {}
+			_control_input_seq_pending.append({
+				"peer_id": peer.get_instance_id(),
+				"pid": pid,
+				"id": _last_step_request_id,
+				"timeline": isq_payload["timeline"],
+				"frames_budget": int(isq_payload["frames_budget"]),
+				"wall_deadline_ms": Time.get_ticks_msec() + int(isq_payload["wall_budget_ms"]),
+				"refreeze": bool(isq_payload.get("refreeze", false)),
+				"frame_counter": 0,
+				"applied": [],
+				"_added_this_frame": true,  # I-2 同款:登记帧不计数,下一帧起 at_frame=1
+			})
 		else:
 			peer.put_data((response + "\n").to_utf8_buffer())
 	_peer_buffers[key] = raw
@@ -835,6 +915,9 @@ func _handle_message(raw: String, pid: int) -> String:
 			result = _cmd_send_drag(params)
 		"send_text":
 			result = _cmd_send_text(params)
+		# H1 (2026-08-20) 帧定时输入时间线:开窗+逐帧 at_frame 注入(与 freeze/seed 组合=确定性完全体)
+		"send_input_sequence":
+			result = _cmd_control_input_sequence(params, pid)
 		"wait_for_node":
 			result = _cmd_wait_for_node(params)
 		"wait_for_property":
@@ -905,6 +988,11 @@ func _handle_message(raw: String, pid: int) -> String:
 		_last_step_request_id = id
 		_pending_control_step_until_result = result
 		return "__PLAYTEST_CONTROL_STEP_UNTIL__"
+	# H1: input_sequence 同款哨兵(延迟通道)。
+	if error.is_empty() and result is Dictionary and result.has("__playtest_control_input_seq__"):
+		_last_step_request_id = id
+		_pending_control_input_seq_result = result
+		return "__PLAYTEST_CONTROL_INPUT_SEQ__"
 	if error.is_empty():
 		return JSON.stringify({"id": id, "result": result})
 	else:
@@ -2046,6 +2134,8 @@ func _cleanup_peer_state(pid: int) -> void:
 		_control_paused_saved = false
 		_control_paused_saved_valid = false
 		_control_step_until_pending.clear()
+		# H1 (2026-08-20):input_sequence pending 同清(owner 断线,开窗/refreeze 一并放弃)
+		_control_input_seq_pending.clear()
 	# 清理断线 peer 的 pending step entries（防 _process 继续递减无效 frames_remaining）
 	if _playtest_step_pending.size() > 0:
 		var i: int = _playtest_step_pending.size() - 1
@@ -2356,6 +2446,8 @@ func _cmd_control_unfreeze(params: Dictionary, pid: int) -> Dictionary:
 	# 游戏永久暂停无人能解(owner 断线路径 _cleanup_peer_state 已有 clear,此路径
 	# 此前漏了,两路径不对称)。
 	_control_step_until_pending.clear()
+	# H1 (2026-08-20):input_sequence pending 同理必清(refreeze 复活同款风险)
+	_control_input_seq_pending.clear()
 	# 2026-08-14 审查 D-2 修复:还原游戏自身 paused 原值,而非硬设 false
 	# (防游戏暂停菜单/回合制自身暂停状态被清——菜单开着但游戏在跑)。
 	# Nit-A (2026-08-14 审查补修):仅 saved_valid 时才还原 paused——(a) 从未 freeze
@@ -2408,6 +2500,88 @@ func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
 	_control_frozen = false  # 临时解:让 _process 不维持 paused,游戏跑
 	get_tree().paused = false  # 开窗
 	return {"__playtest_control_step_until__": true, "conditions": validated, "max_frames": max_frames, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze}
+
+# ─── H1 (2026-08-20) 帧定时输入时间线(确定性完全体最后一块) ────────────────
+# at_frame=N = 开窗后第 N 个推进帧(登记帧不计数,I-2 同款);注入点=bridge _process
+# (autoload,先于场景树节点同帧执行);事件经 Input.parse_input_event 进入引擎输入管线,
+# 被随后帧的游戏逻辑读到(与真实输入同路径,帧对齐语义由 e2e 实测锚定)。
+# 与 playtest.seed/fixed_delta/freeze 组合:seed 锁随机+fixed_delta 锁步长+freeze 锁起播点
+# +时间线锁输入 —— 竞品(仅固定帧数 step/无 seed)无此组合能力。
+const _INPUT_SEQ_MAX_EVENTS := 256
+const _INPUT_SEQ_MAX_AT_FRAME := 600
+const _INPUT_SEQ_MAX_SETTLE := 600
+const _INPUT_SEQ_TYPES := ["action", "key", "mouse_click", "mouse_move", "touch", "drag"]
+
+func _cmd_control_input_sequence(params: Dictionary, pid: int) -> Dictionary:
+	# owner 独占(同 step_until)
+	if _control_owner_pid != -1 and _control_owner_pid != pid:
+		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	var timeline: Variant = params.get("timeline", [])
+	if not (timeline is Array) or timeline.size() == 0:
+		return {"error": {"code": -1, "message": "timeline must be a non-empty array of {at_frame, type, ...}"}}
+	if timeline.size() > _INPUT_SEQ_MAX_EVENTS:
+		return {"error": {"code": -1, "message": "timeline too large: %d events (max %d)" % [timeline.size(), _INPUT_SEQ_MAX_EVENTS]}}
+	var validated: Array = []
+	var max_at := 0
+	for ev in timeline:
+		if not (ev is Dictionary):
+			return {"error": {"code": -1, "message": "each timeline event must be an object"}}
+		var e: Dictionary = ev
+		if not (e.has("at_frame") and e.has("type")):
+			return {"error": {"code": -1, "message": "timeline event missing at_frame/type"}}
+		var at_f := int(e["at_frame"])
+		if at_f < 1 or at_f > _INPUT_SEQ_MAX_AT_FRAME:
+			return {"error": {"code": -1, "message": "at_frame must be 1-%d, got %d" % [_INPUT_SEQ_MAX_AT_FRAME, at_f]}}
+		var t := str(e["type"])
+		if not _INPUT_SEQ_TYPES.has(t):
+			return {"error": {"code": -1, "message": "type must be one of %s, got %s" % [str(_INPUT_SEQ_TYPES), t]}}
+		# 深预检(可判定的在登记前拒绝,all-or-nothing):key 可解析 / action 在 InputMap
+		if t == "key" and _key_from_string(str(e.get("key", ""))) == 0:
+			return {"error": {"code": -1, "message": "Unknown key: %s (at_frame=%d)" % [str(e.get("key", "")), at_f]}}
+		if t == "action" and not InputMap.has_action(str(e.get("name", ""))):
+			return {"error": {"code": -1, "message": "Unknown action: %s (at_frame=%d); action must exist in project InputMap" % [str(e.get("name", "")), at_f]}}
+		validated.append(e)
+		max_at = maxi(max_at, at_f)
+	var settle: int = int(params.get("settle_frames", 0))
+	if settle < 0 or settle > _INPUT_SEQ_MAX_SETTLE:
+		return {"error": {"code": -1, "message": "settle_frames must be 0-%d, got %d" % [_INPUT_SEQ_MAX_SETTLE, settle]}}
+	var wall_budget_ms: int = int(params.get("wall_budget_ms", _CONTROL_DEFAULT_WALL_BUDGET_MS))
+	# D-5 同款:压 50s,防等待期无字节被 idle 断连切断
+	wall_budget_ms = clampi(wall_budget_ms, 1000, 50000)
+	# 开窗(同 step_until):记 refreeze + paused 原值 + 临时解 pause 让游戏逐帧推进
+	var refreeze: bool = _control_frozen
+	_control_owner_pid = pid
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
+	_control_frozen = false
+	get_tree().paused = false
+	return {"__playtest_control_input_seq__": true, "timeline": validated, "frames_budget": max_at + settle + 1, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze}
+
+func _inject_timeline_event(ev: Dictionary) -> Variant:
+	# 注入复用现有 _cmd_send_*(自带参数校验+注入),零重复;action 类型走 InputEventAction。
+	var t := str(ev.get("type", ""))
+	match t:
+		"action":
+			var a := InputEventAction.new()
+			a.action = str(ev.get("name", ""))
+			a.pressed = bool(ev.get("pressed", true))
+			if ev.has("strength"):
+				a.strength = float(ev["strength"])
+			Input.parse_input_event(a)
+			return {"success": true, "action": a.action, "pressed": a.pressed}
+		"key":
+			return _cmd_send_key(ev)
+		"mouse_click":
+			return _cmd_send_mouse_click(ev)
+		"mouse_move":
+			return _cmd_send_mouse_move(ev)
+		"touch":
+			return _cmd_send_touch(ev)
+		"drag":
+			return _cmd_send_drag(ev)
+		_:
+			return {"error": {"code": -1, "message": "Unknown timeline event type: %s" % t}}
 
 # 结构化条件求值:actual op target(标量/String/Vector,不引入 Expression)
 func _compare_values(actual: Variant, op: String, target: Variant) -> bool:

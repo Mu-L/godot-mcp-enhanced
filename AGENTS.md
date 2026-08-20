@@ -281,6 +281,8 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 **默认不发版**(2026-08-19 用户定规):小版本迭代(feature/fix 批)合并即可,不随批走版本链——版本号不 bump、README 版本表不加行、matrix 按 package.json 当前版本生成;变更记录进 CHANGELOG `[Unreleased]` 段(Keep a Changelog 标准做法)。仅当用户明确说「发版/打 tag/发 release」时,才 bump 版本 + 跑下面第 4 项门禁 + `version-sync` + CHANGELOG 段定版 + README 版本行。
 
+**例外:规则模板门禁触发的 bump ≠ 发版**(2026-08-20 用户裁决 N-C):批次涉及 `src/tools/rule-templates.ts` 或 `.claude/rules/` 变更时,`check-rules-version-bump.mjs` 硬门禁强制 bump——此时**照常走** bump + `npm run build` + `version-sync` + CHANGELOG 定版段 + README 版本行(即 0.32.7/0.32.8 先例),**但 npm publish / tag / GitHub Release 仍属发布动作,待用户明确指令**。原则:「默认不发版」管的是发布节奏;硬门禁管的是分发内容的版本演进(模板内嵌 `{{MCP_VERSION}}`,不 bump 则目标项目 reconcile 感知不到规则更新)——两者解耦,不视为冲突。
+
 发版(打 tag / 发 release)前,在上述三项基础上额外跑:
 
 4. **`verify_delivery`**(MCP 工具,非 npm script)— 端到端交付门禁:场景树完整性 + 脚本健康 + 性能 + 自定义断言。这是发版的硬性门禁,不通过不发版。
@@ -473,3 +475,4 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
 | 2026-07-27 | 加「改动 `.claude/rules/` 后」+ 「plan 落地后必出第三方审查文档」+ 「完成前必登 memory」三段强制流程（源于 2026-07-27 get_node_layout PR 第三方审查反馈 + 用户反馈 memory/review 双断档） |
 | 2026-08-16 | 双副本内容一致性 CI 从 advisory 假接线升级为 STRICT 阻断(`check-rules-content-sync.mjs` 归一化收紧+双向对账,`ci.yml` 传 `STRICT=1`);历史 drift 8/9 文件已清零;「改动 `.claude/rules/` 后」与「独立副本同步约束」两段同步更新 |
 | 2026-08-19 | 「发版前额外门禁」节新增"默认不发版"定规(小版本迭代不 bump 版本/不走版本链,变更进 CHANGELOG [Unreleased];仅用户明确要求发版时才 bump+verify_delivery)——源于 tileset 批次用户反馈 |
+| 2026-08-20 | 「发版前额外门禁」节新增例外条款:规则模板变更触发的 bump 硬门禁 ≠ 发版(照常 bump+version-sync+定版段+版本行,npm publish/tag 仍待用户)——用户裁决 N-C,解耦「版本号演进」与「发布动作」,消解与"默认不发版"的字面冲突 |
