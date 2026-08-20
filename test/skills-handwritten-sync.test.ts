@@ -22,8 +22,8 @@ describe('game-wizard 双副本一致性', () => {
   it('frontmatter 可被 skills.ts 的单行 description 解析(name + description 非空)', () => {
     const raw = readFileSync(join(repoRoot, 'skills', 'game-wizard', 'SKILL.md'), 'utf-8');
     const fm = raw.match(/^---\n([\s\S]*?)\n---\n/);
-    expect(fm).toBeTruthy();
-    expect(fm![1]).toMatch(/^name: game-wizard$/m);
-    expect(fm![1]).toMatch(/^description: "[^"]+"$/m);
+    if (!fm) throw new Error('frontmatter missing in game-wizard SKILL.md');
+    expect(fm[1]).toMatch(/^name: game-wizard$/m);
+    expect(fm[1]).toMatch(/^description: "[^"]+"$/m);
   });
 });
