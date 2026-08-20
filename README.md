@@ -38,9 +38,17 @@ npx godot-mcp-enhanced qa run qa/2048.qa.md --project .   # 真跑游戏跑确�
 
 零外部资产(色块占位美术),零编辑器预打开即可运行;改玩法 = 编辑 `tuning/*.csv` → `csv_to_resources` 重导 `.tres` → 重启生效;`design/gdd/` 内置 8 段游戏设计文档(过 `validate_gdd` 校验),AI 拿着它继续迭代。
 
+**一条命令把游玩过程录成 demo GIF**(分享给朋友/发社区):
+
+```bash
+npx godot-mcp-enhanced gif . --seconds 8 --fps 4              # 默认方向键;breakout 加 --keys left,right
+```
+
+bridge 定频截图 + 按键时间线注入,零依赖自写 GIF89a 编码器(≤256 色精确直通/中位切分量化);产物默认落项目内 `dist/demo.gif`,项目外路径需 y/N 确认。
+
 已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
 
-> **路线图(诚实标注,当前版本尚未支持)**:一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
+> **路线图(诚实标注,当前版本尚未支持)**:浏览器一键试玩链接、`game_wizard` 一条龙向导正在开发。见 [ROADMAP](ROADMAP.md)。
 
 ## 与同类方案对比
 
