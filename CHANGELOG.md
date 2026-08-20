@@ -21,6 +21,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 1:分发/声量(路线图 spec `docs/superpowers/specs/2026-08-20-xiaobai-onestop-roadmap-design.md` 随本批入库;近零代码,纯文档)
+
+- **CCGS 集成指南** `docs/guides/ccgs-integration.md`(新目录 `docs/guides/`):面向 Claude Code Game Studios 存量用户的实战指南——互补性实测(49 agents/73 skills/24225★ 均附核查命令;全 `.claude/` grep "mcp" 零命中、`/playtest-report` 为模板生成器)、三关节点验证工作流(写码后 `run_and_verify`+`validate_scripts` → `qa run` 真跑断言 → `verify_delivery` 交付门禁)、GDD 8 段逐字同源对照表(`validate_gdd` 精确匹配 `^## <段名>$`,个别 `## Tuning` 变体判 missing 的注意项)、CCGS skill → 本项目工具动作对照 7 条、非 Claude Code 客户端触达说明;适配上游 v1.0.0 现状(最后推送 2026-05-21 实测,不承诺上游配合)。README/README.en 致谢节挂指南入口。
+- **README 小白叙事节(中英双版)**「小白上手:不用打开 Godot 编辑器也能做游戏」:五步旅程(说需求→看效果→迭代→验收→undo 兜底)**只写已真能做的**(create_project/quick_scene/write_script/run_and_verify/capture_screenshot/edit_script+validate_scripts/qa+playtest.seed/verify_delivery/undo);GIF/Web 分享、自动装 Godot、模板库、wizard 明确标注「路线图,当前版本尚未支持」(spec B-1/B-2 审查约束:批 4a/4b 落地前不得写成已支持)。
+- **undo 口径统一(spec 审查 N-2 处置)**:README/README.en 的 editor undo 叙事从「8 命令模块 45 处」修正为「10 生产命令文件 53 处 `create_action` 注册」(递归含 `commands/asset/` 子目录,核查命令随文 `grep -rc ... | grep -v ":0"`,2026-08-20 实测 7+4+6+1+14+7+5+1+3+5=53);护城河报告 N1(确定性分级)叙事已随 0.32.8 落地,本批无重复改动。
+- **赞助入口(C-3)待输入**:GitHub Sponsors 经实测**未开通**(profile 无 Sponsors 标签,2026-08-20),BMAC/ko-fi 账号未提供——按「不编造占位符」红线不落无效链接的 FUNDING.yml;待用户提供赞助平台账号后一行 `.github/FUNDING.yml` + 一行 README 徽章即可补齐。
+- 本批不动工具清单/规则模板/`addons/`,不触发 matrix、check:budget 与版本硬门禁。
+
 ### Added — Godot 4.7.x 适配批(4.7.1/4.7.2 维护版正式发布跟进;两版官方声明零 API 不兼容)
 
 - **cpp scaffold 支持 `godot_version=4.7`**:枚举扩为 `4.4–4.7`,默认 4.7。godot-cpp 自 v10(独立版本号,master 分支)起不再发布 `godot-{ver}-stable` ref,故分轨——4.6/4.7 生成 `git clone`(master)+ SConstruct 显式 `{"api_version": "{ver}"}`(官方推荐,防 master 默认 target 漂移);4.4/4.5 保持旧 `godot-{ver}-stable` 分支。clone 命令收敛为 `godotCppCloneCommand()` 单一来源(README 模板与工具返回值共用)。
