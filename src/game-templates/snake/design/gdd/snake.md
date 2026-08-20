@@ -1,6 +1,6 @@
 # 贪吃蛇(Snake)
 
-> 模板 slug: `snake` · 调参: `tuning/snake.csv` → `tuning/snake.tres` · qa: `qa/snake.qa.md`
+> 模板 slug: `snake` · 调参: `tuning-src/snake.csv` → `tuning/snake.tres` · qa: `qa/snake.qa.md`
 
 ## Overview
 
@@ -48,7 +48,7 @@
 | 初始长度 | `initial_length` | 3 | 开局难度 |
 | 环形边界 | `wrap_edges` | false | true=穿墙不死 |
 
-改表工作流:编辑 `tuning/snake.csv` → `csv_to_resources` 重导 `snake.tres` → 重启生效。
+改表工作流:编辑 `tuning-src/snake.csv` → `csv_to_resources` 重导 `snake.tres` → 重启生效。
 
 ## Acceptance Criteria
 

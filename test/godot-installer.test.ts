@@ -273,6 +273,16 @@ describe('extractZip(零依赖 zip reader)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('zip64 形态解压(EOCD64 locator/记录 + CD 条目 zip64 extra;批 4b 官方 tpz 即 zip64)', async () => {
+    const { buildZip64Sample } = await import('./godot-installer.test-helper.js');
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip64-'));
+    const zip = join(dir, 's.tpz');
+    buildZip64Sample(zip);
+    await m.extractZip(zip, dir);
+    expect(readFileSync(join(dir, 'dir', 'big.bin')).toString()).toBe('zip64-payload');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('损坏 zip(无 EOCD 签名)抛错不写半成品', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-bad-'));
     const badZip = join(dir, 'bad.zip');

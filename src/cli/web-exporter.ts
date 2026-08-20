@@ -35,9 +35,10 @@ export function templatesDirFor(version: string): string {
   return join(godotDataDir(), 'export_templates', version);
 }
 
-/** Web templates 就绪判定:templates/web_release.wasm 存在。 */
+/** Web templates 就绪判定:Godot ≤4.5 为裸 web_release.wasm;4.6+ 为 web_release.zip——两者任一。 */
 export function isWebTemplatesInstalled(version: string): boolean {
-  return existsSync(join(templatesDirFor(version), 'templates', 'web_release.wasm'));
+  const dir = templatesDirFor(version);
+  return existsSync(join(dir, 'web_release.wasm')) || existsSync(join(dir, 'web_release.zip'));
 }
 
 /** 版本串 "4.7.2.stable" → release tag "4.7.2-stable" → 资产名模板。 */
@@ -83,15 +84,16 @@ export async function installExportTemplates(opts: {
     await extractZip(tpzPath, extractTmp);
     const templatesSrc = join(extractTmp, 'templates');
     if (!existsSync(templatesSrc)) {
-      throw new InternalError(`tpz 解压后 templates/ 目录缺失(${assetName} 结构异常)`);
+      const { readdirSync } = await import('fs');
+      throw new InternalError(
+        `tpz 解压后 templates/ 目录缺失;extracted/ 实际内容: ${readdirSync(extractTmp).join(', ')}(调试现场保留: ${tmpDir})`,
+      );
     }
+    // Godot 期望模板文件直接位于 export_templates/<ver>.stable/ 下(无 templates/ 中间层,
+    // 本机 4.6.2.stable 结构为证)——tpz 内 templates/ 目录整体 rename 为目标目录
     const dest = templatesDirFor(version);
-    const staged = join(godotDataDir(), 'export_templates', `.staging-${version}`);
-    rmSync(staged, { recursive: true, force: true });
-    mkdirSync(join(staged, '..'), { recursive: true });
-    renameSync(templatesSrc, join(staged, 'templates'));
     rmSync(dest, { recursive: true, force: true });
-    renameSync(staged, dest);
+    renameSync(templatesSrc, dest);
     rmSync(tmpDir, { recursive: true, force: true });
     if (!isWebTemplatesInstalled(version)) {
       throw new InternalError(`templates installed but web_release.wasm missing in ${dest}`);
@@ -103,7 +105,7 @@ export async function installExportTemplates(opts: {
     });
     opts.onProgress?.(`✓ templates ${version} 安装完成`);
   } catch (err) {
-    rmSync(tmpDir, { recursive: true, force: true });
+    // 保留 .tmp 现场供诊断(下次成功安装时覆盖);失败审计照记
     await appendMachineAuditLine({
       trace_id: `install-templates-${version}-${started}`, tool: 'cli', action: 'install_export_templates', risk: 'process',
       ok: false, project_path: '', changed_files: [], duration_ms: Date.now() - started,
@@ -164,6 +166,7 @@ export function ensureWebPreset(projectPath: string): boolean {
 /** headless 导出(spec B-2 处置:官方支持路径,绕开 editor stub)。成功返回 build/web 目录。 */
 export async function exportWeb(projectPath: string, godotPath: string, onProgress?: (msg: string) => void): Promise<string> {
   onProgress?.('headless 导出 Web 版(--export-release,可能需要 1-3 分钟)');
+  mkdirSync(join(projectPath, 'build', 'web'), { recursive: true });  // Godot 不自动建导出目录
   try {
     const { stderr } = await execFileAsync(godotPath, ['--headless', '--export-release', 'Web', '--path', projectPath], {
       timeout: 300_000, maxBuffer: 16 * 1024 * 1024,

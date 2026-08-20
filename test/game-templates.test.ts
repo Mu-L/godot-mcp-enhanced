@@ -36,7 +36,7 @@ describe('游戏模板注册表', () => {
   it('四件套必备路径齐全(main.tscn/scripts/game.gd/GDD/qa/csv/tres)', () => {
     for (const slug of SLUGS) {
       const paths = GAME_TEMPLATES[slug]!.files;
-      for (const required of ['main.tscn', 'scripts/game.gd', `design/gdd/${slug}.md`, `qa/${slug}.qa.md`, `tuning/${slug}.csv`, `tuning/${slug}.tres`]) {
+      for (const required of ['main.tscn', 'scripts/game.gd', `design/gdd/${slug}.md`, `qa/${slug}.qa.md`, `tuning-src/${slug}.csv`, `tuning/${slug}.tres`]) {
         expect(paths).toContain(required);
       }
     }
@@ -74,7 +74,7 @@ describe('qa 套件(确定性契约)', () => {
 describe('调参表(CSV ↔ .tres 对应)', () => {
   it.each(SLUGS)('%s CSV 字段值与 .tres 一致', (slug) => {
     const files = readGameTemplateFiles(slug);
-    const csv = files.find(f => f.path === `tuning/${slug}.csv`)!.content.trim();
+    const csv = files.find(f => f.path === `tuning-src/${slug}.csv`)!.content.trim();
     const tres = files.find(f => f.path === `tuning/${slug}.tres`)!.content;
 
     expect(tres).toContain('[gd_resource type="Resource"');
@@ -121,7 +121,7 @@ describe('init --template 落地四件套', () => {
     const { runInit } = await import('../src/cli/init.js');
     await runInit(['t2048', '--template=2048']);
     const proj = join(sandbox, 't2048');
-    for (const rel of ['project.godot', 'main.tscn', 'scripts/game.gd', 'scripts/game_config_2048.gd', 'design/gdd/2048.md', 'qa/2048.qa.md', 'tuning/2048.csv', 'tuning/2048.tres']) {
+    for (const rel of ['project.godot', 'main.tscn', 'scripts/game.gd', 'scripts/game_config_2048.gd', 'design/gdd/2048.md', 'qa/2048.qa.md', 'tuning-src/2048.csv', 'tuning/2048.tres']) {
       expect(existsSync(join(proj, rel))).toBe(true);
     }
     const godot = readFileSync(join(proj, 'project.godot'), 'utf-8');

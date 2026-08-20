@@ -26,12 +26,16 @@ describe('export templates 目录与检测', () => {
     expect(exporter.templatesDirFor('4.7.2.stable')).toBe(join(FAKE_APPDATA, 'Godot', 'export_templates', '4.7.2.stable'));
   });
 
-  it('isWebTemplatesInstalled:wasm 存在才 true', () => {
+  it('isWebTemplatesInstalled:wasm(≤4.5)或 zip(4.6+)存在即 true', () => {
     expect(exporter.isWebTemplatesInstalled('9.9.9.stable')).toBe(false);
-    const tdir = join(FAKE_APPDATA, 'Godot', 'export_templates', '9.9.9.stable', 'templates');
+    const tdir = join(FAKE_APPDATA, 'Godot', 'export_templates', '9.9.8.stable');
     mkdirSync(tdir, { recursive: true });
-    writeFileSync(join(tdir, 'web_release.wasm'), 'x');
-    expect(exporter.isWebTemplatesInstalled('9.9.9.stable')).toBe(true);
+    writeFileSync(join(tdir, 'web_release.zip'), 'x');
+    expect(exporter.isWebTemplatesInstalled('9.9.8.stable')).toBe(true);
+    const tdir2 = join(FAKE_APPDATA, 'Godot', 'export_templates', '9.9.7.stable');
+    mkdirSync(tdir2, { recursive: true });
+    writeFileSync(join(tdir2, 'web_release.wasm'), 'x');
+    expect(exporter.isWebTemplatesInstalled('9.9.7.stable')).toBe(true);
   });
 
   it('资产名模板:版本串校验 + {v} 占位', () => {

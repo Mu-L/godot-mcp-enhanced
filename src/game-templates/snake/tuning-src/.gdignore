@@ -1,0 +1,1 @@
+# Godot 忽略本目录(CSV 调参源不进 import——否则被当翻译表生成损坏 .translation);重导用 csv_to_resources
