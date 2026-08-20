@@ -2,7 +2,7 @@
 
 > Free · Open Source · Secure — a rare open-source MCP server for Godot offering **systematic security protections + a three-tier architecture + runtime control**.
 
-An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 43 MCP tools (merged, with 200+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
+An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool layer to truly **read, write, run, and verify** Godot projects: 45 MCP tools (merged, with 240+ actions; full list in [capability-matrix](docs/capability-matrix.md)) covering scenes / scripts / UI / animation / physics / particles / navigation / audio / testing / export, a three-tier architecture (headless + editor + game bridge) + path allowlist / injection defense / sandbox security.
 
 > **Tool descriptions are in Chinese** (serving the Chinese Godot developer community; i18n PRs welcome). This English README covers positioning, comparison, security, and setup; for the full per-action tool list see the [Chinese README](README.md) and [capability-matrix](docs/capability-matrix.md).
 
@@ -13,20 +13,23 @@ An MCP server that gives AI (Claude Code, Cursor, and other MCP clients) a tool 
 > **This project does not chase "the most tools".** In the ecosystem, godot-mcp-pro has 175 tools but is closed-source at $15; the free Coding-Solo has only 13. What's genuinely scarce is not tool count, but the combination of **free + open source + systematic security** — the security dimension is almost unaddressed across the field.
 > Data as of 2026-06-27 (stars / tool counts / pricing may change; see each project's repo).
 
-| Dimension | **This project** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp |
-|---|:---:|:---:|:---:|:---:|
-| Price | **Free** | $15 one-time [^p1] | $19 one-time [^p2] | Free [^p3] |
-| Open Source | **✅ MIT** | ❌ server precompiled/closed [^p1] | ❌ [^p2] | ✅ [^p3] |
-| Tools | **43** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] |
-| Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — |
-| Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] |
-| **Runtime control (engine-level)** | **✅ game bridge: live state / input simulation / record-replay / frame-verify** | ❌ file & editor only | ❌ | ❌ |
-| Godot 4.5–4.7 compat matrix | **✅** | — | — | — |
-| Chinese tool descriptions | **✅** | — | — | ❌ |
+| Dimension | **This project** | godot-mcp-pro | GDAI MCP | Coding-Solo/godot-mcp | yanhuifair/Godot-MCP [^p4] |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Price | **Free** | $15 one-time [^p1] | $19 one-time [^p2] | Free [^p3] | Free [^p4] |
+| Open Source | **✅ MIT** | ❌ server precompiled/closed [^p1] | ❌ [^p2] | ✅ [^p3] | ✅ [^p4] |
+| Tools | **45** ([matrix](docs/capability-matrix.md)) | 175 [^p1] | ~30 [^p1] | 13 [^p1] | 386 [^p4] |
+| Security features | **✅ path allowlist / injection defense / sandbox / confirm tokens / output anti-forgery** | — | — | — | Partial (TCP token) [^p4] |
+| Architecture | **three-tier: headless + editor + bridge** | single editor WS [^p1] | stdio [^p1] | headless CLI [^p1] | TS server + editor plugin over TCP [^p4] |
+| **Runtime control (engine-level)** | **✅ game bridge: live state / input simulation / record-replay / frame-verify** | ❌ file & editor only | ❌ | ❌ | ✅ 11 runtime tools [^p4] |
+| **Deterministic playtest (freeze / frame-stepping / RNG lock)** | **✅ freeze / step_until with structured conditions / `playtest.seed` RNG lock + fixed_delta / snapshot-restore** | — | — | — | ✅ freeze→step→screenshot (no RNG lock / conditional stepping) [^p4][^p5] |
+| Godot 4.5–4.7 compat matrix | **✅** | — | — | — | — (4.x only) [^p4] |
+| Chinese tool descriptions | **✅** | — | — | ❌ | ❌ |
 
 [^p1]: https://github.com/youichi-uda/godot-mcp-pro README (includes its own comparison table), fetched 2026-06-27
 [^p2]: GDAI MCP, quoted from godot-mcp-pro's comparison table, 2026-06-27
 [^p3]: https://github.com/Coding-Solo/godot-mcp, fetched 2026-06-27
+[^p4]: https://github.com/yanhuifair/Godot-MCP, fetched 2026-08-19 (tool count 386 verified via `grep -c "registry.register(" src/tools/register.ts`)
+[^p5]: That README claims "freeze/step/screenshot — **No other public Godot MCP does this**", which is inaccurate: this project's `playtest.freeze` / `step_until` (structured conditional stepping) and [satelliteoflove/godot-mcp](https://github.com/satelliteoflove/godot-mcp)'s deterministic playtesting (since 2025-12) both predate the claim — readers are invited to verify.
 
 _"—" means the project's public README does not disclose the capability; not necessarily absent. PRs welcome._
 
@@ -111,9 +114,9 @@ Following agentic-skills methodology (e.g. obra/superpowers), this project ships
 
 Each workflow ships with a checklist + common-deviation tips, keeping AI on-rails and reducing footguns.
 
-## Tools (43)
+## Tools (45)
 
-> **43 MCP tools** (merged tool definitions, 241 actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
+> **45 MCP tools** (merged tool definitions, 248 actions). **Tool descriptions are in Chinese** — see the [Chinese README](README.md) for the full per-action list. For English-speaking technical users, the value of [capability-matrix](docs/capability-matrix.md) is its **security classification** (`danger-api` / `guarded` / `safe`) and coverage structure — evidence of the systematic security approach, not a tool catalog.
 
 ## MCP Resources
 

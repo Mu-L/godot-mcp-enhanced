@@ -3,11 +3,11 @@
 > 自动生成，勿手改。由 `npm run build-matrix` 产出，漂移检测见 `npm run diff-matrix`。
 
 ## 概览
-- 工具总数：43
-- securityLevel：danger-api 11 / guarded 21 / safe 11
-- risk：read 120 / write 95 / destructive 10 / process 16
-- L2 覆盖：covered 0 / partial 0 / none 43
-- token 预算：tools/list ≈ 90561B / ~22640 tokens（description 15839B / schema 74722B，schema 占 83%）
+- 工具总数：45
+- securityLevel：danger-api 11 / guarded 23 / safe 11
+- risk：read 124 / write 98 / destructive 10 / process 16
+- L2 覆盖：covered 0 / partial 0 / none 45
+- token 预算：tools/list ≈ 93308B / ~23327 tokens（description 16595B / schema 76713B，schema 占 82%）
 - annotations：readOnly 10 / destructive 5 / idempotent 13
 > 注：标 read 但实际启进程/有副作用(项目有意信任不确认): `validation.run_and_verify`, `validation.verify_delivery`
 
@@ -65,9 +65,15 @@
 - `signal` (signal)
 - `testing` (unknown)
 - `tilemap` (tilemap)
+- `translation` (resources)
 - `ui` (ui)
+- `uid` (resources)
 - `validation` (core)
 - `workflow` (profiler)
+
+## 范围取舍（explicitly out of scope）
+以下品类经评估（2026-08-19 竞品横扫对表）明确**不做**，非遗漏：
+- **VisualShader 图谱编辑**（yanhuifair 8 工具/40+ 节点类型）：VisualShader 节点图是强交互编辑器域，AI 经文本属性路径（`VisualShaderNode*` 属性编辑）+ material/shader 工具已可覆盖大部分程序化材质需求；图谱级编排的维护成本（节点类型矩阵 × Godot 版本）远超收益。替代路径：`material` 工具（shader_read/write/load/save_file）+ `execute_gdscript` 动态构造。
 
 ## gdScriptImpl 说明
 - editor 侧：addons/godot_mcp_server/commands/*_commands.gd 按 group 匹配

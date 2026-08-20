@@ -136,6 +136,26 @@ vi.mock('../../src/cli/clients/cherry-studio.js', () => ({
   }),
 }));
 
+vi.mock('../../src/cli/clients/zcode.js', () => ({
+  ZCodeAdapter: vi.fn().mockImplementation(function () {
+    this.name = 'ZCode';
+    this.scope = 'global';
+    this.detect = vi.fn().mockResolvedValue(false);
+    this.isConfigured = vi.fn().mockResolvedValue(false);
+    this.configure = vi.fn().mockResolvedValue(undefined);
+  }),
+}));
+
+vi.mock('../../src/cli/clients/warp.js', () => ({
+  WarpAdapter: vi.fn().mockImplementation(function () {
+    this.name = 'Warp';
+    this.scope = 'project';
+    this.detect = vi.fn().mockResolvedValue(false);
+    this.isConfigured = vi.fn().mockResolvedValue(false);
+    this.configure = vi.fn().mockResolvedValue(undefined);
+  }),
+}));
+
 describe('setup', () => {
   it('runSetup completes without error', async () => {
     const { runSetup } = await import('../../src/cli/setup.js');
