@@ -390,15 +390,9 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
     case 'input': {
       const pathErr = validateBridgePath(step.params);
       if (pathErr) return err(pathErr);
-      // H1 (2026-08-20): send_input_sequence 延迟响应(wall_budget 默认 30s),step_timeout 默认
-      // 同为 30s 会临界超时。按 wall_budget+10s 放宽(仍受 60000 硬钳;与 game-bridge 同款逻辑)。
-      let inputTimeout = o.step_timeout_ms;
-      if (step.method === 'send_input_sequence') {
-        const wallBudget = typeof step.params.wall_budget_ms === 'number' && Number.isFinite(step.params.wall_budget_ms)
-          ? step.params.wall_budget_ms
-          : 30000;
-        inputTimeout = Math.min(Math.max(inputTimeout, wallBudget + 10000), 60000);
-      }
+      // H1 审查 N-4 收敛:send_input_sequence 超时经 computePlaytestTimeoutMs 统一放宽
+      // (wall+10s;与 game-bridge 同一纯函数,不再内联公式)
+      const inputTimeout = computePlaytestTimeoutMs(step.method, step.params.wall_budget_ms, o.step_timeout_ms);
       const resp = await sendToBridge(step.method, step.params, inputTimeout);
       if (resp.error) return err(`bridge: ${resp.error.message}`);
       // H1 审查 I-1 修复:延迟通道 wall_timeout 截断时 GD 返回 result 层 success=false

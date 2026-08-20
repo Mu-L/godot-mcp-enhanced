@@ -2000,7 +2000,7 @@
           },
           "timeout": {
             "type": "number",
-            "description": "game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,未传 timeout 自动放宽 wall_budget+10s(上限 60000)"
+            "description": "game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,timeout 自动放宽至 wall_budget+10s(上限 65000)"
           },
           "interval_ms": {
             "type": "number",
@@ -2127,8 +2127,8 @@
       },
       "size": {
         "descBytes": 1163,
-        "schemaBytes": 5990,
-        "totalBytes": 7153
+        "schemaBytes": 5986,
+        "totalBytes": 7149
       },
       "annotations": {
         "readOnlyHint": false,

@@ -198,6 +198,24 @@ describe.skipIf(!hasGodot || !hasFixture || !RUN)('H1 send_input_sequence e2e (L
     expect(r.refrozen).toBe(false);
   });
 
+  it('wall_timeout 正向场景:超长 timeline + 1s wall 截断如实上报(审查 N-3)', async (ctx) => {
+    if (_initError) return ctx.skip(_initError);
+    // at_frame=600 @60fps≈10s,wall_budget=1s(clamp 下限)必截断;
+    // 截断响应是 result 层 success=false + wall_timeout=true,顶层无 JSON-RPC error
+    const { r, isError } = await sendSeq({
+      timeline: [{ at_frame: 600, type: 'action', name: 'jump', pressed: true }],
+      settle_frames: 0,
+      wall_budget_ms: 1000,
+    });
+    expect(isError).toBe(false); // 顶层无 error(延迟通道不走 error promote)
+    expect(r.success).toBe(false);
+    expect(r.wall_timeout).toBe(true);
+    expect(Number(r.frames_elapsed)).toBeGreaterThan(0); // 确实推进过帧后才截断
+    expect(Number(r.frames_elapsed)).toBeLessThan(600); // 且没跑完
+    expect(Number(r.applied_count)).toBe(0); // at_frame=600 未到,0 注入
+    expect(Number(r.total_events)).toBe(1);
+  });
+
   it('负向:at_frame=0 预检拒绝(登记帧不计数,合法下限 1)', async (ctx) => {
     if (_initError) return ctx.skip(_initError);
     const r = await callTool({

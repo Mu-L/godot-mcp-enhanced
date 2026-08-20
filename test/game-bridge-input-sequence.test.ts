@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-import { INPUT_METHODS, getToolDefinitions } from '../src/tools/game-bridge.js';
+import { INPUT_METHODS, getToolDefinitions, computePlaytestTimeoutMs } from '../src/tools/game-bridge.js';
 import { QaSuiteSchema } from '../src/tools/qa/spec.js';
 
 // H1 (2026-08-20) send_input_sequence 单测:TS 侧路由/schema/qa 枚举 + GD 侧契约(文本级)。
@@ -39,16 +39,21 @@ describe('H1 game 工具 schema 描述', () => {
   });
 });
 
-describe('H1 timeout 放宽接线(TS 源码契约)', () => {
-  it('game-bridge.ts: 未显式 timeout 时按 wall_budget+10s 放宽(60s 硬钳)', () => {
-    // 特判三要素:方法名守卫 + 未显式传 timeout + wall+10000 放宽
-    expect(TS_BRIDGE_SRC).toContain("method === 'send_input_sequence' && args.timeout === undefined");
-    expect(TS_BRIDGE_SRC).toContain('Math.max(timeout, wallBudget + 10000)');
+describe('H1 timeout 放宽接线(N-4 收敛后:computePlaytestTimeoutMs 统一)', () => {
+  it('computePlaytestTimeoutMs 覆盖 send_input_sequence(wall+10s 余量,65000 上界)', () => {
+    // 默认 wall 30000 → 40000;超界 60000 → 65000(容纳 GD clamp 50000+10000 后仍可更大,安全)
+    expect(computePlaytestTimeoutMs('send_input_sequence', undefined, 10000)).toBe(40000);
+    expect(computePlaytestTimeoutMs('send_input_sequence', 60000, 10000)).toBe(65000);
+    // 即时输入方法不受影响(send_key 保持原值)
+    expect(computePlaytestTimeoutMs('send_key', 60000, 10000)).toBe(10000);
   });
 
-  it('qa/runner.ts: input 步骤同款放宽(step_timeout 默认 30s 与 wall 默认 30s 临界)', () => {
-    expect(QA_RUNNER_SRC).toContain("step.method === 'send_input_sequence'");
-    expect(QA_RUNNER_SRC).toContain('Math.max(inputTimeout, wallBudget + 10000)');
+  it('game-bridge 与 qa/runner 两调用点均走 computePlaytestTimeoutMs(不再内联公式)', () => {
+    expect(TS_BRIDGE_SRC).toContain('const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, rawTimeout)');
+    expect(QA_RUNNER_SRC).toContain('computePlaytestTimeoutMs(step.method, step.params.wall_budget_ms, o.step_timeout_ms)');
+    // 内联公式已删(防两套并存回潮)
+    expect(TS_BRIDGE_SRC).not.toContain('Math.max(timeout, wallBudget + 10000)');
+    expect(QA_RUNNER_SRC).not.toContain('Math.max(inputTimeout, wallBudget + 10000)');
   });
 });
 

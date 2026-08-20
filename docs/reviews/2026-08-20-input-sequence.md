@@ -29,8 +29,8 @@
 
 - **N-1 schema 描述范围不完备**(settle/wall/事件数未标范围)→ **已修**(补 `0-600`/`1000-50000`/`≤256`,同步压缩 timeout 描述抵消字节,budget 维持 5 warn 0 error)
 - **N-2 还原条件 `includes` 对相同字符串只锁任一**(:317/:378 两处字符串互含,删 input_seq 侧不红)→ **已修**(新增计数断言 `match(/_control_input_seq_pending\.is_empty\(\) and not _control_frozen/g).length === 2`)
-- **N-3 e2e 无 wall_timeout 正向场景**(time_scale=0 饿死触发截断)→ 留后续(该分支有 GD 实现+文本契约锁定)
-- **N-4 超时公式两套并存**(step_until 走 computePlaytestTimeoutMs wall+5s/上界 65000,input_sequence 内联 wall+10s/上界 60000;各档位数学安全)→ 留后续收敛
+- **N-3 e2e 无 wall_timeout 正向场景**(time_scale=0 饿死触发截断)→ **已修(追加批)**:e2e 新增用例(at_frame=600 + wall_budget=1000 必截断),真机断言 success=false / wall_timeout=true / applied_count=0 / 0<frames_elapsed<600
+- **N-4 超时公式两套并存**(step_until 走 computePlaytestTimeoutMs wall+5s/上界 65000,input_sequence 内联 wall+10s/上界 60000)→ **已修(追加批)**:computePlaytestTimeoutMs 扩展覆盖 send_input_sequence(margin 10000/上界 65000),game_input 与 qa input 两处内联删除,附三档位行为测试(默认 40s/超界 65s/即时方法不受影响)
 
 ## 修复后主会话复验(审查未跑部分补齐)
 

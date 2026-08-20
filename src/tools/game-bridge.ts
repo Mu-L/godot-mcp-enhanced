@@ -610,7 +610,7 @@ export function getToolDefinitions(): Tool[] {
             type: 'object',
             description: '方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}, send_input_sequence {timeline:[{at_frame:1-600(开窗后第N帧),type:action|key|mouse_click|mouse_move|touch|drag,...事件参数}], settle_frames?:int(0-600), wall_budget_ms?:int(1000-50000), 事件≤256}(action 字段 name/pressed/strength?,其余 type 字段同各 send_*;frozen 下自动开窗播放+完成 refreeze)。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}',
           },
-          timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,未传 timeout 自动放宽 wall_budget+10s(上限 60000)' },
+          timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,timeout 自动放宽至 wall_budget+10s(上限 65000)' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
           node_path: { type: 'string', description: 'monitor_start: 要监控的节点路径（如 /root/Player）' },
           properties: { type: 'array', items: { type: 'string' }, description: 'monitor_start: 要监控的属性名列表（如 ["position", "health"]）' },
@@ -687,16 +687,22 @@ export const CONTROL_METHODS = new Set([
  * 其余 method 保持原行为: step 走 max(raw,30000) cap 60000;非长跑 method 原样。
  */
 export function computePlaytestTimeoutMs(method: string, wallBudgetMs: unknown, rawTimeoutMs: number): number {
-  const base = (method === 'playtest.step' || method === 'playtest.step_until')
+  // 延迟响应族(playtest.step/step_until/send_input_sequence):基础下限 30s,
+  // 默认 10s 会先于 GD 侧 wall(默认 30s)超时致响应丢失
+  const isDelayed = method === 'playtest.step' || method === 'playtest.step_until' || method === 'send_input_sequence';
+  const base = isDelayed
     ? Math.min(Math.max(rawTimeoutMs, 30000), 60000)
     : Math.min(rawTimeoutMs, 60000);
-  if (method !== 'playtest.step_until') return base;
+  if (method !== 'playtest.step_until' && method !== 'send_input_sequence') return base;
   const n = Number(wallBudgetMs);
   const wall = (wallBudgetMs === undefined || wallBudgetMs === null || !Number.isFinite(n))
     ? 30000
     : Math.max(0, Math.round(n));
-  // wall + 5s 余量,clamp 到 [1000,65000](65000 上界容纳 GD 侧超界入参 60000+5000)
-  const byBudget = clampTimeoutMs(wall + 5000, 1000, 65000, 35000);
+  // wall + 余量,clamp 到 [1000,65000]。
+  // step_until 余量 5s(65000 容纳 GD 超界入参 60000+5000);
+  // send_input_sequence 余量 10s(GD clamp 50000+10000=60000,与 base 上界一致)
+  const margin = method === 'send_input_sequence' ? 10000 : 5000;
+  const byBudget = clampTimeoutMs(wall + margin, 1000, 65000, 35000);
   return Math.max(byBudget, base);
 }
 
@@ -1009,15 +1015,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           ? rawParams as Record<string, unknown>
           : {};
         const rawTimeout = clampTimeoutMs(args.timeout);
-        let timeout = Math.min(rawTimeout, 60000);
-        // H1 (2026-08-20): send_input_sequence 延迟响应(bridge 侧 wall_budget 默认 30s),
-        // 默认 10s 会先超时导致响应丢失。未显式传 timeout 时按 wall_budget+10s 放宽(仍受 60s 硬钳)。
-        if (method === 'send_input_sequence' && args.timeout === undefined) {
-          const wallBudget = typeof params.wall_budget_ms === 'number' && Number.isFinite(params.wall_budget_ms)
-            ? params.wall_budget_ms
-            : 30000;
-          timeout = Math.min(Math.max(timeout, wallBudget + 10000), 60000);
-        }
+        // H1 (2026-08-20): send_input_sequence 延迟响应,超时经 computePlaytestTimeoutMs
+        // 统一放宽(wall+10s,审查 N-4 收敛——与 step_until 同一纯函数,不再内联公式)
+        const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, rawTimeout);
         const pathErr = validateBridgePath(params);
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);  // T-1: path /root/ 前置校验
         const response = await sendToBridge(method, params, timeout);
