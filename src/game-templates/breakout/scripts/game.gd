@@ -13,6 +13,7 @@ const BALL_COLOR := Color(0.95, 0.95, 0.85)
 const BRICK_COLORS := [
 	Color(0.92, 0.38, 0.38), Color(0.94, 0.60, 0.32), Color(0.92, 0.82, 0.32), Color(0.50, 0.85, 0.45),
 ]
+const GAP_BORDER := 8.0
 const PADDLE_H := 14.0
 const PADDLE_Y := 580.0
 const BALL_R := 7.0
@@ -70,8 +71,8 @@ func _register_actions() -> void:
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.color = BG_COLOR
-	bg.size = Vector2(W + GAP_BORDER() * 2, H + GAP_BORDER() * 2)
-	bg.position = ORIGIN - Vector2(GAP_BORDER(), GAP_BORDER())
+	bg.size = Vector2(W + GAP_BORDER * 2, H + GAP_BORDER * 2)
+	bg.position = ORIGIN - Vector2(GAP_BORDER, GAP_BORDER)
 	add_child(bg)
 	_paddle_rect = ColorRect.new()
 	_paddle_rect.color = PADDLE_COLOR
@@ -85,9 +86,6 @@ func _build_ui() -> void:
 	_hud.position = ORIGIN + Vector2(W + 24, 8)
 	_hud.add_theme_font_size_override('font_size', 24)
 	add_child(_hud)
-
-func GAP_BORDER() -> float:
-	return 8.0
 
 func _reset_bricks() -> void:
 	_bricks.clear()
@@ -189,6 +187,5 @@ func _physics_process(_delta: float) -> void:
 func _refresh() -> void:
 	_paddle_rect.position = Vector2(ORIGIN.x + _paddle_x - _paddle_width / 2.0, ORIGIN.y + PADDLE_Y)
 	_ball_rect.position = _ball_pos - Vector2(BALL_R, BALL_R)
-	if _ball_rect.visible != not game_over or true:
-		_ball_rect.visible = not game_over
+	_ball_rect.visible = not game_over
 	_hud.text = 'score %d\nlives %d\nbricks %d%s' % [score, lives, bricks_left, '\nYOU WIN!' if won else ('\nGAME OVER' if game_over else '')]

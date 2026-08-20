@@ -31,7 +31,7 @@
 - 180° 回头输入被忽略(不消耗转向、不死);
 - 蛇几乎占满网格时食物仅在剩余空位生成(无空位则不生成,蛇继续);
 - `wrap_edges` 为 true 时穿越边界但依然会撞自身;
-- `initial_length` <1 或 >grid_size 时按 3 钳制。
+- `initial_length` <1 或 >grid_size/2 时按边界钳制(钳到一半防初始身体越出棋盘)。
 
 ## Dependencies
 

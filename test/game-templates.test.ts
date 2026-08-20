@@ -131,3 +131,23 @@ describe('init --template 落地四件套', () => {
     rmSync(sandbox, { recursive: true, force: true });
   });
 });
+
+// ─── 审查 B-1:CLI 入口层未知模板报错(非底层 throw——plan 验收点是 init 行为) ──
+
+describe('init 未知模板(B-1)', () => {
+  const home = process.cwd();
+  it('init --template=tetris → exit 1 列出可用项,不建目录', async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'gme-init-bad-'));
+    process.chdir(sandbox);
+    const { runInit } = await import('../src/cli/init.js');
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('EXIT_1'); }) as never);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(runInit(['tbad', '--template=tetris'])).rejects.toThrow('EXIT_1');
+    expect(errSpy.mock.calls.flat().join(' ')).toMatch(/2048.*snake.*breakout|Available/);
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+    expect(existsSync(join(sandbox, 'tbad'))).toBe(false);  // 不静默建空骨架
+    process.chdir(home);
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+});

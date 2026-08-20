@@ -29,11 +29,18 @@ export async function runInit(args: string[]): Promise<void> {
 
   console.log(`Creating project "${name}" (template: ${template})...`);
 
+  // 批 3:游戏模板 → 四件套落地(可玩 demo + GDD + qa 套件 + 调参表)
+  const { GAME_TEMPLATES, readGameTemplateFiles } = await import('./game-templates.js');
+  // B-1(审查):未知模板显式报错列出可用项——小白拼错模板名不能静默降级成空骨架
+  if (template !== 'empty' && !GAME_TEMPLATES[template]) {
+    console.error(`Unknown template "${template}".`);
+    console.error(`Available game templates: ${Object.keys(GAME_TEMPLATES).join(', ')} (or "empty" for a bare skeleton)`);
+    process.exit(1);
+  }
+
   // 创建项目目录
   mkdirSync(projectDir, { recursive: true });
 
-  // 批 3:游戏模板 → 四件套落地(可玩 demo + GDD + qa 套件 + 调参表)
-  const { GAME_TEMPLATES, readGameTemplateFiles } = await import('./game-templates.js');
   if (GAME_TEMPLATES[template]) {
     writeFileSync(join(projectDir, 'project.godot'), [
       '; Engine configuration file.',

@@ -30,7 +30,7 @@ var _labels: Array[Array] = []    # Label[row][col]
 var _score_label: Label
 var _n := 4
 var _win_value := 2048
-var _four_probability := 0.9      # 出 2 的概率(1-x 出 4)
+var _two_probability := 0.9      # 出 2 的概率(1-x 出 4)
 var _start_tiles := 2
 
 func _ready() -> void:
@@ -39,7 +39,7 @@ func _ready() -> void:
 	if cfg != null:
 		_n = clampi(int(cfg.get('grid_size')), 2, 16)
 		_win_value = maxi(int(cfg.get('win_value')), 8)
-		_four_probability = clampf(float(cfg.get('four_probability')), 0.1, 1.0)
+		_two_probability = clampf(float(cfg.get('two_probability')), 0.1, 1.0)
 		_start_tiles = clampi(int(cfg.get('start_tiles')), 1, _n * _n - 1)
 	for r in _n:
 		var row: Array[int] = []
@@ -157,7 +157,7 @@ func _spawn_tile() -> void:
 	if empties.is_empty():
 		return
 	var pos: Vector2i = empties[randi_range(0, empties.size() - 1)]
-	_grid[pos.y][pos.x] = 2 if randf() < _four_probability else 4
+	_grid[pos.y][pos.x] = 2 if randf() < _two_probability else 4
 
 func _can_move() -> bool:
 	for r in _n:

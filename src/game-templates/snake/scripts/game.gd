@@ -38,7 +38,7 @@ func _ready() -> void:
 	if cfg != null:
 		_n = clampi(int(cfg.get('grid_size')), 4, 64)
 		_speed_frames = clampi(int(cfg.get('initial_speed_frames')), 1, 60)
-		_initial_length = clampi(int(cfg.get('initial_length')), 1, _n)
+		_initial_length = clampi(int(cfg.get('initial_length')), 1, maxi(1, _n / 2))
 		_wrap = bool(cfg.get('wrap_edges'))
 	length = _initial_length
 	var mid := _n / 2

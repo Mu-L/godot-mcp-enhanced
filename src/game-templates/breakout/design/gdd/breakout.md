@@ -37,7 +37,7 @@
 
 ## Dependencies
 
-- Godot 4.5–4.7(仅内置节点 Node2D/ColorRect/AreaRect 绘制,零外部资产、零 autoload、零引擎物理节点);
+- Godot 4.5–4.7(仅内置节点 Node2D/ColorRect 绘制,零外部资产、零 autoload、零引擎物理节点);
 - 调参资源 `tuning/breakout.tres`(`GameConfigBreakout`,`_ready` 加载,缺失用默认值);
 - 键盘左右键。
 
@@ -56,7 +56,7 @@
 ## Acceptance Criteria
 
 1. 开局砖数恰 `brick_rows × brick_cols`,lives=默认值;
-2. 同 seed + 同输入 ⇒ 每步球位置/bricks_left/score 一致(自写 AABB 确定性);
-3. 时间线左右移动 + 步进后 `score >= 1`(至少碎一砖);
+2. 同 seed + 同输入 ⇒ 输入驱动型状态(frames_simulated 等)完全一致;球的绝对轨迹受游戏启动到 freeze 间自然帧漂移影响(qa 套件注释,断言带 tolerance);
+3. 时间线左右移动 + 步进 200 帧后 `lives >= 2` 且 `game_over == false`(球未连失两局);
 4. 球反复撞上下左右边界均反弹(不出界);
 5. lives 归零或砖清空时 `game_over == true`。

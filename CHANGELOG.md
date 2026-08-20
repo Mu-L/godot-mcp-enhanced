@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **测试**:15 新用例(it.each 参数化,实测 `npx vitest run test/game-templates.test.ts` 15 passed;注册表/文件实存/GDD 过校验器×3/qa JSON 契约×3/CSV↔tres 数值等价×3/init 落地);不新增 MCP 工具 → 不触发 matrix/check:budget/版本硬门禁。
 - README/README.en 小白叙事加模板段(「内置可玩模板库」从 roadmap 转已支持);plan `docs/superpowers/plans/2026-08-20-xiaobai-batch3-game-templates.md`。
 
+- **第三方审查处置**(SHIPPED WITH NITS→SHIPPED,报告 `docs/reviews/2026-08-20-xiaobai-batch3.md`):**B-1 已修**——init 未知模板显式报错列出可用项(原静默降级空骨架,plan 验收点「测试测错层」被审查抓出,补 init 层测试);N-1 four_probability 反语义改名 two_probability(四件套全链);N-2 GDD 钳制描述对齐实现 + snake initial_length 钳上限 n/2;N-3 breakout GDD AC 与 qa 断言面对齐 + AC-2 加输入驱动限定;N-4/N-5 代码残留与笔误。处置后复验:16/16 单测 + 三模板真机 qa 全绿(6/7/6)+ 全量 6055 passed。
 ### Added — 小白一条龙批 2:Godot 自动安装 + 通用官方资产下载基建(近零依赖,仅 Node 内置)
 
 - **CLI `install [tag]` 子命令 + `setup` 缺失引导**:`npx godot-mcp-enhanced install`(默认 latest stable,`GODOT_MCP_INSTALL_TAG` 可 pin;版本 tag 白名单 `/^\d+\.\d+\.\d+-stable$/`);`setup` 检测不到 Godot 时 TTY 交互 y/N 引导安装(非 TTY 保持 exit 1 指引,不阻塞 CI)。Windows 真机手测:4.7.2-stable 全链路 15.1s(下载 SUMS+86MB zip→SHA512 校验→解压→执行位修复→validate 回读自检→登记→审计),`doctor` 确认发现新装二进制。
