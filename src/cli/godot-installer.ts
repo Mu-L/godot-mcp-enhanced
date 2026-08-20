@@ -77,3 +77,149 @@ export async function sha512File(filePath: string): Promise<string> {
   await pipeline(createReadStream(filePath), hash);
   return hash.digest('hex');
 }
+
+// ─── 下载执行 + installGodot 编排 ─────────────────────────────────────────────
+
+import { createWriteStream, readdirSync, readFileSync } from 'fs';
+import { mkdir, rm } from 'fs/promises';
+import { Readable } from 'stream';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { homedir } from 'os';
+import { join, dirname } from 'path';
+import { appendMachineAuditLine } from '../core/audit-log.js';
+import { readGodotPathsConfig, writeGodotPathsConfig } from '../core/godot-finder.js';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * 解析要安装的版本 tag:GODOT_MCP_INSTALL_TAG(测试/复现 pin,不联网)> GitHub API latest。
+ */
+export async function fetchLatestStableTag(): Promise<string> {
+  const pinned = process.env.GODOT_MCP_INSTALL_TAG;
+  if (pinned) {
+    assertStableVersionTag(pinned);
+    return pinned;
+  }
+  const url = 'https://api.github.com/repos/godotengine/godot/releases/latest';
+  assertAllowedDownloadUrl(url);
+  const res = await fetch(url, { headers: { 'User-Agent': 'godot-mcp-enhanced-installer' } });
+  if (!res.ok) throw new InternalError(`github api request failed: HTTP ${res.status}`);
+  const data = await res.json() as { tag_name?: unknown };
+  if (typeof data.tag_name !== 'string') throw new InternalError('github api response missing tag_name');
+  assertStableVersionTag(data.tag_name);
+  return data.tag_name;
+}
+
+/** 流式下载到 destPath;onProgress 收到累计字节数。 */
+export async function downloadWithProgress(url: string, destPath: string, onProgress?: (bytes: number) => void): Promise<void> {
+  assertAllowedDownloadUrl(url);
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok || !res.body) throw new InternalError(`download failed: HTTP ${res.status}`);
+  await mkdir(dirname(destPath), { recursive: true });
+  let received = 0;
+  const source = Readable.fromWeb(res.body as import('stream/web').ReadableStream);
+  source.on('data', (chunk: Buffer) => {
+    received += chunk.length;
+    onProgress?.(received);
+  });
+  await pipeline(source, createWriteStream(destPath));
+}
+
+/** SHA512 校验;不匹配即删文件(不留半成品)并抛错。 */
+export async function verifyDownloadedAsset(filePath: string, expectedSha512: string): Promise<void> {
+  const actual = await sha512File(filePath);
+  if (actual !== expectedSha512.toLowerCase()) {
+    await rm(filePath, { force: true });
+    throw new InternalError(
+      `sha512 mismatch: expected ${expectedSha512.slice(0, 12)}…, got ${actual.slice(0, 12)}… — file deleted: ${filePath}`,
+    );
+  }
+}
+
+/** 系统 tar 解压(Windows 10+ 内置 BSD tar 支持 zip;Linux/macOS 原生)。零新依赖。 */
+export async function extractZip(zipPath: string, destDir: string): Promise<void> {
+  await mkdir(destDir, { recursive: true });
+  await execFileAsync('tar', ['-xf', zipPath, '-C', destDir], { timeout: 120_000 });
+}
+
+/** 在解压目录定位 Godot 可执行文件(win: Godot_v*.exe;mac: Godot.app;linux: 无扩展名二进制)。 */
+export function findExtractedBinary(dir: string): string {
+  const entries = readdirSync(dir);
+  if (process.platform === 'win32') {
+    const exe = entries.find(e => /^Godot_v.*\.exe$/i.test(e));
+    if (exe) return join(dir, exe);
+  } else if (process.platform === 'darwin') {
+    if (entries.includes('Godot.app')) return join(dir, 'Godot.app', 'Contents', 'MacOS', 'Godot');
+  } else {
+    const bin = entries.find(e => /^Godot_v.*/.test(e) && !/\.(zip|tpz|txt|tmp)$/i.test(e));
+    if (bin) return join(dir, bin);
+  }
+  throw new InternalError(`extracted Godot binary not found in ${dir}`);
+}
+
+export interface InstallResult {
+  godotPath: string;
+  versionTag: string;
+}
+
+/**
+ * 安装编排:tag 解析 → URL 构造 → 用户确认(CLI 交互,非 MCP 链路)→
+ * 下载 SUMS + 二进制 → SHA512 同源校验(失败即删)→ tar 解压 → 删 zip →
+ * 登记 godot-paths.json(搜索链 + 白名单)→ 机器级审计(成功/失败都记)。
+ */
+export async function installGodot(opts: {
+  versionTag?: string;
+  confirm: () => Promise<boolean>;
+  onProgress?: (msg: string) => void;
+}): Promise<InstallResult> {
+  const started = Date.now();
+  const versionTag = opts.versionTag
+    ? (assertStableVersionTag(opts.versionTag), opts.versionTag)
+    : await fetchLatestStableTag();
+  const assetTemplate = platformAssetName(process.platform, process.arch);
+  const assetName = assetTemplate.replace('{v}', versionTag.replace('-stable', ''));
+  const { binaryUrl, sumsUrl } = buildReleaseUrls(versionTag, assetTemplate);
+  const installDir = join(homedir(), '.godot-mcp', 'godot', versionTag);
+  const zipPath = join(installDir, assetName);
+  const sumsPath = join(installDir, 'SHA512-SUMS.txt');
+  const traceId = `install-${versionTag}-${started}`;
+
+  opts.onProgress?.(`资产: ${assetName}`);
+  opts.onProgress?.(`目标: ${installDir}`);
+  if (!(await opts.confirm())) {
+    throw new InternalError('install cancelled by user');
+  }
+
+  try {
+    opts.onProgress?.('下载 SHA512-SUMS.txt …');
+    await downloadWithProgress(sumsUrl, sumsPath);
+    const expected = parseSha512Sums(readFileSync(sumsPath, 'utf-8'), assetName);
+
+    opts.onProgress?.(`下载 ${assetName} …`);
+    await downloadWithProgress(binaryUrl, zipPath);
+    await verifyDownloadedAsset(zipPath, expected);
+
+    opts.onProgress?.('解压 …');
+    await extractZip(zipPath, installDir);
+    await rm(zipPath, { force: true });  // 校验通过的 zip 用后即删
+    await rm(sumsPath, { force: true });  // SUMS 同样用后即删
+
+    const godotPath = findExtractedBinary(installDir);
+    writeGodotPathsConfig([...readGodotPathsConfig(), godotPath]);
+
+    await appendMachineAuditLine({
+      trace_id: traceId, tool: 'cli', action: 'install_godot', risk: 'process',
+      ok: true, project_path: '', changed_files: [godotPath], duration_ms: Date.now() - started,
+      details: { versionTag, assetName, binaryUrl },
+    });
+    return { godotPath, versionTag };
+  } catch (err) {
+    await appendMachineAuditLine({
+      trace_id: traceId, tool: 'cli', action: 'install_godot', risk: 'process',
+      ok: false, project_path: '', changed_files: [], duration_ms: Date.now() - started,
+      details: { versionTag, assetName, error: err instanceof Error ? err.message : String(err) },
+    });
+    throw err;
+  }
+}

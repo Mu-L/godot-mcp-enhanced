@@ -238,3 +238,21 @@ export function suggestRollback(entry: AuditEntry): RollbackSuggestion {
     ],
   };
 }
+
+// ─── 批 2:机器级审计(install 等非项目操作)──────────────────────────────────
+// CLI install 装的是机器级资产(~/.godot-mcp/godot/),不落项目审计;复用 AuditEntry
+// 结构与 appendFile 原子追加模式,便于同一套回放/统计工具消费。
+
+import { homedir } from 'os';
+
+/** 机器级审计文件:~/.godot-mcp/machine-audit.jsonl(机器级目录惯例)。 */
+export function getMachineAuditFile(): string {
+  return join(homedir(), '.godot-mcp', 'machine-audit.jsonl');
+}
+
+/** 追加一条机器级审计行(timestamp 由本函数补)。 */
+export async function appendMachineAuditLine(entry: Omit<AuditEntry, 'timestamp'>): Promise<void> {
+  const full: AuditEntry = { ...entry, timestamp: new Date().toISOString() };
+  await mkdir(dirname(getMachineAuditFile()), { recursive: true });
+  await appendFile(getMachineAuditFile(), JSON.stringify(full) + '\n', 'utf-8');
+}

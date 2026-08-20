@@ -110,3 +110,105 @@ describe('sha512File(流式哈希)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+// ─── Task 4:下载执行 + 编排 ───────────────────────────────────────────────────
+
+import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
+
+describe('verifyDownloadedAsset(SHA512 失败即删)', () => {
+  it('哈希不匹配 → 删文件并抛错', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-verify-'));
+    const f = join(dir, 'Godot_v4.7.2-stable_win64.exe.zip');
+    writeFileSync(f, Buffer.from('tampered'));
+    await expect(m.verifyDownloadedAsset(f, '0'.repeat(128))).rejects.toThrow(/sha512 mismatch/i);
+    expect(existsSync(f)).toBe(false);  // 失败即删
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('哈希匹配 → 通过且不删', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-verify2-'));
+    const f = join(dir, 'a.zip');
+    const payload = Buffer.from('good');
+    writeFileSync(f, payload);
+    const good = createHash('sha512').update(payload).digest('hex');
+    await expect(m.verifyDownloadedAsset(f, good)).resolves.toBeUndefined();
+    expect(existsSync(f)).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('downloadWithProgress', () => {
+  beforeEach(() => { vi.unstubAllGlobals(); });
+
+  it('evil 域名在下载期即被 allowlist 拒绝(不发起请求)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    await expect(m.downloadWithProgress('https://evil.com/a.zip', join(tmpdir(), 'x.zip')))
+      .rejects.toThrow(/allowlist/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('mock fetch 流式落盘内容一致', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gme-dl-'));
+    const dest = join(dir, 'a.zip');
+    const payload = Buffer.from('abc123godot');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(payload)));
+    let lastBytes = -1;
+    await m.downloadWithProgress(
+      'https://github.com/godotengine/godot/releases/download/4.7.2-stable/a.zip',
+      dest,
+      (bytes) => { lastBytes = bytes; },
+    );
+    expect(readFileSync(dest).toString()).toBe('abc123godot');
+    expect(lastBytes).toBe(payload.length);  // 进度回调收到累计字节
+    vi.unstubAllGlobals();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('HTTP 非 2xx 抛错', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
+    await expect(m.downloadWithProgress(
+      'https://github.com/godotengine/godot/releases/download/4.7.2-stable/a.zip',
+      join(tmpdir(), 'gme-dl-404', 'a.zip'),
+    )).rejects.toThrow(/404/);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('fetchLatestStableTag(GODOT_MCP_INSTALL_TAG pin)', () => {
+  beforeEach(() => { vi.unstubAllEnvs(); });
+  afterAll(() => { vi.unstubAllEnvs(); });
+
+  it('pin env 直接返回(不联网),非法 pin 拒绝', async () => {
+    vi.stubEnv('GODOT_MCP_INSTALL_TAG', '4.7.2-stable');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await m.fetchLatestStableTag()).toBe('4.7.2-stable');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('非法 pin tag 在本地即抛', async () => {
+    vi.stubEnv('GODOT_MCP_INSTALL_TAG', 'evil');
+    await expect(m.fetchLatestStableTag()).rejects.toThrow(/stable only/);
+  });
+});
+
+describe('appendMachineAuditLine(机器级审计)', () => {
+  it('落 ~/.godot-mcp/machine-audit.jsonl 且 JSON 行合法(带 timestamp)', async () => {
+    const { appendMachineAuditLine, getMachineAuditFile } = await import('../src/core/audit-log.js');
+    await appendMachineAuditLine({
+      trace_id: `t-test-${Date.now()}`, tool: 'cli', action: 'install_godot_test', risk: 'process',
+      ok: true, project_path: '', changed_files: [], duration_ms: 5,
+      details: { versionTag: '4.7.2-stable' },
+    });
+    expect(existsSync(getMachineAuditFile())).toBe(true);
+    expect(getMachineAuditFile()).toBe(join(homedir(), '.godot-mcp', 'machine-audit.jsonl'));
+    const lines = readFileSync(getMachineAuditFile(), 'utf-8').trim().split('\n');
+    const last = JSON.parse(lines[lines.length - 1]!);
+    expect(last.action).toBe('install_godot_test');
+    expect(typeof last.timestamp).toBe('string');
+    expect(last.ok).toBe(true);
+  });
+});
