@@ -6,7 +6,7 @@
  * 输入:--keys 显式序列(逗号分隔,小写);默认方向键循环(2048/snake);
  * --keys 或 --seed 未指定 keys 时按 seed 派生取样顺序(Node 侧 LCG,不依赖游戏 RNG)。
  */
-import { join, dirname, resolve, isAbsolute } from 'path';
+import { join, dirname, resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { PNG } from 'pngjs';
 import type { ToolContext } from '../types.js';

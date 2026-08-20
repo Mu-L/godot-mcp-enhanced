@@ -21,6 +21,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — 小白一条龙批 4a:demo GIF(spec B-1 处置落地)
+
+- **CLI `gif <project>` 子命令**(router 加路由):`--fps`(1-10,默认 4)/`--seconds`(1-30,默认 8)/`--keys`(逗号分隔小写键名,默认方向键循环;breakout 用 `--keys left,right`)/`--seed`(按键取样顺序,Node 侧 LCG 派生,不依赖游戏 RNG)/`--out`(默认项目内 `dist/demo.gif`;**项目外路径 y/N 确认门**,实测非 TTY 自动拒)。
+- **链路**:装 bridge → 起游戏(wait_for_bridge)→ 循环:send_input_sequence 按键时间线(直播模式)+ wall 定时(1000/fps ms)→ take_screenshot → `resolveGameDataPath` 取本机 PNG → pngjs 解码 → 编码落盘;teardown 停游戏。**frozen+playtest.step 通道被实测否决**(「game is frozen; unfreeze before stepping」)——demo GIF 无帧级确定性诉求,直播模式 + wall 定时即 spec B-1 的「低频截图循环」。
+- **零依赖 GIF89a 编码器**(`src/cli/gif-encoder.ts`):合并帧量化——unique 色 ≤256 **精确直通**(零量化误差,色块游戏常态命中)/ >256 中位切分;GIF 变体 LZW(可变码长 9-12、字典 4096 满发 CLEAR 重置、LSB-first、255 子块);Netscape 无限循环 + GCE 延时。位宽增长时机 = 分配前 `nextCode===1<<bits`(omggif 对齐,早/晚一位都会位流错位——实测踩过)。
+- **生产级解码器** `decodeGifFrames`(首帧 diff 验证用;与测试内独立解码器**分开实现**保留锚定独立性)。
+- **验证(Windows + Godot 4.7.2)**:三模板真机各出 32 帧 1280×720 GIF(2048 387KB/28 相邻帧变化、snake 260KB、breakout 204KB);**首帧像素 diff PASS**(GIF 首帧 vs 录制源 PNG:超 8/255 差异像素 0.000%、最大通道差 1);单测 7 用例(**测试内自写独立 GIF-LZW 解码器**做编码往返锚定:2/16/256 色 × 多尺寸、200K 像素 4096 重置、精确直通 RGB 全等、结构断言)。
+- README/README.en 小白叙事 GIF 段(roadmap「demo GIF」移已支持);plan `docs/superpowers/plans/2026-08-20-xiaobai-batch4a-demo-gif.md`;零 GD 改动(不动 addons,无 check:gdscript 触发)、不新增 MCP 工具(零版本门禁)。
+
 ### Added — 小白一条龙批 3:可玩模板库第一期(2048/贪吃蛇/打砖块;spec 未决项 3 选型裁定)
 
 - **CLI `init <name> --template=2048|snake|breakout`**(原 `--template` 死参数赋予真实语义):一条命令落地**可玩**游戏项目四件套——①可玩 demo(`main.tscn` + scripts,色块程序化占位美术,零外部资产);②GDD(`design/gdd/<slug>.md`,8 段过自家 `validate_gdd` 零 error,自产自销;路径与 CCGS `design/gdd/` 惯例互通);③qa 确定性套件(`qa/<slug>.qa.md`,freeze+send_input_sequence 帧定时时间线+step_until 结构化条件+node_state 断言);④调参表(`tuning/<slug>.csv` + 首发 `.tres`,Custom Resource 运行时加载;改表→`csv_to_resources` 重导→重启生效)。

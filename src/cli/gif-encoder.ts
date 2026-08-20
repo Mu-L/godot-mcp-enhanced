@@ -236,3 +236,87 @@ export function encodeGif(frames: RgbaFrame[], delayCs: number): Buffer {
   chunks.push(Buffer.from([0x3b]));
   return Buffer.concat(chunks);
 }
+
+// ── 生产级 GIF 解码(demo GIF 首帧像素 diff 验证用;与测试内独立解码器分开实现,
+// 保留「测试锚定独立于生产实现」的原则)──────────────────────────────────────
+
+/** 解码 GIF89a(仅支持本编码器产出的形态:全局表+GCE+无交错),返回索引帧与调色板。 */
+export function decodeGifFrames(buf: Buffer): { palette: number[][]; frames: { indices: number[]; delayCs: number }[]; width: number; height: number } {
+  if (buf.subarray(0, 6).toString('ascii') !== 'GIF89a') throw new InternalError('not a GIF89a');
+  const width = buf.readUInt16LE(6);
+  const height = buf.readUInt16LE(8);
+  const packed = buf[10]!;
+  if (!(packed & 0x80)) throw new InternalError('global color table missing');
+  const tableBits = (packed & 0x07) + 1;
+  const tableSize = 1 << tableBits;
+  const palette: number[][] = [];
+  for (let i = 0; i < tableSize; i++) {
+    const o = 13 + i * 3;
+    palette.push([buf[o]!, buf[o + 1]!, buf[o + 2]!]);
+  }
+  let p = 13 + tableSize * 3;
+  if (buf[p] === 0x21 && buf[p + 1] === 0xff) {
+    p += 2;
+    while (buf[p] !== 0x00) p += 1 + buf[p]!;
+    p += 1;
+  }
+  const frames: { indices: number[]; delayCs: number }[] = [];
+  while (buf[p] === 0x21 && buf[p + 1] === 0xf9) {
+    const delayCs = buf.readUInt16LE(p + 4);
+    const mcs = buf[p + 8 + 10]!;  // GCE(8) + Image Descriptor(10) 后即 minCodeSize
+    p += 8 + 10 + 1;
+    const sub: number[] = [];
+    while (buf[p] !== 0x00) {
+      const len = buf[p]!;
+      for (let i = 0; i < len; i++) sub.push(buf[p + 1 + i]!);
+      p += 1 + len;
+    }
+    p += 1;
+    frames.push({ indices: gifLzwDecode(mcs, new Uint8Array(sub), width * height), delayCs });
+  }
+  return { palette, frames, width, height };
+}
+
+/** GIF 变体 LZW 解码(与 lzwEncode 对偶)。 */
+function gifLzwDecode(minCodeSize: number, data: Uint8Array, maxPixels: number): number[] {
+  const clearCode = 1 << minCodeSize;
+  const eoiCode = clearCode + 1;
+  let bits = minCodeSize + 1;
+  let bitPos = 0;
+  const readCode = (): number => {
+    let code = 0;
+    for (let b = 0; b < bits; b++) {
+      const byte = data[bitPos >> 3] ?? 0;
+      if (byte & (1 << (bitPos & 7))) code |= 1 << b;
+      bitPos++;
+    }
+    return code;
+  };
+  const out: number[] = [];
+  let dict: string[] = [];
+  const reset = () => {
+    dict = [];
+    for (let i = 0; i < clearCode; i++) dict.push(String.fromCharCode(i));
+    dict.push(''); // clear
+    dict.push(''); // eoi
+    bits = minCodeSize + 1;
+  };
+  reset();
+  let prev: string | null = null;
+  while (out.length <= maxPixels) {
+    const code = readCode();
+    if (code === clearCode) { reset(); prev = null; continue; }
+    if (code === eoiCode) break;
+    let entry: string;
+    if (code < dict.length && dict[code] !== '') entry = dict[code]!;
+    else if (prev !== null) entry = prev + prev[0]!;
+    else throw new InternalError('gif decode: bad code');
+    for (const ch of entry) out.push(ch.charCodeAt(0));
+    if (prev !== null) {
+      dict.push(prev + entry[0]!);
+      if (dict.length === (1 << bits) && bits < 12) bits++;
+    }
+    prev = entry;
+  }
+  return out;
+}

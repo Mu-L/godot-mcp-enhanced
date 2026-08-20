@@ -37,9 +37,17 @@ npx godot-mcp-enhanced qa run qa/2048.qa.md --project .   # real-run determinist
 
 Zero external assets (procedural placeholder art), runs without ever opening the editor; retune by editing `tuning/*.csv` → re-export via `csv_to_resources` → restart; `design/gdd/` ships an 8-section game design document (passes `validate_gdd`) for the AI to iterate on.
 
+**Record gameplay into a demo GIF with one command** (share it anywhere):
+
+```bash
+npx godot-mcp-enhanced gif . --seconds 8 --fps 4              # arrow keys by default; breakout: --keys left,right
+```
+
+Bridge-driven fixed-rate screenshots + key timeline injection, with a zero-dependency hand-written GIF89a encoder (exact palette ≤256 colors / median-cut quantization); output defaults to `dist/demo.gif` inside the project; paths outside the project require y/N confirmation.
+
 Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
 
-> **Roadmap (honest disclosure — not yet supported)**: one-command demo GIFs and browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
+> **Roadmap (honest disclosure — not yet supported)**: one-command browser play links, and a `game_wizard` are in development. See [ROADMAP](ROADMAP.md).
 
 ## Comparison
 
