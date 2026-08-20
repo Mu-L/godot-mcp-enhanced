@@ -25,6 +25,7 @@ const {
   writeGodotPathsConfig,
   getGodotPathsConfigFile,
   isGodotPathAllowed,
+  findGodot,
 } = await import('../src/core/godot-finder.js');
 
 beforeEach(() => {
@@ -33,6 +34,11 @@ beforeEach(() => {
 });
 
 describe('godot-paths.json 读写', () => {
+  beforeEach(() => {
+    // 每个「读写」用例从干净状态开始(前面 describe 可能写过)
+    rmSync(join(FAKE_HOME, '.godot-mcp', 'godot-paths.json'), { force: true });
+  });
+
   it('文件不存在时容错读 []', () => {
     expect(readGodotPathsConfig()).toEqual([]);
   });
@@ -48,7 +54,7 @@ describe('godot-paths.json 读写', () => {
     expect(readGodotPathsConfig()).toEqual([]);
   });
 
-  it('paths 非字符串数组(字段非法)容错读 []', () => {
+  it('paths 非字符串数组(字段非法)容错剔除非字符串', () => {
     mkdirSync(join(FAKE_HOME, '.godot-mcp'), { recursive: true });
     writeFileSync(getGodotPathsConfigFile(), JSON.stringify({ version: 1, paths: [42, null, 'ok'] }));
     expect(readGodotPathsConfig()).toEqual(['ok']);
@@ -88,5 +94,19 @@ describe('isGodotPathAllowed 优先级链(env → config → back-compat 放行)
   it('UNRESTRICTED=true 旁路优先级最高(既有行为不变)', () => {
     vi.stubEnv('GODOT_MCP_UNRESTRICTED', 'true');
     expect(isGodotPathAllowed('C:/anything/any.exe')).toBe(true);
+  });
+});
+
+describe('findGodot 搜索链接入 config 候选', () => {
+  it('config 中不存在/无效的路径被跳过,不抛出(容错护栏)', async () => {
+    writeGodotPathsConfig([join(FAKE_HOME, 'nonexistent', 'Godot_v4.7.2.exe')]);
+    // 本机可能找到(PATH/平台搜索)或找不到(InternalError)——两种结局都可接受,
+    // 唯一断言:不因 config 中的死路径崩溃。
+    try {
+      const found = await findGodot();
+      expect(typeof found).toBe('string');
+    } catch (err) {
+      expect((err as Error).message).toMatch(/not found|Godot/i);
+    }
   });
 });

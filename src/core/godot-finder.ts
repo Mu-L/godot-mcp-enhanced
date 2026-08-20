@@ -367,6 +367,20 @@ export async function findGodot(projectPath?: string): Promise<string> {
     }
   }
 
+  // 3.5 批 2 B-3:机器级 godot-paths.json 候选(CLI install 登记的 Godot,
+  // 用户显式安装动作 → 优先于 PATH 里可能过期的版本;validateGodotBinary 内含白名单校验)
+  for (const candidate of readGodotPathsConfig()) {
+    if (existsSync(candidate)) {
+      if (await validateGodotBinary(candidate)) {
+        _pathCache.set(cacheKey, candidate);
+        return candidate;
+      }
+      tried.push(`godot-paths.json: ${candidate} (failed validation)`);
+    } else {
+      tried.push(`godot-paths.json: ${candidate} (not found)`);
+    }
+  }
+
   // 4. Try `godot` on PATH via a quick async spawn
   try {
     const { stdout } = await execFileAsync('godot', ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
