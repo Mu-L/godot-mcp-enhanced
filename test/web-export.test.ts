@@ -7,11 +7,19 @@ import { request } from 'http';
 // ─── 批 4b:Web 试玩闭环测试 ───────────────────────────────────────────────────
 
 const FAKE_HOME = mkdtempSync(join(tmpdir(), 'gme-web-'));
-const FAKE_APPDATA = join(FAKE_HOME, 'AppData', 'Roaming');
+const IS_WIN = process.platform === 'win32';
+// 平台自适应:win32 走 APPDATA/Godot;posix 走 XDG_DATA_HOME/godot(godotDataDir 同款分支)
+const FAKE_APPDATA = IS_WIN
+  ? join(FAKE_HOME, 'AppData', 'Roaming')
+  : join(FAKE_HOME, '.local', 'share');
+const EXPECTED_DATA_DIR = IS_WIN
+  ? join(FAKE_APPDATA, 'Godot')
+  : join(FAKE_APPDATA, 'godot');
 beforeAll(() => {
   vi.stubEnv('HOME', FAKE_HOME);
   vi.stubEnv('USERPROFILE', FAKE_HOME);
-  vi.stubEnv('APPDATA', FAKE_APPDATA);
+  if (IS_WIN) vi.stubEnv('APPDATA', FAKE_APPDATA);
+  else vi.stubEnv('XDG_DATA_HOME', FAKE_APPDATA);
 });
 afterAll(() => {
   vi.unstubAllEnvs();
@@ -23,16 +31,16 @@ const server = await import('../src/cli/web-server.js');
 
 describe('export templates 目录与检测', () => {
   it('templatesDirFor 平台形态(AppData/Godot/export_templates/<ver>)', () => {
-    expect(exporter.templatesDirFor('4.7.2.stable')).toBe(join(FAKE_APPDATA, 'Godot', 'export_templates', '4.7.2.stable'));
+    expect(exporter.templatesDirFor('4.7.2.stable')).toBe(join(EXPECTED_DATA_DIR, 'export_templates', '4.7.2.stable'));
   });
 
   it('isWebTemplatesInstalled:wasm(≤4.5)或 zip(4.6+)存在即 true', () => {
     expect(exporter.isWebTemplatesInstalled('9.9.9.stable')).toBe(false);
-    const tdir = join(FAKE_APPDATA, 'Godot', 'export_templates', '9.9.8.stable');
+    const tdir = join(EXPECTED_DATA_DIR, 'export_templates', '9.9.8.stable');
     mkdirSync(tdir, { recursive: true });
     writeFileSync(join(tdir, 'web_release.zip'), 'x');
     expect(exporter.isWebTemplatesInstalled('9.9.8.stable')).toBe(true);
-    const tdir2 = join(FAKE_APPDATA, 'Godot', 'export_templates', '9.9.7.stable');
+    const tdir2 = join(EXPECTED_DATA_DIR, 'export_templates', '9.9.7.stable');
     mkdirSync(tdir2, { recursive: true });
     writeFileSync(join(tdir2, 'web_release.wasm'), 'x');
     expect(exporter.isWebTemplatesInstalled('9.9.7.stable')).toBe(true);
