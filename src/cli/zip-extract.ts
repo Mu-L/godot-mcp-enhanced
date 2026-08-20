@@ -27,7 +27,9 @@ interface ZipEntry {
   localHeaderOffset: number;
 }
 
-/** 条目名安全校验:拒绝对对路径/盘符/.. 段(路径穿越防护)。 */
+/** 条目名安全校验:拒绝对对路径/盘符/.. 段(路径穿越防护)+ Windows 保留设备名(纵深防御)。 */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
 function assertSafeEntryName(name: string): void {
   const normalized = name.replace(/\\/g, '/');
   if (normalized.startsWith('/')) {
@@ -39,6 +41,10 @@ function assertSafeEntryName(name: string): void {
   const segments = normalized.split('/');
   if (segments.some(seg => seg === '..')) {
     throw new InternalError(`zip entry path traversal (..): ${name}`);
+  }
+  const base = segments.pop() ?? normalized;
+  if (WINDOWS_RESERVED.test(base)) {
+    throw new InternalError(`zip entry reserved device name: ${name}`);
   }
 }
 

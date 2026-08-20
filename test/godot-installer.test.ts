@@ -202,7 +202,14 @@ describe('confirmYesNo(CLI 交互确认)', () => {
   });
 });
 
-describe('appendMachineAuditLine(机器级审计)', () => {
+describe('appendMachineAuditLine(机器级审计;审查 N-4:FAKE_HOME 隔离,不写真实 ~/.godot-mcp)', () => {
+  beforeAll(() => {
+    const fake = mkdtempSync(join(tmpdir(), 'gme-machaudit-'));
+    vi.stubEnv('HOME', fake);
+    vi.stubEnv('USERPROFILE', fake);
+  });
+  afterAll(() => { vi.unstubAllEnvs(); });
+
   it('落 ~/.godot-mcp/machine-audit.jsonl 且 JSON 行合法(带 timestamp)', async () => {
     const { appendMachineAuditLine, getMachineAuditFile } = await import('../src/core/audit-log.js');
     await appendMachineAuditLine({
@@ -211,7 +218,7 @@ describe('appendMachineAuditLine(机器级审计)', () => {
       details: { versionTag: '4.7.2-stable' },
     });
     expect(existsSync(getMachineAuditFile())).toBe(true);
-    expect(getMachineAuditFile()).toBe(join(homedir(), '.godot-mcp', 'machine-audit.jsonl'));
+    expect(getMachineAuditFile()).toMatch(/[/\\]\.godot-mcp[/\\]machine-audit\.jsonl$/);
     const lines = readFileSync(getMachineAuditFile(), 'utf-8').trim().split('\n');
     const last = JSON.parse(lines[lines.length - 1]!);
     expect(last.action).toBe('install_godot_test');
@@ -250,6 +257,19 @@ describe('extractZip(零依赖 zip reader)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-evil-'));
     await expect(m.extractZip(evilZip, dir)).rejects.toThrow(/path traversal|unsafe/i);
     expect(existsSync(join(dir, '..', 'evil.txt'))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('穿越负向多形态:反斜杠/盘符/绝对路径/嵌套 .. /保留设备名全拒(审查 N-3/N-5)', async () => {
+    const { buildZipWithEntryName } = await import('./godot-installer.test-helper.js');
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-multi-'));
+    const evilNames = ['..\\evil.txt', 'C:/evil.txt', 'C:evil.txt', '/abs/evil.txt', 'a/../../evil.txt', 'CON'];
+    for (const [i, evilName] of evilNames.entries()) {
+      const zip = join(dir, `evil-${i}.zip`);
+      buildZipWithEntryName(zip, evilName, Buffer.from('x'));
+      await expect(m.extractZip(zip, dir)).rejects.toThrow(/traversal|reserved/i);
+    }
+    expect(readdirSync(dir).length).toBe(evilNames.length);  // 只有 zip,无解压产物
     rmSync(dir, { recursive: true, force: true });
   });
 

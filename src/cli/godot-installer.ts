@@ -81,12 +81,12 @@ export async function sha512File(filePath: string): Promise<string> {
 // ─── 下载执行 + installGodot 编排 ─────────────────────────────────────────────
 
 import { createWriteStream, readdirSync, readFileSync } from 'fs';
-import { mkdir, rm } from 'fs/promises';
+import { mkdir, rm, chmod } from 'fs/promises';
 import { Readable } from 'stream';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { appendMachineAuditLine } from '../core/audit-log.js';
-import { readGodotPathsConfig, writeGodotPathsConfig } from '../core/godot-finder.js';
+import { readGodotPathsConfig, writeGodotPathsConfig, validateGodotBinary } from '../core/godot-finder.js';
 
 /**
  * 解析要安装的版本 tag:GODOT_MCP_INSTALL_TAG(测试/复现 pin,不联网)> GitHub API latest。
@@ -200,6 +200,15 @@ export async function installGodot(opts: {
     await rm(sumsPath, { force: true });  // SUMS 同样用后即删
 
     const godotPath = findExtractedBinary(installDir);
+    // POSIX 执行位:writeFileSync 落盘为 0644,无执行位的二进制 validateGodotBinary 会
+    // EACCES 恒 false(审查 I-1)——非 Windows 平台必须补 0o755(Windows no-op)。
+    if (process.platform !== 'win32') {
+      await chmod(godotPath, 0o755);
+    }
+    // 安装后自检:登记前 validate 回读,防止「解压成功但二进制不可执行」的虚假成功。
+    if (!(await validateGodotBinary(godotPath))) {
+      throw new InternalError(`installed binary failed post-install validation: ${godotPath}`);
+    }
     writeGodotPathsConfig([...readGodotPathsConfig(), godotPath]);
 
     await appendMachineAuditLine({

@@ -429,6 +429,12 @@ describe('GODOT_MCP_ALLOWED_GODOT_PATHS', () => {
   beforeEach(() => {
     vi.stubEnv('GODOT_MCP_ALLOWED_GODOT_PATHS', '');
     vi.stubEnv('GODOT_MCP_UNRESTRICTED', '');
+    // 批 2:白名单优先级链在 env 未设时读真实 ~/.godot-mcp/godot-paths.json——
+    // 本文件 mock 了 fs,当前不会真读到;但为防 mock 移除后静默变环境依赖
+    // (跑过 CLI install 的机器 config 非空),HOME 一并隔离到空临时目录(审查 I-2 防御)。
+    const { tmpdir } = require('os');
+    vi.stubEnv('HOME', tmpdir());
+    vi.stubEnv('USERPROFILE', tmpdir());
   });
 
   it('when set, rejects godot path outside whitelist', () => {
