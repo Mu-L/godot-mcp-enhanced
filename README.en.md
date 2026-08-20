@@ -9,6 +9,20 @@ While competitors bet on **authoring** (generation), this project bets on **veri
 
 **[中文文档](README.md)**
 
+## Beginner Path: Make a Game Without Opening the Godot Editor
+
+New to game engines? After installing [Godot](https://godotengine.org/download), describe your idea to the AI in one sentence ("make a 2048 clone", "add a double jump to my character") — reading, writing, running, and verification are all done by the AI through this tool, **without ever opening the Godot editor**:
+
+1. **Say what you want** — the AI scaffolds the project (`create_project`) and writes scenes & scripts (`quick_scene` / `write_script`);
+2. **See it run** — `run_and_verify` actually runs the game with structured error analysis; `screenshot` (action `capture`) shows you what it looks like;
+3. **Iterate** — every `edit_script` change goes through `validate_scripts` full compilation; you just give feedback;
+4. **Accept** — `qa` runs a structured suite against the *real running game* (`playtest.seed` locks RNG: same input → reproducible); `verify_delivery` gates delivery (scene-tree integrity + script health + performance);
+5. **Mistakes are cheap** — editor-tier writes all register into Godot's native undo stack: one **Ctrl+Z** reverts any AI mistake.
+
+Using the [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template? See the **[CCGS integration guide](docs/guides/ccgs-integration.md)** (Chinese) — CCGS owns the design workflow, this project owns real runtime verification.
+
+> **Roadmap (honest disclosure — not yet supported)**: a zero-prerequisite entry (auto-install Godot), built-in playable templates, one-command demo GIFs and browser play links, and a `game_wizard` are in development. For now, install Godot yourself and let the AI generate the game skeleton. See [ROADMAP](ROADMAP.md).
+
 ## Comparison
 
 > **This project does not chase "the most tools".** In the ecosystem, godot-mcp-pro has 175 tools but is closed-source at $15; the free Coding-Solo has only 13. What's genuinely scarce is not tool count, but the combination of **free + open source + systematic security** — the security dimension is almost unaddressed across the field.
@@ -98,7 +112,7 @@ Not a single connection, but three tiers split by scenario (auto-detected, non-c
 | **Editor WebSocket** | connects running editor | live scene ops, undo, scene-tree sync |
 | **Game Bridge** | TCP to running game | E2E testing, runtime debugging, input simulation, state verification |
 
-Every editor-tier write registers into Godot's native undo stack (8 command modules, 45 `create_action` call sites — verify with `grep -c "create_action" addons/godot_mcp_server/commands/*.gd`): if the AI makes a mistake, one **Ctrl+Z** in the editor reverts it. The widest undo coverage in this field.
+Every editor-tier write registers into Godot's native undo stack (10 production command files, 53 `create_action` call sites, recursive incl. the `commands/asset/` subdirectory — verify with `grep -rc "create_action" addons/godot_mcp_server/commands/ | grep -v ":0"`): if the AI makes a mistake, one **Ctrl+Z** in the editor reverts it. The widest undo coverage in this field.
 
 ### Closed-loop AI development
 
@@ -204,7 +218,7 @@ This auto-generates:
 
 - [godot-mcp](https://github.com/Coding-Solo/godot-mcp) — original project; this is a fork (Copyright (c) 2025 Solomon Elias, MIT; see [LICENSE](LICENSE))
 - [Hastur Operation Plugin](https://github.com/rayxuln/hastur-operation-plugin) — inspiration for dynamic GDScript execution & structured output
-- [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) — borrowed concepts: hooks + rules, verify / gate-check, workflow pipeline, GDScript lint, GDD standard, chain-of-verification, code templates
+- [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) — borrowed concepts: hooks + rules, verify / gate-check, workflow pipeline, GDScript lint, GDD standard, chain-of-verification, code templates (using CCGS? see the [integration guide](docs/guides/ccgs-integration.md))
 
 ## Requirements
 

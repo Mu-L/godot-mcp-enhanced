@@ -10,6 +10,20 @@
 
 **[English](README.en.md)** · 工具描述为简体中文,服务中文 Godot 开发者社区;欢迎 i18n PR。
 
+## 小白上手:不用打开 Godot 编辑器也能做游戏
+
+不懂引擎、不想学编辑器?装好 [Godot](https://godotengine.org/download) 后,把需求用一句话告诉 AI(「做一个 2048」「给我的角色加二段跳」),读、写、跑、验证全部由 AI 通过本工具完成,**全程可以不打开 Godot 编辑器**:
+
+1. **说需求** — AI `create_project` 建项目、`quick_scene` / `write_script` 写场景与脚本;
+2. **看效果** — `run_and_verify` 真跑一遍并做结构化错误分析,`screenshot`(action `capture`)截图给你看现在的样子;
+3. **迭代** — AI `edit_script` 改完自动过 `validate_scripts` 完整编译验证;你只管提意见;
+4. **验收** — `qa` 用结构化测试套件起真游戏跑断言(`playtest.seed` 锁随机,同输入可复现);`verify_delivery` 交付门禁检查场景树完整性 + 脚本健康 + 性能;
+5. **出错不慌** — editor 层操作全进 Godot 原生 undo 栈,AI 改错一步,打开编辑器一步 **Ctrl+Z** 即回。
+
+已在用 [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) 工作室模板?见 **[CCGS × 本项目集成指南](docs/guides/ccgs-integration.md)**——它管设计流程,本项目管真实运行验证。
+
+> **路线图(诚实标注,当前版本尚未支持)**:更省心的入口与分享出口正在开发——零预装自动安装 Godot、内置可玩模板库、一条命令出 demo GIF 与浏览器试玩链接、`game_wizard` 一条龙向导。当前版本请先自行安装 Godot,游戏骨架让 AI 生成或手写。见 [ROADMAP](ROADMAP.md)。
+
 ## 与同类方案对比
 
 > **本项目不追求"工具数量第一"。** 赛道里,godot-mcp-pro 有 175 个工具但闭源收 $15;
@@ -118,9 +132,9 @@ _"—" 表示该项目公开 README 未披露相应能力,不代表必然缺失;
 | **Editor WebSocket** | 连接运行中的编辑器 | 实时操作当前场景、Undo、场景树同步 |
 | **Game Bridge** | TCP 连接运行中的游戏 | E2E 测试、运行时调试、输入模拟、状态验证 |
 
-editor 层全部写操作注册进 Godot 原生 undo 栈(8 个命令模块、45 处 action 注册,核查命令
-`grep -c "create_action" addons/godot_mcp_server/commands/*.gd`)——AI 改错任何一步,编辑器里
-一步 **Ctrl+Z** 即回;undo 覆盖面为同赛道最宽。
+editor 层全部写操作注册进 Godot 原生 undo 栈(10 个生产命令文件、53 处 action 注册,递归含
+`commands/asset/` 子目录,核查命令 `grep -rc "create_action" addons/godot_mcp_server/commands/
+| grep -v ":0"`)——AI 改错任何一步,编辑器里一步 **Ctrl+Z** 即回;undo 覆盖面为同赛道最宽。
 
 ### 动态 GDScript 执行
 
@@ -169,8 +183,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 | `run_project` | 以调试模式运行项目（自动超时） |
 | `stop_project` | 停止运行中的项目，返回结构化输出 |
 | `get_debug_output` | 获取分类调试输出（错误/警告/打印） |
-| `capture_screenshot` | 截取游戏画面（Windows 默认窗口模式，Linux/macOS 自动降级） |
-| `analyze_screenshot` | AI 分析截图内容（元素识别、缺陷检测） |
+| `screenshot` | 截图三件套:`capture` 截取游戏画面（Windows 默认窗口模式，Linux/macOS 自动降级）/ `analyze` AI 分析截图内容（元素识别、缺陷检测）/ `diff` 像素级双图对比 |
 | `run_tests` | 运行 GUT 单元测试并解析结果 |
 | `get_godot_version` | 获取 Godot 引擎版本 |
 
@@ -634,7 +647,7 @@ npm install && npm run build
 
 - [godot-mcp](https://github.com/Coding-Solo/godot-mcp) — 原始项目，本项目基于其二次开发（Copyright (c) 2025 Solomon Elias，MIT，见 [LICENSE](LICENSE)）
 - [Hastur Operation Plugin](https://github.com/rayxuln/hastur-operation-plugin) — 动态 GDScript 执行和结构化输出的灵感来源
-- [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) — 借鉴了以下功能概念：
+- [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) — 借鉴了以下功能概念(在用 CCGS?见 **[集成指南](docs/guides/ccgs-integration.md)**):
   - **Hooks + Rules 体系** → `setup_project_rules` 自动生成 `.claude/settings.json`（PostToolUse hook 自动验证 GDScript）和 `CLAUDE.md`（项目编码标准）
   - **Gate-check / verify** → `verify_delivery` 端到端交付验证（场景树完整性 + 脚本健康 + 性能 + 自定义断言 + GDD 合规）
   - **Workflow pipeline** → `dev_loop` 执行→验证→截图一体化工作流，支持 `acceptance` 验收标准和 `save_state` 会话记忆
@@ -652,7 +665,7 @@ npm install && npm run build
 <details>
 <summary><b>截图功能平台说明</b></summary>
 
-`capture_screenshot` 工具根据平台使用不同的渲染策略：
+`screenshot`（action `capture`）根据平台使用不同的渲染策略：
 
 | 平台 | 模式 | 说明 |
 |------|------|------|
