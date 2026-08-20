@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="GameConfigBreakout" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game_config_breakout.gd" id="1_cfg"]
+
+[resource]
+script = ExtResource("1_cfg")
+paddle_width = 120.0
+ball_speed = 6.0
+brick_rows = 4
+brick_cols = 10
+lives = 3
