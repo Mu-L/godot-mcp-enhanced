@@ -3,6 +3,11 @@
 > **一条命令复现**(仓库根):
 > `node build/index.js qa run docs/demo/deterministic-playtest.qa.md --project test/fixtures/input-seq-e2e`
 >
+> ⚠️ **仓库内跑完请恢复 fixture**:`git checkout -- test/fixtures/input-seq-e2e/project.godot`
+> (qa 的 `auto_install_bridge` 会向目标项目写入 `[autoload]` 段——对真实用户项目这是有意留存、
+> 下次 run 幂等复用;但本仓库 fixture 的 project.godot 是 tracked 源文件,跑后需还原,
+> 另生成的 `mcp_bridge.gd` 已被 .gitignore 忽略无需处理)。
+>
 > 套件演示 L3 确定性三要素协同:**seed 锁随机 + freeze 锁起播点 + 帧定时输入时间线锁输入**,
 > 再以结构化条件步进收尾并断言游戏真实读到了时间线输入。
 > **跨 run 可复现实证**:同 spec 连跑两次(实测 2026-08-20 两跑均 5/5 PASSED)+
