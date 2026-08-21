@@ -70,6 +70,8 @@ expect(fm[1]).toMatch(/^name: game-wizard$/m);
 
 **核查**:`node scripts/check-test-quality.mjs`(count 与 860 差值 ≥80)
 
+> **执行偏移记录(2026-08-21 批 1 实况)**:实际走②类布尔表达式强化为主(113 处机械替换 + error-analyzer 15 处 hasErrors),①类守卫式 throw 未动——②类比①改动面更小(一行改写 vs 三行重构)、零访问前置风险,128 预算超 80 目标即止。分类快照(替换前 A120/B83/C657)与实际消除集合(128)的 8 处差值为 hasErrors 表达式在两类判定中的归属交叉,门禁口径以实测 732 为准。
+
 ### Task 1.2:e2e workflow 非空执行守门(测试G-2 P2)
 
 **问题**:`editor-e2e.yml:75-105` 5 个 vitest 步骤与 `ci.yml:198-216` matrix e2e 步骤仅依赖 exit code;vitest 全 skip 返 exit 0 → fixture 供给链断掉时 daily 假绿数月无人察(C5 家族)。
