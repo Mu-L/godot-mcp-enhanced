@@ -252,12 +252,36 @@ func _start_server() -> void:
 		return
 	_server = TCPServer.new()
 	for port in range(BASE_PORT, MAX_PORT + 1):
+		# P2-13(2026-08-21 七维度审核): listen 错误码测不出 Windows 双 bind 假成功
+		# (listen 返 OK 但流量全到先占实例)——listen 前先 connect 预探测,
+		# 对齐 mcp_bridge.gd _bind_available_port 的 A1 缓解。
+		if _port_in_use(port):
+			print("[MCP] Port %d already served by another instance, trying %d" % [port, port + 1])
+			continue
 		if _server.listen(port, "127.0.0.1") == OK:
 			_current_port = port
 			print("[MCP] Listening on port %d" % port)
 			_update_panel("MCP: Listening on port %d" % port)
 			return
 	push_error("[MCP] All ports (%d-%d) occupied" % [BASE_PORT, MAX_PORT])
+
+## connect 探测端口是否已有服务在听(与 mcp_bridge.gd _port_in_use 同款)。
+## localhost 连非监听端口立即 REFUSED(ms 级);poll 必须显式调——缺 poll 时
+## get_status 恒停留 CONNECTING,探测形同虚设(bridge 侧 e2e 实测教训)。
+func _port_in_use(port: int) -> bool:
+	var probe := StreamPeerTCP.new()
+	probe.connect_to_host("127.0.0.1", port)
+	for i in 20:  # 最多 ~100ms 等待连接结果
+		probe.poll()
+		var status := probe.get_status()
+		if status == StreamPeerTCP.STATUS_CONNECTED:
+			probe.disconnect_from_host()
+			return true
+		if status == StreamPeerTCP.STATUS_ERROR:
+			break
+		OS.delay_msec(5)
+	probe.disconnect_from_host()
+	return false
 
 func _process(delta: float) -> void:
 	# P1-5 fix: _exit_tree 后残留 deferred _process 调用时 _server 可能已 stop/free, is_instance_valid 守卫防误用
