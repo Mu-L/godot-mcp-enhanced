@@ -491,6 +491,10 @@ func _start_server() -> void:
 ## 则让位 —— Windows 双 bind 可"成功"但流量全到先占实例,listen 错误码测不出),再 listen
 ## (保留端口段/权限等 listen 失败同样递增,见 2026-08-14 反馈 Hyper-V 保留段 9046-9145 覆盖 9081)。
 ## 成功时 _server 已建立且 _port 为实际端口;全部失败返回 false(Bridge 禁用,游戏继续跑)。
+## ⚠️ 已知残留竞态(2026-08-21 批 2 实测,open 项):两实例毫秒级同瞬启动时探测→listen 窗口
+## 双判空闲,20 轮同瞬双 spawn 18 轮双 listen OK(Windows 双 bind 假成功)。曾试「listen 后
+## 回探自连判属主」修复被真机证伪(双属主/零属主两态漂移,无法可靠区分)已回退;候选缓解
+## = 起始候选随机化(降低碰撞概率,非根治)。数据与证伪过程见 docs/reviews/2026-08-21-audit-fixes-batch2.md。
 func _bind_available_port() -> bool:
 	var start_port := PORT_DEFAULT
 	var env_port := OS.get_environment("GODOT_MCP_BRIDGE_PORT")
