@@ -116,6 +116,34 @@ jobs:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           E2E_EDITOR: '1'
 
+      # 测试G-2 (2026-08-20 审查): e2e 非空执行守门。vitest 全 skip 返 exit 0（实测
+      # total=2/pending=2 仍 exit 0），fixture 供给链断掉时本 workflow 假绿数月无人察
+      # （C5 家族「接线修了、执行规模守门缺失」）。断言每份 JSON 报告 numTotalTests>0
+      # 且 numPendingTests<numTotalTests（至少 1 个真实执行），否则本 job 红。
+      - name: Non-empty gate (all-skip = red)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const files = fs.readdirSync("coverage")
+              .filter(f => f.startsWith("editor-e2e-") && f.endsWith(".json"));
+            if (files.length === 0) {
+              console.error("FAIL: no editor-e2e json reports found (vitest steps never ran?)");
+              process.exit(1);
+            }
+            let bad = 0;
+            for (const f of files) {
+              const r = JSON.parse(fs.readFileSync(`coverage/${f}`, "utf8"));
+              const total = r.numTotalTests ?? 0;
+              const pending = r.numPendingTests ?? 0;
+              if (!(total > 0 && pending < total)) {
+                console.error(`FAIL ${f}: numTotalTests=${total} numPendingTests=${pending} (all skipped or empty)`);
+                bad++;
+              }
+            }
+            if (bad > 0) process.exit(1);
+            console.log(`all ${files.length} editor-e2e reports non-empty`);
+          '
+
       - name: Upload editor-e2e reports
         if: always()
         uses: actions/upload-artifact@v4
