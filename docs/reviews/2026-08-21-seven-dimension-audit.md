@@ -7,7 +7,7 @@
 
 > [!result] 修复状态(2026-08-21 当日修复批,v0.32.9)
 > **6 P1 全部修复;P2 修 10/12;P3 修 10/14**。明细:
-> - P1-1 ✅ help enum 改注册表动态构建(45 工具,含 7 新工具)+防复发测试;P1-2 ✅ recording 双副本通篇新名;P1-3 ✅ CHANGELOG 补登+[Unreleased] 置顶;P1-4 ✅ README 协议更正 TCP+NDJSON;P1-5 ✅ 13100 三处清除+措辞更新;P1-6 ✅ bridge-session 13 用例单测+runtime 假就绪修复。
+> - P1-1 ✅ help enum 改注册表动态构建(45 工具,含 7 新工具)+防复发测试;P1-2 ✅ recording 双副本通篇新名;P1-3 ✅ CHANGELOG 补登+[Unreleased] 置顶;P1-4 ✅ README 协议更正 TCP+NDJSON;P1-5 ✅ 13100 三处清除+措辞更新;P1-6 ✅ bridge-session 7 用例单测+runtime 假就绪修复(用例数 2026-08-21 对账实测修正:bridge-session 7+help 1=合计 8,原记"13 用例"失实)。
 > - P2:P2-7/8/9/10(CLI 双形式)✅、P2-11/12(兜底+.catch)✅、P2-13(editor 预探测)✅、P2-14(QA unfreeze)✅、P2-15(阈值 76/51/79/77)✅、P2-17(PII 收敛)✅、P2-18(zip 读侧)✅、P2-19/20(措辞/数字)✅;P2-16(game-bridge CI 双重排除)⏸ 不动——vitest Linux 平台 bug 有完整披露,修复需 vitest 升级/Windows runner 决策,超出本批。
 > - P3:修 10 条(capture_screenshot/TOOL_META 4 旧名/13100 关联条目/game-fs ../spawn-helper 前缀/[::1]/index.html 复检/bridge auth 拒绝/setBridgeProjectDir 早退/router.test 单一真相源/gd 注释);不修 4 条(setter 3 个未清项有辩护理由、TOOL_META 写盘 action 标 read 有注释权衡、bridgeTimeout 双层默认各有理由、help docs files 已验证可达无需改)。
 > - 验证:lint ✅ build ✅ check:gdscript errors=0 ✅ rules-sync STRICT ✅ build-matrix 45 tools(v0.32.9) ✅ protocol-versions ✅ budget 0 error ✅;测试 6095+ passed,仅 2 条真机 UI 超时(与审核基线一致,CI 三批绿历史结论)。
@@ -16,6 +16,7 @@
 > - **S-1 ✅ 已实施**:check-rules-content-sync.mjs 新增第三层**事实对账**——(A) 模板中 `tool(action="name")` 精确引用必须 ⊆ 运行时注册表该工具 enum(真相源 build/module-loader 注册态);(B) 模板中"端口 NNNN"必须 ∈ GD 常量范围(editor 9090-9094 ∪ bridge 9081-9090,常量从 GD 源提取不硬编码)。负向验证:注入 `recording_start` 被精确抓到、注入 13100 四处全被抓、还原后 STRICT 绿——P1-2/P1-5 类"双副本一致地错"从此被机械拦截。
 > - **d20b1ff 处置 ✅ 独有内容已移植,分支可废弃**:其 CLI 双形式部分本分支已等价实施;独有内容(in-flight 计数器根治 setBridgeProjectDir 恒误报 warn——C 组下沉时未随迁的真修复、test/cli-args.test.ts 96 行、game-bridge.test 两段守护)已全部移植(含 defects 基线 63→64 惯例注释);qa parseFlag 收敛到共享 opt 使两分支语义完全一致。分支剩余内容(plans 文档/CHANGELOG 行)无独有价值。**未 push 前可 `git branch -D fix/audit-3-cli-args`**(删除待用户执行)。
 > - **⚠️ 版本冲突提醒**:audit-fixes 四批的"0.32.9 版本行终态约束"已被本分支用掉——四批分支后续 push 开 PR 前需把版本终态调整为 0.32.10 并重排 CHANGELOG。
+> - **对账批(同日晚第三批,逐条核销本报告全部 findings)**:P1×6/P2×11/P3×10 修复全部对代码实证核销通过;发现 2 处账实不符并处置——(a) P2-17 残留点 `qa/index.ts` 顶层 catch 仍裸拼 err.message(修复批只覆盖了 report/screenshot/validation/script/runtime-assert 的路径回显收敛),已补修为 classifyError.safeMessage+完整错误进日志(runtime-assert 顶层同款);(b) da060c3 用例数"13"失实,已修正为实测 8。P2-16/P3×4 不修项辩护理由复核仍成立;P3-11"docs/tools npm 可达"独立复验(npm pack --dry-run 实测 45 个 md 进包)。
 
 
 
