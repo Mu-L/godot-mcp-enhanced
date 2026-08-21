@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.32.11] - 2026-08-21
+
+### Fixed — CI e2e 文件级并行竞态(端口随机化暴露)
+
+- **ci.yml e2e 步骤加 `--no-file-parallelism`(文件级串行)**:full-tool(L2 recording)/get-node-layout/resilience 三文件共用 real-project——并行时 get-node-layout 的 beforeAll `rmSync(.godot)` 会删掉旁侧实例已写好的 bridge secret;且 PR#57 端口随机化后,TS 侧在 CI(registry 未命中)按 secret 文件扫描发现端口,双 bridge 实例并行时 secret/端口串门致 `run_project` 的 `wait_for_bridge` 失败。master run 32485788334 两连红同一用例(4.6.3 job),同一代码 PR#58 分支 run 全绿 = 时序竞态非代码回归;PR#57 之前 GD 确定性绑 9081 恰好掩盖此竞态。本地(Windows+4.6.3)同文件清单串行模式全绿 + 单用例复现正路径绿。PR#57 披露的残留缝隙(实例级隔离靠 auth 兜底)不变,本条只消除 CI 并行竞争窗口。
 
 ### Fixed — 反馈四坑之三收口(2026-08-19 CardGame2 全量走查反馈,2026-08-21 批;坑 1 button 语义已随 0.32.10 批 2 修)
 

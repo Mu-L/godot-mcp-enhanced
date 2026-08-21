@@ -38,6 +38,12 @@ test/e2e-scene/*.png
 # M-2: E2E fixture 运行时产物(Godot 编辑器/导入缓存/截图)—— 保留 project.godot 等源文件
 test/fixtures/**/.godot/
 test/fixtures/input-seq-e2e/mcp_bridge.gd
+# real-project 的 mcp_bridge.gd 由 game_bridge_install 拷入、afterAll 删除(不入库),Godot import 生成的伴随 .uid 同为副作用(PR#58 后 e2e 实跑生成)
+test/fixtures/real-project/mcp_bridge.gd.uid
+# e2e-full-tool-verification write_script/quick_scene 用例的运行时产物(内容确定但每次实跑重新生成;.uid 曾被误提交,已移出索引)
+test/fixtures/e2e-project/scenes/e2e_verify_test.tscn
+test/fixtures/e2e-project/scripts/e2e_verify_test.gd
+test/fixtures/e2e-project/scripts/e2e_verify_test.gd.uid
 test/fixtures/input-seq-e2e/NVIDIA Corporation/
 test/fixtures/**/*.png
 test/fixtures/**/*.png.import

@@ -204,7 +204,13 @@ jobs:
         # C5 (2026-08-14): 去 process.env.CI 硬短路后 L2 bridge/recording 套件真跑 —— 其中
         # run_project 起 Godot 游戏进程(GUI 渲染),ubuntu runner 无显示,包 xvfb-run
         # (对齐 editor-e2e.yml 范式;headless spawn 的文件在 xvfb 下行为不变)。
-        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        # 文件级串行(2026-08-21): full-tool(L2 recording)/get-node-layout/resilience 共用
+        # real-project —— 并行时 get-node-layout beforeAll rmSync(.godot) 会删掉旁侧实例
+        # 已写好的 secret,且 PR#57 端口随机化后 TS 侧(CI 上 registry 未命中)按 secret 文件
+        # 扫描发现端口,双实例并行 secret/端口串门致 run_project wait_for_bridge 失败
+        # (master 32485788334 两连红同用例,同代码 PR run 绿 = 时序竞态非代码回归;
+        # PR#57 前 GD 确定性绑 9081 掩盖此竞态)。
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run --no-file-parallelism test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           # 2026-08-06 审查测试-P2-4：L2 bridge 字段级守护。
