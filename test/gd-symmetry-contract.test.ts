@@ -78,6 +78,18 @@ describe('审查G-2 [P3]: 深预检扩展 + 底层 button 语义(mouse_click 误
   it('G-2e [负向]: 全文不再有 button 相关 int() 裸转残留(_cmd_send_mouse_click 段)', () => {
     expect(gd.includes('var button: int = int(params.get'), 'button 裸转残留').toBe(false);
   });
+  it('G-2f [审查N-1 对称]: send_touch/send_drag 直接调用路径 index 同款严格校验', () => {
+    const touchSlice = sliceBetween('func _cmd_send_touch', 'func _cmd_send_drag');
+    const dragSlice = sliceBetween('func _cmd_send_drag', 'func _cmd_send_text');
+    expect(touchSlice.includes('_is_valid_touch_index(params.get("index", 0))'), 'send_touch 缺 index 校验').toBe(true);
+    expect(dragSlice.includes('_is_valid_touch_index(params.get("index", 0))'), 'send_drag 缺 index 校验').toBe(true);
+    // 守卫后的裸转安全(值已过校验),断言守卫必须先于裸转
+    for (const [name, s] of [['touch', touchSlice], ['drag', dragSlice]] as const) {
+      expect(
+        s.indexOf('_is_valid_touch_index('), `${name}: index 守卫应在裸转之前`
+      ).toBeLessThan(s.indexOf('var index: int = int(params.get'));
+    }
+  });
 });
 
 describe('F-4 [Nit]: isq_result 补 all_applied 诊断字段(部分事件 ok:false 一眼可辨)', () => {

@@ -395,7 +395,9 @@ func _process(_delta: float) -> void:
 					"applied_count": (isq_entry["applied"] as Array).size(),
 					"total_events": (isq_entry["timeline"] as Array).size(),
 					# F-4(2026-08-20 审查):部分事件 ok:false 时 success 仍 true(截断语义只看 wall_timeout),
-					# 加 all_applied 一眼区分全量/部分注入(诊断字段,不改变 success 判定语义)
+					# 加 all_applied 一眼区分全量/部分注入(诊断字段,不改变 success 判定语义)。
+					# 注意读法:applied 为空(wall 超时 0 事件注入)时 all() 空真为 true——
+					# 读 all_applied 须对照 applied_count,空数组不构成"全量注入"证据。
 					"all_applied": (isq_entry["applied"] as Array).all(func(r): return bool((r as Dictionary).get("ok", false))),
 					"frames_elapsed": int(isq_entry["frame_counter"]),
 					"wall_timeout": bool(isq_entry.get("_wall_timeout", false)),
@@ -1656,6 +1658,9 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 	var x: float = float(params.get("x", 0))
 	var y: float = float(params.get("y", 0))
 	var pressed: bool = params.get("pressed", true)
+	# 审查N-1(对称):index 严格校验,直接调用路径与 timeline 深预检同语义
+	if not _is_valid_touch_index(params.get("index", 0)):
+		return {"error": {"code": -1, "message": "Invalid touch index: %s (must be non-negative integer)" % str(params.get("index", 0))}}
 	var index: int = int(params.get("index", 0))
 	var event := InputEventScreenTouch.new()
 	event.position = Vector2(x, y)
@@ -1669,6 +1674,9 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 func _cmd_send_drag(params: Dictionary) -> Variant:
 	var x: float = float(params.get("x", 0))
 	var y: float = float(params.get("y", 0))
+	# 审查N-1(对称):index 严格校验,直接调用路径与 timeline 深预检同语义
+	if not _is_valid_touch_index(params.get("index", 0)):
+		return {"error": {"code": -1, "message": "Invalid drag index: %s (must be non-negative integer)" % str(params.get("index", 0))}}
 	var index: int = int(params.get("index", 0))
 	var relative: Array = params.get("relative", [0.0, 0.0])
 	if not (relative is Array):
