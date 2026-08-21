@@ -422,7 +422,7 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
   - 集成测试:`test/integration/`(`npm run test:integration`)
   - E2E 冒烟:`test/e2e-full-tool-verification.test.ts`(`npm run smoke`)
 - **超时**:默认 10000ms(`vitest.config.ts` 的 `testTimeout`)
-- **MCP 工具验证**:`verify_delivery` 是端到端交付门禁;`validate_scripts` 触发 Godot 完整编译。
+- **MCP 工具验证**:`verify_delivery` 是端到端交付门禁;`validate_scripts` 逐文件编译验证(非项目级完整编译,区分见「完成前强制检查」§6)。
 - **TDD 鼓励**:新功能优先写失败测试 → 实现 → 验证通过。
 
 ---
