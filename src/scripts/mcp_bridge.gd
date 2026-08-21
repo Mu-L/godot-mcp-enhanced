@@ -87,6 +87,7 @@ var _control_paused_saved: bool = false
 var _control_paused_saved_valid: bool = false
 var _pending_control_step_until_result: Dictionary = {}  # 临时:_handle_message 存,_process_buffer_bytes 取
 var _pending_control_input_seq_result: Dictionary = {}  # H1 同款临时变量
+var _pending_call_method_result: Dictionary = {}  # 坑4(2026-08-21 反馈批)同款:call_method await_completion 延迟响应上下文
 # CMP-2 (2026-08-08): runtime error 捕获——game bridge 通道的 OS.add_logger ring buffer。
 # 让 AI 能看到游戏运行时 push_error / 脚本 setter 报错,闭环调试(不再只靠 take_screenshot 间接推断)。
 var _error_capture: _ErrorCapture = null
@@ -887,6 +888,13 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 				"applied": [],
 				"_added_this_frame": true,  # I-2 同款:登记帧不计数,下一帧起 at_frame=1
 			})
+		elif response.begins_with("__CALL_METHOD_ASYNC__"):
+			# 坑4(2026-08-21 反馈批): call_method await_completion —— fire-and-forget 启动协程,
+			# 完成后由协程自身推送响应(不阻塞本 packet 循环;peer 断开则丢响应,同 pending 推送模式)。
+			var cm_payload: Dictionary = _pending_call_method_result
+			_pending_call_method_result = {}
+			var cm_ctx: Dictionary = cm_payload["ctx"]
+			_await_call_method_and_respond(peer.get_instance_id(), cm_payload["id"], str(cm_ctx["path"]), str(cm_ctx["method"]), cm_ctx["args"])
 		else:
 			peer.put_data((response + "\n").to_utf8_buffer())
 	_peer_buffers[key] = raw
@@ -1015,6 +1023,11 @@ func _handle_message(raw: String, pid: int) -> String:
 		_last_step_request_id = id
 		_pending_control_input_seq_result = result
 		return "__PLAYTEST_CONTROL_INPUT_SEQ__"
+	# 坑4(2026-08-21 反馈批): call_method await_completion 同款哨兵——协程方法等待完成
+	# 后才推送真值(await callv 三版本实证可行,见 _await_call_method_and_respond 注释)。
+	if error.is_empty() and result is Dictionary and result.has("__call_method_async__"):
+		_pending_call_method_result = {"id": id, "ctx": result["__call_method_async__"]}
+		return "__CALL_METHOD_ASYNC__"
 	if error.is_empty():
 		return JSON.stringify({"id": id, "result": result})
 	else:
@@ -1133,6 +1146,15 @@ func _cmd_find_nodes(params: Dictionary) -> Dictionary:
 	var max_results: int = int(params.get("limit", 100))
 	if max_results > 500:
 		max_results = 500
+	# 坑2(2026-08-21 反馈批): 消费 root 参数——限定子树搜索范围(此前声明了却被忽略,
+	# 传子树 root 仍从 /root 全树搜返回无关节点)。绝对路径(/root/Main/UI)推荐;
+	# 相对路径按 bridge autoload 节点解析。节点不存在时报错而非静默全树。
+	var root_path: String = str(params.get("root", ""))
+	var start_root: Node = get_tree().root
+	if root_path != "":
+		start_root = get_node_or_null(root_path)
+		if start_root == null:
+			return {"error": {"code": -7, "message": "Root node not found: %s (find_nodes 的 root 须为有效节点路径,推荐绝对路径如 /root/Main)" % root_path}}
 	var results: Array = _traverse_tree(
 		func(node: Node) -> bool:
 			if pattern != "" and not node.name.match(pattern):
@@ -1142,7 +1164,7 @@ func _cmd_find_nodes(params: Dictionary) -> Dictionary:
 			if group != "" and not node.is_in_group(group):
 				return false
 			return true,
-		{"max_results": max_results}
+		{"max_results": max_results, "root": start_root}
 	)
 	var serialized: Array = []
 	for node in results:
@@ -1412,9 +1434,51 @@ func _cmd_call_method(params: Dictionary) -> Variant:
 	# CMP-9-B: args 类型强转(对标竞品 coerce_call_args + editor call_method 一致)。
 	# 按 ClassDB method 声明类型强转,防 Vector3 传单值/Array 静默变零值(Godot callv 不自动转)。
 	var _coerced := _coerce_bridge_args(node, method, args)
+	# 坑4(2026-08-21 反馈批): 协程检测——callv 对含 await 的方法在首个 await 处挂起并立即
+	# 返回 GDScriptFunctionState(内部类型,is 类型名不可解析,须 get_class() 字符串判定;
+	# 4.5.1/4.6.3/4.7.2 三版探针实证:协程返该对象/非协程返真值,协程会自动续跑)。
+	# 此前该对象经 _jsonify Object 分支序列化为 {type:"GDScriptFunctionState",...} 无用信息,
+	# AI 误以为拿到了返回值(feedback 2026-08-19 四坑之四)。
+	#
+	# await_completion=true 统一走延迟响应(无论协程与否):await callv 对非协程穿透立返
+	# (探针 PROBE4),响应形态恒为 {result, undoable, awaited:true} 一致可判。
+	if bool(params.get("await_completion", false)):
+		# 哨兵→_poll_peers fire-and-forget 启动 _await_call_method_and_respond,
+		# await callv 完成后推送真值(TS 侧 sendToBridge timeout 兜管,长协程注意调大)。
+		return {"__call_method_async__": {"path": path, "method": method, "args": _coerced}}
 	var result: Variant = node.callv(method, _coerced)
+	if result is Object and result.get_class() == "GDScriptFunctionState":
+		return {
+			"result": null,
+			"coroutine": true,
+			"undoable": false,
+			"note": "method suspended at first await and auto-continues (fire-and-forget); return value not available yet — poll side effects, or pass await_completion=true to wait for it (long coroutine: raise timeout)",
+		}
 	# CMP-9-B: undoable=false 显式声明(call 不可 undo,对标竞品 + editor call_method 一致)
 	return {"result": _jsonify(result), "undoable": false}
+
+
+## 坑4(2026-08-21 反馈批): call_method 协程等待的延迟响应协程。
+## `await node.callv(...)` 三版本实证可行(4.5.1/4.6.3/4.7.2 探针:协程等待返真值/
+## 非协程穿透立返)——fire-and-forget 调用(不带 await)时本协程在首个 await 处挂起自动续跑,
+## 不阻塞 _poll_peers 的 packet 循环。完成后按 playtest.step pending 同款模式查 peer 推送
+## (peer 已断开则丢响应)。节点在等待期间被 free 时守卫退出。
+func _await_call_method_and_respond(peer_id: int, id: Variant, path: String, method: String, coerced: Array) -> void:
+	var payload: Dictionary = {}
+	var node := get_node_or_null(path)
+	if node == null or not is_instance_valid(node):
+		payload = {"id": id, "error": {"code": -1, "message": "Node not found (went away during await): %s" % path}}
+	else:
+		var ret: Variant = await node.callv(method, coerced)
+		payload = {"id": id, "result": {"result": _jsonify(ret), "undoable": false, "awaited": true}}
+	var target_peer: StreamPeerTCP = null
+	for p in _peers:
+		if p.get_instance_id() == peer_id:
+			target_peer = p
+			break
+	if target_peer == null:
+		return  # peer 已断开,丢响应(同 pending 完成推送模式)
+	target_peer.put_data((JSON.stringify(payload) + "\n").to_utf8_buffer())
 
 
 func _jsonify(val: Variant) -> Variant:

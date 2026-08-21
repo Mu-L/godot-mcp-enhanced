@@ -19,13 +19,15 @@ describe('CMP-9-B: bridge _cmd_call_method 放宽（GD 源码契约）', () => {
 
   it('CMP-9B-b: _cmd_call_method 含 args 类型强转', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 3200);
+    // 函数边界切片(2026-08-21 反馈坑4批):固定 3200 字符窗口被新增协程分支注释推出界,
+    // 改为到下一个顶层 func 为止——不随函数体增长变脆
+    const slice = gd.slice(fnStart, gd.indexOf('\nfunc ', fnStart + 10));
     expect(slice.includes('_coerce_bridge_args'), '缺类型强转调用').toBe(true);
   });
 
   it('CMP-9B-c: _cmd_call_method 返回 undoable=false', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 3200);
+    const slice = gd.slice(fnStart, gd.indexOf('\nfunc ', fnStart + 10));
     expect(slice.includes('"undoable": false'), '缺 undoable=false 声明').toBe(true);
   });
 

@@ -106,10 +106,10 @@ export function getToolDefinitions(): Tool[] {
             description: '操作类型',
           },
           port: { type: 'number', description: 'game_bridge_install: 期望的起始监听端口(实际端口由游戏侧 env GODOT_MCP_BRIDGE_PORT 设起点,被占自动递增避让;此参数不影响行为,保留兼容)。实际端口见 ping 响应与实例 registry', default: 9081 },
-          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload）' },
+          source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload;插入 [autoload] 段末尾=在游戏 autoload 之后加载,脚本 _ready 可直接访问游戏单例,无需 await <Singleton>.ready）' },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes, get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method。game_input: send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag, send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
+            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes (支持 root 参数限定子树搜索范围,推荐绝对路径如 /root/Main;节点不存在时报错非静默全树), get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method (协程方法默认 fire-and-forget,返 {coroutine:true} 标记+说明;传 params.await_completion=true 走延迟响应等待返回值,长协程注意调大 timeout)。game_input: send_key, send_mouse_click (button 支持 int 1-9/left/right/middle), send_mouse_move, send_text, send_touch, send_drag, send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
           },
           params: {
             type: 'object',
@@ -474,7 +474,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
           return textResult(JSON.stringify({
             success: true,
-            message: `Override installed: ${entry.autoloadKey}`,
+            message: `Override installed: ${entry.autoloadKey} (autoload 段末尾,游戏 autoload 之后加载,_ready 可直接访问游戏单例)`,
             autoload_key: entry.autoloadKey,
             dest_script: `res://${entry.destScriptName}`,
             project_root: entry.projectRoot,

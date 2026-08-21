@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 反馈四坑之三收口(2026-08-19 CardGame2 全量走查反馈,2026-08-21 批;坑 1 button 语义已随 0.32.10 批 2 修)
+
+- **find_nodes 消费 root 参数(坑 2)**:`_cmd_find_nodes` 此前忽略 root(传子树根仍从 /root 全树搜返回无关节点)——现按 root 限定 `_traverse_tree` 起点(推荐绝对路径);无效 root 报结构化错误(-7 Root node not found)而非静默全树。
+- **install_override 插入 [autoload] 段末尾(坑 3)**:autoload 声明顺序即 _ready 执行顺序,段头插入曾致 override _ready 先于游戏单例(如 GameData)初始化得 null,须手动 `await <Singleton>.ready` 兜底且文档未说明——现插段末尾(游戏 autoload 之后,_ready 可直接访问游戏单例);工具描述/安装响应明示插入位置;多次安装保持顺序;EOF 无尾换行兜底。
+- **call_method 协程双模式(坑 4)**:callv 对协程方法在首个 await 挂起并返回 GDScriptFunctionState(内部类型,`is` 类型名不可解析,经 get_class() 字符串判定;4.5.1/4.6.3/4.7.2 三版探针实证),此前被 _jsonify 序列化为无用信息、AI 误以为拿到返回值——现默认返 `{coroutine:true, result:null, note}` 显式标记;`params.await_completion=true` 走哨兵延迟响应(`await callv` 等真值后推送,形态统一 `{result, undoable, awaited:true}`;非协程穿透立返;peer 断开丢响应/节点失效守卫;长协程由 TS 侧 timeout 兜管)。
+- 测试:契约 7 用例(bridge-feedback-pits-contract)+ overrides 顺序单测 3 例 + **行为级 e2e 6 例真机全绿**(find_nodes 子树限定/全树回归/无效 root/协程默认标记/await 真值 33/非协程统一形态);CMP-9B 契约切片改函数边界(固定 3200 窗口脆性);fixture probe 补 slow_add 协程探针 + mcp_bridge fixture 拷贝随批刷新(A2 托管语义:内容不同不覆盖)。
+
 ### Fixed — 端口竞态缓解落地(2026-08-21 裁决;批 2 open 项收口)
 
 - **`_bind_available_port` 默认场景起始候选随机化**:env `GODOT_MCP_BRIDGE_PORT` 未指定时起始候选 = `PORT_DEFAULT + crypto 随机 % PORT_ATTEMPTS`(env 显式指定保持确定性)。实测:无缓解时双实例同瞬 spawn 20 轮 **18 轮双 bind 假成功**(双方都从 9081 起步是碰撞主因);随机起点后 50 轮竞态命中 **2(≈4%)**,撞端口率 ≈10-15% 符合理论值且大部分被探测+递增避让消化。随机源用 `_crypto.generate_random_bytes` 而非 `randi()`——`playtest.seed` 锁全局 randi/randf,双实例同 seed 时 randi 同值随机化会失效。
