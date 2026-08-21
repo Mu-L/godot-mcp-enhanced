@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 const __cliDir = dirname(fileURLToPath(import.meta.url));
 const __rootDir = join(__cliDir, '..', '..');
 
-const SUBCOMMANDS = ['setup', 'configure', 'skills', 'doctor', 'init', 'dashboard', 'qa', 'install', 'gif', 'web'] as const;
+/** CLI 子命令清单(export 供 test/cli/router.test.ts 单一真相源引用,防硬编码漂移) */
+export const SUBCOMMANDS = ['setup', 'configure', 'skills', 'doctor', 'init', 'dashboard', 'qa', 'install', 'gif', 'web'] as const;
 export type Subcommand = typeof SUBCOMMANDS[number];
 
 export function parseSubcommand(args: string[]): { subcommand: Subcommand; rest: string[] } | null {
@@ -92,6 +93,19 @@ export function isCliInvocation(args: string[]): boolean {
   }
   // 子命令走 CLI
   return (SUBCOMMANDS as readonly string[]).includes(first);
+}
+
+/**
+ * 未知子命令检测:首参非 flag 且不在子命令表内。
+ * 2026-08-21 架构审查 MAJOR-1:此前这种输入静默落入 stdio MCP server(终端表现为
+ * 挂起等 stdin,零提示);router 的 Unknown command 分支对此不可达。分流处
+ * (index.ts)先调本函数,报错退出而非启动 server。
+ */
+export function isUnknownCommand(args: string[]): boolean {
+  if (args.length === 0) return false;
+  const first = args[0]!;
+  if (first.startsWith('-')) return false;
+  return !(SUBCOMMANDS as readonly string[]).includes(first);
 }
 
 export function showHelp(): void {

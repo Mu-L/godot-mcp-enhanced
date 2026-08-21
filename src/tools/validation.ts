@@ -990,7 +990,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
       const targetDir = resolveWithinRoot(p, normalizedDir);
       if (!existsSync(targetDir)) {
-        return opsErrorResult('NOT_FOUND', `Directory not found: ${targetDir}`);
+        // P2-17(2026-08-21 七维度审核): 不回显 resolveWithinRoot 产出的绝对路径,
+        // 回显用户原始输入即可定位
+        return opsErrorResult('NOT_FOUND', `Directory not found: ${normalizedDir}`);
       }
 
       const importedFiles: string[] = [];
@@ -1112,8 +1114,8 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       stress: 'process',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
-  // Absorbed tool meta
-  test: { readonly: true, long_running: false },
-  game_design: { readonly: true, long_running: false },
-  verify_delivery: { readonly: true, long_running: true },
+  // 旧工具名 test/game_design/verify_delivery 的 TOOL_META 条目已删(2026-08-21 七维度
+  // 审核 P3):v0.18 合并后残留使 getAllToolNames() 返回 49 而非 45,污染 isKnownTool/动态
+  // 注册判定;旧名映射职责在 tool-registry 的 LEGACY_TOOL_MAP。工具本体的 action 风险在
+  // 上方 actionRisks 表(assert/stress/verify_delivery 等)不受影响。
 };

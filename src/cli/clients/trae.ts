@@ -1,44 +1,17 @@
-import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
+import { JsonAdapterBase } from './json-adapter.js';
 import { globalConfigRoot } from './paths.js';
 
-export class TraeAdapter implements ClientAdapter {
-  name = 'Trae';
-  scope = 'global' as const;
-
-  private configPath(): string {
-    // Trae 是 VS Code fork，全局路径 {APPDATA}/Trae/User/mcp.json
-    return join(globalConfigRoot(), 'Trae', 'User', 'mcp.json');
-  }
-
-  async detect(): Promise<boolean> {
-    return existsSync(this.configPath());
-  }
-
-  async isConfigured(_projectDir: string): Promise<boolean> {
-    const content = readJsonForCheck(this.configPath());
-    if (!content) return false;
-    return !!(content.mcpServers as Record<string, unknown> | undefined)?.godot;
-  }
-
-  async configure(_projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {
-    // 注：Trae stdio entry 的 type 字段未确认（docs.trae.ai JS 渲染抓不到正文）。
-    // 保守不加 type；若实机验证 Trae 要求 type，改加 type:"stdio"（见 spec §3.2 中等不确定项）。
-    const configPath = this.configPath();
-    const configDir = join(configPath, '..');
-    if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
-    const config = readJsonConfigWithBackup(configPath);
-    if (!config.mcpServers) config.mcpServers = {};
-    // C1: 保留旧 entry 的白名单 env
-    const oldEntry = (config.mcpServers as Record<string, unknown>).godot as Record<string, unknown> | undefined;
-    (config.mcpServers as Record<string, unknown>).godot = {
-      command: mcpCommand,
-      ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      env: buildEnv(godotPath, oldEntry?.env as Record<string, unknown> | undefined),
-    };
-    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
-    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
+/** Trae(global scope;Trae 是 VS Code fork,全局路径 {APPDATA}/Trae/User/mcp.json)。
+ *  注:Trae stdio entry 的 type 字段未确认(docs.trae.ai JS 渲染抓不到正文),保守不加 type;
+ *  若实机验证 Trae 要求 type,在 spec 加 entryExtras: () => ({ type: 'stdio' })。 */
+export class TraeAdapter extends JsonAdapterBase {
+  constructor() {
+    super({
+      name: 'Trae',
+      scope: 'global',
+      configPath: () => join(globalConfigRoot(), 'Trae', 'User', 'mcp.json'),
+      detectPaths: () => [join(globalConfigRoot(), 'Trae', 'User', 'mcp.json')],
+    });
   }
 }

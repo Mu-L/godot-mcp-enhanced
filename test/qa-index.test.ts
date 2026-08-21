@@ -463,7 +463,7 @@ describe('qa run taskAugmented 自动 async（PR-2 Task 4）', () => {
     const j = parse(r!);
     expect(j.success).toBe(true);
     // sync 既有响应结构（PR-1b 回归红线：summary/steps 在 data 上）
-    expect((j.data as Record<string, unknown>).summary).toBeTruthy();
+    expect(j.data).toHaveProperty('summary');
     expect(relatedTaskOf(r!)).toBeUndefined(); // sync 响应不挂 _meta.relatedTask
   });
 

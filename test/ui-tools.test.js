@@ -759,7 +759,7 @@ describe('Flex Layout: direction', () => {
     expect(script).toContain('ClassDB.instantiate("HBoxContainer")');
     const idxB = script.indexOf('node.name = "B"');
     const idxA = script.indexOf('node.name = "A"');
-    expect(idxB < idxA).toBeTruthy();
+    expect(idxB < idxA).toBe(true);
   });
 
   it('direction: column-reverse -> VBoxContainer with reversed children', () => {
@@ -774,7 +774,7 @@ describe('Flex Layout: direction', () => {
     expect(script).toContain('ClassDB.instantiate("VBoxContainer")');
     const idxY = script.indexOf('node.name = "Y"');
     const idxX = script.indexOf('node.name = "X"');
-    expect(idxY < idxX).toBeTruthy();
+    expect(idxY < idxX).toBe(true);
   });
 });
 

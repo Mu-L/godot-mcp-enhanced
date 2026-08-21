@@ -124,14 +124,14 @@ describe('godot-docs API cache', () => {
     initDocs(apiPath1);
     expect(getDocsVersion()).toBe('4.2.0');
     let results = searchClasses('Version');
-    expect(results.some(r => r.name === 'VersionTwo')).toBeTruthy();
+    expect(results.some(r => r.name === 'VersionTwo')).toBe(true);
 
     // 切换到新路径需要先清缓存
     clearApiCache();
     initDocs(apiPath2);
     expect(getDocsVersion()).toBe('4.3.0');
     results = searchClasses('Version');
-    expect(results.some(r => r.name === 'VersionThree')).toBeTruthy();
+    expect(results.some(r => r.name === 'VersionThree')).toBe(true);
 
     rmSync(tmpDir, { recursive: true, force: true });
   });

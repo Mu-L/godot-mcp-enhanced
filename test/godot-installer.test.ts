@@ -273,6 +273,20 @@ describe('extractZip(零依赖 zip reader)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('安全P3-1: NTFS 交替数据流形态(基名含冒号)全拒——foo.txt:ads 落盘即 ADS 隐藏流', async () => {
+    const { buildZipWithEntryName } = await import('./godot-installer.test-helper.js');
+    const dir = mkdtempSync(join(tmpdir(), 'gme-unzip-ads-'));
+    const adsNames = ['foo.txt:ads', 'dir/hidden:stream', 'plain:colon', 'a:b:c'];
+    for (const [i, evilName] of adsNames.entries()) {
+      const zip = join(dir, `ads-${i}.zip`);
+      buildZipWithEntryName(zip, evilName, Buffer.from('x'));
+      // a:b:c 走上游盘符分支(drive)同样拒;多字符基名走 ADS 分支——两类拒绝都算防护在位
+      await expect(m.extractZip(zip, dir), `entry=${evilName}`).rejects.toThrow(/alternate data stream|traversal/i);
+    }
+    expect(readdirSync(dir).length).toBe(adsNames.length);  // 只有 zip,零解压产物
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('zip64 形态解压(EOCD64 locator/记录 + CD 条目 zip64 extra;批 4b 官方 tpz 即 zip64)', async () => {
     const { buildZip64Sample } = await import('./godot-installer.test-helper.js');
     const dir = mkdtempSync(join(tmpdir(), 'gme-unzip64-'));

@@ -1,8 +1,8 @@
 // test/core/module-loader-hints.test.ts
 // 验证 MCP 标准 ToolAnnotations (readOnlyHint/destructiveHint/idempotentHint)
-// 从 actionRisks 自动派生注入。对应 src/core/module-loader.ts deriveMcpHints。
+// 从 actionRisks 自动派生注入。对应 src/module-loader.ts deriveMcpHints。
 import { describe, it, expect } from 'vitest';
-import { registerAllModules, deriveMcpHints } from '../../src/core/module-loader.js';
+import { registerAllModules, deriveMcpHints } from '../../src/module-loader.js';
 import { getAllToolDefinitions } from '../../src/core/tool-registry.js';
 
 describe('Module loader MCP-standard ToolAnnotations', () => {

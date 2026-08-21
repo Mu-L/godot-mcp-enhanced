@@ -139,7 +139,7 @@ ${MARKER_RESULT}{"success":true,"outputs":[{"key":"x","value":"42"}]}`;
 describe('wrapSnippet code detection', () => {
   it('detects full class with extends', () => {
     const code = 'extends SceneTree\n\nfunc _initialize():\n\tprint("hi")';
-    expect(/^\s*extends\s+/m.test(code)).toBeTruthy();
+    expect(/^\s*extends\s+/m.test(code)).toBe(true);
   });
 
   it('snippet without extends is not full class', () => {

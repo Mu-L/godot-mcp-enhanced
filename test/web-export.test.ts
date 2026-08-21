@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { request } from 'http';
@@ -90,6 +90,7 @@ describe('startWebServer(真 HTTP 往返)', () => {
   const root = mkdtempSync(join(tmpdir(), 'gme-httpd-'));
   writeFileSync(join(root, 'index.html'), '<html>PLAY</html>', 'utf-8');
   writeFileSync(join(root, 'game.pck'), Buffer.alloc(16, 7), 'utf-8' as never);
+  writeFileSync(join(root, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf-8');
   let running: Awaited<ReturnType<typeof server.startWebServer>> | null = null;
 
   it('index.html 200 + text/html;pck 200 + octet-stream', async () => {
@@ -98,10 +99,42 @@ describe('startWebServer(真 HTTP 往返)', () => {
     const html = await get(running.url);
     expect(html.status).toBe(200);
     expect(html.headers['content-type']).toContain('text/html');
+    expect(html.headers['x-content-type-options']).toBe('nosniff');
     expect(html.body).toContain('PLAY');
     const pck = await get(`${running.url}game.pck`);
     expect(pck.status).toBe(200);
     expect(pck.headers['content-type']).toBe('application/octet-stream');
+  });
+
+  it('安全P3-2: SVG 响应带 CSP 封直接导航执行面;index.html/pck 不带(统一 CSP 会断试玩 js/wasm)', async () => {
+    if (!running) throw new Error('server not started');
+    const svg = await get(`${running.url}icon.svg`);
+    expect(svg.status).toBe(200);
+    expect(svg.headers['content-type']).toBe('image/svg+xml');
+    expect(svg.headers['content-security-policy']).toContain("default-src 'none'");
+    const html = await get(running.url);
+    expect(html.headers['content-security-policy']).toBeUndefined();
+    const pck = await get(`${running.url}game.pck`);
+    expect(pck.headers['content-security-policy']).toBeUndefined();
+  });
+
+  it('Host 校验:非回环 Host → 403,回环放行(DNS rebinding 防护)', async () => {
+    if (!running) throw new Error('server not started');
+    expect((await getWithHost(running.port, '/', 'evil.example.com')).status).toBe(403);
+    expect((await getWithHost(running.port, '/', 'localhost')).status).toBe(200);
+    expect((await getWithHost(running.port, '/', '127.0.0.1')).status).toBe(200);
+  });
+
+  it('symlink 指向 root 外 → 403(resolveWithinRoot 防护)', async () => {
+    if (!running) throw new Error('server not started');
+    const outsideDir = mkdtempSync(join(tmpdir(), 'gme-out-'));
+    try {
+      writeFileSync(join(outsideDir, 'secret.txt'), 'SECRET', 'utf-8');
+      symlinkSync(join(outsideDir, 'secret.txt'), join(root, 'leak.txt'));
+      expect((await get(`${running.url}leak.txt`)).status).toBe(403);
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it('404(缺失)/405(POST)/403(穿越)', async () => {
@@ -140,6 +173,18 @@ function get(url: string): Promise<{ status: number; headers: Record<string, str
 function getRawPath(port: number, rawPath: string): Promise<{ status: number }> {
   return new Promise((resolveP, rejectP) => {
     const req = request({ host: '127.0.0.1', port, path: rawPath, method: 'GET' }, (res) => {
+      res.resume();
+      res.on('end', () => resolveP({ status: res.statusCode ?? 0 }));
+    });
+    req.on('error', rejectP);
+    req.end();
+  });
+}
+
+/** 2026-08-21 架构审查 B-2:带自定义 Host 头的请求(DNS rebinding 防护测试)。 */
+function getWithHost(port: number, rawPath: string, hostHeader: string): Promise<{ status: number }> {
+  return new Promise((resolveP, rejectP) => {
+    const req = request({ host: '127.0.0.1', port, path: rawPath, method: 'GET', headers: { host: hostHeader } }, (res) => {
       res.resume();
       res.on('end', () => resolveP({ status: res.statusCode ?? 0 }));
     });

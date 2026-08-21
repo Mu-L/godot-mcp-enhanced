@@ -57,7 +57,7 @@ describe('CMP-3: debug 工具定义（TS 契约）', () => {
 
 describe('CMP-3: debug 工具注册链路（源码字面量契约）', () => {
   it('CMP-3f: module-loader.ts 注册 debug 模块', () => {
-    const src = readFileSync('src/core/module-loader.ts', 'utf8');
+    const src = readFileSync('src/module-loader.ts', 'utf8');
     expect(src.includes("import * as debug from"), 'module-loader 未 import debug').toBe(true);
     // ALL_MODULES 数组里含 debug 条目
     const allModStart = src.indexOf('const ALL_MODULES');

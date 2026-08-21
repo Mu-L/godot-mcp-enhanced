@@ -90,7 +90,7 @@ describe('Level B: Project management', () => {
     expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
-    expect(parsed.valid !== false).toBeTruthy();
+    expect(parsed.valid !== false).toBe(true);
   });
 
   // 用例 4: list_files 带 .gd 扩展名过滤
@@ -105,7 +105,7 @@ describe('Level B: Project management', () => {
     const files = parsed.files || [];
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) {
-      expect(f.endsWith('.gd')).toBeTruthy();
+      expect(f.endsWith('.gd')).toBe(true);
     }
   });
 
@@ -119,7 +119,7 @@ describe('Level B: Project management', () => {
     }, ctx);
     expect(result.isError).not.toBe(true);
     const parsed = JSON.parse(result.content[0].text);
-    expect(typeof parsed.validated === 'number').toBeTruthy();
+    expect(typeof parsed.validated === 'number').toBe(true);
   });
 
   // ── C3 (2026-08-11 审查 P2-2): 失败分支覆盖 ────────────────────────────────

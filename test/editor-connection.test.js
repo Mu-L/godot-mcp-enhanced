@@ -76,9 +76,9 @@ describe('EditorConnection', () => {
     const conn = new EditorConnection({ port, reconnect: false, secret: 'test-secret' });
     await conn.connect();
     await conn.startOperation(300);
-    expect(received.some(m => m.method === 'operation_start')).toBeTruthy();
+    expect(received.some(m => m.method === 'operation_start')).toBe(true);
     await conn.endOperation();
-    expect(received.some(m => m.method === 'operation_end')).toBeTruthy();
+    expect(received.some(m => m.method === 'operation_end')).toBe(true);
     conn.disconnect();
   });
 

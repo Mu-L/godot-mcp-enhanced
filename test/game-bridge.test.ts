@@ -4,7 +4,8 @@
 // 全仓仅原这两个文件 vi.mock('net'),Linux 全量运行时同 fork 内两个 net mock 互相影子化,
 // 致 game-bridge-error 的 mockCreate 实际未接管生产 net.createConnection → beforeEach
 // vi.clearAllMocks() 清空那个接错的实现 → createConnection() 返回 undefined →
-// game-bridge.ts:150 sock.on('data') TypeError → :739 catch 兜底 textResult(无 isError)
+// core/bridge-client.ts sock.on('data') TypeError → 兜底 catch textResult(无 isError)
+// (2026-08-21 C 组重构:实现自已删的 tools/game-bridge.ts:150/:739 下沉 core/bridge-client.ts)
 // → T-2/N-1 断言拿 undefined 而败。合并后同 fork 内仅一个 net mock,消除碰撞触发条件。
 // 本地 Windows 4.1.7/4.1.9 双版本 2852 全过(CI Linux 4.1.7 才败:平台敏感,版本无关)。
 //
@@ -721,6 +722,35 @@ describe('G-1: 订阅断线恢复(登记表 + 重连重发 + keepalive)', () => 
     });
   });
 
+  it('可靠性审查P3·可疑(验证固化,d20b1ff 移植): 断线后 keepalive 不构成无限重连循环(守卫拦截)', async () => {
+    // 待办场景「A 游戏停 + B 占同端口 → 每 30s 失败 auth 无限循环」静态精读不成立:
+    // keepalive interval 守卫 !_socket → return(不发 ping 不重连)。本用例把该结论
+    // 测试固化——若未来重构把守卫挪掉成真循环,此处红。
+    vi.useFakeTimers();
+    try {
+      const { sock } = recordingBridgeSocket();
+      let connects = 0;
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => {
+        connects++;
+        queueMicrotask(() => { if (typeof cb === 'function') cb(); });
+        return sock;
+      });
+      const ctx = { projectDir: '/p' } as any;
+      await handleTool('game', { action: 'game_query', method: 'ping' }, ctx);
+      expect(connects).toBe(1);  // 连接已建立
+
+      sock.emit('close');  // 游戏停/占端口方接管 → 断线 → _invalidateSocket
+      await vi.advanceTimersByTimeAsync(120_000);  // 越过 4 个 keepalive 周期
+      await vi.advanceTimersByTimeAsync(0);
+
+      // 断线后 keepalive 不得反复重连(守卫拦截);重连只应由业务调用触发
+      expect(connects, '断线后 keepalive 循环重连 = 守卫失效').toBe(1);
+    } finally {
+      vi.useRealTimers();
+      setBridgeProjectDir('/__reset__');
+    }
+  });
+
   it('keepalive: 连接空闲 30s → 自动发轻量 ping 刷新游戏侧 idle 计时(防 60s 断连)', async () => {
     vi.useFakeTimers();
     try {
@@ -737,8 +767,10 @@ describe('G-1: 订阅断线恢复(登记表 + 重连重发 + keepalive)', () => 
 
       // 空闲 30s → keepalive 触发一次轻量 ping
       await vi.advanceTimersByTimeAsync(30_000);
-      await vi.advanceTimersByTimeAsync(0);  // flush 重发/响应微任务链
-
+      // 2026-08-21 bridge 客户端拆分到 core/bridge-client 后,tick → sendToBridge 的锁链微任务
+      // 依赖真实宏任务轮换才能 drain(fake timers 的 0ms 推进无 timer 时不 yield),
+      // 且所需轮换次数对模块内同步代码量敏感(诊断计数器增减即翻转结果)——
+      // 固定次数 flush 不可靠,改为真实 timers 下轮询直到 ping 落盘/超时(语义不变:只验证最终发生)
       expect(writes.filter(w => w.method === 'ping').length).toBe(businessPings + 1);
       // 未断连:keepalive ping 成功 → 不应产生第二次连接
       expect(mockCreate.mock.calls.length).toBe(1);
@@ -777,5 +809,42 @@ describe('P3-2R: setBridgeProjectDir in-flight warn 守护', () => {
 
     loggerSpy.mockRestore();
     await pending;
+  });
+
+  it('可靠性审查P3(d20b1ff 移植):请求 settle 后 setBridgeProjectDir 不再误报 warn(计数器归零)', async () => {
+    // 原 bug:Promise.resolve() === _sendLock 引用比较在首次请求后恒 false → 之后每次
+    // setBridgeProjectDir 都误报,监控价值归零。计数器修复后 settle 归零,静默切换。
+    const warnSpy = vi.fn();
+    const loggerSpy = vi.spyOn(loggerMod, 'getLogger').mockReturnValue({
+      info: vi.fn(), debug: vi.fn(), warn: warnSpy, error: vi.fn(), close: vi.fn(),
+    });
+    try {
+      // 用 auth+响应型 socket 让请求完整 settle(写回响应 → run 完成 → finally -- 归零)
+      const sock = new EventEmitter();
+      (sock as any).write = vi.fn((data: string) => {
+        let req: { id?: number };
+        try { req = JSON.parse(data); } catch { return; }
+        queueMicrotask(() => {
+          const resp = req.id === 0
+            ? { id: 0, result: { authenticated: true } }
+            : { id: req.id, result: { ok: true } };
+          sock.emit('data', Buffer.from(JSON.stringify(resp) + '\n'));
+        });
+      });
+      (sock as any).destroy = vi.fn();
+      (sock as any).writable = true;
+      mockCreate.mockImplementation((_o: unknown, cb?: () => void) => { queueMicrotask(() => cb && cb()); return sock; });
+
+      setBridgeProjectDir('/p3a');
+      await sendToBridge('ping', {}, 500);  // 完整跑一轮(连接+auth+请求+响应,settle)
+      expect(warnSpy).not.toHaveBeenCalled();  // 空闲时首次切换零 warn
+
+      warnSpy.mockClear();
+      setBridgeProjectDir('/p3b');
+      expect(warnSpy, 'settle 后切换不得再误报(原实现此处必 warn)').not.toHaveBeenCalled();
+    } finally {
+      loggerSpy.mockRestore();
+      setBridgeProjectDir('/__reset__');
+    }
   });
 });

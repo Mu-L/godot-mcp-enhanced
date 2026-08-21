@@ -11,14 +11,15 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const loaderPath = join(__dirname, '..', 'src', 'core', 'module-loader.ts');
+const loaderPath = join(__dirname, '..', 'src', 'module-loader.ts');
 const src = readFileSync(loaderPath, 'utf-8');
 
 // 提取 import 别名(非注释行)
 const importAliases = new Set();
 for (const line of src.split('\n')) {
   if (/^\s*\/\//.test(line)) continue;
-  const m = line.match(/^import\s+\*\s+as\s+(\w+)\s+from\s+['"]\.\.\/tools\//);
+  // 2026-08-21 D-2:module-loader 移到 src/ 根后相对深度为 ./tools/;兼容两种深度(与 generate-all-modules.mjs 同步)
+  const m = line.match(/^import\s+\*\s+as\s+(\w+)\s+from\s+['"]\.{1,2}\/tools\//);
   if (m) importAliases.add(m[1]);
 }
 

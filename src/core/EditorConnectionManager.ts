@@ -219,6 +219,11 @@ export class EditorConnectionManager {
             getLogger().warn('auth', `Editor project changed after reconnect: expected ${check.expected ?? '(unknown)'}, got ${check.actual ?? '(unreadable)'} — degrading to headless.`);
             this.handleStall();
           }
+        }).catch((err: unknown) => {
+          // P2-12(2026-08-21 七维度审核): verifyProject 自身全路径兜底 resolve,但
+          // then 回调内 handleStall/degrade 链同步抛错时此链无 .catch 会成 unhandled
+          // rejection(同文件其余 void 调用均带 .catch,唯独此链裸奔)。
+          getLogger().warn('auth', `post-reconnect project verify chain failed: ${err instanceof Error ? err.message : String(err)}`);
         }).finally(() => {
           this._editorVerifying = false;
         });
