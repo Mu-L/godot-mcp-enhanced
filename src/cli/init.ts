@@ -1,14 +1,12 @@
 /** init 命令 — 创建 Godot 项目骨架 */
 import { join, dirname } from 'path';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
+import { opt } from './args.js';
 
 function parseInitArgs(args: string[]): { name: string; template: string } {
   const name = args[0] || 'my-game';
-  let template = 'empty';
-  for (let i = 1; i < args.length; i++) {
-    if (args[i]!.startsWith('--template=')) template = args[i]!.split('=')[1]!;
-  }
-  return { name, template };
+  // P2-7(七维度审核): --template 双形式(此前只认等号,空格形式静默落 empty 空骨架)
+  return { name, template: opt(args, 'template') ?? 'empty' };
 }
 
 /** 项目名称合法性校验：只允许字母、数字、连字符、下划线 */

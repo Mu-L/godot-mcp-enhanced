@@ -36,11 +36,16 @@ function parseFlag(rest: string[], name: string): { value?: string; positional: 
   const out: string[] = [];
   let value: string | undefined;
   for (let i = 0; i < rest.length; i++) {
-    if (rest[i] === name && rest[i + 1]) {
-      value = rest[i + 1];
-      i++;
+    const a = rest[i]!;
+    if (a === name) {
+      // 空格形式(相邻消费);尾部缺值不消费(由调用方的必传校验兜底)
+      if (rest[i + 1] !== undefined) { value = rest[i + 1]!; i++; }
+    } else if (a.startsWith(`${name}=`)) {
+      // P2-8(2026-08-21 七维度审核): 等号形式(此前只认空格形式,--project=<path> 时
+      // value 静默丢失且 token 混入 positional → QA 对错误项目静默执行)
+      value = a.split('=').slice(1).join('=');
     } else {
-      out.push(rest[i]!);
+      out.push(a);
     }
   }
   // 审查 Important-2：--json 是无值 flag，前置形态（qa run --json spec.json）不得混入

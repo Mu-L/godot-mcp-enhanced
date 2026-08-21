@@ -9,7 +9,7 @@
  */
 import { createServer, type Server } from 'http';
 import { createReadStream, existsSync, statSync } from 'fs';
-import { join, extname, normalize } from 'path';
+import { extname, normalize, relative } from 'path';
 import { InternalError } from '../core/tool-errors.js';
 import { resolveWithinRoot } from '../core/path-utils.js';
 
@@ -49,7 +49,11 @@ export function sanitizeRequestPath(rawUrlPath: string, rootDir: string): string
 /** Host 校验(防 DNS rebinding):仅放行回环主机名,其余(远程域名解析到 127.0.0.1)403。 */
 function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return true;  // HTTP/1.0 无 Host 头,非 rebinding 场景,放行
-  const hostname = host.split(':')[0]!.toLowerCase();
+  // P3(2026-08-21 七维度审核): IPv6 字面量带端口形态是 "[::1]:8080"——split(':')[0]
+  // 得 "[" 永不相等(死代码)。先按 RFC 6874 剥 [] 字面量再比较。
+  const hostname = host.startsWith('[')
+    ? (host.slice(0, host.indexOf(']') + 1) || host).toLowerCase()
+    : host.split(':')[0]!.toLowerCase();
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
@@ -95,8 +99,11 @@ export function startWebServer(rootDir: string, portInput = 0): Promise<RunningW
         return;
       }
       if (stat.isDirectory()) {
-        filePath = join(filePath, 'index.html');
+        // P3(2026-08-21 七维度审核): join index.html 后复过 resolveWithinRoot——
+        // 预置 symlink 的 index.html 指向 rootDir 外时,首层(目录路径)校验拦不住,
+        // realpath 兜底补上(与 sanitizeRequestPath 同一防线)。
         try {
+          filePath = resolveWithinRoot(rootDir, relative(root, filePath) + '/index.html');
           stat = statSync(filePath);
         } catch {
           res.writeHead(404, { 'content-type': 'text/plain' });

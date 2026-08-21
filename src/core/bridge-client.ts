@@ -366,6 +366,14 @@ async function _doConnect(timeout: number): Promise<Socket> {
         if (!line) continue;
         try {
           const resp = JSON.parse(line);
+          // P3(2026-08-21 七维度审核): auth 被拒(secret 不匹配,authenticated=false)
+          // 立即失败——此前干等 auth timeout,secret 错误与 bridge 无响应不可区分。
+          if (!authDone && resp.result?.authenticated === false) {
+            clearTimeout(timer);
+            sock.destroy();
+            reject(new BridgeNotConnectedError('Bridge auth rejected: secret mismatch (authenticated=false). Re-run the game or check the bridge secret file.'));
+            return;
+          }
           if (!authDone && resp.result?.authenticated) {
             authDone = true;
             clearTimeout(timer);
@@ -493,7 +501,10 @@ export function invalidateBridgeConnection(): void {
 }
 
 export function setBridgeProjectDir(projectDir: string | null): void {
-  if (_projectDir === projectDir) return;
+  // P3(2026-08-21 七维度审核): null(清理/close 语义)总是走完整重置——早退分支会让
+  // 已置 null 后的二次 null 跳过 _stopKeepalive/_invalidateSocket,与 resetBridgeState
+  // 的完整清理不对称(uninstall 路径先 invalidate 再置 null 时残留 keepalive 空转)。
+  if (_projectDir === projectDir && projectDir !== null) return;
   // 检测 in-flight:_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
   // (_sendLock 在 sendToBridge:385-388 获取,.finally(resolveLock) 释放)
   // Promise.resolve() === _sendLock 时表示无 in-flight(初始 settled state)

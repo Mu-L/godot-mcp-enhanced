@@ -18,6 +18,7 @@ import { openSync, readSync, closeSync, statSync, mkdirSync, writeFileSync, crea
 import { join, dirname } from 'path';
 import { createInflateRaw } from 'zlib';
 import { pipeline } from 'stream/promises';
+import { Transform } from 'stream';
 import { InternalError } from '../core/tool-errors.js';
 
 const EOCD_SIG = 0x06054b50;
@@ -215,11 +216,25 @@ export async function extractZip(zipPath: string, destDir: string): Promise<void
       if (e.compression !== 0 && e.compression !== 8) {
         throw new InternalError(`zip: unsupported compression method ${e.compression} for ${e.name}`);
       }
+      // P2-18(2026-08-21 七维度审核): 读侧强校验——原实现写盘后才 statSync 比对
+      // uncompressedSize(事后性),恶意/损坏条目(中央目录声明小、deflate 实际解出大)
+      // 会先把磁盘写满才暴露。inflate 流上累计计数,超声明值立即断流。
+      let received = 0;
+      const sizeGuard = new Transform({
+        transform(chunk: Buffer, _enc: string, cb: (e?: Error | null, d?: Buffer) => void) {
+          received += chunk.length;
+          if (received > e.uncompressedSize) {
+            cb(new InternalError(`zip: entry "${e.name}" exceeds declared uncompressed size ${e.uncompressedSize} (possible zip bomb / corrupt entry)`));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
       try {
         if (e.compression === 8) {
-          await pipeline(src, createInflateRaw(), createWriteStream(target));
+          await pipeline(src, createInflateRaw(), sizeGuard, createWriteStream(target));
         } else {
-          await pipeline(src, createWriteStream(target));
+          await pipeline(src, sizeGuard, createWriteStream(target));
         }
       } catch (err) {
         throw new InternalError(`zip: failed to extract ${e.name}: ${err instanceof Error ? err.message : String(err)}`);
