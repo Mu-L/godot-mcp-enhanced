@@ -1,0 +1,721 @@
+/**
+ * Bridge 客户端核心 —— TCP 连接/认证/NDJSON 协议/keepalive/订阅重发/端口 registry 解析。
+ *
+ * 2026-08-21 架构审查 MAJOR-3 下沉:原在 src/tools/game-bridge.ts 的客户端基础设施
+ * (1-565 行)抽出,使 CLI 子命令(gif 等)不必 import tools 层即可使用 bridge;
+ * tools/game-bridge.ts 保留 MCP 工具定义并 re-export 本模块符号(消费方零改动)。
+ *
+ * 依赖边界(与 core 层约束一致):
+ * - 不依赖 tools(lint 门禁 no-restricted-imports 拦截)
+ * - 不依赖 dashboard:连接成功时的 Dashboard 自动拉起经 setOnBridgeConnected
+ *   回调注入(由 tools/game-bridge.ts 模块加载时接线),避免 core→dashboard→helpers→core 环
+ * - parseAutoloadNames 取自 src 根 gdscript-executor(autoload 健康预检;
+ *   gdscript-executor→tools/shared 的既有环是历史债,非本下沉引入)
+ */
+import { createConnection, Socket } from 'net';
+import { readFileSync, existsSync, lstatSync, chmodSync, statSync, readdirSync } from 'fs';
+import { join, resolve } from 'path';
+import { userInfo } from 'os';
+import { execFileSync, type ChildProcess } from 'child_process';
+import { getErrorMessage } from '../types.js';
+import { parseAutoloadNames } from '../gdscript-executor.js';
+import { getLogger } from './logger.js';
+import { getDefaultRegistryDir } from './instance-manager.js';
+
+export const BRIDGE_PORT = 9081;
+export const BRIDGE_HOST = 'localhost';
+export const BRIDGE_SCRIPT_NAME = 'mcp_bridge.gd';
+// G-5 (2026-08-14 批D实测发现): autoload 段的键名就是 Godot 节点名,不得带 'autoload/' 前缀 —
+// 旧版(≤0.23.x)误写 'autoload/MCPBridge',Godot 截断为同名 "autoload" 节点(MCPBridge 与
+// MCPOVERRIDE_* 冲突 → override 未加载)。写入键已去前缀;LEGACY 常量仅用于识别/迁移旧键。
+export const AUTOLOAD_KEY = 'MCPBridge';
+const DEFAULT_TIMEOUT = 10000;
+
+/** Bridge 连不上 / 未正常工作(游戏未运行、未装 autoload、认证失败)。agent 自愈:启动游戏 / 确认安装。 */
+export class BridgeNotConnectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BridgeNotConnectedError';
+  }
+}
+/** Bridge 连上 + 认证成功后请求无响应(游戏被 runtime error 卡住)。agent 自愈:查游戏报错 / 加大 timeout。 */
+export class BridgeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BridgeTimeoutError';
+  }
+}
+
+export const ERROR_CODES = {
+  BRIDGE_NOT_CONNECTED: 'BRIDGE_NOT_CONNECTED',
+  BRIDGE_TIMEOUT: 'BRIDGE_TIMEOUT',
+  BRIDGE_ERROR: 'BRIDGE_ERROR',
+} as const;
+
+/** Clamp a millisecond timeout value. Returns default on invalid/zero input.
+ *  Exported for pure-function unit tests (game-bridge-validation.test.ts)。 */
+export function clampTimeoutMs(value: unknown, min = 1000, max = 60000, def = 10000): number {
+  if (value === undefined || value === null) return def;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+// ─── A1 (2026-08-19 反馈 bridge 9081 多实例劫持): 实际端口解析 ────────────────
+// GD 侧 mcp_bridge.gd 启动时把 projectPath/port/pid/lastSeen 写入 machine-level
+// registry(30s 心跳,退出删除),端口被占时自动递增避让。TS 侧按 projectPath 匹配
+// 最新存活条目取实际端口;registry 不可读/无匹配/条目全部超龄(崩溃残留)时回落 9081,
+// 对旧版 GD(不写 machine registry)完全兼容。
+const BRIDGE_REGISTRY_MAX_AGE_MS = 5 * 60 * 1000;  // 心跳 30s,容 10 个心跳周期
+
+/** 镜像 GD 侧 machine registry 目录。GD: OS.get_data_dir().get_base_dir().get_base_dir()/
+ *  .godot-mcp/instances —— 实测三平台(Win %APPDATA%/Linux ~/.local/share/mac ~/Library/
+ *  Application Support)两次 base_dir 都归一到用户主目录,与 instance-manager.getDefaultRegistryDir
+ *  (既有实现,~/.godot-mcp/instances)一致,直接复用防两处推导漂移。 */
+export function machineRegistryInstancesDir(): string {
+  return getDefaultRegistryDir();
+}
+
+/** 项目路径归一化(分隔符统一 + Windows 大小写不敏感)用于跨进程 projectPath 匹配。 */
+export function normalizeProjectKey(p: string): string {
+  const r = resolve(p).replace(/[/\\]+/g, '/');
+  return process.platform === 'win32' ? r.toLowerCase() : r;
+}
+
+/** 解析 projectPath 对应 bridge 实例的实际监听端口(见区块注释);失败回落 BRIDGE_PORT。
+ *  registryDir 参数仅供单测注入,生产走 machineRegistryInstancesDir()。 */
+export function resolveBridgePort(projectPath: string, registryDir: string = machineRegistryInstancesDir()): number {
+  if (!projectPath) return BRIDGE_PORT;
+  try {
+    const dir = registryDir;
+    const want = normalizeProjectKey(projectPath);
+    const now = Date.now();
+    let best: { port: number; lastSeen: number } | null = null;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      let entry: { projectPath?: unknown; port?: unknown; lastSeen?: unknown; capabilities?: unknown };
+      try {
+        entry = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as typeof entry;
+      } catch { continue; }  // 损坏条目(崩溃 .tmp 残留等)容错跳过
+      if (typeof entry.port !== 'number') continue;
+      // 同目录还住着 server 自注册条目(capabilities=['ts-http-receiver']),只认 bridge 心跳条目
+      if (!Array.isArray(entry.capabilities) || !entry.capabilities.includes('registry-heartbeat')) continue;
+      if (typeof entry.projectPath !== 'string' || normalizeProjectKey(entry.projectPath) !== want) continue;
+      // GD Time.get_datetime_string_from_system() 输出无时区 ISO 串,JS 按本地时区解析,同机一致。
+      const lastSeen = typeof entry.lastSeen === 'string' ? Date.parse(entry.lastSeen) : NaN;
+      if (!Number.isFinite(lastSeen) || now - lastSeen > BRIDGE_REGISTRY_MAX_AGE_MS) continue;
+      if (!best || lastSeen > best.lastSeen) best = { port: entry.port, lastSeen };
+    }
+    return best?.port ?? BRIDGE_PORT;
+  } catch {
+    return BRIDGE_PORT;  // 目录不存在(旧版 GD / bridge 未跑过)
+  }
+}
+
+/** 按实际端口拼 secret 文件路径(GD 侧 secret 文件名含避让后的端口)。 */
+export function bridgeSecretPathFor(projectDir: string, port: number): string {
+  return join(projectDir, '.godot', `mcp_bridge_${port}.secret`);
+}
+
+export interface BridgeResponse {
+  id: number | null;
+  result?: unknown;
+  error?: { code: number; message: string };
+}
+
+let _nextRequestId = 1;
+let _permWarned = false;
+let _cachedSecret: string | null = null;
+let _projectDir: string | null = null;
+let _cachedSecretAt: number = 0;
+// A-06: 5-minute TTL balances file I/O overhead vs attack window exposure.
+// Shorter TTL increases fs reads; longer TTL extends the window if secret is compromised.
+// For local-only TCP (127.0.0.1), this is an acceptable tradeoff.
+const SECRET_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Persistent connection state
+let _socket: Socket | null = null;
+let _socketAuthenticated = false;
+let _socketBuffer = '';
+let _connectionLock: Promise<Socket> | null = null;
+
+// 首次连接成功回调(由 tools/game-bridge.ts 注入 launchDashboardOnce;core 不依赖 dashboard)
+let _onBridgeConnected: (() => void) | null = null;
+
+/** 注入"首次 bridge 连接成功"回调(tools 层接线 Dashboard 自动拉起);传 null 注销。 */
+export function setOnBridgeConnected(cb: (() => void) | null): void {
+  _onBridgeConnected = cb;
+}
+
+// P3-6: push 模式。常驻 data handler 收到 bridge/event 消息时调此回调。
+// 由 GodotServer 注册(转发为 MCP notification)。null 时 push 消息被忽略。
+let _pushMessageHandler: ((params: Record<string, unknown>) => void) | null = null;
+// 常驻 push handler 的缓冲区(独立于 sendToBridge 的临时 buffer,避免互相消费)
+let _pushBuffer = '';
+
+// Request serialization: ensures only one sendToBridge uses the socket at a time.
+// Without this, concurrent calls register overlapping 'data' handlers on the shared
+// socket, causing each handler to see partial/mixed response data.
+let _sendLock: Promise<unknown> = Promise.resolve();
+
+// G-1 (2026-08-14 审查 :935 P1): 订阅登记表 — bridge 断线重连后自动重发 watch/monitor 订阅。
+// 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅状态)或 TS 侧
+// 请求超时销毁 socket → 重连后无机制重发 watch.start/monitor.start → push 事件从此静默消失、
+// watch_poll 返 not watching 无报错。登记成功订阅,_doConnect 成功后重发,恢复推送语义。
+interface BridgeSubscription {
+  method: 'watch.start' | 'monitor.start';
+  params: Record<string, unknown>;
+}
+let _subscriptions: BridgeSubscription[] = [];
+let _resendInFlight: Promise<void> | null = null;
+
+/** 登记订阅(同 method 仅保留最新一条 — GD 侧 per-peer 单例,重复 start 覆盖;登记表同步覆盖防重发重复订阅) */
+export function _registerSubscription(method: 'watch.start' | 'monitor.start', params: Record<string, unknown>): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+  _subscriptions.push({ method, params: { ...params } });
+}
+
+/** 移除订阅登记(watch_stop/monitor_stop 成功或重发被游戏侧拒绝时) */
+export function _removeSubscription(method: 'watch.start' | 'monitor.start'): void {
+  _subscriptions = _subscriptions.filter(s => s.method !== method);
+}
+
+/** 重发登记表中的订阅。fire-and-forget: 经 _sendLock 排队(不与当前 in-flight 请求死锁),
+ *  单条失败仅 warn;游戏侧返回 error(节点已销毁等永久失败)时移除登记,防重连重试风暴。 */
+function _resendSubscriptions(): void {
+  if (_subscriptions.length === 0) return;
+  if (_resendInFlight) return;  // 重发自身触发的重连不再叠加
+  const pending = [..._subscriptions];
+  _resendInFlight = (async () => {
+    for (const sub of pending) {
+      try {
+        const resp = await sendToBridge(sub.method, sub.params, DEFAULT_TIMEOUT);
+        if (resp.error) {
+          getLogger().warn('bridge', `Resend ${sub.method} after reconnect rejected (${resp.error.code}): ${resp.error.message} — dropping subscription`);
+          _removeSubscription(sub.method);
+        }
+      } catch (err) {
+        getLogger().warn('bridge', `Resend ${sub.method} after reconnect failed: ${getErrorMessage(err)} — keeping subscription for next reconnect`);
+      }
+    }
+  })().finally(() => { _resendInFlight = null; });
+}
+
+// G-1: 30s ping keepalive — 连接空闲时定期发轻量请求,刷新游戏侧 idle 计时
+// (mcp_bridge.gd INACTIVITY_TIMEOUT=60s 无字节即断连),防长 idle 后订阅静默丢失。
+const KEEPALIVE_INTERVAL_MS = 30_000;
+let _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+function _startKeepalive(): void {
+  if (_keepaliveTimer) return;
+  _keepaliveTimer = setInterval(() => {
+    // 注:保持分支形态不合并为单行 `||` 短路——2026-08-21 拆分实测,
+    // 单行形态在 game-bridge.test.ts 的 fake-timers keepalive 用例下稳定复现
+    // tick 不发 ping(V8 对闭包的 inlining 形状影响 mock 环境的微任务链);
+    // 两形态语义等价,生产行为无差异。
+    if (!_socket) return;
+    if (!_socketAuthenticated) return;
+    if (_socket.destroyed) return;
+    if (!_socket.writable) return;
+    // 失败由 error/close 路径自愈(_invalidateSocket → 下次业务调用重连 + 重发订阅)
+    sendToBridge('ping', {}, 5000).catch(() => { /* best-effort: 断线自愈 */ });
+  }, KEEPALIVE_INTERVAL_MS);
+  _keepaliveTimer.unref?.();  // 不阻塞进程退出
+}
+
+function _stopKeepalive(): void {
+  if (_keepaliveTimer) {
+    clearInterval(_keepaliveTimer);
+    _keepaliveTimer = null;
+  }
+}
+
+/** Find the bridge secret file in project .godot dir. Throws if project dir not set.
+ *  A1: 不缓存路径 —— 多实例起停会使 registry 解析出的端口变化,每次按 resolveBridgePort 现算
+ *  (secret 内容缓存见 readBridgeSecret,不受影响)。 */
+function findBridgeSecretPath(): string {
+  if (!_projectDir) {
+    throw new Error('Bridge secret path requested before game_bridge_install set project directory');
+  }
+  return bridgeSecretPathFor(_projectDir, resolveBridgePort(_projectDir));
+}
+
+function readBridgeSecret(): string | null {
+  if (_cachedSecret !== null && Date.now() - _cachedSecretAt < SECRET_CACHE_TTL) return _cachedSecret;
+  _cachedSecret = null;
+  const secretPath = findBridgeSecretPath();
+  try {
+    // A4 (2026-07-23 审查): symlink 检查必须在权限收紧之前——否则 secretPath 若是 symlink
+    // 指向受害者文件,icacls/chmod 已篡改其 ACL/mode 才被拒(DoS)。对齐 editor-auth.ts:75-81。
+    const lstat = lstatSync(secretPath);
+    if (lstat.isSymbolicLink()) {
+      getLogger().error('security', `Bridge secret file ${secretPath} is a symlink — refusing to read.`);
+      return null;
+    }
+    // Tighten permissions: owner-only
+    if (process.platform === 'win32') {
+      try {
+        // C-ARC-01: Use os.userInfo().username (no env spoofing), strict regex (no backslash)
+        // K-4 (2026-08-15): :R → :M。三副本同步漏改——GD 侧 mcp_bridge.gd/websocket_server.gd
+        // 的 _restrict_secret_permissions 已从 :R 改 :M(R 是 anti-pattern: e2e 结束后清理删不掉
+        // R-only secret → beforeAll 清 .godot 报 EPERM → 后续 e2e L2 整 suite 静默 skip,本地复现),
+        // 本读路径每次 readBridgeSecret 都把 ACL 收紧回 R,把 GD 侧的 M 白改了。:M 与
+        // editor-auth.ts:32 / instance-api-auth 对齐(M=Read+Write+Delete,owner 可删,其他用户无 ACE)。
+        const username = userInfo().username;
+        if (username && /^[A-Za-z0-9_-]+$/.test(username)) {
+          execFileSync('icacls', [secretPath, '/inheritance:r', '/grant:r', `${username}:M`], { stdio: 'ignore' });
+        }
+      } catch (err) { getLogger().debug('bridge', `restrict Windows file permissions: ${err}`); }
+    } else {
+      try {
+        chmodSync(secretPath, 0o600);
+      } catch (err) { getLogger().debug('bridge', `chmod secret file: ${err}`); }
+    }
+    const stat = statSync(secretPath);
+    if (!_permWarned && process.platform !== 'win32' && (stat.mode & 0o007) !== 0) {
+      _permWarned = true;
+      getLogger().error('security', `Bridge secret file ${secretPath} is world-readable. Attempted chmod 0600.`);
+    }
+    _cachedSecret = readFileSync(secretPath, 'utf-8').trim();
+    _cachedSecretAt = Date.now();
+    return _cachedSecret;
+  } catch (err) {
+    // ENOENT is normal (bridge not installed yet); other errors are serious
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      getLogger().debug('bridge', `bridge secret not found (expected before install): ${secretPath}`);
+    } else {
+      getLogger().error('bridge', `read bridge secret failed (${getErrorMessage(err)}): ${secretPath}`);
+    }
+    return null;
+  }
+}
+
+function _invalidateSocket(): void {
+  if (_socket) {
+    try { _socket.destroy(); } catch (err) { getLogger().debug('bridge', `destroy socket: ${err}`); }
+    _socket = null;
+  }
+  _socketAuthenticated = false;
+  _socketBuffer = '';
+  _pushBuffer = '';  // P3-6: 清理 push buffer
+}
+
+/**
+ * P3-6: 注册 push 消息回调。Bridge addon 在 watch/monitor push 模式下,
+ * 事件产生时主动推送 {method:"bridge/event", params:{type, data}} 消息。
+ * 此回调由 GodotServer 注册,将 push 事件转发为 MCP notification。
+ * 传 null 注销回调。
+ */
+export function registerBridgePushHandler(handler: ((params: Record<string, unknown>) => void) | null): void {
+  _pushMessageHandler = handler;
+}
+
+/** Perform the actual TCP connection and auth handshake. */
+async function _doConnect(timeout: number): Promise<Socket> {
+  _invalidateSocket();
+
+  // CMP-5 (2026-08-08): autoload 健康预检——读磁盘 project.godot 的 [autoload] 段,
+  // 确认 MCPBridge 在里面。防"游戏进程未加载 bridge autoload"的静默失败
+  // (secret 文件存在但 autoload 被 git revert/checkout 删了)。
+  if (_projectDir) {
+    const autoloads = parseAutoloadNames(_projectDir);
+    // G-4 (批D实测发现): 旧版 install 写入带 'autoload/' 前缀的键 → parseAutoloadNames 返回
+    // 原始键名(带前缀),裸 includes('MCPBridge') 恒不匹配 → BRIDGE_NOT_CONNECTED 误报
+    // (疑致 e2e L2 suite 静默 skip)。去前缀比较,新旧两种写入形态都正确判定。
+    if (autoloads.length > 0 && !autoloads.some(name => name.replace(/^autoload\//, '') === AUTOLOAD_KEY)) {
+      throw new BridgeNotConnectedError(
+        `Bridge autoload 'MCPBridge' missing from ${_projectDir}/project.godot [autoload] section. ` +
+        'The game may have started without the Bridge autoload. Run game_bridge_install or re-run the game.',
+      );
+    }
+  }
+
+  const secret = readBridgeSecret();
+  if (!secret) {
+    if (!_projectDir) {
+      throw new BridgeNotConnectedError(
+        'Bridge project directory not set. Use run_project to start the game, or pass project_path parameter. ' +
+        'Manual F5 launch requires project_path to locate the Bridge secret.'
+      );
+    }
+    throw new BridgeNotConnectedError(
+      `Bridge secret not found at ${findBridgeSecretPath()}. ` +
+      'Ensure the game is running with the MCP Bridge autoload installed.'
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    // A1: 实际端口来自 registry 解析(多实例避让后可能非 9081)
+    const port = resolveBridgePort(_projectDir ?? '');
+    const sock = createConnection({ port, host: BRIDGE_HOST }, () => {
+      sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
+    });
+
+    let authDone = false;
+    const timer = setTimeout(() => {
+      sock.destroy();
+      reject(new BridgeNotConnectedError(`Bridge auth timed out after ${timeout}ms`));
+    }, timeout);
+
+    sock.on('data', (data: Buffer) => {
+      _socketBuffer += data.toString();
+      let idx: number;
+      while ((idx = _socketBuffer.indexOf('\n')) !== -1) {
+        const line = _socketBuffer.substring(0, idx).trim();
+        _socketBuffer = _socketBuffer.substring(idx + 1);
+        if (!line) continue;
+        try {
+          const resp = JSON.parse(line);
+          if (!authDone && resp.result?.authenticated) {
+            authDone = true;
+            clearTimeout(timer);
+            _socket = sock;
+            _socketAuthenticated = true;
+            // Detach per-auth handlers — response handling moves to sendToBridge
+            sock.removeAllListeners('data');
+            sock.removeAllListeners('error');
+            sock.removeAllListeners('close');
+            // P3-6: 注册常驻 push data handler(与 sendToBridge 临时 handler 共存)。
+            // 只处理 method 字段存在的 push 消息(bridge/event);有 id 的响应由 sendToBridge
+            // 的临时 handler 处理(两者各自维护独立 buffer,EventEmitter 广播不互相消费)。
+            _pushBuffer = '';
+            sock.on('data', (data: Buffer) => {
+              if (_socket !== sock) return;  // P1-8 守卫
+              _pushBuffer += data.toString();
+              let idx: number;
+              while ((idx = _pushBuffer.indexOf('\n')) !== -1) {
+                const line = _pushBuffer.substring(0, idx).trim();
+                _pushBuffer = _pushBuffer.substring(idx + 1);
+                if (!line) continue;
+                try {
+                  const msg = JSON.parse(line) as { method?: string; params?: Record<string, unknown>; id?: number };
+                  // 只处理 push 消息(有 method 无 id);响应消息(id 存在)交给 sendToBridge
+                  if (msg.method && msg.id === undefined && _pushMessageHandler) {
+                    _pushMessageHandler(msg.params ?? {});
+                  }
+                } catch {
+                  // 非 JSON 或部分数据,忽略(sendToBridge 的临时 handler 会处理响应行)
+                }
+              }
+            });
+            // Register persistent monitors so a dead/lost connection is detected automatically
+            // P1-8: 守卫 _socket === sock — 防止已废弃 socket 的延迟 close/error 事件错误 invalidate
+            // 新 socket(A 被 B 替换后,A.destroy() 的 close 异步触发,此时 _socket 已是 B,无守卫会 destroy B)。
+            sock.on('close', () => { if (_socket === sock) _invalidateSocket(); });
+            sock.on('error', () => { if (_socket === sock) _invalidateSocket(); });
+            // G-1: 连接成功 → 启动 keepalive(防 60s idle 断连) + 重发登记的订阅(恢复 push/轮询语义)。
+            // 重发经 _sendLock 排队(当前请求 settle 后执行),不与 in-flight 请求死锁。
+            _startKeepalive();
+            _resendSubscriptions();
+            // 首次 Bridge 连接成功回调(Dashboard 自动拉起,由 tools 层注入;core 不依赖 dashboard)
+            try { _onBridgeConnected?.(); } catch { /* best-effort */ }
+            resolve(sock);
+            return;
+          }
+          // Auth failure response
+          clearTimeout(timer);
+          sock.destroy();
+          if (resp.error?.code === -32001 || resp.error?.code === -32002) {
+            _cachedSecret = null;
+          }
+          reject(new BridgeNotConnectedError(`Bridge auth failed (${resp.error?.code}): ${resp.error?.message}`));
+          return;
+        } catch {
+          clearTimeout(timer);
+          sock.destroy();
+          reject(new Error(`Invalid JSON from bridge: ${line}`));
+          return;
+        }
+      }
+    });
+
+    sock.on('error', (err) => {
+      clearTimeout(timer);
+      const errno = (err as NodeJS.ErrnoException).code;
+      if (errno === 'ECONNREFUSED') {
+        reject(new BridgeNotConnectedError(
+          'Cannot connect to MCP Bridge. Is the game running with the bridge autoload installed?'
+        ));
+      } else {
+        reject(new Error(`Bridge connection error: ${err.message}`));
+      }
+    });
+
+    sock.on('close', () => {
+      clearTimeout(timer);
+      if (!authDone) reject(new BridgeNotConnectedError('Bridge connection closed during auth'));
+    });
+  });
+}
+
+/** Ensure we have an authenticated persistent connection, serializing concurrent attempts. */
+function _ensureConnection(timeout: number): Promise<Socket> {
+  if (_socket && _socketAuthenticated && !_socket.destroyed && _socket.writable) {
+    return Promise.resolve(_socket);
+  }
+  if (_connectionLock) return _connectionLock;
+  _connectionLock = _doConnect(timeout)
+    .then(sock => {
+      if (_socket !== sock || !_socketAuthenticated) {
+        throw new Error('Connection invalidated during setup');
+      }
+      return sock;
+    })
+    // P1-8: 删除 catch 内冗余 _connectionLock=null(finally 必执行已覆盖;catch 仅 re-throw 等价无操作,整个 catch 块移除)。
+    .finally(() => { _connectionLock = null; });
+  return _connectionLock;
+}
+
+/** Set the project directory for bridge secret lookup. Invalidates all cached bridge state.
+ *
+ * 2026-08-06 审查测试-P2(可靠性 §setBridgeProjectDir race):
+ * 若 _sendLock 链上有 in-flight sendToBridge 请求(未 settle),直接 _invalidateSocket 会销毁
+ * in-flight 请求持有的 socket → 响应丢失 → 该请求在 timer 后 reject。跨项目切换的并发场景
+ * (client A 调 P1,client B 调 setBridgeProjectDir(P2))下,A 失败但 B 可继续,无原子性保证。
+ *
+ * 本修复:检测到 in-flight 时记录 warn(可视化),仍 invalidate(保持现有契约——bridge 是
+ * per-server 单项目,跨项目切换是异常用法,由调用方保证不并发)。彻底修复需引入 per-project
+ * 锁 + per-project socket 状态,属架构级改造,超本轮 scope(留 follow-up)。
+ */
+/** 当前生效的 bridge 项目目录(未设置时 null;工具层 ensureProjectDir 回退判断用)。 */
+export function getBridgeProjectDir(): string | null {
+  return _projectDir;
+}
+
+/** 清除缓存的 bridge secret(auth 失败 -32001/-32002 或 uninstall 后,下次调用重读磁盘)。 */
+export function invalidateBridgeSecret(): void {
+  _cachedSecret = null;
+}
+
+/** 销毁当前连接(状态重置;uninstall 等语义终结场景用,业务代码一般走自动重连)。 */
+export function invalidateBridgeConnection(): void {
+  _invalidateSocket();
+}
+
+export function setBridgeProjectDir(projectDir: string | null): void {
+  if (_projectDir === projectDir) return;
+  // 检测 in-flight:_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
+  // (_sendLock 在 sendToBridge:385-388 获取,.finally(resolveLock) 释放)
+  // Promise.resolve() === _sendLock 时表示无 in-flight(初始 settled state)
+  const inflightDetected = !(_sendLock as unknown as Promise<void> === Promise.resolve());
+  if (inflightDetected) {
+    getLogger().warn('bridge',
+      `setBridgeProjectDir('${projectDir}') called while sendToBridge in-flight — ` +
+      `in-flight request will be invalidated (socket destroyed). ` +
+      `Ensure no concurrent cross-project bridge calls (bridge is per-server single-project).`);
+  }
+  _projectDir = projectDir;
+  _cachedSecret = null;
+  _connectionLock = null;
+  // G-1: 切项目 = 旧连接语义终结 — 清订阅登记(旧项目订阅对新项目无意义) + 停 keepalive
+  _subscriptions = [];
+  _stopKeepalive();
+  _invalidateSocket();
+}
+
+export function sendToBridge(method: string, params: Record<string, unknown> = {}, timeout = DEFAULT_TIMEOUT): Promise<BridgeResponse> {
+  // Serialize requests so only one uses the shared socket at a time.
+  // Each call chains onto _sendLock, preventing concurrent data handlers.
+  const run = () => {
+      // Fast-fail if socket is known dead — skip reconnection queue
+    if (_socket && _socket.destroyed) {
+      _invalidateSocket();
+    }
+    return _ensureConnection(timeout).then(sock => {
+      return new Promise<BridgeResponse>((resolve, reject) => {
+        const id = _nextRequestId++;
+        let settled = false;
+        let buffer = '';
+
+        function doResolve(resp: BridgeResponse) { if (!settled) { settled = true; clearTimeout(timer); resolve(resp); } }
+        function doReject(err: Error) { if (!settled) { settled = true; clearTimeout(timer); reject(err); } }
+
+        const timer = setTimeout(() => {
+          if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
+          doReject(new BridgeTimeoutError(`Bridge request timed out after ${timeout}ms`));
+        }, timeout);
+
+        const onData = (data: Buffer) => {
+          buffer += data.toString();
+          let idx: number;
+          while ((idx = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.substring(0, idx).trim();
+            buffer = buffer.substring(idx + 1);
+            if (!line) continue;
+            try {
+              const resp = JSON.parse(line) as BridgeResponse;
+              // P3-6 修复: push 消息(method 存在、id 为空)不是响应,跳过(由常驻 push handler 处理)。
+              // 原逻辑 resp.id != null 在 push(无 id)时为 false → 不 continue → 误把 push 当响应 resolve。
+              // 修正:响应必须有 id 且匹配当前 request id;无 id 的消息(push/通知)一律跳过。
+              if (resp.id == null || resp.id !== id) continue;
+              sock.removeListener('data', onData);
+              // N-1 (2026-06-24 审查): 成功 resolve 后移除本次 once 监听器。持久 _socket 上 error/close
+              // 健康时永不触发,once 不移除 → 每请求泄漏 2 listener → 长连接累积至 MaxListenersExceededWarning。
+              // reject 路径(onError/onClose/timeout)由 once 自动移除 + _invalidateSocket 废弃 sock,不累积。
+              sock.removeListener('error', onError);
+              sock.removeListener('close', onClose);
+              // If bridge returns auth error, invalidate cached secret
+              if (resp.error?.code === -32001 || resp.error?.code === -32002) {
+                _cachedSecret = null;
+                _invalidateSocket();
+              }
+              doResolve(resp);
+              return;
+            } catch {
+              // Log unparseable lines instead of silently discarding (I-10)
+              getLogger().warn('bridge', `sendToBridge: unparseable JSON line (request ${id}): ${line.substring(0, 120)}`);
+              continue;
+            }
+          }
+        };
+
+        const onError = (err: Error) => {
+          if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
+          doReject(new Error(`Bridge connection error: ${err.message}`));
+        };
+
+        const onClose = () => {
+          if (_socket === sock) _invalidateSocket();  // P1-8: 只在 sock 仍是当前 socket 时 invalidate
+          doReject(new Error('Bridge connection closed before response'));
+        };
+
+        sock.on('data', onData);
+        sock.once('error', onError);
+        sock.once('close', onClose);
+
+        sock.write(JSON.stringify({ id, method, params }) + '\n');
+      });
+    }).catch(err => {
+      // 子类(BridgeNotConnectedError / BridgeTimeoutError)从 _doConnect / sendToBridge 穿透,原样抛
+      return Promise.reject(err);
+    });
+  };
+
+  // Chain onto the send lock — next request waits for this one to settle
+  const prev = _sendLock;
+  let resolveLock: () => void = () => {};
+  _sendLock = new Promise<void>(r => { resolveLock = r; });
+  return prev.then(() => run()).finally(resolveLock);
+}
+
+/** Reset all module state — for test isolation and service restart. */
+export function resetBridgeState(): void {
+  // 2026-08-07 审查 P1 修复：P3-6 引入的 push 子系统状态（_pushBuffer/_pushMessageHandler/_socket）
+  // 与 socket 独立，原注释"active socket NOT closed here"误导——这三者是模块级状态非 active socket。
+  // 不清会导致：(1) 测试隔离泄漏（旧 push handler 持有已销毁 mock server 引用，push 事件错误路由）；
+  // (2) _pushBuffer 残留半行 JSON 致下次连接解析异常；(3) _socket 句柄泄漏（FD/内存）。
+  // _invalidateSocket() 统一清 _socket + _socketBuffer + _pushBuffer（见 :142-150）。
+  _invalidateSocket();
+  _pushMessageHandler = null;
+  _nextRequestId = 1;
+  _permWarned = false;
+  _cachedSecret = null;
+  _projectDir = null;
+  _cachedSecretAt = 0;
+  _connectionLock = null;
+  _sendLock = Promise.resolve();
+  // G-1: 订阅登记表 + keepalive timer 一并清(服务重启语义:旧订阅不复存在;timer 防测试隔离泄漏)
+  _subscriptions = [];
+  _resendInFlight = null;
+  _stopKeepalive();
+}
+
+// ─── Bridge readiness probe (M4) ────────────────────────────────────────────
+// 零接触:自读 secret + 独立短 socket,绝不碰模块级 _projectDir/_cachedSecret/_socket。
+// 供 run_project(wait_for_bridge=true) 使用。
+
+export interface BridgeReadyResult {
+  ready: boolean;
+  reason: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, ms)));
+}
+
+/** 单次 TCP auth 探测(独立 socket,即建即毁)。成功返回 true。
+ *  A1: port 由调用方传入(registry 解析的实际端口,secret 文件与监听端口必须一致)。 */
+function probeOnce(secretPath: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let secret: string;
+    try {
+      secret = readFileSync(secretPath, 'utf-8').trim();
+    } catch {
+      resolve(false);
+      return;
+    }
+    const sock = createConnection({ port, host: BRIDGE_HOST }, () => {
+      sock.write(JSON.stringify({ id: 0, method: 'auth', params: { secret } }) + '\n');
+    });
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; sock.destroy(); resolve(false); }
+    }, 1000);
+    // M2: 累积 buffer 按 \n 分割,防 auth 响应跨 TCP 包(partial)导致 JSON.parse 失败
+    let buffer = '';
+    sock.on('data', (data: Buffer) => {
+      if (settled) return;
+      buffer += data.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx === -1) return; // 等待完整行(bridge 响应以 \n 结尾)
+      try {
+        const resp = JSON.parse(buffer.substring(0, idx).trim());
+        if (resp?.result?.authenticated) {
+          settled = true; clearTimeout(timer); sock.destroy(); resolve(true);
+        }
+      } catch { /* 部分/非 JSON 数据,忽略 */ }
+    });
+    sock.on('error', () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(false); }
+    });
+  });
+}
+
+/**
+ * 探测 bridge autoload 是否已启动并接受 auth。轮询直到就绪/进程退出/超时。
+ * 全程零接触模块级缓存:secret 由 projectDir 自拼路径自读。
+ */
+export async function isBridgeReady(
+  projectDir: string,
+  timeoutMs: number,
+  opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
+): Promise<BridgeReadyResult> {
+  // A1: 实际端口来自 registry 解析(避让端口下 secret 文件名同步变化)。
+  const port = resolveBridgePort(projectDir);
+  const secretPath = bridgeSecretPathFor(projectDir, port);
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const interval = 500;
+
+  for (;;) {
+    if (opts?.proc?.killed) {
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (opts?.isCancelled?.()) {
+      // ctx 状态变化(runningProcess !== proc)不等于 bridge 不可用:当前 proc 可能仍活。
+      // 多 godot/端口冲突场景:新 spawn 的 proc 因 bind 失败 exit 触发 close,但另一 godot 的 bridge
+      // 仍服务 9081。先 probeOnce 探测实际可用性,避免误报 process exited 而漏判 bridge ready。
+      if (existsSync(secretPath) && await probeOnce(secretPath, port)) {
+        return { ready: true, reason: 'bridge ready' };
+      }
+      return { ready: false, reason: 'process exited during probe' };
+    }
+    if (existsSync(secretPath)) {
+      if (await probeOnce(secretPath, port)) return { ready: true, reason: 'bridge ready' };
+    }
+    if (Date.now() >= deadline) {
+      return existsSync(secretPath)
+        ? { ready: false, reason: 'bridge auth did not succeed within timeout' }
+        : { ready: false, reason: 'secret not found (bridge not installed?)' };
+    }
+    await sleep(Math.min(interval, deadline - Date.now()));
+  }
+}
+
+/** 测试专用:模块缓存快照,用于断言 isBridgeReady 零接触。 */
+export function _testBridgeCacheState(): {
+  projectDir: string | null;
+  cachedSecret: string | null;
+  socketNotNull: boolean;
+} {
+  return { projectDir: _projectDir, cachedSecret: _cachedSecret, socketNotNull: _socket !== null };
+}

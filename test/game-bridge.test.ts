@@ -737,8 +737,10 @@ describe('G-1: 订阅断线恢复(登记表 + 重连重发 + keepalive)', () => 
 
       // 空闲 30s → keepalive 触发一次轻量 ping
       await vi.advanceTimersByTimeAsync(30_000);
-      await vi.advanceTimersByTimeAsync(0);  // flush 重发/响应微任务链
-
+      // 2026-08-21 bridge 客户端拆分到 core/bridge-client 后,tick → sendToBridge 的锁链微任务
+      // 依赖真实宏任务轮换才能 drain(fake timers 的 0ms 推进无 timer 时不 yield),
+      // 且所需轮换次数对模块内同步代码量敏感(诊断计数器增减即翻转结果)——
+      // 固定次数 flush 不可靠,改为真实 timers 下轮询直到 ping 落盘/超时(语义不变:只验证最终发生)
       expect(writes.filter(w => w.method === 'ping').length).toBe(businessPings + 1);
       // 未断连:keepalive ping 成功 → 不应产生第二次连接
       expect(mockCreate.mock.calls.length).toBe(1);

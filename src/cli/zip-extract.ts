@@ -127,7 +127,7 @@ function entry64Fix(buf: Buffer, extraStart: number, extraLen: number, e: { comp
       let q = p + 4;
       if (e.uncompressedSize === 0xffffffff && q + 8 <= end) { e.uncompressedSize = u64le(buf, q); q += 8; }
       if (e.compressedSize === 0xffffffff && q + 8 <= end) { e.compressedSize = u64le(buf, q); q += 8; }
-      if (e.localHeaderOffset === 0xffffffff && q + 8 <= end) { e.localHeaderOffset = u64le(buf, q); q += 8; }
+      if (e.localHeaderOffset === 0xffffffff && q + 8 <= end) { e.localHeaderOffset = u64le(buf, q); }
       return;
     }
     p += 4 + size;

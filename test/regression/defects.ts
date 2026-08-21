@@ -448,7 +448,9 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 的 _invalidateSocket 必须有 _socket === sock 守卫。废弃 socket(A 被 B 替换后)的异步 close/error
     // 事件若不加守卫会错误 invalidate 新 socket B。detect 计守卫数,期望 5(2 持久 + timer + onError + onClose)。
     detect: () => {
-      const f = readSrc('src/tools/game-bridge.ts');
+      // 2026-08-21 架构审查 MAJOR-3:客户端核心(_doConnect/sendToBridge 及全部守卫)拆分到
+      // src/core/bridge-client.ts,detect 路径随之迁移(快照类检测须跟随代码真实位置)
+      const f = readSrc('src/core/bridge-client.ts');
       const guards = (f.match(/if \(_socket === sock\) _invalidateSocket\(\)/g) || []).length;
       return Math.max(0, 5 - guards);
     } },

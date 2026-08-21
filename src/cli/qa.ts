@@ -11,49 +11,12 @@
  * NIT-7 修复：CLI 直调不经 ToolDispatcher（无 confirm/audit 门），run/nightly 成功后手动
  * appendAuditLine 留痕（best-effort，失败不阻断跑批）——夜间跑批的操作审计可追溯。
  */
-import { join, dirname } from 'path';
-import { readdirSync, readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import type { ToolContext } from '../types.js';
-import { parseGodotConfig } from '../helpers.js';
-import { findGodot } from '../core/godot-finder.js';
-import * as ps from '../core/process-state.js';
+import { join } from 'path';
+import { readdirSync, readFileSync } from 'fs';
+import { makeCtx } from './ctx.js';
 import * as qaTool from '../tools/qa/index.js';
 import { findPreviousReport, diffReports, type QaReport } from '../tools/qa/report.js';
 import { appendAuditLine, isAuditEnabled } from '../core/audit-log.js';
-
-const __cliDir = dirname(fileURLToPath(import.meta.url));
-const __rootDir = join(__cliDir, '..', '..');
-
-// .gd 运行时脚本在开发态与 npm 态均位于 build/scripts/(package.json files: build/scripts/*.gd);
-// 根 scripts/ 是构建脚本目录(无 .gd)——旧路径 join(__rootDir,'scripts',...) 两种形态下都
-// 不存在,是 CLI qa setup「Bridge script not found」恒失败的根因(2026-08-20 demo 套件暴露)。
-function resolveOpsScript(): string {
-  const candidates = [
-    join(__rootDir, 'build', 'scripts', 'godot_operations.gd'),
-    join(__rootDir, 'src', 'scripts', 'godot_operations.gd'),
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return candidates[0]!;
-}
-
-function makeCtx(): ToolContext {
-  return {
-    opsScript: resolveOpsScript(),
-    findGodot,
-    get runningProcess() { return ps.getRunningProcess(); },
-    setRunningProcess(proc, skipBusyCheck?) { ps.setRunningProcess(proc, skipBusyCheck); },
-    get outputBuffer() { return ps.getOutputBuffer(); },
-    setOutputBuffer(buf: string[]) { ps.setOutputBuffer(buf); },
-    get processStartTime() { return ps.getProcessStartTime(); },
-    setProcessStartTime(t: number) { ps.setProcessStartTime(t); },
-    get projectDir() { return ps.getProjectDir(); },
-    setProjectDir(d: string) { ps.setProjectDir(d); },
-    parseGodotConfig,
-  };
-}
 
 function usage(): void {
   console.log(`godot-mcp-enhanced qa — QA 测试套件（夜间跑批）
