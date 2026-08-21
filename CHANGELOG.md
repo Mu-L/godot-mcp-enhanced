@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `check:modules-sync` 修复架构审查 D-2 漏改的旧路径(仍指 `src/core/module-loader.ts`,实际已移至 `src/module-loader.ts`)+ import 深度正则与 `generate-all-modules.mjs` 对齐(兼容 `./tools/`)——此前该检查必挂,推上 CI(`ci.yml` 跑此检查)必红;`check:tool-groups` 失败消息中的旧路径同步更正。(业务流程复跑发现,2026-08-21)
+
 ## [0.32.9] - 2026-08-21
 
 ### Fixed — 架构审查修复批补登(deffcc6 / a7d865d / 0becdfe,2026-08-21 全仓架构师审核产出)

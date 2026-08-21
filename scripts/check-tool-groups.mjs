@@ -25,7 +25,7 @@ try {
   registry = await import(`file://${root.replaceAll('\\', '/')}/build/core/tool-registry.js`);
   moduleLoader = await import(`file://${root.replaceAll('\\', '/')}/build/module-loader.js`);
 } catch (err) {
-  console.error(`[tool-groups] 无法加载 build 产物(build/core/{tool-registry,module-loader}.js): ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`[tool-groups] 无法加载 build 产物(build/core/tool-registry.js + build/module-loader.js): ${err instanceof Error ? err.message : String(err)}`);
   console.error('  请先 npm run build');
   process.exit(1);
 }
