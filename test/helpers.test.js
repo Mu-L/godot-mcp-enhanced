@@ -40,12 +40,12 @@ describe('resolveWithinRoot', () => {
 
   it('accepts paths after stripping res:// prefix', () => {
     const result = resolveWithinRoot(root, 'res://scenes/main.tscn'.replace('res://', ''));
-    expect(result.startsWith(root)).toBeTruthy();
+    expect(result.startsWith(root)).toBe(true);
   });
 
   it('handles deep relative paths within root', () => {
     const result = resolveWithinRoot(root, 'a/b/c/d/file.gd');
-    expect(result.startsWith(root + sep)).toBeTruthy();
+    expect(result.startsWith(root + sep)).toBe(true);
   });
 
   it('rejects path with .. on Windows-style traversal', () => {
@@ -86,7 +86,7 @@ describe('resolveWithinRoot', () => {
 
   it('allows normal files with no traversal', () => {
     const result = resolveWithinRoot(root, 'scenes/main.tscn');
-    expect(result.startsWith(root)).toBeTruthy();
+    expect(result.startsWith(root)).toBe(true);
   });
 });
 

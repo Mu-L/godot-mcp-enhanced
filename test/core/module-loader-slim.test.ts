@@ -3,14 +3,14 @@
 //
 import type { Tool } from "@modelcontextprotocol/server";
 
-// 背景：slimSchema（src/core/module-loader.ts:191-224）在 registerAllModules 链路对超阈值
+// 背景：slimSchema（src/module-loader.ts:191-224）在 registerAllModules 链路对超阈值
 // 工具瘦身——移除 action 专属参数、追加 description 提示。此前零直接单测；ui-tools.test.js
 // 直 import barrel 绕过 registerAllModules 后处理，读的是未 slim 的原始 schema，slim 回归无测试捕获。
 //
 // 本测试经 registry 查询 API 取 def（走 registerAllModules 包装的 getToolDefinitions），
 // 验证 slim 真在链路生效 + 全部分支行为正确。
 import { describe, it, expect } from 'vitest';
-import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES } from '../../src/core/module-loader.js';
+import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES } from '../../src/module-loader.js';
 import { getToolDefinition } from '../../src/core/tool-registry.js';
 // 直 import barrel —— 用于路径隔离断言（证明 registry 路径与 barrel 路径产出不同）
 import { getToolDefinitions as getUiDefsDirect } from '../../src/tools/ui-tools.js';

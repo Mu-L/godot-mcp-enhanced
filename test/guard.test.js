@@ -4,7 +4,7 @@ import {
   requiresConfirmation, createPendingToken, consumeToken, peekToken, pendingCount, resetState,
   TOKEN_TTL_MS,
 } from '../src/core/guard.js';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 
 // 注册所有模块的 actionRisks，供 requiresConfirmation 派生判定
 registerAllModules();

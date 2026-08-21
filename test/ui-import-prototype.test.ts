@@ -20,7 +20,7 @@ vi.mock('../src/gdscript-executor.js', () => ({
 import { executeGdscriptTrusted } from '../src/gdscript-executor.js';
 import { handleTool, TOOL_META, getToolDefinitions } from '../src/tools/ui/index.js';
 import { ACTIONS } from '../src/tools/ui/types.js';
-import { SLIM_CONFIG } from '../src/core/module-loader.js';
+import { SLIM_CONFIG } from '../src/module-loader.js';
 import type { ToolResult } from '../src/types.js';
 
 // ─── fixtures ──────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ describe('ui_import_prototype 正常链路(inline geometry)', () => {
       geometry: GEO,
     }, createCtx());
     const diff2 = JSON.parse(textOf(r2)).data.layout_verify.diff as Array<{ ok: boolean }>;
-    expect(diff2.find(d => !d.ok)).toBeTruthy();
+    expect(diff2.some(d => !d.ok)).toBe(true);
 
     mockSinglePhase(3);
     const r5 = await handleTool('ui', {

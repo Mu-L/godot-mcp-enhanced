@@ -4,7 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.32.9] - 2026-08-21
+## [Unreleased]
+
+## [0.32.10] - 2026-08-21
+
+### Fixed
+
+- `check:modules-sync` 修复架构审查 D-2 漏改的旧路径(仍指 `src/core/module-loader.ts`,实际已移至 `src/module-loader.ts`)+ import 深度正则与 `generate-all-modules.mjs` 对齐(兼容 `./tools/`)——此前该检查必挂,推上 CI(`ci.yml` 跑此检查)必红;`check:tool-groups` 失败消息中的旧路径同步更正。(业务流程复跑发现,2026-08-21)
+
+### Changed — 审查修复批 1:测试基建(2026-08-20 六专项审查 G-1/G-2/G-4 处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md`)
+
+- **弱断言还债 860→732(测试G-1 P1)**:防恶化门禁顶格 860/860 零余量(两次复发前科 2b4bc8c/f5e3a8e),本批恢复 **128 预算**。113 处布尔表达式 `toBeTruthy()` 机械强化为 `toBe(true)`/`toBe(false)`(表达式含严格 boolean 信号:比较式/some/every/includes/existsSync 等)+ error-analyzer 15 处 `hasErrors` 布尔字段断言手工强化;2 处替换脚本误改人工修正(qa-index 泛型尖括号误命中判据→`toHaveProperty`;ui-import `find()` 返元素对象→改 `some()` 语义等价强断言)。B 类 83 处(访问前置)与 C 类 657 处(存在性语义)显式不动——达标即止,避免大面积分散改动引入新风险。
+- **e2e workflow 非空执行守门(测试G-2 P2)**:vitest 全 skip 返 exit 0(实测 total=2/pending=2 仍 0),fixture 供给链断掉时 e2e 假绿数月无人察(C5 家族)。`ci.yml` matrix e2e 步骤后加单行 gate(对齐 gdscript gate 范式,断言 `numTotalTests>0 && numPendingTests<numTotalTests`);`editor-e2e.yml` 5 个 vitest 步骤后加同款 gate(upload artifact 前)。判据红绿两态实测:正常报告 PASS exit 0/全 skip 报告 FAIL exit 1;YAML 语法 pyyaml 校验通过。
+- **mock-results 工厂编译期锚定(测试G-4 P3)**:`test/helpers/mock-results.js`→`.ts`,六工厂 import 真实类型(`ExecuteGdscriptResult`/`SpawnResult`)+ `satisfies` + `Partial` 参数 excess check;配套 `tsconfig.test.json` + `npm run typecheck:helpers` + ci.yml check job 接线——**防假接线**(test/ 不在主 tsconfig、eslint 只查 src、vitest esbuild 只剥类型不检查,单纯 satisfies 无人消费)。反向红测实测:接口外字段 `_probe` → TS2353 + exit 2。20 个消费文件 import 路径零改动(vite .js→.ts 解析,三类消费文件 84/84 验证)。**锚定边界(部分解决)**:接口加/删/改**必选**字段才红,可选字段(如 `autoload_detected?`)不触发;消费文件内联极简对象(不走工厂)仍无锚定。
+
+### Fixed — 审查修复批 2:GD bridge 对称性(2026-08-20 专项审查 审查G-1/G-2/G-3/可靠性P2/F-4 处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 2 段)
+
+- **`_compare_values` 数值分支类型白名单(审查G-1 P2)**:target 非数值(int/float 外)return false,对齐 Vector 分支的 N-1 修复——防 String 条件值经 `float("abc")=0` 静默按 0 比较致 `step_until` 假阳性 PASSED(比 N-1 修的假阴性更隐蔽)。
+- **freeze 入口 pending 守卫(可靠性 P2)**:开窗期间(input_seq/step_until in flight)并发 freeze 拒(对齐 step 的 D-6 范式)——防 bridge PROCESS_MODE_ALWAYS 下帧照走事件照注入(游戏不消费)的时间线假成功。
+- **mouse button 语义 + 深预检扩展(审查G-2 P3)**:新增 `_mouse_button_from_value`(int 1-9 直通/left/right/middle 映射/非法 -1),底层 `send_mouse_click` 与 timeline 深预检同享——`button:"left"` 不再 `int()=0=MOUSE_BUTTON_NONE` 注入无效事件仍报 success;touch/drag 深预检 `index` 非负整数。
+- **isq_result 补 `all_applied` 诊断字段(F-4 Nit)**:部分事件 ok:false 时 success 仍 true(截断语义只看 wall_timeout),加 `.all()` 折叠字段一眼区分全量/部分注入,不改 success 判定;qa runner 截断诊断同步透传。
+- **coerce String 数值严格判定(审查G-3 P3)**:TYPE_INT/TYPE_FLOAT 的 String 分支改 `is_valid_int()/is_valid_float()` 严格判定——裸 `int()` 部分解析("5px"→5)/失败零值("abc"→0)消除,非法保留原值由类型不匹配显式暴露。
+- **端口竞态实测归档(open,修复被证伪回退)**:双进程同瞬 spawn 20 轮 **18 轮双 listen OK**(Windows 双 bind 假成功坐实,远超预估);「listen 后回探自连判属主」修复真机证伪(双属主 15/20 与零属主 6/6 两态漂移)已回退,`_bind_available_port` 注释留实测事实+候选缓解(起始候选随机化);途中抓到 TCPServer 无 poll() 方法(check:gdscript 逐文件 parse 查不出运行时方法存在性)。
+- **测试**:契约 12 用例(`test/gd-symmetry-contract.test.ts`,sliceBetween 正负断言,删守卫红测实验双红实证 G-1a/P2a)+ 行为级 e2e 4 用例真机(`test/e2e-gd-symmetry.test.ts`:String value 假阳性回归/数值正向不误伤/button:"left" 映射 1/button:"abc" 结构化拒;freeze 守卫单连接 _sendLock 下行为不可达,契约级覆盖诚实标注)+ 既有 input_sequence e2e 6/6 回归 + 全量 6091 passed。
+
 
 ### Fixed — 审查修复批 4:安全+隐私+杂项清挂账(2026-08-20 专项审查 安全P3-1/2/3、隐私P2/P3/Nit、审查F-3、claudemd 挂账处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 4 段)
 
@@ -14,7 +37,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **代理披露实测订正(隐私P2)**:三处(telemetry.md/README 双版)「fetch 遵守 HTTP_PROXY/NO_PROXY(Node 默认 trustEnv)」被实测证伪——Node 原生 fetch(undici)**默认不读**环境代理变量(实测:必拒代理端口下 fetch registry.npmjs.org 仍直连 200;≥24 可 `NODE_USE_ENV_PROXY=1` 启用)。`NO_PROXY` 从「零外传手段」清单移除(声称有遮蔽手段实际没有,误导企业代理与隐私敏感用户);行号漂移订正(src/index.ts:125-133 → :152-153);ToolDispatcher.ts:501 注释 `~/.godot/mcp/` 笔误改 `~/.godot-mcp/`(telemetry/config.ts:12 实证)。
 - **CLI 下载链披露补齐(隐私P3)**:telemetry.md 新增「非 telemetry 外传点:CLI 下载链」段——`install`/`web` 的 GitHub releases 下载(api.github.com + 自定义 UA godot-mcp-enhanced-installer,域名白名单+SHA512 同源+y/N 确认+审计仅本机+GODOT_MCP_INSTALL_TAG pin);README 双版各补一句指向。
 - **zip-extract 死赋值(审查F-3)**:zip64 extra field 末字段 `q += 8` 删(无后续消费),lint 恢复 0 warning。
-- **claudemd-builder 旧工具名清理(挂账)**:`capture_screenshot` → `screenshot(action capture)`(批 1 B-1 挂账,merged 架构改名残留最后一处 src 残留);改动触发 rules-version-bump 硬门禁(check-rules-version-bump.mjs:18 纳入 claudemd-builder.ts),按 N-C 例外条款照常 bump **0.32.9** + version-sync + 本定版段 + README 版本行(npm publish/tag 待用户)。
+- **claudemd-builder 旧工具名清理(挂账)**:`capture_screenshot` → `screenshot(action="capture")`(与 0.32.9 批 P3-1 同点修复,合并取规范形态)(批 1 B-1 挂账,merged 架构改名残留最后一处 src 残留);改动触发 rules-version-bump 硬门禁(check-rules-version-bump.mjs:18 纳入 claudemd-builder.ts),按 N-C 例外条款照常 bump **0.32.10**(原定终态 0.32.9 已被同日七维度审核批用掉,版本终态后移)+ version-sync + 本定版段 + README 版本行(npm publish/tag 待用户)。
+
+### Fixed — 合并善后与批 3 处置
+
+- `e2e-gd-symmetry.test.ts` import 补跟 module-loader 移位(仍指 `src/core/module-loader.js`,套件级 Cannot find module 失败;audit-2 分支自建文件基于移位前 master,合并 master 后暴露)。
+- **批 3(`fix/audit-3-cli-args` = d20b1ff)处置**:CLI 参数双形式(init --template/qa --project/skills --target)已随 0.32.9 七维度审核批(P2-7/8/9/10)等价合入;独有内容(in-flight 计数器根治 setBridgeProjectDir 恒误报、`test/cli-args.test.ts`、qa parseFlag 收敛)已移植,分支废弃删除——本版本不含独立批 3 段。
+
+
+## [0.32.9] - 2026-08-21
+
+### Fixed — 架构审查修复批补登(deffcc6 / a7d865d / 0becdfe,2026-08-21 全仓架构师审核产出)
+
+- **deffcc6(A/B 组)**:未知 CLI 命令显式报错退出(此前静默挂起等 stdin);zip 解压流式化(~1GB export templates 不再整体读入内存,低内存机 OOM 修复);web 静态服务器安全加固(仅绑 127.0.0.1/Host 校验防 rebinding/仅 GET/HEAD/路径校验下沉 resolveWithinRoot/nosniff)。
+- **a7d865d(C 组)**:bridge 客户端下沉 `src/core/bridge-client.ts`;CLI 子命令收敛 `src/cli/bridge-session.ts` 会话链(装 bridge → run_project → teardown);eslint 分层门禁(`src/core/**` 禁止 import tools,no-restricted-imports 机械强制)。
+- **0becdfe(D 组)**:15 客户端适配器工厂折叠(json-adapter 统一 detect/isConfigured/configure);module-loader 移位组合根;game-templates manifest 双向对账测试守护。
+
+### Fixed — 七维度审核修复批(全仓功能/业务全方向审核;报告 `docs/reviews/2026-08-21-seven-dimension-audit.md`,6 P1 + 12 P2 + P3)
+
+- **P1-1 help 工具 enum 动态化**:`TOOL_NAMES` 从硬编码 38 名单改为 tool-registry 注册表动态构建——原漏 `analysis`/`audit`/`debug`/`engine`/`qa`/`translation`/`uid` 7 个新工具,inputSchema enum 直接拒绝其 help 调用(docs/tools/ 文档存在却不可达);顺带清理 TOOL_META 的 4 个 v0.18 merged 旧工具名残留(`getAllToolNames()` 49→45,不再污染 `isKnownTool`/动态注册判定;旧名映射职责归 `LEGACY_TOOL_MAP`)。
+- **P1-2 recording 规则通篇旧 action 名更正**:分发模板与 `.claude/rules/` 双副本的 `recording_*`(17 处)全部更新为 `runtime(action="record_*")` 新名——按旧规则调用必被 enum 拒绝;`STRICT=1 check:rules-sync` 此前绿(双副本一致地错),本次同步修正。
+- **P1-3 CHANGELOG 补登**:即本段(架构批 3 commits 此前漏登,违反 2026-08-19「默认不发版,变更进 [Unreleased]」定规);[Unreleased] 空段置顶修正段序(Keep a Changelog)。
+- **P1-4 README bridge 协议更正**:`game_bridge_install` 从误标"WebSocket 服务端"更正为"TCP 服务端(NDJSON 协议)"(WebSocket 是 editor 层另一套)。
+- **P1-5 分发模板 editor 端口 13100 清除**:三处错误端口(实际 `BASE_PORT=9090`,被占递增至 9094;同文件自相矛盾且随 agentsmd 分发扩散);"Bridge TCP 一次性连接"过时措辞更新(现为持久连接 + 30s keepalive + 订阅断线重发);bridge 段"端口冲突需手动改脚本"更新为自动递增避让 + `GODOT_MCP_BRIDGE_PORT`。
+- **P1-6 bridge-session 补单测 + 假就绪文案修复**:`test/bridge-session.test.ts` 锁定 install 判定子串与 "Bridge ready" 契约(接线零验证);`runtime` run_project 在 `wait_for_bridge=false` 时不再无条件宣称 "Bridge ready."(该子串是 bridge-session/qa-runner 的 load-bearing 判据)。
+- **P2 组(CLI 参数/可靠性/安全纵深)**:CLI 参数双形式统一——`init --template`/`qa --project`/`skills --target` 此前各只认一种形式致参数静默丢失/装错目录,`args.ts` 扩为完整版(补 `hasFlag`/`num` range),五命令(gif/web/qa/init/skills)统一消费;MCP server 进程加 `unhandledRejection`/`uncaughtException` 全局兜底(此前任一 floating promise 直接 crash 长驻进程);重连后项目校验 promise 链补 `.catch`(现实引爆点);qa teardown 补 `playtest.unfreeze` 兜底(freeze 后 abort 不再残留外部游戏永久暂停);zip 解压读侧强校验(inflate 累计超声明 uncompressedSize 立即断流,不再写满盘后才比对);editor WebSocket `listen` 前端口 connect 预探测(对齐 bridge 侧双 bind 假成功缓解);工具层 PII——catch-and-return 路径不再直泄 `err.message`/绝对路径(runtime-assert 顶层兜底走 `classifyError.safeMessage`、qa 报告/截图/目录错误回显文件名或用户原始输入);web-server `[::1]` Host 解析修复(原为死代码)+ 目录跳 index.html 后复过 `resolveWithinRoot`;bridge auth 被拒(secret 不匹配)立即失败不再干等超时;`game-fs` user:// 相对路径补段级 `..` 拒绝;spawn-helper 异步 spawn 错误补 `SPAWN_FAILED:` 前缀(与同步路径错误分类一致);`validate_scripts` 文档措辞更正(逐文件 parse,非项目级完整编译——README/migration/AGENTS 与 2026-08-01 教训记录对齐)。
+- **P3 组**:claudemd 分发副本 `capture_screenshot` 旧名残留清零(改 `screenshot(action="capture")`);规则模板 `node_create_3d`/`physics_raycast`/`scene_commit` 旧调用名更新;`test/cli/router.test.ts` 硬编码子命令清单改 import `SUBCOMMANDS` 单一真相源;`test/game-bridge.test.ts` 头部旧行号注释更新(实现已下沉 core/bridge-client.ts);覆盖率阈值上调至实测值-4%(statements 60→76/functions 69→79/lines 61→77,原滞后 ~20%;branches 实测未取保守不动)。
+- 版本号由规则模板变更硬门禁强制 bump(recording/端口/旧名修正触发);npm 发版待用户定夺。
 
 ## [0.32.8] - 2026-08-20
 
@@ -30,8 +79,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **新增确定性 playtest 演示套件** `docs/demo/deterministic-playtest.qa.md`(qa-spec 围栏,一条命令复现):freeze→帧定时输入时间线→step_until→node_state 断言→unfreeze 的 L3 闭环;实测两跑均 5/5 PASSED + `qa diff` 零回归(同 seed+同时间线 ⇒ 状态演化一致),为 README「确定性分级」表的可运行注脚与 gif 录制素材。
 - **push 前完整第三方审查**(SHIPPED WITH NITS,报告 `docs/reviews/2026-08-20-input-sequence-full.md`,审查者含 Bash 全命令真机复跑+删守卫红测实验):上轮 I-1/N-1~N-4 处置复核无虚报(两项红测验证断言真锁行为);N-4 收敛对即时方法与 master 逐字等价证明;npm pack 实证 CLI 路径修复在发包态命中;**IMP-1**(CLI qa run 残留 fixture [autoload] 段,既有缺陷被 demo 放大)以文档提示处置(代码侧自动还原会误删用户自装 bridge,不可取);N-A(e2e 计数 5→6)/N-B(NVIDIA 驱动日志目录 gitignore)已修;N-C(「默认不发版」vs 模板 bump 硬门禁的规则冲突)留用户裁决。
 - 版本号由规则模板变更硬门禁强制 bump(bridge rule 双副本加 `send_input_sequence` 行,`check:rules-sync` STRICT 通过);npm 发版待用户定夺。
-
-## [Unreleased]
 
 ### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
 

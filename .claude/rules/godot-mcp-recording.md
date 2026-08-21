@@ -1,5 +1,5 @@
 ---
-description: "recording recording_start recording_stop recording_save recording_load recording_play 录制 回放 输入事件 bridge E2E 测试 regression 操作复现 输入捕获 事件重放"
+description: "recording record_start record_stop record_save record_load record_play 录制 回放 输入事件 bridge E2E 测试 regression 操作复现 输入捕获 事件重放"
 alwaysApply: false
 ---
 
@@ -9,19 +9,20 @@ alwaysApply: false
 
 录制系统捕获用户输入事件（键盘/鼠标），序列化为 JSON，可在后续回放。
 
+- **工具入口**：`runtime` 工具的 `record_start`/`record_stop`/`record_save`/`record_load`/`record_play` 五个 action（v0.18 合并，原独立 `recording_*` 工具已并入）
 - **依赖**：Game Bridge 必须已连接（输入事件通过 Bridge 发送和捕获）
 - **存储位置**：`res://recordings/recording_*.json`（项目内）
 - **使用场景**：E2E 测试用例录制、回归测试、Bug 复现、操作自动化
 
-## 工具清单
+## action 清单（runtime 工具）
 
-| 工具 | 说明 | 前提 |
+| action | 说明 | 前提 |
 |------|------|------|
-| `recording_start` | 开始捕获输入事件 | Bridge 已连接 |
-| `recording_stop` | 停止捕获，返回事件 JSON | 录制进行中 |
-| `recording_save` | 保存到 res://recordings/ | events_json 参数 |
-| `recording_load` | 从文件加载录制 | 文件名匹配 recording_*.json |
-| `recording_play` | 回放录制的输入事件 | Bridge 已连接 + events_json |
+| `record_start` | 开始捕获输入事件 | Bridge 已连接 |
+| `record_stop` | 停止捕获，返回事件 JSON | 录制进行中 |
+| `record_save` | 保存到 res://recordings/ | events_json 参数 |
+| `record_load` | 从文件加载录制 | 文件名匹配 recording_*.json |
+| `record_play` | 回放录制的输入事件 | Bridge 已连接 + events_json |
 
 ## 使用指南
 
@@ -31,13 +32,13 @@ alwaysApply: false
 1. game_bridge_install → 安装 Bridge（一次性）
 2. run_project → 启动游戏
 3. game_query(method="ping") → 确认 Bridge 连接
-4. recording_start → 开始录制
+4. runtime(action="record_start") → 开始录制
 5. [用户操作 / game_input 模拟输入]
-6. recording_stop → 停止录制，获取 events_json
-7. recording_save(file_name) → 保存到文件
+6. runtime(action="record_stop") → 停止录制，获取 events_json
+7. runtime(action="record_save", file_name) → 保存到文件
 --- 后续使用 ---
-8. recording_load(file_name) → 加载录制
-9. recording_play(events_json, speed=1.0) → 回放
+8. runtime(action="record_load", file_name) → 加载录制
+9. runtime(action="record_play", events_json, speed) → 回放
 ```
 
 ### 事件格式
@@ -56,7 +57,7 @@ alwaysApply: false
 
 ### 文件命名与安全
 
-- **始终自动命名**：recording_save 忽略传入的 `file_name` 参数，始终生成 `recording_YYYYMMDD_HHmmss.json` 格式的时间戳文件名
+- **始终自动命名**：record_save 忽略传入的 `file_name` 参数，始终生成 `recording_YYYYMMDD_HHmmss.json` 格式的时间戳文件名
 - **强制格式**：`file_name` 参数必须匹配 `recording_*.json`，否则报 `INVALID_FILE_NAME`（但实际保存仍用自动命名）
 - **路径遍历防护**：文件名禁止包含 `/`、`\`、`..`
 
@@ -66,7 +67,7 @@ alwaysApply: false
 
 ```
 // 1. 开始录制
-recording_start(project_path="D:/game")
+runtime(action="record_start", project_path="D:/game")
 // → { status: "ok", message: "Recording started" }
 
 // 2. [模拟玩家操作]
@@ -74,20 +75,20 @@ game_input(method="send_key", params={ "key": "Key_W", "pressed": true })
 game_input(method="send_mouse_click", params={ "x": 320, "y": 240, "button": "left", "pressed": true })
 
 // 3. 停止录制
-recording_stop(project_path="D:/game")
+runtime(action="record_stop", project_path="D:/game")
 // → { events_json: "{\"version\":1,\"duration_ms\":1200,\"events\":[...]}" }
 
 // 4. 保存到文件（注意：始终自动命名，忽略传入的 file_name）
-recording_save(project_path="D:/game", file_name="recording_test_login.json", events_json="<从 stop 获取>")
+runtime(action="record_save", project_path="D:/game", file_name="recording_test_login.json", events_json="<从 stop 获取>")
 // → { success: true, data: { saved: { file_name: "recording_20260607_220255.json", path: "res://recordings/recording_20260607_220255.json" } } }
 
-// 5. 后续加载并回放（注意：recording_load 可能被沙箱拦截，推荐直接用 events_json）
+// 5. 后续加载并回放（注意：record_load 可能被沙箱拦截，推荐直接用 events_json）
 // 方式 A：通过文件加载（可能被沙箱拦截）
-recording_load(project_path="D:/game", file_name="recording_20260607_220255.json")
+runtime(action="record_load", project_path="D:/game", file_name="recording_20260607_220255.json")
 // → { events_json: "..." }
 
-// 方式 B（推荐）：直接用 recording_stop 返回的 events_json，跳过文件加载
-recording_play(project_path="D:/game", events_json="<从 stop 直接获取>", speed=1.0)
+// 方式 B（推荐）：直接用 record_stop 返回的 events_json，跳过文件加载
+runtime(action="record_play", project_path="D:/game", events_json="<从 stop 直接获取>", speed=1.0)
 // → { status: "ok", events_played: 5 }
 ```
 
@@ -95,8 +96,8 @@ recording_play(project_path="D:/game", events_json="<从 stop 直接获取>", sp
 
 ```
 // 录制一次操作，后续自动回放 + 验证
-recording_load(project_path="D:/game", file_name="recording_open_menu.json")
-recording_play(project_path="D:/game", events_json="<loaded>", speed=2.0)
+runtime(action="record_load", project_path="D:/game", file_name="recording_open_menu.json")
+runtime(action="record_play", project_path="D:/game", events_json="<loaded>", speed=2.0)
 game_wait(method="wait_for_node", params={ "path": "/root/CanvasLayer/OptionsMenu" })
 game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/OptionsMenu", "properties": ["visible"] })
 // → { visible: true } — 测试通过
@@ -105,7 +106,7 @@ game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/Opt
 ### 错误：Bridge 未连接
 
 ```
-recording_start(project_path="D:/game")
+runtime(action="record_start", project_path="D:/game")
 // → { error: "BRIDGE_NOT_CONNECTED", message: "Recording requires an active game bridge connection" }
 // 解决：1. 确认已 game_bridge_install
 //       2. 确认游戏正在运行（F5）
@@ -114,10 +115,10 @@ recording_start(project_path="D:/game")
 
 ## 常见陷阱
 
-- **Bridge 是硬依赖**：recording_start/recording_play 都需要 Bridge 连接。没有 Bridge 则无法录制或回放。
+- **Bridge 是硬依赖**：`record_start`/`record_play` 都需要 Bridge 连接。没有 Bridge 则无法录制或回放。
 - **文件名格式严格**：`recording_test.json`（❌ 不匹配）、`recording_test_login.json`（✅ 匹配）。必须以 `recording_` 开头、`.json` 结尾。
 - **回放时序**：speed > 1.0 会加速回放，但可能因游戏帧率跟不上导致事件丢失。建议 E2E 测试使用 speed=1.0。
 - **录制文件存储在项目内**：`res://recordings/` 下的文件会随项目版本控制。敏感录制应在 .gitignore 中排除。
 - **事件类型有限**：仅捕获键盘（key）和鼠标（mouse_click）事件。触摸、手柄等不适用。
-- **recording_load 沙箱限制**：`recording_load` 需要文件读取，可能被 GDScript 沙箱拦截（"Sandbox violation: File access"）。推荐直接将 `recording_stop` 返回的 `events_json` 传给 `recording_play`，跳过文件加载。
-- **recording_play 需要 Bridge 连接**：回放通过 Bridge 逐条发送事件（send_key/send_mouse_click），不支持 headless 模式。不支持的按键（如功能键 F1-F12）会被跳过并记录到 errors 中。
+- **record_load 沙箱限制**：`record_load` 需要文件读取，可能被 GDScript 沙箱拦截（"Sandbox violation: File access"）。推荐直接将 `record_stop` 返回的 `events_json` 传给 `record_play`，跳过文件加载。
+- **record_play 需要 Bridge 连接**：回放通过 Bridge 逐条发送事件（send_key/send_mouse_click），不支持 headless 模式。不支持的按键（如功能键 F1-F12）会被跳过并记录到 errors 中。

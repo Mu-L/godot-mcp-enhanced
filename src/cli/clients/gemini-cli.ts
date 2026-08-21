@@ -1,45 +1,17 @@
-import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import type { ClientAdapter } from './types.js';
-import { readJsonConfigWithBackup, readJsonForCheck, writeFileAtomicWithMode, buildEnv } from './json-config.js';
+import { JsonAdapterBase } from './json-adapter.js';
 
-export class GeminiCliAdapter implements ClientAdapter {
-  name = 'Gemini CLI';
-  scope = 'project' as const;
-
-  // user-state 字段（官方默认无 seed，reconfigure 仅保留已存在的旧值）
-  private static readonly USER_STATE_KEYS = ['trust', 'timeout', 'includeTools', 'excludeTools'] as const;
-
-  async detect(): Promise<boolean> {
-    return existsSync(join(process.cwd(), '.gemini', 'settings.json'));
-  }
-
-  async isConfigured(projectDir: string): Promise<boolean> {
-    const content = readJsonForCheck(join(projectDir, '.gemini', 'settings.json'));
-    if (!content) return false;
-    return !!(content.mcpServers as Record<string, unknown> | undefined)?.godot;
-  }
-
-  async configure(projectDir: string, godotPath: string, mcpCommand: string, mcpArgs: string[]): Promise<void> {
-    const geminiDir = join(projectDir, '.gemini');
-    const configPath = join(geminiDir, 'settings.json');
-    if (!existsSync(geminiDir)) mkdirSync(geminiDir, { recursive: true });
-    const config = readJsonConfigWithBackup(configPath);
-    if (!config.mcpServers) config.mcpServers = {};
-    const mcp = config.mcpServers as Record<string, Record<string, unknown>>;
-    const oldEntry = mcp.godot ?? {};
-    const preserved: Record<string, unknown> = {};
-    for (const key of GeminiCliAdapter.USER_STATE_KEYS) {
-      if (key in oldEntry) preserved[key] = oldEntry[key];
-    }
-    mcp.godot = {
-      ...preserved,
-      command: mcpCommand,
-      ...(mcpArgs.length > 0 ? { args: mcpArgs } : {}),
-      // C1: 保留旧 entry.env 的白名单前缀
-      env: buildEnv(godotPath, oldEntry.env as Record<string, unknown> | undefined),
-    };
-    // F3: 原子写入 + 保持原文件 mode（adapter-no-mode-preserve）
-    writeFileAtomicWithMode(configPath, JSON.stringify(config, null, 2) + '\n');
+/** Gemini CLI(project scope,.gemini/settings.json)。user-state(trust/timeout/
+ *  includeTools/excludeTools)官方默认无 seed,reconfigure 仅保留已存在的旧值
+ *  (preserveUserState 不给 defaults 即"仅保留已有")。detect 沿原实现用 process.cwd()。 */
+export class GeminiCliAdapter extends JsonAdapterBase {
+  constructor() {
+    super({
+      name: 'Gemini CLI',
+      scope: 'project',
+      configPath: (projectDir) => join(projectDir, '.gemini', 'settings.json'),
+      detectPaths: () => [join(process.cwd(), '.gemini', 'settings.json')],
+      preserveUserState: { keys: ['trust', 'timeout', 'includeTools', 'excludeTools'] },
+    });
   }
 }

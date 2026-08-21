@@ -27,6 +27,8 @@ import { textResult } from '../../types.js';
 import { opsErrorResult } from '../shared.js';
 import { requireProjectPath } from '../../helpers.js';
 import { isPathInAllowedRoots } from '../../core/path-utils.js';
+import { classifyError } from '../../core/tool-errors.js';
+import { getLogger } from '../../core/logger.js';
 import { parseQaSuite } from './spec.js';
 import { runQaSuite, type QaRunControl } from './runner.js';
 import { writeReport, readReport, listReports, diffReports, makeRunId, type QaReport } from './report.js';
@@ -111,8 +113,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         return opsErrorResult('UNKNOWN_ACTION', `Unknown action: ${action}（可用：run/report/diff/status/cancel）`);
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return opsErrorResult('QA_ERROR', `qa.${action} 失败: ${msg}`);
+    // P2-17 残留点补修(2026-08-21 问题对账): 工具层 catch 直拼 err.message(常含
+    // 绝对路径)绕过主 catch 的 G2 PII 护栏——改走 classifyError.safeMessage
+    // (runtime-assert 顶层同款),完整错误只进 server 日志。
+    getLogger().error('qa', `action=${action} failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+    const { safeMessage } = classifyError(err);
+    return opsErrorResult('QA_ERROR', `qa.${action} 失败: ${safeMessage}`);
   }
 }
 

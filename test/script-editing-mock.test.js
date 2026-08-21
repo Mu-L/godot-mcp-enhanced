@@ -97,8 +97,8 @@ describe('Level B: Script editing', () => {
     expect(result.isError).not.toBe(true);
     const text = result.content[0].text;
     const parsed = JSON.parse(text);
-    expect(parsed.validated > 0).toBeTruthy();
-    expect(parsed.total_errors === 0 || parsed.total_errors === undefined).toBeTruthy();
+    expect(parsed.validated > 0).toBe(true);
+    expect(parsed.total_errors === 0 || parsed.total_errors === undefined).toBe(true);
   });
 
   // 用例 4: edit_script — 不存在的文件应返回错误

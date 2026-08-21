@@ -22,7 +22,7 @@ import { listPrompts, getPrompt, handleCompletion } from './prompts.js';
 
 // ─── Import and register tool modules ────────────────────────────────────────
 // C-ARCH-01: All tool modules centralized in module-loader.ts
-import { registerAllModules } from './core/module-loader.js';
+import { registerAllModules } from './module-loader.js';
 import { setToolCallDelegate, setDynamicSender } from './tools/advanced-proxy.js';
 import { setMcpServer, clearMcpServer } from './core/tool-registry.js';
 registerAllModules();

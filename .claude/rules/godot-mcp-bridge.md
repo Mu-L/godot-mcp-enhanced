@@ -96,7 +96,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | `reconnect` | 触发 EditorConnection 重新连接（bridge 无持久连接，no-op） |
 
 **行为说明**：
-- `reconnect` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
+- `reconnect` 仅影响 Editor WebSocket 连接（端口 9090-9094）。Bridge 为持久 TCP 连接（30s keepalive、断线自动重连并重发订阅），无显式重连语义，故 no-op。
 - `sync` 返回结构：`{ groups: [{ name, requires, status }, ...], editor: { installed, connected, state }, bridge: { note } }`。其中 **status**:editor 组 = `connected`/`disconnected`(基于 editor 连接);bridge 组 = `probe-required`(用 `game_query(method=ping)` 探测);无 requires 组(core/animation/ui 等)= `n/a`。**editor.state**:连上时用 healthMonitor(工具调用健康),未连报 `disconnected`,未启动报 `null`。**editor.installed** = editorConn 是否注入(launch_editor 后 true)。
 
 ## 使用指南
@@ -216,8 +216,8 @@ game_query(method="ping")
 - **密钥文件权限**：Windows 上可能需要 icacls 权限。Linux/macOS 上自动 chmod 0600。
 - **密钥权限循环**：Bridge 首次运行后将密钥文件权限收紧为只读（Windows: `(R)` only），导致后续启动时无法重写密钥而中止（"Failed to write secret — aborting Bridge startup"）。**解决**：手动恢复写入权限 `icacls ".godot/mcp_bridge_9081.secret" /grant "%USERNAME%:(W)"`，或删除密钥文件让 Bridge 重新生成。**S4 治本（v0.18.x+）**：设置环境变量 `GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true`，Bridge 复用现有 secret 文件（不重生、不收紧、`_exit_tree` 不删除），彻底打破权限循环并与 MCP 端 5min TTL 缓存保持同步。仅本地测试用（安全降级，生产保持默认 false）。
 - **节点路径必须用绝对路径**：`game_write`、`game_wait` 等的 `path` 参数必须以 `/root/` 开头（如 `/root/Main/Player`），不接受 `root/Main/Player` 格式。`game_query(method="get_tree")` 返回的路径可用于参考。
-- **与录制系统**：recording_start 依赖 Bridge 连接。确保 Bridge 可用后再录制。
-- **端口 9081 冲突**：如果端口被占用，需要手动修改 autoload 脚本中的端口配置。
+- **与录制系统**：`runtime(action="record_start")` 依赖 Bridge 连接。确保 Bridge 可用后再录制。
+- **端口 9081 冲突**：端口被占时自动递增避让（9081 起，最多尝试 10 个候选）；可用环境变量 `GODOT_MCP_BRIDGE_PORT` 设起点，无需修改 autoload 脚本。
 - **密钥缓存**：5 分钟 TTL 后首次调用会重新读取密钥文件，可能有短暂延迟。
 - **monitor 最大属性数**：单次监控最多 20 个属性（MONITOR_MAX_PROPERTIES），超出会报错。
 - **monitor 自动停止**：采样达到 500 条（_monitor_max_samples）后自动停止。

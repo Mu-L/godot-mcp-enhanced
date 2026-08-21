@@ -78,12 +78,66 @@ for (const f of ruleFiles) {
   if (!templateKeys.includes(f)) problems.push(`.claude/rules/ 有而模板缺键: ${f}`);
 }
 
+// ─── 第三层:事实对账(factual drift,2026-08-21 七维度审核 S-1)──────────────
+// 第一二层的双副本逐字一致挡不住"一致地错"——P1-2 案例:recording 旧 action 名 17 处
+// 双副本一致地错,本脚本此前恒绿;P1-5 案例:13100 端口与同文件自我纠正条目并存。
+// 本层对照代码事实机械拦截:
+//   A. 模板中 `tool(action="name")` 精确引用 → name 必须 ∈ 运行时注册表该工具的 enum
+//      (真相源 = build/module-loader 注册态,与 capability-matrix 同源)。
+//      通配/无引号列表式(如 `runtime(record_*)`、`signal(action=connect/...)`)不查——
+//      带引号单值才是"AI 按规则调用必被 inputSchema 拒绝"的高危形态。
+//   B. 模板中 `端口 NNNN` 声明 → NNNN 必须 ∈ editor BASE_PORT..MAX_PORT ∪ bridge
+//      PORT_DEFAULT..+ATTEMPTS-1(常量从 GD 源文件提取,不硬编码防漂移)。
+{
+  const { registerAllModules } = await import(pathToFileURL(join(repoRoot, 'build', 'module-loader.js')).href);
+  registerAllModules();
+  const { getAllToolDefinitions } = await import(pathToFileURL(join(repoRoot, 'build', 'core', 'tool-registry.js')).href);
+  const actionEnums = new Map(
+    getAllToolDefinitions().map(d => [d.name, d.inputSchema?.properties?.action?.enum]),
+  );
+
+  for (const filename of templateKeys) {
+    const text = String(DETAILED_RULE_TEMPLATES[filename]);
+    for (const m of text.matchAll(/([a-z_][a-z0-9_]*)\(action="([a-z0-9_]+)"/g)) {
+      const tool = m[1], action = m[2];
+      if (!actionEnums.has(tool)) {
+        problems.push(`[factual] ${filename}: 引用不存在的工具 \`${tool}(action="${action}")\`——工具名漂移`);
+      } else if (!(actionEnums.get(tool) ?? []).includes(action)) {
+        problems.push(`[factual] ${filename}: \`${tool}(action="${action}")\` 不在运行时 enum——旧 action 名或拼写漂移(AI 按此调用必被 inputSchema 拒绝)`);
+      }
+    }
+  }
+
+  const gdConst = (file, name) => {
+    const mm = readFileSync(join(repoRoot, file), 'utf8').match(new RegExp(`const ${name}\\s*:?=?\\s*(\\d+)`));
+    return mm ? Number(mm[1]) : null;
+  };
+  const editorBase = gdConst('addons/godot_mcp_server/websocket_server.gd', 'BASE_PORT');
+  const editorMax = gdConst('addons/godot_mcp_server/websocket_server.gd', 'MAX_PORT');
+  const bridgeBase = gdConst('src/scripts/mcp_bridge.gd', 'PORT_DEFAULT');
+  const bridgeAttempts = gdConst('src/scripts/mcp_bridge.gd', 'PORT_ATTEMPTS');
+  if (editorBase === null || editorMax === null || bridgeBase === null || bridgeAttempts === null) {
+    problems.push('[factual] GD 端口常量提取失败(BASE_PORT/MAX_PORT/PORT_DEFAULT/PORT_ATTEMPTS)——常量改名/移位需同步本脚本正则');
+  } else {
+    const legalPorts = new Set();
+    for (let p = editorBase; p <= editorMax; p++) legalPorts.add(p);
+    for (let p = bridgeBase; p < bridgeBase + bridgeAttempts; p++) legalPorts.add(p);
+    for (const filename of templateKeys) {
+      for (const m of String(DETAILED_RULE_TEMPLATES[filename]).matchAll(/端口 (\d{4,5})/g)) {
+        if (!legalPorts.has(Number(m[1]))) {
+          problems.push(`[factual] ${filename}: 端口 ${m[1]} 不在合法集合(editor ${editorBase}-${editorMax} ∪ bridge ${bridgeBase}-${bridgeBase + bridgeAttempts - 1})——历史错误端口(如 13100)或引擎端口常量已变更`);
+        }
+      }
+    }
+  }
+}
+
 if (problems.length > 0) {
   const mode = process.env.STRICT === '1' ? 'STRICT' : 'advisory';
-  console.error(`[check-rules-content-sync] ${mode}: ${problems.length} 处不一致:`);
+  console.error(`[check-rules-content-sync] ${mode}: ${problems.length} 处不一致/失实:`);
   for (const p of problems) console.error(`  - ${p}`);
-  console.error('  修复：双向同步两处内容(AGENTS.md「独立副本同步约束」)；归一化仅抹版本行，其余须逐字一致');
+  console.error('  修复：副本 drift 双向同步两处内容(AGENTS.md「独立副本同步约束」)；[factual] 条目对照代码事实改内容(不是同步,是内容错了)');
   if (process.env.STRICT === '1') process.exit(1);
 } else {
-  console.log(`[check-rules-content-sync] OK: ${templateKeys.length} 个模板与 .claude/rules/ 双向对账一致(归一化: 换行/版本行)`);
+  console.log(`[check-rules-content-sync] OK: ${templateKeys.length} 个模板与 .claude/rules/ 双向对账一致(归一化: 换行/版本行) + 事实对账通过(action 引用 ⊆ 运行时 enum;端口 ∈ GD 常量范围)`);
 }

@@ -1,5 +1,5 @@
 {
-  "version": "0.32.9",
+  "version": "0.32.10",
   "tools": [
     {
       "name": "analysis",
@@ -2139,7 +2139,7 @@
     {
       "name": "godot_advanced_tool",
       "group": "dynamic",
-      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nCurrently proxyable tools: test, game_design, verify_delivery, batch",
+      "description": "Proxy tool for calling advanced/deactivated Godot tools. Call with { tool_name: \"<name>\", arguments: {...} }.\n\nAll tools are currently directly available — no proxy needed.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2188,9 +2188,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 179,
+        "descBytes": 174,
         "schemaBytes": 205,
-        "totalBytes": 384
+        "totalBytes": 379
       },
       "annotations": {
         "readOnlyHint": false,
@@ -2443,24 +2443,28 @@
     {
       "name": "help",
       "group": "core",
-      "description": "获取任意工具的完整文档。可用工具名：android, animation, animation_track, animtree, asset, audio, blender, cpp, csv_to_resources, docs, editor, game, godot_advanced_tool, godot_get_context, godot_list_dynamic_routes, godot_list_instances, godot_select_instance, help, load_skill, manage_tools, material, nav, particles, physics, profiler, project, runtime, runtime_assert, scene, screenshot, script, self_update, signal, testing, tilemap, ui, validation, workflow。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。",
+      "description": "获取任意工具的完整文档。可用工具名：analysis, android, animation, animation_track, animtree, asset, audio, audit, blender, cpp, csv_to_resources, debug, docs, editor, engine, game, godot_advanced_tool, godot_get_context, godot_list_dynamic_routes, godot_list_instances, godot_select_instance, help, load_skill, manage_tools, material, nav, particles, physics, profiler, project, qa, runtime, runtime_assert, scene, screenshot, script, self_update, signal, testing, tilemap, translation, ui, uid, validation, workflow。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。",
       "inputSchema": {
         "type": "object",
         "properties": {
           "tool_name": {
             "type": "string",
             "enum": [
+              "analysis",
               "android",
               "animation",
               "animation_track",
               "animtree",
               "asset",
               "audio",
+              "audit",
               "blender",
               "cpp",
               "csv_to_resources",
+              "debug",
               "docs",
               "editor",
+              "engine",
               "game",
               "godot_advanced_tool",
               "godot_get_context",
@@ -2476,6 +2480,7 @@
               "physics",
               "profiler",
               "project",
+              "qa",
               "runtime",
               "runtime_assert",
               "scene",
@@ -2485,7 +2490,9 @@
               "signal",
               "testing",
               "tilemap",
+              "translation",
               "ui",
+              "uid",
               "validation",
               "workflow"
             ],
@@ -2532,9 +2539,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 603,
-        "schemaBytes": 600,
-        "totalBytes": 1203
+        "descBytes": 657,
+        "schemaBytes": 661,
+        "totalBytes": 1318
       },
       "annotations": {
         "readOnlyHint": true,

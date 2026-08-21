@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import { getAllToolDefinitions, getActionRisks } from '../../src/core/tool-registry.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
 import { GROUP_SOURCE_FILES, scanDangerApi } from '../../src/capability/static-grep.js';

@@ -1,7 +1,7 @@
 // test/capability/extract.test.ts
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import { getAllToolDefinitions, getGroupForTool, TOOL_GROUPS } from '../../src/core/tool-registry.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
 

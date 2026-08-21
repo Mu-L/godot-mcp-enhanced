@@ -8,7 +8,7 @@ enhanced 是 Coding-Solo 的 fork,**核心能力(启动编辑器 / 运行项目 
 
 1. **系统化安全防护(Coding-Solo 完全没有)** —— 路径白名单(deny-by-default + junction 防御)/ GDScript 注入防御 / 危险操作确认令牌 / 输出标记防伪造。Godot MCP 赛道里少见提供系统化安全特性的方案。
 2. **三层架构** —— Coding-Solo 是单一 headless CLI;enhanced 增加 **Editor WebSocket**(实时场景操作 + Undo)+ **Game Bridge**(运行时调试 / E2E 测试 / 输入模拟)。
-3. **验证门禁** —— `verify_delivery`(端到端交付门禁)+ `validate_scripts`(触发 Godot 完整编译,捕获 headless 遗漏的 Parse Error)+ `dev_loop`(执行 → 验证 → 截图一体化)。
+3. **验证门禁** —— `verify_delivery`(端到端交付门禁)+ `validate_scripts`(逐脚本执行 Godot `load()` 编译验证,捕获 headless 遗漏的 Parse Error)+ `dev_loop`(执行 → 验证 → 截图一体化)。
 4. **跨版本兼容矩阵** —— Godot 4.5–4.7 实测兼容;Coding-Solo 未披露跨版本验证。
 5. **中文工具描述** —— 服务中文 Godot 开发者社区;欢迎 i18n PR。
 

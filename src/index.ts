@@ -7,6 +7,19 @@ import { getLogger } from './core/logger.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// P2-11(2026-08-21 七维度审核): 长驻 MCP server 的最后防线——任一遗漏 catch 的
+// floating promise 在 Node 15+ 默认语义下会 crash 整个进程(客户端断连/QA run 失管/
+// 孤儿进程扫描随进程死亡)。rejection 记 stderr 日志保留进程(未观察对象不必然致命,
+// 与 GodotServer 其余 void 调用带 .catch 的防御同级);uncaughtException 同步栈已损坏,
+// 记日志后以非零码退出,不静默带病运行。stderr 不污染 stdio 协议通道(stdout)。
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? (reason.stack ?? reason.message) : String(reason));
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err instanceof Error ? (err.stack ?? err.message) : String(err));
+  process.exit(1);
+});
+
 export async function startMcpServer(args: string[]): Promise<void> {
   // H-08: Reject security bypass flags in production unless explicitly acknowledged
   const dangerousBypassFlags = [
@@ -164,7 +177,7 @@ export async function startMcpServer(args: string[]): Promise<void> {
 const args = process.argv.slice(2);
 
 (async () => {
-  const { isCliInvocation, showHelp, showVersion, routeCommand } = await import('./cli/router.js');
+  const { isCliInvocation, isUnknownCommand, showHelp, showVersion, routeCommand } = await import('./cli/router.js');
 
   if (args.includes('--help') || args.includes('-h')) {
     showHelp();
@@ -178,7 +191,19 @@ const args = process.argv.slice(2);
     await routeCommand(args);
     process.exit(0);
   }
+  // 2026-08-21 架构审查 MAJOR-1:非 flag 且非子命令(拼错的命令/误传路径)此前静默
+  // 启动 stdio MCP server 挂起等 stdin,显式报错退出。
+  if (isUnknownCommand(args)) {
+    console.error(`Unknown command: ${args[0]!}`);
+    console.error('Run "godot-mcp-enhanced --help" for usage.');
+    process.exit(1);
+  }
 
   // 默认: MCP stdio 模式
   await startMcpServer(args);
-})();
+})().catch((err: unknown) => {
+  // 2026-08-21 架构审查 MINOR:入口 IIFE 无 catch——子命令抛错(如 install 网络失败)
+  // 成为 unhandledRejection 而非干净的错误退出码。
+  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+  process.exit(1);
+});
