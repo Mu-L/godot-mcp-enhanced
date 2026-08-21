@@ -20,7 +20,7 @@ vi.mock('../src/gdscript-executor.js', () => ({
 import { executeGdscriptTrusted } from '../src/gdscript-executor.js';
 import { handleTool, TOOL_META, getToolDefinitions } from '../src/tools/ui/index.js';
 import { ACTIONS } from '../src/tools/ui/types.js';
-import { SLIM_CONFIG } from '../src/core/module-loader.js';
+import { SLIM_CONFIG } from '../src/module-loader.js';
 import type { ToolResult } from '../src/types.js';
 
 // ─── fixtures ──────────────────────────────────────────────────────────────

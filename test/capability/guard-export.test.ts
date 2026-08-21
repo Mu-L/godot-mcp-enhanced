@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isGuardedTool, requiresConfirmation } from '../../src/core/guard.js';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import { getActionRisks } from '../../src/core/tool-registry.js';
 
 // 注册所有模块的 actionRisks，供 isGuardedTool/requiresConfirmation 派生判定

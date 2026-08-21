@@ -888,6 +888,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       create_files: 'write',
     } satisfies Record<typeof ACTIONS[number], RiskLevel>,
   },
-  // Absorbed tool meta
-  batch: { readonly: false, long_running: false },
+  // 旧工具名 batch 的 TOOL_META 条目已删(2026-08-21 七维度审核 P3):v0.18 合并后残留使
+  // getAllToolNames() 返回 49 而非 45,污染 isKnownTool/动态注册判定;旧名映射职责在
+  // tool-registry 的 LEGACY_TOOL_MAP。
 };

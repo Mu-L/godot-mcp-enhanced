@@ -2,7 +2,7 @@
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../core/module-loader.js';
+import { registerAllModules } from '../module-loader.js';
 import { extractCapabilities } from './extract.js';
 import type { ToolCapability } from './schema.js';
 

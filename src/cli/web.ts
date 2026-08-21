@@ -10,15 +10,7 @@ import { findGodot, detectGodotVersion } from '../core/godot-finder.js';
 import { installExportTemplates, ensureWebPreset, exportWeb } from './web-exporter.js';
 import { startWebServer } from './web-server.js';
 import { confirmYesNo } from './confirm.js';
-
-function opt(args: string[], name: string): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === `--${name}`) return args[i + 1];
-    if (a.startsWith(`--${name}=`)) return a.split('=').slice(1).join('=');
-  }
-  return undefined;
-}
+import { opt } from './args.js';
 
 export async function runWeb(args: string[]): Promise<void> {
   const serveOnly = opt(args, 'serve-only');

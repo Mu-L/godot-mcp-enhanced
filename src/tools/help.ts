@@ -10,32 +10,33 @@ import type { Tool } from '@modelcontextprotocol/server';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
+import { getAllToolNames } from '../core/tool-registry.js';
 
-// ─── Tool name enum（从 capability-matrix 动态构建，含 help 自身）────────────
+// ─── Tool name enum（从注册表动态构建，含 help 自身）────────────────────────
+// P1-1(2026-08-21 七维度审核): 原为硬编码 38 名单,漏 analysis/audit/debug/engine/qa/
+// translation/uid 7 个 2026-08 后新增工具,enum 直接拒绝其 help 调用。单一真相源改为
+// metaRegistry(module-loader 注册全量后为 45);直接 import 本模块(未走组合根)时注册表
+// 可能为空,降级为 ['help'] 自身。
 
-const TOOL_NAMES = [
-  'android', 'animation', 'animation_track', 'animtree', 'asset', 'audio', 'blender',
-  'cpp', 'csv_to_resources', 'docs', 'editor', 'game', 'godot_advanced_tool',
-  'godot_get_context', 'godot_list_dynamic_routes', 'godot_list_instances',
-  'godot_select_instance', 'help', 'load_skill', 'manage_tools', 'material', 'nav',
-  'particles', 'physics', 'profiler', 'project', 'runtime', 'runtime_assert', 'scene',
-  'screenshot', 'script', 'self_update', 'signal', 'testing', 'tilemap', 'ui',
-  'validation', 'workflow',
-] as const;
+function toolNameEnum(): string[] {
+  const names = getAllToolNames();
+  return names.length > 0 ? [...names].sort() : ['help'];
+}
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
 export function getToolDefinitions(): Tool[] {
+  const names = toolNameEnum();
   return [
     {
       name: 'help',
-      description: `获取任意工具的完整文档。可用工具名：${TOOL_NAMES.join(', ')}。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。`,
+      description: `获取任意工具的完整文档。可用工具名：${names.join(', ')}。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。`,
       inputSchema: {
         type: 'object' as const,
         properties: {
           tool_name: {
             type: 'string',
-            enum: [...TOOL_NAMES],
+            enum: names,
             description: '要查询的工具名',
           },
         },
@@ -64,7 +65,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
   if (name !== 'help') return null;
   const toolName = args.tool_name as string;
   if (!toolName) {
-    return textResult(JSON.stringify({ error: 'tool_name is required', available: [...TOOL_NAMES] }));
+    return textResult(JSON.stringify({ error: 'tool_name is required', available: toolNameEnum() }));
   }
 
   // 读 docs/tools/{toolName}.md
@@ -91,11 +92,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
   }
 
   // 文档不存在——返回拼写纠错
-  const suggestion = findClosestMatch(toolName, [...TOOL_NAMES]);
+  const available = toolNameEnum();
+  const suggestion = findClosestMatch(toolName, available);
   return textResult(JSON.stringify({
     error: `No documentation found for tool '${toolName}'`,
     suggestion: suggestion ? `Did you mean '${suggestion}'?` : undefined,
-    available: [...TOOL_NAMES],
+    available,
   }));
 }
 

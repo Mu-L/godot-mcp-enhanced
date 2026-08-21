@@ -126,14 +126,17 @@ export function readReport(pathRef: string): QaReport {
   else if (pathRef === 'prev') ref = all[1];
   else ref = pathRef;
   if (!ref) {
-    throw new Error(`无 QA 报告（${dir} 内 ${pathRef === 'prev' ? '不足 2 份' : '为空'}）。先 qa run。`);
+    // P2-17(2026-08-21 七维度审核): 不回显 qaReportsDir() 绝对路径(含用户名),
+    // 此消息经 qa/index 顶层 catch 直达 client
+    throw new Error(`无 QA 报告（${pathRef === 'prev' ? '不足 2 份' : '为空'}）。先 qa run。`);
   }
 
   let full: string;
   if (isAbsolute(ref) || ref.includes('/') || ref.includes('\\')) {
     const resolved = resolve(ref);
     if (!(resolved === dir || resolved.startsWith(dir + sep))) {
-      throw new Error(`report_path 必须位于 ${dir} 内（拒绝任意路径读取）: ${ref}`);
+      // P2-17: dir 绝对路径不回显;ref 是用户原始输入,回显可接受
+      throw new Error(`report_path 必须位于 QA 报告目录内（拒绝任意路径读取）: ${ref}`);
     }
     full = resolved;
   } else {

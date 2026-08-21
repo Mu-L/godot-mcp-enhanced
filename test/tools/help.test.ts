@@ -1,7 +1,28 @@
 import { describe, it, expect } from 'vitest';
+// P1-1(2026-08-21 七维度审核): TOOL_NAMES 改为从 tool-registry 注册表动态构建——
+// 测试须先显式注册组合根(module-loader 的 ALL_MODULES,与 GodotServer.ts:28 同款
+// 顶层 registerAllModules() 调用),否则注册表空、enum 降级 ['help']。
+import { registerAllModules } from '../../src/module-loader.js';
+
+registerAllModules();
 
 // 项目待办 :154 — help 工具端到端测试(审查 Important-2 补)
-// 守护 help.ts:74-86 的 docs/tools/{name}.md 读取逻辑 + :93-99 拼写纠错降级
+// 守护 help.ts 的 docs/tools/{name}.md 读取逻辑 + 拼写纠错降级
+
+describe('help 工具 — enum 动态构建(P1-1 防复发)', () => {
+  it('enum 含全部 45 工具(含 2026-08 后新增的 7 个,防硬编码名单再漏)', async () => {
+    const { getToolDefinitions } = await import('../../src/tools/help.js');
+    const def = getToolDefinitions()[0]!;
+    const enumNames = (def.inputSchema.properties?.tool_name as { enum?: string[] }).enum ?? [];
+    // 曾经漏掉的 7 个新工具逐一断言(P1-1 原硬编码 38 名单漏这些,enum 硬拒其调用)
+    for (const t of ['analysis', 'audit', 'debug', 'engine', 'qa', 'translation', 'uid']) {
+      expect(enumNames, `enum 应含 ${t}`).toContain(t);
+    }
+    expect(enumNames.length).toBeGreaterThanOrEqual(45);
+    // description 内嵌名单与 enum 同源(不再是独立硬编码)
+    expect(def.description).toContain('analysis');
+  });
+});
 
 describe('help 工具 — handleTool 端到端', () => {
   it('tool_name=android 返回 docs/tools/android.md 内容(非拼写纠错)', async () => {

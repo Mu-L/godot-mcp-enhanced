@@ -7,7 +7,7 @@ import {
   clearRegistry,
   getAllToolNames,
 } from '../src/core/tool-registry.js';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 
 describe('load_skill registration', () => {
   it('TOOL_GROUPS.code 含 load_skill', () => {
