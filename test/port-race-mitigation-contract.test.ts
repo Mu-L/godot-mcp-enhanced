@@ -19,9 +19,9 @@ describe('端口竞态缓解契约(_bind_available_port 随机起点)', () => {
     expect(s.includes('_crypto.generate_random_bytes(2)'), '随机源必须是 crypto(非 randi)').toBe(true);
   });
 
-  it('随机源不用 randi(playtest.seed 锁全局 randi,双实例同 seed 时 randi 同值随机化失效)', () => {
+  it('随机源不用 randi/randf(playtest.seed 锁全局 RNG,双实例同 seed 时同值随机化失效)', () => {
     const s = bindSlice();
-    expect(s.includes('randi()'), 'bind 段不得用 randi(seed 可锁定)').toBe(false);
+    expect(/rand[if]\s*\(/.test(s), 'bind 段不得用 randi/randf(seed 可锁定)').toBe(false);
   });
 
   it('env 显式指定时保持确定性(用户契约:clampi 分支在前)', () => {

@@ -24,8 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed — 端口竞态缓解落地(2026-08-21 裁决;批 2 open 项收口)
 
 - **`_bind_available_port` 默认场景起始候选随机化**:env `GODOT_MCP_BRIDGE_PORT` 未指定时起始候选 = `PORT_DEFAULT + crypto 随机 % PORT_ATTEMPTS`(env 显式指定保持确定性)。实测:无缓解时双实例同瞬 spawn 20 轮 **18 轮双 bind 假成功**(双方都从 9081 起步是碰撞主因);随机起点后 50 轮竞态命中 **2(≈4%)**,撞端口率 ≈10-15% 符合理论值且大部分被探测+递增避让消化。随机源用 `_crypto.generate_random_bytes` 而非 `randi()`——`playtest.seed` 锁全局 randi/randf,双实例同 seed 时 randi 同值随机化会失效。
-- **危害重估(降级)**:连错实例会被 auth 拒(secret 每实例密码学随机 + 严格本实例比对)——危害=显式 auth failed 需重跑(可用性),**非静默错连**(无数据安全问题),auth 是语义防线;且 qa nightly 为串行循环,实际触发面为多进程并行+毫秒级同瞬。非根治定位如实保留(1/PORT_ATTEMPTS 概率仍可命中,由 auth 兜底)。
-- 契约测试 3 用例(`test/port-race-mitigation-contract.test.ts`:随机化分支存在/禁 randi/env 优先);check:gdscript 零错;全量 6082 passed。
+- **危害重估(降级)**:连错实例会被 auth 拒(secret 每实例密码学随机 + 严格本实例比对)——危害=显式 auth failed 需重跑(可用性),**非静默错连**(无数据安全问题),auth 是语义防线;且 qa nightly 为串行循环,实际触发面为多进程并行+毫秒级同瞬。非根治定位如实保留(1/PORT_ATTEMPTS 概率仍可命中,由 auth 兜底)。**残留缝隙(审查 Important-B,与碰撞类不同)**:TS 侧 registry 不可读/漂移时回落 9081——随机化后 GD 约 90% 场景不在 9081,该回落从「无害」退化为「连不上」(触发面=Linux/macOS 显式 XDG_DATA_HOME 漂移等 registry 故障,桌面三平台基本可靠)。
+- 契约测试 3 用例(`test/port-race-mitigation-contract.test.ts`:随机化分支存在/禁 randi·randf/env 优先)+ 审查处置:环形取模保候选恒为 9081-9090(Nit-A 窗口漂移)/registry 回落措辞与残留缝披露(Nit-B)/批 2 审查文档带入本分支(Important-D 死链)/三处 9081 文案同步(game-bridge 提示+resources);check:gdscript 零错;全量 6082 passed。
 
 ### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
 

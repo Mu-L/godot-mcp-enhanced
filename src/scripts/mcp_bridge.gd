@@ -3,7 +3,8 @@ extends Node
 
 ## MCP Bridge Autoload — TCP + NDJSON protocol
 ## Install as autoload in project.godot to enable runtime game control via MCP.
-## Default port: 9081 (env GODOT_MCP_BRIDGE_PORT 可覆盖起点;被占时递增避让,见 _start_server)
+## Default port: 9081 (env GODOT_MCP_BRIDGE_PORT 可覆盖起点;未指定时起始候选在 9081-9090 内
+## crypto 随机(竞态缓解),被占时环形递增避让,见 _start_server/_bind_available_port)
 
 # A1 (2026-08-19 反馈 bridge 9081 多实例劫持): 端口不再固定 —— Windows 下两个 Godot 实例
 # bind 同一端口可能都"成功"(流量实际都到先占实例),listen 错误码不可靠;listen 前主动 connect
@@ -507,7 +508,9 @@ func _bind_available_port() -> bool:
 		var rb := _crypto.generate_random_bytes(2)
 		start_port = PORT_DEFAULT + (int(rb[0]) * 256 + int(rb[1])) % PORT_ATTEMPTS
 	for i in PORT_ATTEMPTS:
-		var candidate: int = start_port + i
+		# 审查Nit-A:环形取模保候选集合恒为 [PORT_DEFAULT, PORT_DEFAULT+PORT_ATTEMPTS-1]
+		# (随机起点+线性递增会漂到窗口外,与 instance-manager 分配窗口不对称)
+		var candidate: int = PORT_DEFAULT + ((start_port - PORT_DEFAULT + i) % PORT_ATTEMPTS)
 		if _port_in_use(candidate):
 			print("[MCP Bridge] Port %d already served by another instance, trying %d" % [candidate, candidate + 1])
 			continue
@@ -699,7 +702,8 @@ func _start_registry_heartbeat() -> void:
 	# N-2(审查·已知限制): OS.get_data_dir() 默认三平台两次 base_dir 归一到用户主目录,
 	# 与 TS 侧 instance-manager.getDefaultRegistryDir(~/.godot-mcp/instances) 对齐;
 	# 但 Linux/macOS 显式设置 XDG_DATA_HOME 时 GD 写 $XDG_DATA_HOME 上两级、TS 仍读 ~ 下,
-	# 两侧漂移 → resolveBridgePort 回落 9081(A1 退化为旧行为,无害不炸)。容器/Flatpak 环境留意。
+	# 两侧漂移 → resolveBridgePort 回落 9081(审查Important-B:起点随机化后 GD 约 90% 场景不在
+	# 9081,此回落从「无害」退化为「连不上」——非碰撞类缝隙,与 auth 兜底是两类问题;容器/Flatpak 留意)。
 	var machine_dir: String = OS.get_data_dir().get_base_dir().get_base_dir().path_join(".godot-mcp").path_join("instances")
 	# Project-level registry
 	var project_dir: String = ProjectSettings.globalize_path("user://").path_join(".godot").path_join("mcp-instances")
