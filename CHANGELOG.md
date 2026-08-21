@@ -21,6 +21,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 审查修复批 2:GD bridge 对称性(2026-08-20 专项审查 审查G-1/G-2/G-3/可靠性P2/F-4 处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 2 段)
+
+- **`_compare_values` 数值分支类型白名单(审查G-1 P2)**:target 非数值(int/float 外)return false,对齐 Vector 分支的 N-1 修复——防 String 条件值经 `float("abc")=0` 静默按 0 比较致 `step_until` 假阳性 PASSED(比 N-1 修的假阴性更隐蔽)。
+- **freeze 入口 pending 守卫(可靠性 P2)**:开窗期间(input_seq/step_until in flight)并发 freeze 拒(对齐 step 的 D-6 范式)——防 bridge PROCESS_MODE_ALWAYS 下帧照走事件照注入(游戏不消费)的时间线假成功。
+- **mouse button 语义 + 深预检扩展(审查G-2 P3)**:新增 `_mouse_button_from_value`(int 1-9 直通/left/right/middle 映射/非法 -1),底层 `send_mouse_click` 与 timeline 深预检同享——`button:"left"` 不再 `int()=0=MOUSE_BUTTON_NONE` 注入无效事件仍报 success;touch/drag 深预检 `index` 非负整数。
+- **isq_result 补 `all_applied` 诊断字段(F-4 Nit)**:部分事件 ok:false 时 success 仍 true(截断语义只看 wall_timeout),加 `.all()` 折叠字段一眼区分全量/部分注入,不改 success 判定;qa runner 截断诊断同步透传。
+- **coerce String 数值严格判定(审查G-3 P3)**:TYPE_INT/TYPE_FLOAT 的 String 分支改 `is_valid_int()/is_valid_float()` 严格判定——裸 `int()` 部分解析("5px"→5)/失败零值("abc"→0)消除,非法保留原值由类型不匹配显式暴露。
+- **端口竞态实测归档(open,修复被证伪回退)**:双进程同瞬 spawn 20 轮 **18 轮双 listen OK**(Windows 双 bind 假成功坐实,远超预估);「listen 后回探自连判属主」修复真机证伪(双属主 15/20 与零属主 6/6 两态漂移)已回退,`_bind_available_port` 注释留实测事实+候选缓解(起始候选随机化);途中抓到 TCPServer 无 poll() 方法(check:gdscript 逐文件 parse 查不出运行时方法存在性)。
+- **测试**:契约 12 用例(`test/gd-symmetry-contract.test.ts`,sliceBetween 正负断言,删守卫红测实验双红实证 G-1a/P2a)+ 行为级 e2e 4 用例真机(`test/e2e-gd-symmetry.test.ts`:String value 假阳性回归/数值正向不误伤/button:"left" 映射 1/button:"abc" 结构化拒;freeze 守卫单连接 _sendLock 下行为不可达,契约级覆盖诚实标注)+ 既有 input_sequence e2e 6/6 回归 + 全量 6091 passed。
+
 ### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
 
 - **`skills/game-wizard/SKILL.md`**(第 7 个打包 skill,双副本分发):四档分诊(没想法/模糊/清晰/已有项目)→ 阶段机 S0-S5(环境→造→改玩法→**qa 硬门**→导出→分享);**gate 以 qa CLI 退出码为唯一真相**(0=全 PASSED 才放行——「不问文档写了吗,问游戏跑通了吗」,对标 CCGS gate-check 的文件存在检测);改玩法纪律「GDD→调参表→代码」(能改 `tuning-src/*.csv` 不写码);非 Claude Code 客户端触达(`--target` 项目级安装 / `GODOT_SKILL_LIBRARIES` load_skill 检索 / 纯 CLI 序列直跑);首跑冷启动预热规则内置。
