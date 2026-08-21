@@ -164,7 +164,7 @@ export async function startMcpServer(args: string[]): Promise<void> {
 const args = process.argv.slice(2);
 
 (async () => {
-  const { isCliInvocation, showHelp, showVersion, routeCommand } = await import('./cli/router.js');
+  const { isCliInvocation, isUnknownCommand, showHelp, showVersion, routeCommand } = await import('./cli/router.js');
 
   if (args.includes('--help') || args.includes('-h')) {
     showHelp();
@@ -178,7 +178,19 @@ const args = process.argv.slice(2);
     await routeCommand(args);
     process.exit(0);
   }
+  // 2026-08-21 架构审查 MAJOR-1:非 flag 且非子命令(拼错的命令/误传路径)此前静默
+  // 启动 stdio MCP server 挂起等 stdin,显式报错退出。
+  if (isUnknownCommand(args)) {
+    console.error(`Unknown command: ${args[0]!}`);
+    console.error('Run "godot-mcp-enhanced --help" for usage.');
+    process.exit(1);
+  }
 
   // 默认: MCP stdio 模式
   await startMcpServer(args);
-})();
+})().catch((err: unknown) => {
+  // 2026-08-21 架构审查 MINOR:入口 IIFE 无 catch——子命令抛错(如 install 网络失败)
+  // 成为 unhandledRejection 而非干净的错误退出码。
+  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+  process.exit(1);
+});
