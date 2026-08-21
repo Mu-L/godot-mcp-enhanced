@@ -31,3 +31,9 @@ func get_probe_state() -> Dictionary:
 		"press_count": press_count,
 		"action_pressed": Input.is_action_pressed("jump"),
 	}
+
+# 坑4(2026-08-21 反馈批)e2e 探针:协程方法——call_method 默认应返 {coroutine:true},
+# await_completion=true 应等待并返真值。非 get_* 前缀,须 GODOT_MCP_BRIDGE_EXTRA_METHODS=slow_add。
+func slow_add(a: int, b: int) -> int:
+	await get_tree().process_frame
+	return a + b

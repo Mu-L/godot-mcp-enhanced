@@ -138,7 +138,23 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
   const autoloadEntry = `${entry.autoloadKey}="*res://${entry.destScriptName}"`;
   const autoloadRegex = /^\[autoload\]/m;
   if (autoloadRegex.test(config)) {
-    config = config.replace(autoloadRegex, `[autoload]\n${autoloadEntry}`);
+    // 反馈坑3(2026-08-21): 插到 [autoload] 段【末尾】而非段头——autoload 声明顺序即 _ready
+    // 执行顺序,override 排在游戏 autoload 之后,注入脚本的 _ready 可直接访问游戏单例
+    // (如 GameData.player)。段头插入曾致 _ready 时游戏 autoload 尚未初始化(null),
+    // 须手动 await <Singleton>.ready 兜底(文档未说明插入位置语义,踩坑 >5min)。
+    const header = config.match(autoloadRegex);
+    const headerEnd = (header?.index ?? 0) + header![0].length;
+    const rest = config.slice(headerEnd);
+    const nextSectionRel = rest.search(/^\[[^\]\r\n]+\]/m);
+    if (nextSectionRel === -1) {
+      // 段末即文件末(可能无尾换行)
+      const nl = config === '' || config.endsWith('\n') ? '' : '\n';
+      config += `${nl}${autoloadEntry}\n`;
+    } else {
+      // 插在下一个 [section] 头之前(该行首前的换行已存在,自帧行尾换行)
+      const insertAt = headerEnd + nextSectionRel;
+      config = config.slice(0, insertAt) + `${autoloadEntry}\n` + config.slice(insertAt);
+    }
   } else {
     config += `\n[autoload]\n${autoloadEntry}\n`;
   }

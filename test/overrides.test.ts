@@ -107,6 +107,51 @@ describe('P2-1 overrides.ts', () => {
       expect(overrideIdx).toBeLessThan(appIdx);
     });
 
+    it('反馈坑3: 插到 [autoload] 段末尾——在游戏 autoload 条目之后(不插段头)', () => {
+      // autoload 声明顺序即 _ready 执行顺序;段头插入曾致 override _ready 先于 GameData._ready
+      // 执行,访问游戏单例得 null(2026-08-19 反馈四坑之三)。
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n\n[autoload]\nGameData="*res://game_data.gd"\n\n[application]\nconfig/name="Test"\n', 'utf-8');
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+
+      installOverride(srcScript, projectDir);
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      const gameIdx = config.indexOf('GameData=');
+      const overrideIdx = config.indexOf('MCPOVERRIDE_log=');
+      const appIdx = config.indexOf('[application]');
+      expect(overrideIdx, 'override 须在游戏 autoload 之后(_ready 可访问游戏单例)').toBeGreaterThan(gameIdx);
+      expect(overrideIdx, 'override 不得越过下一 section').toBeLessThan(appIdx);
+    });
+
+    it('反馈坑3: [autoload] 段即文件末(无尾换行)——补行插末尾', () => {
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n\n[autoload]\nGameData="*res://game_data.gd"', 'utf-8');
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+
+      installOverride(srcScript, projectDir);
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      const lines = config.split('\n');
+      // 配置以 \n 结尾,split 末元素为空串——倒数第二行才是最后一条真实条目
+      expect(lines[lines.length - 2] ?? '', '末条目应为 override(带尾换行)').toMatch(/^MCPOVERRIDE_log=/);
+      expect(config.indexOf('MCPOVERRIDE_log='), '仍在 GameData 之后').toBeGreaterThan(config.indexOf('GameData='));
+    });
+
+    it('反馈坑3: 多次安装保持安装顺序(第二次插在第一次之后)', () => {
+      writeFileSync(join(projectDir, 'project.godot'),
+        'config_version=5\n\n[autoload]\nGameData="*res://game_data.gd"\n\n[application]\n', 'utf-8');
+      const a = join(sourceScriptDir, 'alpha.gd');
+      const b = join(sourceScriptDir, 'beta.gd');
+      writeFileSync(a, 'extends Node\n', 'utf-8');
+      writeFileSync(b, 'extends Node\n', 'utf-8');
+
+      installOverride(a, projectDir);
+      installOverride(b, projectDir);
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      expect(config.indexOf('MCPOVERRIDE_beta='), '后装在后').toBeGreaterThan(config.indexOf('MCPOVERRIDE_alpha='));
+    });
+
     it('throws if source script not found', () => {
       expect(() => installOverride(join(sourceScriptDir, 'nope.gd'), projectDir))
         .toThrow(/source script not found/i);
