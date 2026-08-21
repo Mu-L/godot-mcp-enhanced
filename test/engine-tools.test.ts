@@ -43,7 +43,7 @@ describe('CMP-4: engine 工具定义（TS 契约）', () => {
 
 describe('CMP-4: engine 注册链路（源码字面量契约）', () => {
   it('CMP-4e: module-loader.ts 注册 engine 模块', () => {
-    const src = readFileSync('src/core/module-loader.ts', 'utf8');
+    const src = readFileSync('src/module-loader.ts', 'utf8');
     expect(src.includes("import * as engine from"), 'module-loader 未 import engine').toBe(true);
     const allModStart = src.indexOf('const ALL_MODULES');
     const slice = src.slice(allModStart, allModStart + 1200);

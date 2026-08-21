@@ -14,8 +14,10 @@ import type { Tool } from '@modelcontextprotocol/server';
 import { textResult } from '../types.js';
 import { sendToBridge } from './game-bridge.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, isAbsolute, dirname, sep } from 'path';
+import { resolve, isAbsolute, dirname, sep, basename } from 'path';
 import { PNG } from 'pngjs';
+import { classifyError } from '../core/tool-errors.js';
+import { getLogger } from '../core/logger.js';
 import { diffPngBuffers } from './screenshot-detail.js';
 import { isPathInAllowedRoots } from '../core/path-utils.js';
 import { resolveGameDataPath } from './game-fs.js';
@@ -108,8 +110,12 @@ export async function handleTool(name: string, args: Record<string, unknown>, _c
         return textResult(JSON.stringify({ success: false, error: `Unknown action: ${action}`, error_code: 'INVALID_PARAMS' }));
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return textResult(JSON.stringify({ success: false, error: `Assert failed: ${msg}`, error_code: 'ASSERT_ERROR' }));
+    // P2-17(2026-08-21 七维度审核): 顶层兜底此前直拼 err.message(常含绝对路径)进
+    // 成功返回的 ToolResult,绕过主 catch 的 G2 PII 护栏——改用 classifyError 的
+    // safeMessage(EditorToolExecutor 前科修复同款),完整错误只进 server 日志。
+    getLogger().error('runtime_assert', `action=${action} failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+    const { safeMessage } = classifyError(err);
+    return textResult(JSON.stringify({ success: false, error: `Assert failed: ${safeMessage}`, error_code: 'ASSERT_ERROR' }));
   }
 }
 
@@ -303,7 +309,8 @@ export async function assertScreenshotDiff(args: Record<string, unknown>): Promi
   }
   const projAbs = resolve(projectPathRaw);
   if (!isPathInAllowedRoots(projAbs)) {
-    return textResult(JSON.stringify({ success: false, error: `project_path 不在 ALLOWED_PROJECT_PATHS 白名单内: ${projAbs}`, error_code: 'INVALID_PATH' }));
+    // P2-17: 不回显 resolve 后的绝对路径(PII 护栏立场与 dispatcher 一致)
+    return textResult(JSON.stringify({ success: false, error: 'project_path 不在 ALLOWED_PROJECT_PATHS 白名单内(检查环境变量或配置的项目根)', error_code: 'INVALID_PATH' }));
   }
   // reference 解析:res:// → 项目内;相对 → 项目内;绝对直用;统一过白名单
   let refAbs: string;
@@ -311,7 +318,8 @@ export async function assertScreenshotDiff(args: Record<string, unknown>): Promi
   else if (isAbsolute(reference)) refAbs = resolve(reference);
   else refAbs = resolve(projAbs, reference);
   if (!isPathInAllowedRoots(refAbs)) {
-    return textResult(JSON.stringify({ success: false, error: `reference 不在 ALLOWED_PROJECT_PATHS 白名单内: ${refAbs}`, error_code: 'INVALID_PATH' }));
+    // P2-17: 不回显 resolve 后的绝对路径(PII 护栏立场与 dispatcher 一致)
+    return textResult(JSON.stringify({ success: false, error: `reference 不在 ALLOWED_PROJECT_PATHS 白名单内: ${basename(refAbs)}`, error_code: 'INVALID_PATH' }));
   }
 
   const resp = await sendToBridge('take_screenshot', {});
@@ -332,8 +340,9 @@ export async function assertScreenshotDiff(args: Record<string, unknown>): Promi
   try {
     refBuf = readFileSync(refAbs);
     actualBuf = readFileSync(localShot);
-  } catch (e) {
-    return textResult(JSON.stringify({ success: false, error: `读图失败: ${(e as Error).message}`, error_code: 'ASSERT_ERROR' }));
+  } catch {
+    // P2-17: ENOENT 的 err.message 含完整绝对路径——回显文件名即可定位,不泄路径
+    return textResult(JSON.stringify({ success: false, error: `读图失败(文件缺失或不可读): 参考图 ${basename(refAbs)} / 截图 ${basename(localShot)}`, error_code: 'ASSERT_ERROR' }));
   }
 
   let diff;

@@ -5,7 +5,7 @@ import { join } from 'path';
 import { getToolDefinitions, handleTool, TOOL_META } from '../src/tools/self-update.js';
 import { _resetPathAllowWarned } from '../src/core/path-utils.js';
 import { isReadOnly } from '../src/core/tool-registry.js';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);

@@ -89,8 +89,12 @@ export function spawnGodot(
       clearTimeout(timer);
       if (settled) return;
       settled = true;
-      const { out, errOut } = collectOutput();
-      resolve({ stdout: out, stderr: errOut + `\nError: ${err.message}`, output: out + errOut + `\nError: ${err.message}`, exitCode: -1, timedOut: false });
+      const { errOut } = collectOutput();
+      // P3(2026-08-21 七维度审核): 与同步 spawn throw 同款 SPAWN_FAILED: 前缀——
+      // 消费方(如 scene/index.ts)以 startsWith('SPAWN_FAILED:') 分类错误,此前 ENOENT
+      // 走异步 error 事件无前缀,两路径错误分类不一致(错误不丢但语义分叉)。
+      const fail = `SPAWN_FAILED: ${err.message}`;
+      resolve({ stdout: fail, stderr: errOut, output: fail + (errOut ? `\n${errOut}` : ''), exitCode: -1, timedOut: false });
     });
   });
 }

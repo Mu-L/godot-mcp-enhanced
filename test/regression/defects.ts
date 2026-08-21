@@ -10,7 +10,7 @@ import { countMatchesInFile, countMatchesInDir, fileContains, readSrc, PROJECT_R
 // ts-gdscript-tool-drift 复用 M1
 import { diffMatrices } from '../../src/capability/diff-matrix.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import type { ToolCapability } from '../../src/capability/schema.js';
 
 export type DefectStatus = 'open' | 'fixed';
@@ -448,7 +448,9 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // 的 _invalidateSocket 必须有 _socket === sock 守卫。废弃 socket(A 被 B 替换后)的异步 close/error
     // 事件若不加守卫会错误 invalidate 新 socket B。detect 计守卫数,期望 5(2 持久 + timer + onError + onClose)。
     detect: () => {
-      const f = readSrc('src/tools/game-bridge.ts');
+      // 2026-08-21 架构审查 MAJOR-3:客户端核心(_doConnect/sendToBridge 及全部守卫)拆分到
+      // src/core/bridge-client.ts,detect 路径随之迁移(快照类检测须跟随代码真实位置)
+      const f = readSrc('src/core/bridge-client.ts');
       const guards = (f.match(/if \(_socket === sock\) _invalidateSocket\(\)/g) || []).length;
       return Math.max(0, 5 - guards);
     } },
@@ -1651,7 +1653,7 @@ export const OPEN_DEFECTS: DefectEntry[] = [
     // _runningProcess / _socket / _outputBuffer / CallRecorder _instance 单例），Node 单线程 +
     // _connectionLock/_sendLock 已加锁，无并发竞态。detect 计架构气味非缺陷，降 ADVISORY。保留 OPEN（baseline 防恶化）。
     detect: () => countMatchesInDir('src', /^let _/gm, /\.ts$/),
-    baseline: 63 }, // ...60→63: G-1(2026-08-14) game-bridge.ts 增 _subscriptions/_resendInFlight/_keepaliveTimer(订阅登记表+重发锁+keepalive timer,断线恢复修复:935,同 _socket/_connectionLock 既有连接状态模式); ...58→60: A6(2026-08-14) instance-api-auth.ts 增 _noncesLoaded/_noncePersistWarned(nonce 持久化生命周期标志,同 _lastNonceCleanup 既有单模块状态模式); ...56→58: P3-6 game-bridge.ts 增 _pushMessageHandler + _pushBuffer(bridge push 模式常驻 data handler,同 _socket/_socketBuffer 既有连接状态模式); ...55→56: P1-3 logger.ts 增 _requestLogFn
+    baseline: 64 }, // ...63→64: d20b1ff 移植(2026-08-21 七维度审核④) core/bridge-client.ts 增 _sendInflight(in-flight 计数器,根治 setBridgeProjectDir 的 Promise 引用比较恒误报;同 _sendLock 既有并发原语模式,C 组下沉时该修复未随迁本次补齐); ...60→63: G-1(2026-08-14) game-bridge.ts 增 _subscriptions/_resendInFlight/_keepaliveTimer(订阅登记表+重发锁+keepalive timer,断线恢复修复:935,同 _socket/_connectionLock 既有连接状态模式); ...58→60: A6(2026-08-14) instance-api-auth.ts 增 _noncesLoaded/_noncePersistWarned(nonce 持久化生命周期标志,同 _lastNonceCleanup 既有单模块状态模式); ...56→58: P3-6 game-bridge.ts 增 _pushMessageHandler + _pushBuffer(bridge push 模式常驻 data handler,同 _socket/_socketBuffer 既有连接状态模式); ...55→56: P1-3 logger.ts 增 _requestLogFn
     // CallRecorder(Task 2 e6188ab)增 _instance 单例 42→43；get-context 批1(9142939 后)增 _connectionStatusProvider DI(同 manage-tools 模式) 43→44；批2 Task 3(f857615)增 setEditorSceneProvider DI(同模式) 44→45；MCP Roots 动态授权(Task 1 _dynamicRoots, 参照 call-recorder.ts:30 先例注释) 45→46；MCP Logging(Task 1 _mcpServer + _clientReady 注入 setter, 同 setMcpServer/_singletonWarned 既有模式) 46→48；MCP Progress(Task 1 b43ba4b _progressSender + _progressClientReady 注入 setter, 同 Logging 既有模式) 48→50；MCP Elicit(Task 1 _elicitServer 单值注入, 同 logger/progress server 注入模式但无 clientReady——elicitInput 是 request 非 notification) 50→51
   // ts-args-as-cast-no-validation 移 FIXED(2026-06-27 args-validator 接入,detect 改查入口)
   // version-hardcoded-drift 移 FIXED(2026-06-27 detect 改查可执行路径硬编码,剔除 verifiedGodotVersion 元数据 → 0)

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isToolAllowed, getGroupForTool, getAllToolDefinitions } from '../../src/core/tool-registry.js';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 
 // 触发注册：module-loader 仅定义 registerAllModules，不会在 import 时自动执行，
 // 需显式调用（与 test/capability/guard-export.test.ts 等 17 个测试同模式）。

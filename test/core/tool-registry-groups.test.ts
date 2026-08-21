@@ -12,7 +12,7 @@ import {
   getToolDefinition,
   getAllToolDefinitions,
 } from '../../src/core/tool-registry.js';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 
 describe('TOOL_GROUPS enhanced', () => {
   it('each group has description, tools, requires, protected fields', () => {

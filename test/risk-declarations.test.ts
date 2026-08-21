@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 import { getActionRisk } from '../src/core/tool-registry.js';
 
 registerAllModules();

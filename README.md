@@ -16,7 +16,7 @@
 
 1. **说需求** — AI `create_project` 建项目、`quick_scene` / `write_script` 写场景与脚本;
 2. **看效果** — `run_and_verify` 真跑一遍并做结构化错误分析,`screenshot`(action `capture`)截图给你看现在的样子;
-3. **迭代** — AI `edit_script` 改完自动过 `validate_scripts` 完整编译验证;你只管提意见;
+3. **迭代** — AI `edit_script` 改完自动过 `validate_scripts` 逐脚本编译验证;你只管提意见;
 4. **验收** — `qa` 用结构化测试套件起真游戏跑断言(`playtest.seed` 锁随机,同输入可复现);`verify_delivery` 交付门禁检查场景树完整性 + 脚本健康 + 性能;
 5. **出错不慌** — editor 层操作全进 Godot 原生 undo 栈,AI 改错一步,打开编辑器一步 **Ctrl+Z** 即回。
 
@@ -188,7 +188,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 ```
 
 - **`verify_delivery`** — 端到端交付门禁:场景树完整性 + 脚本健康 + 性能 + 自定义断言
-- **`validate_scripts`** — 触发 Godot 完整编译(含跨文件依赖),捕获 headless 遗漏的 Parse Error
+- **`validate_scripts`** — 逐脚本执行 Godot `load()` 编译验证(非项目级完整编译,后者用 `npm run check:gdscript`),捕获 headless 遗漏的 Parse Error
 - **`dev_loop`** — 执行 → 验证 → 截图一体化,支持 acceptance 验收标准
 
 闭环示例:AI 用 `read_scene` 理解 → `write_script` 改 → `run_and_verify(capture_tree=true)` 跑+分析 → `validate_project` 查资源 → `batch_add_nodes` 批建 → `import_resources` 注册 → 有问题回到改脚本。
@@ -233,7 +233,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 |------|------|
 | `run_and_verify` | 一键 headless 运行并返回结构化错误/警告分析。支持 `capture_tree` 选项同时获取场景树快照。自动检测版本不一致和脚本语法错误。 |
 | `analyze_error` | 重新分析 Godot 输出文本，提供修复建议 |
-| `validate_scripts` | 对每个脚本执行 Godot `load()` 编译验证（触发完整编译，含跨文件依赖解析），检测 headless 运行可能遗漏的 Parse Error |
+| `validate_scripts` | 对每个脚本执行 Godot `load()` 编译验证（逐文件解析,非项目级完整编译——后者用 `check:gdscript`）,检测 headless 运行可能遗漏的 Parse Error |
 
 ### 动态执行工具
 
@@ -354,7 +354,7 @@ read_scene / read_script → 理解结构 → write_script / edit_script
 
 | 工具 | 说明 |
 |------|------|
-| `game_bridge_install` | 安装 MCP Bridge autoload 到项目（WebSocket 服务端） |
+| `game_bridge_install` | 安装 MCP Bridge autoload 到项目（TCP 服务端,NDJSON 协议,仅 127.0.0.1） |
 | `game_bridge_uninstall` | 卸载 MCP Bridge autoload |
 | `game_query` | 查询运行中游戏状态（场景树/节点属性/性能/视口） |
 | `game_input` | 向运行中游戏发送输入事件（键盘/鼠标/文本） |
@@ -631,7 +631,7 @@ setup_project_rules(project_path="你的项目路径")
 | `GODOT_MCP_INSTALL_TAG` | CLI `install` 固定版本 tag(如 `4.7.2-stable`,跳过 latest 查询;测试/复现用) | 未设(latest) |
 | `GODOT_MCP_PROFILE` | 工具 profile(basic/lite/minimal/full/bridge_dev/3d_dev 或逗号组名)。**默认 basic**(BREAKING from full;lite 9 组省 ~60% context,RCE action 经 action-gate 默认 gated)。回退全量:`GODOT_MCP_PROFILE=full` 或 `--profile=full` | `basic` |
 
-> **⚠️ BREAKING(G7)**:默认 profile 从 `full` 改 `basic`(对齐 GoPeak compact,省 AI context window)。升级后 tools/list 只暴露 basic(lite 9 组:core/bridge/animation/audio/signal/visual/code/test/profiler)。回退全量 41 工具:`GODOT_MCP_PROFILE=full`;或 AI 运行时 `manage_tools activate <groups>` 动态扩容(无需重启)。RCE action(execute_gdscript 等)始终经 action-gate gated,需 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 解锁。
+> **⚠️ BREAKING(G7)**:默认 profile 从 `full` 改 `basic`(对齐 GoPeak compact,省 AI context window)。升级后 tools/list 只暴露 basic(lite 9 组:core/bridge/animation/audio/signal/visual/code/test/profiler)。回退全量 45 工具:`GODOT_MCP_PROFILE=full`;或 AI 运行时 `manage_tools activate <groups>` 动态扩容(无需重启)。RCE action(execute_gdscript 等)始终经 action-gate gated,需 `GODOT_MCP_PRIVILEGED_GROUPS=code-execution` 解锁。
 
 > **注意：** 项目路径有 30 秒缓存。切换项目后等待 30 秒或重启 MCP server 使新路径生效。
 
@@ -734,6 +734,7 @@ npm install && npm run build
 
 | 版本 | 日期 | 要点 |
 |------|------|------|
+| **v0.32.9** | 2026-08-21 | **架构审查修复批 + 七维度全面审核修复批**(报告 `docs/reviews/2026-08-21-seven-dimension-audit.md`,6 P1+12 P2):help 工具 enum 从注册表动态构建(原硬编码漏 7 个新工具致调用被拒);recording 规则双副本通篇更正为新 action 名 `record_*`(原 `recording_*` 按规则调用必败,双副本一致地错被 STRICT 门禁漏网);CLI 参数双形式统一(init/qa/skills 单形式静默失败修复);MCP server 进程级兜底(unhandledRejection/uncaughtException);qa teardown 补 unfreeze(freeze 后 abort 不残留永久暂停);zip 读侧大小强校验;editor WebSocket listen 前端口预探测(对齐 bridge 侧);工具层 PII 收敛(catch-and-return 不再直泄绝对路径);分发模板 13100 端口错误清除(实际 9090-9094);bridge 协议 README 更正(TCP+NDJSON);版本号由规则模板硬门禁强制 bump(npm 发版待用户定夺)。45 工具/248 action。 |
 | **v0.32.8** | 2026-08-20 | **确定性完全体批(护城河研究 H1+叙事正名)**:bridge 新增 `send_input_sequence` 帧定时输入时间线(`timeline=[{at_frame:1-600 开窗后第N帧, type:action/key/mouse_click/mouse_move/touch/drag, ...}]`,延迟响应、owner 互斥同 control 层、frozen 下自动开窗播放+完成 refreeze、注入复用 send_* 零重复、at_frame/key/action 深预检 all-or-nothing)——与 `playtest.seed`/`fixed_delta`/`freeze` 组合达成 L3 真确定性完全体(seed 锁随机+时间线锁输入+快照恢复),为同赛道唯一(竞品最高仅 L1 固定帧 step 或 L2 输入时序,均无 RNG 锁定);qa input 步骤透传接线(超时按 wall_budget 自动放宽,game 工具同款);README 叙事三连——「AI 游戏开发的持续验证管线」定位(verification vs authoring)、「确定性分级」表(L1 帧步进/L2 输入时序/L3 真确定性,回应竞品 "Deterministic" 术语挪用)、editor undo 覆盖叙事(8 命令模块 45 处 action 注册,核查命令随附);测试 18 单测+契约 + e2e 6 用例真机全绿(fixture input-seq-e2e 探针记录 first_seen_frame 锚定帧对齐,含 wall_timeout 截断正向场景);版本号由规则模板变更硬门禁强制 bump(npm 发版待用户定夺)。45 工具/248 action。 |
 | **v0.32.7** | 2026-08-20 | **分发优先批（竞品横扫行动，除 P0-1 网页提审全项）**:`configure <client>` 定向配置子命令（--list/--force/名字归一化）+ Warp 适配器（第 15 客户端，working_directory 显式设项目根）;`uid` 工具 4 action（Godot 4.4+ 文件 UID:scan 缺失/孤儿、get 批量、set 确定性生成/fix_missing、check_refs 悬空引用）;`translation` 工具 3 action（CSV/PO 读写 + project.godot 注册，纯 TS）;capability-matrix「范围取舍」段（VisualShader 明确不做）;`skills install` 一键装入 6 个打包 skills（对标 godogen 分流路线）;云路由评估（暂不做）。工具 43→45 / action 241→248，新 resources 组，版本号由规则模板计数变更硬门禁强制 bump（npm 发版待用户定夺，latest 仍 0.32.6）。 |
 | **v0.32.6** | 2026-08-19 | **tilemap 可选 scene_path(外部贡献 PR#36,thefireKS)**:tilemap 八个 action 新增可选 `scene_path`——传入则 `_mcp_load_scene()` 加载指定场景并在其中解析节点(`_mcp_get_scene_node()` 自动剥 root/ 前缀与场景根名),省略则生成脚本逐字节不变(仍主场景);此前八生成器硬编码 `application/run/main_scene`,主场景是菜单的项目只能拿到误导性的 TILEMAP_NOT_FOUND。`scene_path` 经 resolveWithinRoot 白名单(越界 INVALID_PARAMS+负向测试);九处重复 preamble 收敛 scenePreamble;转义对齐 escapeForGdLiteral;作者真机 Godot 4.6.2 端到端验证(575 cells)。43 工具/241 action。 |

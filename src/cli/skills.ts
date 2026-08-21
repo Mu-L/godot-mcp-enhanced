@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSy
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { opt, hasFlag } from './args.js';
 
 /** 打包内 skills 分发目录(相对本文件:build/cli/ → 包根 skills/) */
 export function packagedSkillsDir(): string {
@@ -87,9 +88,10 @@ export async function runSkills(args: string[]): Promise<void> {
 
   if (sub === 'install') {
     // --target <dir>:装入指定目录(项目级 .claude/skills/);默认 ~/.claude/skills/(用户级)
-    const targetIdx = args.indexOf('--target');
-    const explicitTarget = targetIdx >= 0 ? args[targetIdx + 1] : undefined;
-    if (targetIdx >= 0 && !explicitTarget) {
+    // P2-9(七维度审核): 双形式(此前 indexOf 精确匹配只认空格形式,--target=<dir>
+    // 静默落回用户级目录装错位置)
+    const explicitTarget = opt(args, 'target');
+    if (hasFlag(args, 'target') && !explicitTarget) {
       console.error('✗ --target requires a directory argument');
       process.exit(1);
       return;

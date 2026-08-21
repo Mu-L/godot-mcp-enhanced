@@ -105,7 +105,7 @@ godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 d
 
 部分工具在 headless 进程中创建/修改节点，但**这些变更不持久化到 .tscn 文件**：
 
-- **运行时工具**（不持久化）：signal_connect/disconnect/emit、node_create_3d、physics_raycast、tilemap_*、audio_*、particles_*、ui_*、recording_* 等
+- **运行时工具**（不持久化）：signal(action=connect/disconnect/emit)、scene(action=create_3d_node)、physics(action=raycast)、tilemap_*、audio_*、particles_*、ui_*、runtime(action=record_*) 等
 - **持久化方法**：使用 add_node（写入 .tscn）+ save_scene 保存。或用 write_script / edit_script 修改 .gd 文件。
 
 > 运行时工具适合验证和测试。若需持久化场景修改，必须使用 add_node + save_scene。
@@ -242,7 +242,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | \`reconnect\` | 触发 EditorConnection 重新连接（bridge 无持久连接，no-op） |
 
 **行为说明**：
-- \`reconnect\` 仅影响 Editor WebSocket 连接（端口 13100）。Bridge 使用 TCP 一次性连接，无持久会话可重连，故 no-op。
+- \`reconnect\` 仅影响 Editor WebSocket 连接（端口 9090-9094）。Bridge 为持久 TCP 连接（30s keepalive、断线自动重连并重发订阅），无显式重连语义，故 no-op。
 - \`sync\` 返回结构：\`{ groups: [{ name, requires, status }, ...], editor: { installed, connected, state }, bridge: { note } }\`。其中 **status**:editor 组 = \`connected\`/\`disconnected\`(基于 editor 连接);bridge 组 = \`probe-required\`(用 \`game_query(method=ping)\` 探测);无 requires 组(core/animation/ui 等)= \`n/a\`。**editor.state**:连上时用 healthMonitor(工具调用健康),未连报 \`disconnected\`,未启动报 \`null\`。**editor.installed** = editorConn 是否注入(launch_editor 后 true)。
 
 ## 使用指南
@@ -362,8 +362,8 @@ game_query(method="ping")
 - **密钥文件权限**：Windows 上可能需要 icacls 权限。Linux/macOS 上自动 chmod 0600。
 - **密钥权限循环**：Bridge 首次运行后将密钥文件权限收紧为只读（Windows: \`(R)\` only），导致后续启动时无法重写密钥而中止（"Failed to write secret — aborting Bridge startup"）。**解决**：手动恢复写入权限 \`icacls ".godot/mcp_bridge_9081.secret" /grant "%USERNAME%:(W)"\`，或删除密钥文件让 Bridge 重新生成。**S4 治本（v0.18.x+）**：设置环境变量 \`GODOT_MCP_BRIDGE_PERSISTENT_SECRET=true\`，Bridge 复用现有 secret 文件（不重生、不收紧、\`_exit_tree\` 不删除），彻底打破权限循环并与 MCP 端 5min TTL 缓存保持同步。仅本地测试用（安全降级，生产保持默认 false）。
 - **节点路径必须用绝对路径**：\`game_write\`、\`game_wait\` 等的 \`path\` 参数必须以 \`/root/\` 开头（如 \`/root/Main/Player\`），不接受 \`root/Main/Player\` 格式。\`game_query(method="get_tree")\` 返回的路径可用于参考。
-- **与录制系统**：recording_start 依赖 Bridge 连接。确保 Bridge 可用后再录制。
-- **端口 9081 冲突**：如果端口被占用，需要手动修改 autoload 脚本中的端口配置。
+- **与录制系统**：\`runtime(action="record_start")\` 依赖 Bridge 连接。确保 Bridge 可用后再录制。
+- **端口 9081 冲突**：端口被占时自动递增避让（9081 起，最多尝试 10 个候选）；可用环境变量 \`GODOT_MCP_BRIDGE_PORT\` 设起点，无需修改 autoload 脚本。
 - **密钥缓存**：5 分钟 TTL 后首次调用会重新读取密钥文件，可能有短暂延迟。
 - **monitor 最大属性数**：单次监控最多 20 个属性（MONITOR_MAX_PROPERTIES），超出会报错。
 - **monitor 自动停止**：采样达到 500 条（_monitor_max_samples）后自动停止。
@@ -389,7 +389,7 @@ alwaysApply: false
 Editor 模式通过 WebSocket JSON-RPC 2.0 连接 Godot 编辑器内的 GDScript 插件，实时操作当前打开的场景。
 
 - **插件位置**：\`addons/godot_mcp_server/\`（需安装在目标项目中）
-- **连接机制**：launch_editor 启动编辑器后，服务端自动检测 WebSocket 连接（端口 13100）
+- **连接机制**：launch_editor 启动编辑器后，服务端自动检测 WebSocket 连接（端口 9090，被占自动递增至 9094）
 - **回退策略**：无编辑器连接时自动回退到 Headless 模式；设置 \`GODOT_MCP_NO_FALLBACK=true\` 禁止回退
 
 ## 工具清单与对比
@@ -471,7 +471,7 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **forward 机制**：未明确处理的工具名会自动转发到编辑器插件，可能产生意外行为。
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **launch_editor 崩溃恢复（2026-08-07 审查 P2 文档化）**：launch_editor 是 fire-and-forget（detached + unref），不跟踪编辑器生命周期。编辑器崩溃后：① WS 断开 → EditorConnection 自动重连（20 次指数退避）；② 重连耗尽 → reconnectExhausted handler → handleEditorStall 降级 headless（用户可用 headless 工作）；③ 非 PERSISTENT_SECRET 模式下崩溃即删 secret，rebuildEditorConnection 需 secret 文件 → rebuild 失败需手动重新 launch_editor 或重启 MCP server。**用户预期管理**：系统不会自动重启崩溃的编辑器，需手动 launch_editor 或重启 server。心跳降级走 B-T5 分流（REQUEST_TIMEOUT 主线程卡死 → 降级；NOT_CONNECTED/CONNECTION_LOST 下线 → 让自动重连兜底不降级）。
-- **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
+- **端口冲突**：默认端口 9090（\`BASE_PORT\`），被占自动递增至 9094；MCP 端默认连 9090，多实例场景可用 \`GODOT_EDITOR_PORT\` 指定。
 - **editor 插件 4.7 Vector 类兼容**：早期记忆称 4.7 编译失败（Vector.from_string 等 4.6 API 移除），但 master 已迁移（Vector→\`_count_number_components\`，\`Color.from_string\` 4.7 保留），headless 工具 4.7 正常。**但 \`godot --check-only <file>\` 是假绿**：该用法只打 banner 不触发编译（4.7+4.6.2 实测），2026-06-26 据此称"6 文件全编译通过"不可信。addon 全量编译验证应用 \`godot --headless --import --path test/fixtures/gdscript-check\`（启用 plugin + 建全局类 class_name 缓存）。
 - **原生类虚函数禁 super()（2026-07-04 修复 654b162 回归）**：\`super()\`（无方法名）对 Godot 原生类（EditorPlugin/Node/VBoxContainer）虚函数（\`_ready\`/\`_process\`/\`_enter_tree\`/\`_exit_tree\`，**含 \`_init\`**）一律是 **Parse Error**："Cannot call the parent class' virtual function ... hasn't been defined"，**4.6.2+ 均报（非 4.7 特有）**。调父类实现用 \`super._method()\`（带方法名）显式形式。IMP-4 "虚函数首行调 super" **仅适用 extends 自定义基类**（见 CHANGELOG \`mcp_bridge.gd\` 移除 super 先例 + \`docs/review-followup-2026-06-18.md:93\`）。654b162（v0.19.0）误加 6 处 super() 致 addon 加载失败/9090 不监听；2026-07-04 移除（plugin/websocket_server/status_panel），4.7+4.6.2 \`--import\` 实测全量编译通过。
 - **editor 模式 WebSocket 端口 9090-9094（非 13100）**：\`addons/godot_mcp_server/websocket_server.gd:3\` \`BASE_PORT=9090\`。\`editor_get_scene_tree\` 返回 \`EDITOR_NOT_CONNECTED\` 通常是**端口/key/未就绪**问题（非编译）：需 \`mcp_editor.key\` icacls 权限 + 等 editor GUI 就绪（插件 WebSocket 监听 9090）+ MCP 端连对端口。详见 [[godot-editor-plugin-e2e-verification]]。
@@ -757,7 +757,7 @@ ui_create_control(
 
 ## 常见陷阱
 
-- **运行时默认不持久化**：UI 布局工具创建的节点在 headless 进程退出后丢失。\`ui_build_layout(persist=true)\` 可原子写 .tscn（pack → tmp → rename，默认 false）；其余持久化替代方案：\`add_node\` + \`save_scene\` 逐个写入，或 \`scene_commit\`（批量 node_property/node_add 操作）直接编辑 .tscn。
+- **运行时默认不持久化**：UI 布局工具创建的节点在 headless 进程退出后丢失。\`ui_build_layout(persist=true)\` 可原子写 .tscn（pack → tmp → rename，默认 false）；其余持久化替代方案：\`add_node\` + \`save_scene\` 逐个写入，或 \`scene(action="commit")\`（批量 node_property/node_add 操作）直接编辑 .tscn。
 - **Container 子节点必须是 Control**：向 HBoxContainer/VBoxContainer 等容器添加非 Control 子节点会报错。
 - **CSS 属性回退**：\`wrap\`、\`order\`、\`flex-shrink\`、\`max-width/height\` 等 CSS 属性在 Godot 中无对应，会被忽略。
 - **grid 方向必须指定 columns**：使用 \`direction: "grid"\` 时必须同时指定 \`columns\` 数量。
@@ -765,7 +765,7 @@ ui_create_control(
 `,
 
   'godot-mcp-recording.md': `---
-description: "recording recording_start recording_stop recording_save recording_load recording_play 录制 回放 输入事件 bridge E2E 测试 regression 操作复现 输入捕获 事件重放"
+description: "recording record_start record_stop record_save record_load record_play 录制 回放 输入事件 bridge E2E 测试 regression 操作复现 输入捕获 事件重放"
 alwaysApply: false
 ---
 
@@ -775,19 +775,20 @@ alwaysApply: false
 
 录制系统捕获用户输入事件（键盘/鼠标），序列化为 JSON，可在后续回放。
 
+- **工具入口**：\`runtime\` 工具的 \`record_start\`/\`record_stop\`/\`record_save\`/\`record_load\`/\`record_play\` 五个 action（v0.18 合并，原独立 \`recording_*\` 工具已并入）
 - **依赖**：Game Bridge 必须已连接（输入事件通过 Bridge 发送和捕获）
 - **存储位置**：\`res://recordings/recording_*.json\`（项目内）
 - **使用场景**：E2E 测试用例录制、回归测试、Bug 复现、操作自动化
 
-## 工具清单
+## action 清单（runtime 工具）
 
-| 工具 | 说明 | 前提 |
+| action | 说明 | 前提 |
 |------|------|------|
-| \`recording_start\` | 开始捕获输入事件 | Bridge 已连接 |
-| \`recording_stop\` | 停止捕获，返回事件 JSON | 录制进行中 |
-| \`recording_save\` | 保存到 res://recordings/ | events_json 参数 |
-| \`recording_load\` | 从文件加载录制 | 文件名匹配 recording_*.json |
-| \`recording_play\` | 回放录制的输入事件 | Bridge 已连接 + events_json |
+| \`record_start\` | 开始捕获输入事件 | Bridge 已连接 |
+| \`record_stop\` | 停止捕获，返回事件 JSON | 录制进行中 |
+| \`record_save\` | 保存到 res://recordings/ | events_json 参数 |
+| \`record_load\` | 从文件加载录制 | 文件名匹配 recording_*.json |
+| \`record_play\` | 回放录制的输入事件 | Bridge 已连接 + events_json |
 
 ## 使用指南
 
@@ -797,13 +798,13 @@ alwaysApply: false
 1. game_bridge_install → 安装 Bridge（一次性）
 2. run_project → 启动游戏
 3. game_query(method="ping") → 确认 Bridge 连接
-4. recording_start → 开始录制
+4. runtime(action="record_start") → 开始录制
 5. [用户操作 / game_input 模拟输入]
-6. recording_stop → 停止录制，获取 events_json
-7. recording_save(file_name) → 保存到文件
+6. runtime(action="record_stop") → 停止录制，获取 events_json
+7. runtime(action="record_save", file_name) → 保存到文件
 --- 后续使用 ---
-8. recording_load(file_name) → 加载录制
-9. recording_play(events_json, speed=1.0) → 回放
+8. runtime(action="record_load", file_name) → 加载录制
+9. runtime(action="record_play", events_json, speed) → 回放
 \`\`\`
 
 ### 事件格式
@@ -822,7 +823,7 @@ alwaysApply: false
 
 ### 文件命名与安全
 
-- **始终自动命名**：recording_save 忽略传入的 \`file_name\` 参数，始终生成 \`recording_YYYYMMDD_HHmmss.json\` 格式的时间戳文件名
+- **始终自动命名**：record_save 忽略传入的 \`file_name\` 参数，始终生成 \`recording_YYYYMMDD_HHmmss.json\` 格式的时间戳文件名
 - **强制格式**：\`file_name\` 参数必须匹配 \`recording_*.json\`，否则报 \`INVALID_FILE_NAME\`（但实际保存仍用自动命名）
 - **路径遍历防护**：文件名禁止包含 \`/\`、\`\\\`、\`..\`
 
@@ -832,7 +833,7 @@ alwaysApply: false
 
 \`\`\`
 // 1. 开始录制
-recording_start(project_path="D:/game")
+runtime(action="record_start", project_path="D:/game")
 // → { status: "ok", message: "Recording started" }
 
 // 2. [模拟玩家操作]
@@ -840,20 +841,20 @@ game_input(method="send_key", params={ "key": "Key_W", "pressed": true })
 game_input(method="send_mouse_click", params={ "x": 320, "y": 240, "button": "left", "pressed": true })
 
 // 3. 停止录制
-recording_stop(project_path="D:/game")
+runtime(action="record_stop", project_path="D:/game")
 // → { events_json: "{\\"version\\":1,\\"duration_ms\\":1200,\\"events\\":[...]}" }
 
 // 4. 保存到文件（注意：始终自动命名，忽略传入的 file_name）
-recording_save(project_path="D:/game", file_name="recording_test_login.json", events_json="<从 stop 获取>")
+runtime(action="record_save", project_path="D:/game", file_name="recording_test_login.json", events_json="<从 stop 获取>")
 // → { success: true, data: { saved: { file_name: "recording_20260607_220255.json", path: "res://recordings/recording_20260607_220255.json" } } }
 
-// 5. 后续加载并回放（注意：recording_load 可能被沙箱拦截，推荐直接用 events_json）
+// 5. 后续加载并回放（注意：record_load 可能被沙箱拦截，推荐直接用 events_json）
 // 方式 A：通过文件加载（可能被沙箱拦截）
-recording_load(project_path="D:/game", file_name="recording_20260607_220255.json")
+runtime(action="record_load", project_path="D:/game", file_name="recording_20260607_220255.json")
 // → { events_json: "..." }
 
-// 方式 B（推荐）：直接用 recording_stop 返回的 events_json，跳过文件加载
-recording_play(project_path="D:/game", events_json="<从 stop 直接获取>", speed=1.0)
+// 方式 B（推荐）：直接用 record_stop 返回的 events_json，跳过文件加载
+runtime(action="record_play", project_path="D:/game", events_json="<从 stop 直接获取>", speed=1.0)
 // → { status: "ok", events_played: 5 }
 \`\`\`
 
@@ -861,8 +862,8 @@ recording_play(project_path="D:/game", events_json="<从 stop 直接获取>", sp
 
 \`\`\`
 // 录制一次操作，后续自动回放 + 验证
-recording_load(project_path="D:/game", file_name="recording_open_menu.json")
-recording_play(project_path="D:/game", events_json="<loaded>", speed=2.0)
+runtime(action="record_load", project_path="D:/game", file_name="recording_open_menu.json")
+runtime(action="record_play", project_path="D:/game", events_json="<loaded>", speed=2.0)
 game_wait(method="wait_for_node", params={ "path": "/root/CanvasLayer/OptionsMenu" })
 game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/OptionsMenu", "properties": ["visible"] })
 // → { visible: true } — 测试通过
@@ -871,7 +872,7 @@ game_query(method="get_node_properties", params={ "path": "/root/CanvasLayer/Opt
 ### 错误：Bridge 未连接
 
 \`\`\`
-recording_start(project_path="D:/game")
+runtime(action="record_start", project_path="D:/game")
 // → { error: "BRIDGE_NOT_CONNECTED", message: "Recording requires an active game bridge connection" }
 // 解决：1. 确认已 game_bridge_install
 //       2. 确认游戏正在运行（F5）
@@ -880,13 +881,13 @@ recording_start(project_path="D:/game")
 
 ## 常见陷阱
 
-- **Bridge 是硬依赖**：recording_start/recording_play 都需要 Bridge 连接。没有 Bridge 则无法录制或回放。
+- **Bridge 是硬依赖**：\`record_start\`/\`record_play\` 都需要 Bridge 连接。没有 Bridge 则无法录制或回放。
 - **文件名格式严格**：\`recording_test.json\`（❌ 不匹配）、\`recording_test_login.json\`（✅ 匹配）。必须以 \`recording_\` 开头、\`.json\` 结尾。
 - **回放时序**：speed > 1.0 会加速回放，但可能因游戏帧率跟不上导致事件丢失。建议 E2E 测试使用 speed=1.0。
 - **录制文件存储在项目内**：\`res://recordings/\` 下的文件会随项目版本控制。敏感录制应在 .gitignore 中排除。
 - **事件类型有限**：仅捕获键盘（key）和鼠标（mouse_click）事件。触摸、手柄等不适用。
-- **recording_load 沙箱限制**：\`recording_load\` 需要文件读取，可能被 GDScript 沙箱拦截（"Sandbox violation: File access"）。推荐直接将 \`recording_stop\` 返回的 \`events_json\` 传给 \`recording_play\`，跳过文件加载。
-- **recording_play 需要 Bridge 连接**：回放通过 Bridge 逐条发送事件（send_key/send_mouse_click），不支持 headless 模式。不支持的按键（如功能键 F1-F12）会被跳过并记录到 errors 中。
+- **record_load 沙箱限制**：\`record_load\` 需要文件读取，可能被 GDScript 沙箱拦截（"Sandbox violation: File access"）。推荐直接将 \`record_stop\` 返回的 \`events_json\` 传给 \`record_play\`，跳过文件加载。
+- **record_play 需要 Bridge 连接**：回放通过 Bridge 逐条发送事件（send_key/send_mouse_click），不支持 headless 模式。不支持的按键（如功能键 F1-F12）会被跳过并记录到 errors 中。
 `,
 
   'godot-mcp-engine-quirks.md': `---

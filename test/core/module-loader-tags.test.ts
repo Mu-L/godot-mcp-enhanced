@@ -13,7 +13,7 @@ vi.mock('../../src/core/tool-registry.js', async (importOriginal) => {
   };
 });
 
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 
 describe('Module loader tag injection', () => {
   beforeEach(() => {

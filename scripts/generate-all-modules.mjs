@@ -13,14 +13,15 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const loaderPath = join(__dirname, '..', 'src', 'core', 'module-loader.ts');
+const loaderPath = join(__dirname, '..', 'src', 'module-loader.ts');
 const src = readFileSync(loaderPath, 'utf-8');
 
 // 提取所有非注释 import 的别名: ^import * as NAME from '../tools/...'
 const aliases = [];
 for (const line of src.split('\n')) {
   if (/^\s*\/\//.test(line)) continue;  // 跳过注释行(已合并的历史 import)
-  const m = line.match(/^import\s+\*\s+as\s+(\w+)\s+from\s+['"]\.\.\/tools\//);
+  // 2026-08-21 D-2:module-loader 移到 src/ 根后相对深度为 ./tools/;兼容两种深度
+  const m = line.match(/^import\s+\*\s+as\s+(\w+)\s+from\s+['"]\.{1,2}\/tools\//);
   if (m) aliases.push(m[1]);
 }
 
