@@ -82,7 +82,9 @@ describe('writeReport / readReport', () => {
     try {
       symlinkSync(outsideJson, join(dir, '20260815-999999-evil.json'));
     } catch {
-      // Windows 无开发者模式时 symlink 需特权——skip 该断言组(POSIX CI 会真跑)
+      // Windows 无开发者模式时 symlink 需特权——skip 该断言组(POSIX CI 会真跑);
+      // 审查N-4:显式 warn 让「绿而未验」在测试输出可见,防误读为已验证
+      console.warn('[qa-report.test] symlink unavailable on this machine, POSIX-branch assertion skipped');
       rmSync(outside, { recursive: true, force: true });
       return;
     }

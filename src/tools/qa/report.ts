@@ -133,7 +133,13 @@ export function readReport(pathRef: string): QaReport {
   if (isAbsolute(ref) || ref.includes('/') || ref.includes('\\')) {
     // 安全P3-3(2026-08-20 审查):前缀检查前先过 realpath——qa-reports 内预置 symlink
     // 指向外部文件可绕过字符串前缀比对读任意 JSON。dir 同步 realpath 对称。
-    const realDir = realpathSync(dir);
+    // 审查N-1:dir 不存在时归友好语义而非裸 ENOENT 冒泡。
+    let realDir: string;
+    try {
+      realDir = realpathSync(dir);
+    } catch {
+      throw new Error(`报告目录不存在(先 qa run): ${dir}`);
+    }
     let real: string;
     try {
       real = realpathSync(resolve(ref));
@@ -145,8 +151,8 @@ export function readReport(pathRef: string): QaReport {
     }
     full = real;
   } else {
-    // 裸 run_id 或文件名
-    full = join(dir, ref.endsWith('.json') ? ref : `${ref}.json`);
+    // 裸 run_id 或文件名(审查N-2 对称:统一过 realpath,与带路径分支同威胁模型同防护)
+    full = realpathSync(join(dir, ref.endsWith('.json') ? ref : `${ref}.json`));
   }
   if (!existsSync(full)) {
     throw new Error(`QA 报告不存在: ${ref}`);
