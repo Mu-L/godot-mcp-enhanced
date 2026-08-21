@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 端口竞态缓解落地(2026-08-21 裁决;批 2 open 项收口)
+
+- **`_bind_available_port` 默认场景起始候选随机化**:env `GODOT_MCP_BRIDGE_PORT` 未指定时起始候选 = `PORT_DEFAULT + crypto 随机 % PORT_ATTEMPTS`(env 显式指定保持确定性)。实测:无缓解时双实例同瞬 spawn 20 轮 **18 轮双 bind 假成功**(双方都从 9081 起步是碰撞主因);随机起点后 50 轮竞态命中 **2(≈4%)**,撞端口率 ≈10-15% 符合理论值且大部分被探测+递增避让消化。随机源用 `_crypto.generate_random_bytes` 而非 `randi()`——`playtest.seed` 锁全局 randi/randf,双实例同 seed 时 randi 同值随机化会失效。
+- **危害重估(降级)**:连错实例会被 auth 拒(secret 每实例密码学随机 + 严格本实例比对)——危害=显式 auth failed 需重跑(可用性),**非静默错连**(无数据安全问题),auth 是语义防线;且 qa nightly 为串行循环,实际触发面为多进程并行+毫秒级同瞬。非根治定位如实保留(1/PORT_ATTEMPTS 概率仍可命中,由 auth 兜底)。
+- 契约测试 3 用例(`test/port-race-mitigation-contract.test.ts`:随机化分支存在/禁 randi/env 优先);check:gdscript 零错;全量 6082 passed。
+
 ### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
 
 - **`skills/game-wizard/SKILL.md`**(第 7 个打包 skill,双副本分发):四档分诊(没想法/模糊/清晰/已有项目)→ 阶段机 S0-S5(环境→造→改玩法→**qa 硬门**→导出→分享);**gate 以 qa CLI 退出码为唯一真相**(0=全 PASSED 才放行——「不问文档写了吗,问游戏跑通了吗」,对标 CCGS gate-check 的文件存在检测);改玩法纪律「GDD→调参表→代码」(能改 `tuning-src/*.csv` 不写码);非 Claude Code 客户端触达(`--target` 项目级安装 / `GODOT_SKILL_LIBRARIES` load_skill 检索 / 纯 CLI 序列直跑);首跑冷启动预热规则内置。

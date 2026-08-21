@@ -484,15 +484,28 @@ func _start_server() -> void:
 
 
 ## A1 (2026-08-19 反馈): 端口绑定 —— 探测占用 + 递增避让。
-## env GODOT_MCP_BRIDGE_PORT 设起点(默认 9081);每个候选端口先 connect 探测(已有服务在听
+## env GODOT_MCP_BRIDGE_PORT 设起点(默认随机化,见下);每个候选端口先 connect 探测(已有服务在听
 ## 则让位 —— Windows 双 bind 可"成功"但流量全到先占实例,listen 错误码测不出),再 listen
 ## (保留端口段/权限等 listen 失败同样递增,见 2026-08-14 反馈 Hyper-V 保留段 9046-9145 覆盖 9081)。
 ## 成功时 _server 已建立且 _port 为实际端口;全部失败返回 false(Bridge 禁用,游戏继续跑)。
+## ⚠️ 已知残留竞态(2026-08-21 批 2 实测):双实例毫秒级同瞬启动时探测→listen 窗口双判空闲,
+## 20 轮同瞬双 spawn 18 轮双 listen OK(Windows 双 bind 假成功)。「listen 后回探自连判属主」
+## 修复被真机证伪(双属主/零属主两态漂移)已回退;证伪数据见
+## docs/reviews/2026-08-21-audit-fixes-batch2.md。
+## 缓解(2026-08-21 裁决,默认场景起始候选随机化):双实例都从 9081 起步是碰撞主因——随机起点
+## 把必然碰撞降为 1/PORT_ATTEMPTS,配合递增避让实际碰撞趋零。危害重估:连错实例会被 auth 拒
+## (secret 每实例 Crypto.generate_random_bytes 密码学随机,严格本实例比对)——危害=显式
+## auth failed 需重跑(可用性),**非静默错连**(无数据安全问题),auth 是语义防线。
+## 随机源用 _crypto 而非 randi():playtest.seed 锁全局 randi/randf,双实例同 seed 时
+## randi() 同值随机化失效;密码学源不受 seed 影响。env 显式指定时保持确定性(用户契约)。
 func _bind_available_port() -> bool:
 	var start_port := PORT_DEFAULT
 	var env_port := OS.get_environment("GODOT_MCP_BRIDGE_PORT")
 	if env_port != "" and env_port.is_valid_int():
 		start_port = clampi(int(env_port), 1, 65535)
+	elif _crypto != null:
+		var rb := _crypto.generate_random_bytes(2)
+		start_port = PORT_DEFAULT + (int(rb[0]) * 256 + int(rb[1])) % PORT_ATTEMPTS
 	for i in PORT_ATTEMPTS:
 		var candidate: int = start_port + i
 		if _port_in_use(candidate):
