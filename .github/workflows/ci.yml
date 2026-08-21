@@ -24,6 +24,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npx tsc --noEmit
+      - name: "Typecheck test helpers (G-4: mock 工厂与真实接口编译期锚定)"
+        # test/ 不在主 tsconfig include 内（vitest esbuild 只剥类型不检查）——
+        # 单独 tsc 检查 test/helpers，否则 mock-results 的 satisfies 锚定无人消费=假接线
+        run: npm run typecheck:helpers
       - run: npm run build
       - name: Check capability matrix drift (spec §10)
         # drift = 实时提取 vs committed docs/capability-matrix.json 不一致。
