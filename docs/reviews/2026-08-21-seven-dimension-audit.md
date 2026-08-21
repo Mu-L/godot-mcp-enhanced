@@ -12,6 +12,12 @@
 > - P3:修 10 条(capture_screenshot/TOOL_META 4 旧名/13100 关联条目/game-fs ../spawn-helper 前缀/[::1]/index.html 复检/bridge auth 拒绝/setBridgeProjectDir 早退/router.test 单一真相源/gd 注释);不修 4 条(setter 3 个未清项有辩护理由、TOOL_META 写盘 action 标 read 有注释权衡、bridgeTimeout 双层默认各有理由、help docs files 已验证可达无需改)。
 > - 验证:lint ✅ build ✅ check:gdscript errors=0 ✅ rules-sync STRICT ✅ build-matrix 45 tools(v0.32.9) ✅ protocol-versions ✅ budget 0 error ✅;测试 6095+ passed,仅 2 条真机 UI 超时(与审核基线一致,CI 三批绿历史结论)。
 
+> [!result] 后续批(S-1 门禁升级 + d20b1ff 移植,同日追加 2 commits)
+> - **S-1 ✅ 已实施**:check-rules-content-sync.mjs 新增第三层**事实对账**——(A) 模板中 `tool(action="name")` 精确引用必须 ⊆ 运行时注册表该工具 enum(真相源 build/module-loader 注册态);(B) 模板中"端口 NNNN"必须 ∈ GD 常量范围(editor 9090-9094 ∪ bridge 9081-9090,常量从 GD 源提取不硬编码)。负向验证:注入 `recording_start` 被精确抓到、注入 13100 四处全被抓、还原后 STRICT 绿——P1-2/P1-5 类"双副本一致地错"从此被机械拦截。
+> - **d20b1ff 处置 ✅ 独有内容已移植,分支可废弃**:其 CLI 双形式部分本分支已等价实施;独有内容(in-flight 计数器根治 setBridgeProjectDir 恒误报 warn——C 组下沉时未随迁的真修复、test/cli-args.test.ts 96 行、game-bridge.test 两段守护)已全部移植(含 defects 基线 63→64 惯例注释);qa parseFlag 收敛到共享 opt 使两分支语义完全一致。分支剩余内容(plans 文档/CHANGELOG 行)无独有价值。**未 push 前可 `git branch -D fix/audit-3-cli-args`**(删除待用户执行)。
+> - **⚠️ 版本冲突提醒**:audit-fixes 四批的"0.32.9 版本行终态约束"已被本分支用掉——四批分支后续 push 开 PR 前需把版本终态调整为 0.32.10 并重排 CHANGELOG。
+
+
 
 ## 机械验证基线(实跑输出)
 
