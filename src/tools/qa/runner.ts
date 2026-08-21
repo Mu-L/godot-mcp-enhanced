@@ -57,6 +57,8 @@ interface RunState {
   monitorActive: boolean;
   watchEventsCache: WatchEvent[] | null;
   errorsBaselineSeq: number | null;
+  /** freeze 步骤后为 true(unfreeze 复位):teardown 兜底解冻的依据(P2-14) */
+  frozenActive: boolean;
 }
 type WatchEvent = { frame: number; time: number; args: unknown[] };
 
@@ -67,7 +69,7 @@ export interface QaRunControl {
 }
 
 function newRunState(): RunState {
-  return { watchActive: false, monitorActive: false, watchEventsCache: null, errorsBaselineSeq: null };
+  return { watchActive: false, monitorActive: false, watchEventsCache: null, errorsBaselineSeq: null, frozenActive: false };
 }
 
 /**
@@ -269,6 +271,21 @@ export async function runQaSuite(
           report.teardown_warnings = [...(report.teardown_warnings ?? []), `recording.stop 异常(录制证据丢失): ${err instanceof Error ? err.message : String(err)}`];
         }
       }
+      // P2-14(2026-08-21 七维度审核): freeze 是套件主动施加的破坏性状态(tree.paused),
+      // abort(断言失败/预算耗尽/cancel)时必须兜底解冻——外部游戏(auto_run:false)不能
+      // 残留永久暂停。须在 stop_project 之前(杀游戏即断 bridge,之后无法解冻)。
+      if (runState.frozenActive) {
+        try {
+          const resp = await sendToBridge('playtest.unfreeze', {}, o.step_timeout_ms);
+          if (resp.error) {
+            report.teardown_warnings = [...(report.teardown_warnings ?? []), `playtest.unfreeze 兜底失败: ${resp.error.message}`];
+          } else {
+            runState.frozenActive = false;
+          }
+        } catch (err) {
+          report.teardown_warnings = [...(report.teardown_warnings ?? []), `playtest.unfreeze 兜底异常: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
       if (o.stop_after && gameStarted) {
         try {
           await runtime.handleTool('runtime', { action: 'stop_project' }, ctx);
@@ -435,6 +452,7 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
     case 'unfreeze': {
       const resp = await sendToBridge(`playtest.${step.type}`, {}, o.step_timeout_ms);
       if (resp.error) return err(`bridge: ${resp.error.message}`);
+      runState.frozenActive = step.type === 'freeze';
       return { status: 'PASSED', detail: step.type };
     }
     case 'step_until': {

@@ -283,15 +283,15 @@ describe('用户模板加载', () => {
 
     const all = getAllTemplates(tmpDir);
     // 内置模板 + 1 个用户模板
-    expect(all.length > TEMPLATES.length).toBeTruthy();
-    expect(all.some(t => t.id === 'user-merge')).toBeTruthy();
-    expect(all.some(t => t.id === 'T001')).toBeTruthy();
+    expect(all.length > TEMPLATES.length).toBe(true);
+    expect(all.some(t => t.id === 'user-merge')).toBe(true);
+    expect(all.some(t => t.id === 'T001')).toBe(true);
   });
 
   it('getAllTemplates 无 projectPath 时返回内置 + 架构模板', () => {
     const all = getAllTemplates();
     expect(all.length).toBeGreaterThanOrEqual(TEMPLATES.length);
-    expect(all.some(t => t.id === 'A001')).toBeTruthy();
+    expect(all.some(t => t.id === 'A001')).toBe(true);
   });
 
   it('用户模板覆盖同名内置模板', () => {

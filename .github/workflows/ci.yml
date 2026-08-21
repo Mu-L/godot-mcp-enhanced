@@ -24,6 +24,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npx tsc --noEmit
+      - name: "Typecheck test helpers (G-4: mock 工厂与真实接口编译期锚定)"
+        # test/ 不在主 tsconfig include 内（vitest esbuild 只剥类型不检查）——
+        # 单独 tsc 检查 test/helpers，否则 mock-results 的 satisfies 锚定无人消费=假接线
+        run: npm run typecheck:helpers
       - run: npm run build
       - name: Check capability matrix drift (spec §10)
         # drift = 实时提取 vs committed docs/capability-matrix.json 不一致。
@@ -210,6 +214,10 @@ jobs:
           # P1-2 (2026-08-11): MULTI_INSTANCE 接入 matrix(L3 godot_list_instances/select/
           # dynamic/advanced;headless 无 editor 实例注册,返空列表/error 文本,expectHasText 仍过)
           GODOT_MCP_MULTI_INSTANCE: '1'
+      - name: Gate e2e 非空执行（all-skip = fail）
+        # 测试G-2 (2026-08-20 审查): vitest 全 skip 返 exit 0（实测 total=2/pending=2 仍 0），
+        # fixture/GODOT_PATH 供给链断掉时 e2e 假绿（C5 家族）。对齐上方 gdscript gate 范式。
+        run: node -e "const r=require('./coverage/e2e-report-${{ matrix.name }}.json'); const t=r.numTotalTests??0, p=r.numPendingTests??0; if(!(t>0&&p<t)){console.error('e2e non-empty gate FAIL, numTotalTests='+t+' numPendingTests='+p+' (all skipped or empty)'); process.exit(1)} console.log('e2e non-empty gate PASS, '+t+' tests, '+p+' pending')"
       - name: Upload e2e-report
         if: always()
         uses: actions/upload-artifact@v4

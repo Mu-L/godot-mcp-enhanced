@@ -46,7 +46,7 @@ import { fileURLToPath } from 'url';
 import { spawn, type ChildProcess } from 'child_process';
 import net from 'net';
 
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 import { readEditorSecret } from '../src/core/editor-auth.js';
 import { EditorConnection } from '../src/core/EditorConnection.js';
 import { EditorToolExecutor } from '../src/core/EditorToolExecutor.js';

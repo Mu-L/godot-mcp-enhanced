@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
 import { buildMarkdown } from '../../src/capability/build-matrix.js';
 

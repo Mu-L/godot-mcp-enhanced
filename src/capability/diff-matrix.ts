@@ -1,7 +1,7 @@
 // src/capability/diff-matrix.ts
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../core/module-loader.js';
+import { registerAllModules } from '../module-loader.js';
 import { extractCapabilities } from './extract.js';
 import type { SecurityLevel, ToolCapability } from './schema.js';
 

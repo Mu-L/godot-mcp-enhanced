@@ -6,47 +6,19 @@
  * 输入:--keys 显式序列(逗号分隔,小写);默认方向键循环(2048/snake);
  * --keys 或 --seed 未指定 keys 时按 seed 派生取样顺序(Node 侧 LCG,不依赖游戏 RNG)。
  */
-import { join, dirname, resolve, sep } from 'path';
+import { join, resolve, sep, dirname } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { PNG } from 'pngjs';
-import type { ToolContext } from '../types.js';
-import { parseGodotConfig } from '../helpers.js';
-import { findGodot } from '../core/godot-finder.js';
-import * as ps from '../core/process-state.js';
-import * as gameBridge from '../tools/game-bridge.js';
-import * as runtime from '../tools/runtime.js';
-import { sendToBridge, setBridgeProjectDir } from '../tools/game-bridge.js';
-import { resolveGameDataPath } from '../tools/game-fs.js';
+import { makeCtx } from './ctx.js';
+import { opt, num } from './args.js';
+import {
+  sendToBridge,
+  resolveGameDataPath,
+  startBridgeSession,
+  stopBridgeSession,
+} from './bridge-session.js';
 import { encodeGif, type RgbaFrame } from './gif-encoder.js';
 import { confirmYesNo } from './confirm.js';
-import { fileURLToPath } from 'url';
-
-const __rootDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-
-function resolveOpsScript(): string {
-  const candidates = [
-    join(__rootDir, 'build', 'scripts', 'godot_operations.gd'),
-    join(__rootDir, 'src', 'scripts', 'godot_operations.gd'),
-  ];
-  for (const c of candidates) if (existsSync(c)) return c;
-  return candidates[0]!;
-}
-
-function makeCtx(): ToolContext {
-  return {
-    opsScript: resolveOpsScript(),
-    findGodot,
-    get runningProcess() { return ps.getRunningProcess(); },
-    setRunningProcess(proc, skipBusyCheck?) { ps.setRunningProcess(proc, skipBusyCheck); },
-    get outputBuffer() { return ps.getOutputBuffer(); },
-    setOutputBuffer(buf: string[]) { ps.setOutputBuffer(buf); },
-    get processStartTime() { return ps.getProcessStartTime(); },
-    setProcessStartTime(t: number) { ps.setProcessStartTime(t); },
-    get projectDir() { return ps.getProjectDir(); },
-    setProjectDir(d: string) { ps.setProjectDir(d); },
-    parseGodotConfig,
-  };
-}
 
 /** Node 侧 LCG(seed 派生按键取样顺序;不依赖游戏 RNG,冻结策略与游戏随机解耦)。 */
 function lcg(seed: number): () => number {
@@ -60,32 +32,13 @@ export async function runGif(args: string[]): Promise<void> {
     console.error('用法: gif <project-path> [--out <path>] [--fps 1-10] [--seconds N] [--keys up,left,…] [--seed N]');
     process.exit(2);
   }
-  // B-1(审查):支持 `--name=value` 与 `--name value` 双形式——README 示例是空格形式,
-  // 只认等号会静默回落默认值(breakout 的 --keys 失效 → GIF 内容实质错误)
-  const opt = (name: string): string | undefined => {
-    for (let i = 0; i < args.length; i++) {
-      const a = args[i]!;
-      if (a === `--${name}`) return args[i + 1];           // 空格形式(相邻消费)
-      if (a.startsWith(`--${name}=`)) return a.split('=').slice(1).join('=');
-    }
-    return undefined;
-  };
-  const num = (name: string, fallback: number): number => {
-    const v = opt(name);
-    if (v === undefined) return fallback;
-    const n = Number(v);
-    if (!Number.isFinite(n)) {
-      console.error(`--${name} 需要数字,收到 "${v}"`);
-      process.exit(2);
-    }
-    return n;
-  };
-  const outArg = opt('out');
-  const fps = Math.max(1, Math.min(10, num('fps', 4)));
-  const seconds = Math.max(1, Math.min(30, num('seconds', 8)));
-  const seed = num('seed', 42);
+  // B-1(审查)/F-2(2026-08-20):参数解析统一走 args.ts 共享双形式 helper + range 钳制
+  const outArg = opt(args, 'out');
+  const fps = num(args, 'fps', 4, [1, 10]);
+  const seconds = num(args, 'seconds', 8, [1, 30]);
+  const seed = num(args, 'seed', 42);
   const defaultKeys = ['up', 'right', 'down', 'left'];
-  const keys = opt('keys')?.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) ?? defaultKeys;
+  const keys = opt(args, 'keys')?.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) ?? defaultKeys;
 
   const projectAbs = resolve(projectPath);
   const outPath = outArg
@@ -101,22 +54,8 @@ export async function runGif(args: string[]): Promise<void> {
   const ctx = makeCtx();
   console.log(`🎬 录制 demo GIF:${fps}fps × ${seconds}s = ${fps * seconds} 帧,seed=${seed}`);
 
-  // ── setup(与 qa runner 同款链)───────────────────────────────────────────
-  const install = await gameBridge.handleTool('game', { action: 'game_bridge_install', project_path: projectAbs }, ctx);
-  const installText = install?.content[0]?.type === 'text' ? install.content[0].text : '';
-  if (!installText.includes('already registered') && !installText.includes('success')) {
-    console.error(`game_bridge_install 失败: ${installText.slice(0, 200)}`);
-    process.exit(1);
-  }
-  setBridgeProjectDir(projectAbs);
-  const run = await runtime.handleTool('runtime', {
-    action: 'run_project', project_path: projectAbs, wait_for_bridge: true, bridge_timeout: 20, timeout: 120,
-  }, ctx);
-  const runText = run?.content[0]?.type === 'text' ? run.content[0].text : '';
-  if (!runText.includes('Bridge ready')) {
-    console.error(`run_project 失败: ${runText.slice(0, 200)}`);
-    process.exit(1);
-  }
+  // ── setup(bridge-session 共享链;原与 qa runner 同款,2026-08-21 收敛到单一入口)──
+  await startBridgeSession(projectAbs, ctx);
 
   const frames: RgbaFrame[] = [];
   const capturedPngPaths: string[] = [];
@@ -175,6 +114,6 @@ export async function runGif(args: string[]): Promise<void> {
     for (const f of capturedPngPaths) {
       try { if (existsSync(f)) unlinkSync(f); } catch { /* best-effort */ }
     }
-    await runtime.handleTool('runtime', { action: 'stop_project' }, ctx).catch(() => {});
+    await stopBridgeSession(ctx);
   }
 }

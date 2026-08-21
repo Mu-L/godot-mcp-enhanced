@@ -21,7 +21,7 @@ describe('instance_scene tool definition', () => {
       scene_path: 'res://main.tscn',
       // instance_path intentionally missing to trigger early error return
     }, { opsScript: '' });
-    expect(result !== null).toBeTruthy();
+    expect(result !== null).toBe(true);
   });
 
   it('should have tool definition with correct schema', () => {
@@ -73,7 +73,7 @@ describe('set_instance_property tool definition', () => {
       scene_path: 'res://main.tscn',
       // node_path intentionally missing to trigger early error return
     }, { opsScript: '' });
-    expect(result !== null).toBeTruthy();
+    expect(result !== null).toBe(true);
   });
 
   it('should have action in schema', () => {
@@ -135,7 +135,7 @@ describe('detach_instance tool definition', () => {
       action: 'detach_instance',
       scene_path: 'res://main.tscn',
     }, { opsScript: '' });
-    expect(result !== null).toBeTruthy();
+    expect(result !== null).toBe(true);
   });
 
   it('should have action in schema', () => {

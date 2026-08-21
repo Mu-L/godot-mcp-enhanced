@@ -1,6 +1,6 @@
 // src/capability/extract.ts
 import { getAllToolDefinitions, getToolMeta, getGroupForTool, getActionRisks, TOOL_GROUPS, OFFLINE_TOOLS, type RiskLevel } from '../core/tool-registry.js';
-import { deriveMcpHints } from '../core/module-loader.js';
+import { deriveMcpHints } from '../module-loader.js';
 import { isGuardedTool } from '../core/guard.js';
 import { classifySecurityLevel, type ToolCapability } from './schema.js';
 import { GROUP_SOURCE_FILES, scanDangerApi, findEditorCommandForTool } from './static-grep.js';

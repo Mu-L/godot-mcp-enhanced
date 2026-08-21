@@ -91,7 +91,7 @@ godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 d
 
 部分工具在 headless 进程中创建/修改节点，但**这些变更不持久化到 .tscn 文件**：
 
-- **运行时工具**（不持久化）：signal_connect/disconnect/emit、node_create_3d、physics_raycast、tilemap_*、audio_*、particles_*、ui_*、recording_* 等
+- **运行时工具**（不持久化）：signal(action=connect/disconnect/emit)、scene(action=create_3d_node)、physics(action=raycast)、tilemap_*、audio_*、particles_*、ui_*、runtime(action=record_*) 等
 - **持久化方法**：使用 add_node（写入 .tscn）+ save_scene 保存。或用 write_script / edit_script 修改 .gd 文件。
 
 > 运行时工具适合验证和测试。若需持久化场景修改，必须使用 add_node + save_scene。

@@ -3,7 +3,7 @@
 // 验证每个工具的每个 action 都在 actionRisks 中声明了风险等级
 
 import { describe, it, expect } from 'vitest';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 import { getAllToolDefinitions, getActionRisks } from '../src/core/tool-registry.js';
 
 // 注册所有工具模块（必须在测试前执行）
