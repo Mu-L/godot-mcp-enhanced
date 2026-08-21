@@ -3,9 +3,9 @@
 > 提交入口：https://godotengine.org/asset-library/asset/edit （需 Godot 账号登录）
 > **本次为编辑已有条目 5193**：更新 Version string + Download URL 两处必改；Description 顺手更新计数。提交后进入审核队列（初列 Testing，编辑审核后转 Community）。
 >
-> Download URL 惯例（2026-08-19 纠偏后沿用）：**GitHub commit 归档直链**（非 release zip）：
-> `https://github.com/wgt19861219/godot-mcp-enhanced/archive/<完整40位SHA>.zip`
-> SHA 取自 `git rev-parse v0.32.11^{commit}`（已实测）。
+> Download URL 惯例（2026-08-21 用户二次纠偏后沿用）：**GitHub commit 归档直链 + 短 SHA**（截取前 7 位，非完整 40 位）：
+> `https://github.com/wgt19861219/godot-mcp-enhanced/archive/<短SHA>.zip`
+> 短 SHA 取自 `git rev-parse --short v0.32.11^{commit}`（已实测可达）。
 
 ## 表单字段对照
 
@@ -17,13 +17,13 @@
 | **License** | MIT | 不变 |
 | **Version string** | `0.32.11` | **必改**（原 0.32.6） |
 | **Download provider** | GitHub | 不变 |
-| **Download URL** | `https://github.com/wgt19861219/godot-mcp-enhanced/archive/3f611ce6f5b57fe7d1214674dd3843646ac51785.zip` | **必改** |
+| **Download URL** | `https://github.com/wgt19861219/godot-mcp-enhanced/archive/3f611ce.zip` | **必改** |
 | **Repository / Browse URL** | `https://github.com/wgt19861219/godot-mcp-enhanced` | 不变 |
 | **Issues URL** | `https://github.com/wgt19861219/godot-mcp-enhanced/issues` | 不变 |
 | **Icon URL** | `https://raw.githubusercontent.com/wgt19861219/godot-mcp-enhanced/master/icon.png`（256×256 PNG） | 不变 |
 | **Previews** | 主图 `https://raw.githubusercontent.com/wgt19861219/godot-mcp-enhanced/master/store-thumbnail.png`（1280×720） | 不变 |
 
-**归档内容校验（已实测）**：commit `3f611ce` 归档内 `addons/godot_mcp_server/plugin.cfg` 的 `version="0.32.11"`（`git show v0.32.11:addons/godot_mcp_server/plugin.cfg` 核实）；工具计数 45 tools / 248 actions（`node scripts/check-tool-count.mjs` 权威值，24 处文档校验一致）。
+**归档内容校验（已实测）**：commit `3f611ce` 归档内 `addons/godot_mcp_server/plugin.cfg` 的 `version="0.32.11"`（`git show v0.32.11:addons/godot_mcp_server/plugin.cfg` 核实）；短 SHA 直链 curl 实测 302 → codeload → 200；工具计数 45 tools / 248 actions（`node scripts/check-tool-count.mjs` 权威值，24 处文档校验一致）。
 
 ## Description（BBCode，直接粘贴）
 
