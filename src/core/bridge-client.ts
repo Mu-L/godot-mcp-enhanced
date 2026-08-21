@@ -20,7 +20,7 @@ import { execFileSync, type ChildProcess } from 'child_process';
 import { getErrorMessage } from '../types.js';
 import { parseAutoloadNames } from '../gdscript-executor.js';
 import { getLogger } from './logger.js';
-import { getDefaultRegistryDir } from './instance-manager.js';
+import { getDefaultRegistryDir, DEFAULT_PORT_START, DEFAULT_PORT_END } from './instance-manager.js';
 
 export const BRIDGE_PORT = 9081;
 export const BRIDGE_HOST = 'localhost';
@@ -106,10 +106,29 @@ export function resolveBridgePort(projectPath: string, registryDir: string = mac
       if (!Number.isFinite(lastSeen) || now - lastSeen > BRIDGE_REGISTRY_MAX_AGE_MS) continue;
       if (!best || lastSeen > best.lastSeen) best = { port: entry.port, lastSeen };
     }
-    return best?.port ?? BRIDGE_PORT;
+    if (best) return best.port;
+    return scanSecretWindow(projectPath);
   } catch {
-    return BRIDGE_PORT;  // 目录不存在(旧版 GD / bridge 未跑过)
+    // registry 目录不可读/漂移:同样走窗口扫描而非盲回落(见 scanSecretWindow 注释)
+    return scanSecretWindow(projectPath);
   }
+}
+
+/** registry 未命中时的回落:按 secret 文件存在性扫 DEFAULT_PORT_START..END(9081-9090)。
+ *  2026-08-21 PR#57 CI 实测暴露:mcp_bridge.gd 缓解批起始候选随机化后 GD 大概率不绑 9081,
+ *  盲回落 9081 从「无害」变「连不上」(Linux CI registry 未命中是首个受害面,即缓解批审查
+ *  披露的 Important-B 残留缝)。secret 文件名含避让后端口且位于 projectDir/.godot/ 内,
+ *  按存在性扫天然精确;多个共存(同项目多实例竞态)取 mtime 最新,连错由 auth 语义防线拒绝
+ *  (与缓解批立场一致)。全窗口无 secret(bridge 未跑/旧版 GD)仍回落 9081(旧版确定性绑定)。 */
+function scanSecretWindow(projectDir: string): number {
+  let scan: { port: number; mtime: number } | null = null;
+  for (let p = DEFAULT_PORT_START; p <= DEFAULT_PORT_END; p++) {
+    try {
+      const st = statSync(bridgeSecretPathFor(projectDir, p));
+      if (!scan || st.mtimeMs > scan.mtime) scan = { port: p, mtime: st.mtimeMs };
+    } catch { /* 该端口无 secret,继续 */ }
+  }
+  return scan?.port ?? BRIDGE_PORT;
 }
 
 /** 按实际端口拼 secret 文件路径(GD 侧 secret 文件名含避让后的端口)。 */
@@ -701,12 +720,14 @@ export async function isBridgeReady(
   opts?: { proc?: ChildProcess; isCancelled?: () => boolean },
 ): Promise<BridgeReadyResult> {
   // A1: 实际端口来自 registry 解析(避让端口下 secret 文件名同步变化)。
-  const port = resolveBridgePort(projectDir);
-  const secretPath = bridgeSecretPathFor(projectDir, port);
+  // 每轮循环重解析:启动早期 registry 条目/secret 文件尚未落盘,钉死首轮结果会把后续窗口
+  // 扫描(缓解批随机端口后的回落)也锁死在错误端口上(2026-08-21 PR#57 CI 实测)。
   const deadline = Date.now() + Math.max(0, timeoutMs);
   const interval = 500;
 
   for (;;) {
+    const port = resolveBridgePort(projectDir);
+    const secretPath = bridgeSecretPathFor(projectDir, port);
     if (opts?.proc?.killed) {
       return { ready: false, reason: 'process exited during probe' };
     }

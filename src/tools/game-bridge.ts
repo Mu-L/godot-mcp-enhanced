@@ -396,8 +396,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         renameSync(tmpPath, configPath);
         return textResult(JSON.stringify({
           success: true,
-          // A1: 端口自动避让(起点 9081,被占递增至 9090;实际端口见 instance registry + ping 响应 pid/project 指纹)
-          message: `MCP Bridge installed. Listens on ${BRIDGE_PORT}+ (auto-increments when occupied; ping response carries pid/project to verify target instance).${scriptNote ? ' ' + scriptNote : ''}`,
+          // A1: 端口自动避让(默认起始候选在 9081-9090 内 crypto 随机——竞态缓解,env GODOT_MCP_BRIDGE_PORT 可固定起点;实际端口见 instance registry + ping 响应 pid/project 指纹)
+          message: `MCP Bridge installed. Listens in the 9081-9090 range (randomized start candidate, auto-increments when occupied; ping response carries pid/project to verify target instance).${scriptNote ? ' ' + scriptNote : ''}`,
           script_path: `res://${BRIDGE_SCRIPT_NAME}`,
           autoload_key: AUTOLOAD_KEY,
         }));

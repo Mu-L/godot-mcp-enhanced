@@ -3,7 +3,8 @@ extends Node
 
 ## MCP Bridge Autoload — TCP + NDJSON protocol
 ## Install as autoload in project.godot to enable runtime game control via MCP.
-## Default port: 9081 (env GODOT_MCP_BRIDGE_PORT 可覆盖起点;被占时递增避让,见 _start_server)
+## Default port: 9081 (env GODOT_MCP_BRIDGE_PORT 可覆盖起点;未指定时起始候选在 9081-9090 内
+## crypto 随机(竞态缓解),被占时环形递增避让,见 _start_server/_bind_available_port)
 
 # A1 (2026-08-19 反馈 bridge 9081 多实例劫持): 端口不再固定 —— Windows 下两个 Godot 实例
 # bind 同一端口可能都"成功"(流量实际都到先占实例),listen 错误码不可靠;listen 前主动 connect
@@ -489,21 +490,32 @@ func _start_server() -> void:
 
 
 ## A1 (2026-08-19 反馈): 端口绑定 —— 探测占用 + 递增避让。
-## env GODOT_MCP_BRIDGE_PORT 设起点(默认 9081);每个候选端口先 connect 探测(已有服务在听
+## env GODOT_MCP_BRIDGE_PORT 设起点(默认随机化,见下);每个候选端口先 connect 探测(已有服务在听
 ## 则让位 —— Windows 双 bind 可"成功"但流量全到先占实例,listen 错误码测不出),再 listen
 ## (保留端口段/权限等 listen 失败同样递增,见 2026-08-14 反馈 Hyper-V 保留段 9046-9145 覆盖 9081)。
 ## 成功时 _server 已建立且 _port 为实际端口;全部失败返回 false(Bridge 禁用,游戏继续跑)。
-## ⚠️ 已知残留竞态(2026-08-21 批 2 实测,open 项):两实例毫秒级同瞬启动时探测→listen 窗口
-## 双判空闲,20 轮同瞬双 spawn 18 轮双 listen OK(Windows 双 bind 假成功)。曾试「listen 后
-## 回探自连判属主」修复被真机证伪(双属主/零属主两态漂移,无法可靠区分)已回退;候选缓解
-## = 起始候选随机化(降低碰撞概率,非根治)。数据与证伪过程见 docs/reviews/2026-08-21-audit-fixes-batch2.md。
+## ⚠️ 已知残留竞态(2026-08-21 批 2 实测):双实例毫秒级同瞬启动时探测→listen 窗口双判空闲,
+## 20 轮同瞬双 spawn 18 轮双 listen OK(Windows 双 bind 假成功)。「listen 后回探自连判属主」
+## 修复被真机证伪(双属主/零属主两态漂移)已回退;证伪数据见
+## docs/reviews/2026-08-21-audit-fixes-batch2.md。
+## 缓解(2026-08-21 裁决,默认场景起始候选随机化):双实例都从 9081 起步是碰撞主因——随机起点
+## 把必然碰撞降为 1/PORT_ATTEMPTS,配合递增避让实际碰撞趋零。危害重估:连错实例会被 auth 拒
+## (secret 每实例 Crypto.generate_random_bytes 密码学随机,严格本实例比对)——危害=显式
+## auth failed 需重跑(可用性),**非静默错连**(无数据安全问题),auth 是语义防线。
+## 随机源用 _crypto 而非 randi():playtest.seed 锁全局 randi/randf,双实例同 seed 时
+## randi() 同值随机化失效;密码学源不受 seed 影响。env 显式指定时保持确定性(用户契约)。
 func _bind_available_port() -> bool:
 	var start_port := PORT_DEFAULT
 	var env_port := OS.get_environment("GODOT_MCP_BRIDGE_PORT")
 	if env_port != "" and env_port.is_valid_int():
 		start_port = clampi(int(env_port), 1, 65535)
+	elif _crypto != null:
+		var rb := _crypto.generate_random_bytes(2)
+		start_port = PORT_DEFAULT + (int(rb[0]) * 256 + int(rb[1])) % PORT_ATTEMPTS
 	for i in PORT_ATTEMPTS:
-		var candidate: int = start_port + i
+		# 审查Nit-A:环形取模保候选集合恒为 [PORT_DEFAULT, PORT_DEFAULT+PORT_ATTEMPTS-1]
+		# (随机起点+线性递增会漂到窗口外,与 instance-manager 分配窗口不对称)
+		var candidate: int = PORT_DEFAULT + ((start_port - PORT_DEFAULT + i) % PORT_ATTEMPTS)
 		if _port_in_use(candidate):
 			print("[MCP Bridge] Port %d already served by another instance, trying %d" % [candidate, candidate + 1])
 			continue
@@ -695,7 +707,8 @@ func _start_registry_heartbeat() -> void:
 	# N-2(审查·已知限制): OS.get_data_dir() 默认三平台两次 base_dir 归一到用户主目录,
 	# 与 TS 侧 instance-manager.getDefaultRegistryDir(~/.godot-mcp/instances) 对齐;
 	# 但 Linux/macOS 显式设置 XDG_DATA_HOME 时 GD 写 $XDG_DATA_HOME 上两级、TS 仍读 ~ 下,
-	# 两侧漂移 → resolveBridgePort 回落 9081(A1 退化为旧行为,无害不炸)。容器/Flatpak 环境留意。
+	# 两侧漂移 → resolveBridgePort 回落 9081(审查Important-B:起点随机化后 GD 约 90% 场景不在
+	# 9081,此回落从「无害」退化为「连不上」——非碰撞类缝隙,与 auth 兜底是两类问题;容器/Flatpak 留意)。
 	var machine_dir: String = OS.get_data_dir().get_base_dir().get_base_dir().path_join(".godot-mcp").path_join("instances")
 	# Project-level registry
 	var project_dir: String = ProjectSettings.globalize_path("user://").path_join(".godot").path_join("mcp-instances")
