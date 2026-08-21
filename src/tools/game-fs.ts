@@ -16,6 +16,9 @@ import { homedir } from 'os';
 export function resolveGameDataPath(projectPath: string, userUri: string): string | null {
   if (!userUri.startsWith('user://')) return null;
   const rel = userUri.slice('user://'.length);
+  // P3(2026-08-21 七维度审核): 段级 .. 拒绝——join(dir, rel) 可逃逸 app_userdata 布局。
+  // 来源是 bridge 返回值(运行中游戏侧),威胁模型内游戏本有全权,此为纵深防御。
+  if (rel.split(/[\\/]/).some(seg => seg === '..')) return null;
   let projectName: string;
   let customDir: string;
   try {

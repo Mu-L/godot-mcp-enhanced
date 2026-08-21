@@ -1,4 +1,4 @@
-import { isAbsolute, resolve, join, extname } from 'path';
+import { isAbsolute, resolve, join, extname, basename } from 'path';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { PNG } from 'pngjs';
 import type { Tool } from "@modelcontextprotocol/server";
@@ -201,7 +201,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       if (!existsSync(imagePath)) {
-        return textResult(`Image not found: ${imagePath}`);
+        // P2-17(2026-08-21 七维度审核): 不回显 resolve 后的绝对路径
+        return textResult(`Image not found: ${basename(imagePath)}`);
       }
 
       // I-02: Prevent OOM from reading huge image files (10 MB limit)
@@ -430,7 +431,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
       for (const p of [pathA, pathB]) {
         if (!existsSync(p)) {
-          return opsErrorResult('INVALID_PARAMS', `Image not found: ${p}`);
+          // P2-17: 不回显 resolve 后的绝对路径
+          return opsErrorResult('INVALID_PARAMS', `Image not found: ${basename(p)}`);
         }
         const size = statSync(p).size;
         if (size > MAX_IMAGE_SIZE) {

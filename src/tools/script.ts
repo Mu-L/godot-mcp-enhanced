@@ -600,7 +600,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
 
         if (occurrence === 0) {
           if (!normalizedContent.includes(normalizedSearch)) {
-            return opsErrorResult('NOT_FOUND', `search_and_replace: search text not found in ${fullPath}`);
+            // P2-17(2026-08-21 七维度审核): 不回显 resolve 后的绝对路径,报文件名
+            return opsErrorResult('NOT_FOUND', `search_and_replace: search text not found in ${basename(fullPath)}`);
           }
           const newFileContent = normalizedContent.replaceAll(normalizedSearch, normalizedReplace);
           const finalContent = joinWithLineEnding(newFileContent, hasCRLF);
