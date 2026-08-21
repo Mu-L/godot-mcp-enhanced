@@ -6,7 +6,7 @@
 // 范式: 纯函数直测 + tmpdir 伪 registry(经 registryDir 参数注入,不碰真实 %APPDATA%)。
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 import { resolveBridgePort, normalizeProjectKey, machineRegistryInstancesDir } from '../src/tools/game-bridge.js';
@@ -121,5 +121,54 @@ describe('A1: resolveBridgePort', () => {
       capabilities: ['ts-http-receiver'],
     }), 'utf-8');
     expect(resolveBridgePort(proj, registryDir)).toBe(9081);  // 不被 9090 劫走
+  });
+});
+
+// ── 回落窗口扫描(2026-08-21 PR#57 CI 实测暴露):缓解批起始候选随机化后,GD 大概率 ──
+// ── 不绑 9081,registry 未命中时盲回落 9081 变「连不上」——回落升级为按 secret 文件 ──
+// ── 存在性扫 9081-9090(mtime 最新优先;连错由 auth 语义防线拒绝)。                ──
+describe('A1+: resolveBridgePort 回落窗口扫描(registry 未命中时)', () => {
+  let projDir: string;
+
+  beforeEach(() => {
+    projDir = join(tmpdir(), `bridge-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    mkdirSync(join(projDir, '.godot'), { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  function writeSecret(port: number, mtimeMsAgo = 0): void {
+    const p = join(projDir, '.godot', `mcp_bridge_${port}.secret`);
+    writeFileSync(p, 's', 'utf-8');
+    const t = new Date(Date.now() - mtimeMsAgo);
+    utimesSync(p, t, t);
+  }
+
+  it('registry 空 + 单 secret(避让端口 9085)→ 扫描命中 9085(不再盲回落 9081)', () => {
+    writeSecret(9085);
+    expect(resolveBridgePort(projDir, registryDir)).toBe(9085);
+  });
+
+  it('多 secret 共存(同项目多实例竞态)→ 取 mtime 最新', () => {
+    writeSecret(9083, 60_000);
+    writeSecret(9087, 1_000);
+    expect(resolveBridgePort(projDir, registryDir)).toBe(9087);
+  });
+
+  it('registry 命中优先于窗口扫描(registry 是更强真相源)', () => {
+    writeEntry('111_1.json', projDir, 9082);
+    writeSecret(9085);
+    expect(resolveBridgePort(projDir, registryDir)).toBe(9082);
+  });
+
+  it('registry 目录不存在(catch 路径)同样走扫描 → 9085', () => {
+    writeSecret(9085);
+    expect(resolveBridgePort(projDir, join(registryDir, 'no-such-dir'))).toBe(9085);
+  });
+
+  it('窗口外端口(9091)的 secret 不参与扫描(窗口=9081-9090,与 GD PORT_ATTEMPTS 对齐)', () => {
+    writeSecret(9091);
+    expect(resolveBridgePort(projDir, registryDir)).toBe(9081);
   });
 });

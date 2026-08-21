@@ -76,8 +76,10 @@ export interface InstanceManagerOptions {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DEFAULT_STALE_TIMEOUT_MS = 70000; // 30s × 2 + 10s jitter margin
-const DEFAULT_PORT_START = 9081;
-const DEFAULT_PORT_END = 9090;
+// 导出供 bridge-client 的 registry 回落窗口扫描对齐(与 mcp_bridge.gd PORT_ATTEMPTS=10 同步,
+// 契约锁定见 test/port-race-mitigation-contract.test.ts)
+export const DEFAULT_PORT_START = 9081;
+export const DEFAULT_PORT_END = 9090;
 
 export function getDefaultRegistryDir(): string {
   return join(homedir(), '.godot-mcp', 'instances');

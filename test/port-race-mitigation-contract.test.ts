@@ -31,3 +31,15 @@ describe('端口竞态缓解契约(_bind_available_port 随机起点)', () => {
     );
   });
 });
+
+describe('TS 回落窗口扫描 ↔ GD PORT_ATTEMPTS 对齐(2026-08-21 PR#57 CI 修复)', () => {
+  it('TS 扫描窗口(instance-manager DEFAULT_PORT_START..END)与 GD PORT_ATTEMPTS 窗口一致', async () => {
+    const { DEFAULT_PORT_START, DEFAULT_PORT_END } = await import('../src/core/instance-manager.js');
+    const attempts = Number(gd.match(/PORT_ATTEMPTS\s*:=\s*(\d+)/)?.[1] ?? NaN);
+    expect(Number.isFinite(attempts), 'GD PORT_ATTEMPTS 常量缺失或不可解析').toBe(true);
+    expect(DEFAULT_PORT_END - DEFAULT_PORT_START + 1, 'TS 窗口宽度须等于 GD PORT_ATTEMPTS(否则扫描漏端口)').toBe(attempts);
+    expect(DEFAULT_PORT_START, 'TS 窗口起点须等于 GD PORT_DEFAULT 9081').toBe(
+      Number(gd.match(/PORT_DEFAULT\s*:=\s*(\d+)/)?.[1] ?? NaN)
+    );
+  });
+});
