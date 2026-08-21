@@ -92,7 +92,7 @@ export const GODOT_MCP_RULES = `# Godot MCP 开发规则
 - dev_loop 可执行任意 GDScript 代码
 
 ## 截图与调试
-- capture_screenshot 为实验性功能（headless 模式下渲染受限）
+- screenshot（action capture）为实验性功能（headless 模式下渲染受限）
 - profiler 用于性能分析（snapshot/start/stop/get_data）
 
 ## 游戏桥接

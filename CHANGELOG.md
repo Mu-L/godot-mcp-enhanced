@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.9] - 2026-08-21
+
+### Fixed — 审查修复批 4:安全+隐私+杂项清挂账(2026-08-20 专项审查 安全P3-1/2/3、隐私P2/P3/Nit、审查F-3、claudemd 挂账处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 4 段)
+
+- **zip-extract 拒 NTFS 交替数据流(安全P3-1)**:`assertSafeEntryName` 补基名含 `:` 拒——`foo.txt:ads` 原可过全部校验,win32 `writeFileSync` 落 NTFS ADS 隐藏流(经典恶意载荷藏匿位)。负向 4 形态用例(foo.txt:ads/dir/hidden:stream/plain:colon/a:b:c)全拒,正向回归不破。
+- **web serve 仅 SVG 响应加 CSP(安全P3-2,方案修正稿)**:原待办草案「统一加 `default-src 'none'`」会**弄坏 Godot Web 试玩**(导出 index.html 需同源 js/wasm)——修正为仅对 `image/svg+xml` 响应加 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`,封「直接导航 SVG URL」的同源脚本执行面;真 HTTP 往返断言 SVG 带 CSP/index.html/pck 不带。
+- **qa readReport 过 realpath(安全P3-3)**:前缀检查前先过 `realpathSync`(dir 对称)——qa-reports 内预置 symlink 指向外部文件可绕字符串前缀比对读任意 JSON;symlink 负向用例实证(本机 symlink 可用,非 skip 假绿)。
+- **代理披露实测订正(隐私P2)**:三处(telemetry.md/README 双版)「fetch 遵守 HTTP_PROXY/NO_PROXY(Node 默认 trustEnv)」被实测证伪——Node 原生 fetch(undici)**默认不读**环境代理变量(实测:必拒代理端口下 fetch registry.npmjs.org 仍直连 200;≥24 可 `NODE_USE_ENV_PROXY=1` 启用)。`NO_PROXY` 从「零外传手段」清单移除(声称有遮蔽手段实际没有,误导企业代理与隐私敏感用户);行号漂移订正(src/index.ts:125-133 → :152-153);ToolDispatcher.ts:501 注释 `~/.godot/mcp/` 笔误改 `~/.godot-mcp/`(telemetry/config.ts:12 实证)。
+- **CLI 下载链披露补齐(隐私P3)**:telemetry.md 新增「非 telemetry 外传点:CLI 下载链」段——`install`/`web` 的 GitHub releases 下载(api.github.com + 自定义 UA godot-mcp-enhanced-installer,域名白名单+SHA512 同源+y/N 确认+审计仅本机+GODOT_MCP_INSTALL_TAG pin);README 双版各补一句指向。
+- **zip-extract 死赋值(审查F-3)**:zip64 extra field 末字段 `q += 8` 删(无后续消费),lint 恢复 0 warning。
+- **claudemd-builder 旧工具名清理(挂账)**:`capture_screenshot` → `screenshot(action capture)`(批 1 B-1 挂账,merged 架构改名残留最后一处 src 残留);改动触发 rules-version-bump 硬门禁(check-rules-version-bump.mjs:18 纳入 claudemd-builder.ts),按 N-C 例外条款照常 bump **0.32.9** + version-sync + 本定版段 + README 版本行(npm publish/tag 待用户)。
+
 ## [0.32.8] - 2026-08-20
 
 ### Added — 确定性完全体批(护城河研究 H1 + 叙事正名;报告 `docs/research/2026-08-20-护城河方向研究.md`)

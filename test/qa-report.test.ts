@@ -1,6 +1,6 @@
 // test/qa-report.test.ts — QA 报告落盘/读取/diff（env 重定向到 tmp 目录隔离）
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -65,12 +65,32 @@ describe('writeReport / readReport', () => {
 
   it('安全（审查 Important-1）：白名单外绝对路径拒绝读取', () => {
     // 任意路径读是 v0.30 修复的口子——qa 报告只允许读 qa-reports 目录内
-    expect(() => readReport('C:/Windows/win.ini')).toThrow(/必须位于/);
-    expect(() => readReport('C:\\Windows\\win.ini')).toThrow(/必须位于/);
-    expect(() => readReport('/etc/passwd')).toThrow(/必须位于/);
+    expect(() => readReport('C:/Windows/win.ini')).toThrow(/必须位于|不可解析/);
+    expect(() => readReport('C:\\Windows\\win.ini')).toThrow(/必须位于|不可解析/);
+    expect(() => readReport('/etc/passwd')).toThrow(/必须位于|不可解析/);
     // 目录内合法路径仍可（构造 dir 内绝对路径）
     const r = readReport(join(dir, '20260815-100000-alpha.json'));
     expect(r.run_id).toBe('20260815-100000-alpha');
+  });
+
+  it('安全P3-3: qa-reports 内预置 symlink 指向外部文件 → realpath 后拒绝（字符串前缀可绕）', () => {
+    // 攻击面:攻击者能写 qa-reports 目录时放一个 link.json -> 外部文件的 symlink,
+    // 字符串前缀比对放行;realpath 解析真实目标后才校验即拦。
+    const outside = mkdtempSync(join(tmpdir(), 'qa-outside-'));
+    const outsideJson = join(outside, 'secret.json');
+    writeFileSync(outsideJson, JSON.stringify(report('20260815-999999-evil', 'evil', [step(0, 's', 'sleep', 'PASSED')])), 'utf-8');
+    try {
+      symlinkSync(outsideJson, join(dir, '20260815-999999-evil.json'));
+    } catch {
+      // Windows 无开发者模式时 symlink 需特权——skip 该断言组(POSIX CI 会真跑)
+      rmSync(outside, { recursive: true, force: true });
+      return;
+    }
+    try {
+      expect(() => readReport(join(dir, '20260815-999999-evil.json')), 'symlink 指向外部必须拒').toThrow(/必须位于/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('md 渲染含状态表与 setup error', () => {

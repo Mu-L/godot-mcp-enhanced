@@ -90,6 +90,7 @@ describe('startWebServer(真 HTTP 往返)', () => {
   const root = mkdtempSync(join(tmpdir(), 'gme-httpd-'));
   writeFileSync(join(root, 'index.html'), '<html>PLAY</html>', 'utf-8');
   writeFileSync(join(root, 'game.pck'), Buffer.alloc(16, 7), 'utf-8' as never);
+  writeFileSync(join(root, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf-8');
   let running: Awaited<ReturnType<typeof server.startWebServer>> | null = null;
 
   it('index.html 200 + text/html;pck 200 + octet-stream', async () => {
@@ -102,6 +103,18 @@ describe('startWebServer(真 HTTP 往返)', () => {
     const pck = await get(`${running.url}game.pck`);
     expect(pck.status).toBe(200);
     expect(pck.headers['content-type']).toBe('application/octet-stream');
+  });
+
+  it('安全P3-2: SVG 响应带 CSP 封直接导航执行面;index.html/pck 不带(统一 CSP 会断试玩 js/wasm)', async () => {
+    if (!running) throw new Error('server not started');
+    const svg = await get(`${running.url}icon.svg`);
+    expect(svg.status).toBe(200);
+    expect(svg.headers['content-type']).toBe('image/svg+xml');
+    expect(svg.headers['content-security-policy']).toContain("default-src 'none'");
+    const html = await get(running.url);
+    expect(html.headers['content-security-policy']).toBeUndefined();
+    const pck = await get(`${running.url}game.pck`);
+    expect(pck.headers['content-security-policy']).toBeUndefined();
   });
 
   it('404(缺失)/405(POST)/403(穿越)', async () => {

@@ -3,7 +3,7 @@
 // 报告写 ~/.godot-mcp/qa-reports/<YYYYMMDD-HHmmss>-<suite>-<rand4>.{json,md}（不污染用户项目）。
 // JSON 是 diff 的机器可读真相源；md 是人读摘要。run_id = 文件名 stem（时间戳+套件名+4位随机,PR-2）。
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, realpathSync } from 'fs';
 import { join, isAbsolute, resolve, sep } from 'path';
 import { homedir } from 'os';
 
@@ -131,11 +131,19 @@ export function readReport(pathRef: string): QaReport {
 
   let full: string;
   if (isAbsolute(ref) || ref.includes('/') || ref.includes('\\')) {
-    const resolved = resolve(ref);
-    if (!(resolved === dir || resolved.startsWith(dir + sep))) {
+    // 安全P3-3(2026-08-20 审查):前缀检查前先过 realpath——qa-reports 内预置 symlink
+    // 指向外部文件可绕过字符串前缀比对读任意 JSON。dir 同步 realpath 对称。
+    const realDir = realpathSync(dir);
+    let real: string;
+    try {
+      real = realpathSync(resolve(ref));
+    } catch {
+      throw new Error(`report_path 不存在或不可解析: ${ref}`);
+    }
+    if (!(real === realDir || real.startsWith(realDir + sep))) {
       throw new Error(`report_path 必须位于 ${dir} 内（拒绝任意路径读取）: ${ref}`);
     }
-    full = resolved;
+    full = real;
   } else {
     // 裸 run_id 或文件名
     full = join(dir, ref.endsWith('.json') ? ref : `${ref}.json`);
