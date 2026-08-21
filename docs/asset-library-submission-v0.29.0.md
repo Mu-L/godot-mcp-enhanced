@@ -3,12 +3,15 @@
 > 提交入口：https://godotengine.org/asset-library/asset/edit （需 Godot 账号登录）
 > 本文档为逐字段对照材料，提交后进入审核队列（初列 Testing，编辑审核后转 Community）。
 
-> [!warning] Download URL 约定纠偏(2026-08-19 初次纠偏,2026-08-21 二次纠偏)
-> 本文记录的 release addon.zip 直链**不是实际惯例**——AssetLib 条目 5193 历次更新用的都是
-> **GitHub commit 归档直链 + 短 SHA(前 7 位截取)**:`https://github.com/wgt19861219/godot-mcp-enhanced/archive/<短SHA>.zip`
-> (短 SHA = `git rev-parse --short <tag>^{commit}`;初次纠偏时误记为完整 40 位 SHA,
-> 2026-08-21 v0.32.11 提交时用户指出实际惯例是短 SHA 截取,两种长度链接均可达但照短 SHA 填)。
-> 后续版本更新照此格式,勿再建议 release zip 链接或完整 40 位 SHA。
+> [!warning] Download 惯例三次勘误记录(以 2026-08-21 API 实测为终版)
+> 1. 本文档原始记录的 release addon.zip 直链**不是实际惯例**。
+> 2. 2026-08-19 首次纠偏方向正确但表述不全:条目 5193 用的是 commit 归档 + 完整 40 位 SHA;
+>    2026-08-21 中途曾误改为"短 SHA 截取",同样不对。
+> 3. **终版(API 实测)**:`curl https://godotengine.org/asset-library/api/asset/5193` 返回
+>    `download_provider: GitHub` + `download_commit: <完整40位SHA>`(= v0.32.6 tag commit)——
+>    **表单不填完整 URL**:provider 选 GitHub 后在 commit 字段填 `git rev-parse <tag>^{commit}`
+>    的完整 40 位 SHA(即从 `archive/<SHA>.zip` 里截取那串 SHA 字符串),URL 由系统自动拼接。
+>    后续版本照此操作,勿再建议 release zip / 短 SHA / 手拼完整 URL。
 
 ## 表单字段对照
 
