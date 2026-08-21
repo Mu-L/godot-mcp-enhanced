@@ -56,6 +56,12 @@ function assertSafeEntryName(name: string): void {
   if (WINDOWS_RESERVED.test(base)) {
     throw new InternalError(`zip entry reserved device name: ${name}`);
   }
+  // 安全P3-1(2026-08-20 审查):NTFS 交替数据流形态(foo.txt:ads)——盘符正则只认行首
+  // `^[a-zA-Z]:`,基名中冒号不拦;win32 writeFileSync 落 NTFS ADS=经典恶意载荷藏匿位。
+  // win32 合法文件名不含冒号(盘符已被上游拒且那是整路径级),基名含 : 即拒。
+  if (base.includes(':')) {
+    throw new InternalError(`zip entry NTFS alternate data stream: ${name}`);
+  }
 }
 
 /** 在给定 buffer(调用方传尾部窗口)内从后向前扫 EOCD 签名,返回相对偏移。 */
@@ -128,7 +134,7 @@ function entry64Fix(buf: Buffer, extraStart: number, extraLen: number, e: { comp
       let q = p + 4;
       if (e.uncompressedSize === 0xffffffff && q + 8 <= end) { e.uncompressedSize = u64le(buf, q); q += 8; }
       if (e.compressedSize === 0xffffffff && q + 8 <= end) { e.compressedSize = u64le(buf, q); q += 8; }
-      if (e.localHeaderOffset === 0xffffffff && q + 8 <= end) { e.localHeaderOffset = u64le(buf, q); }
+      if (e.localHeaderOffset === 0xffffffff && q + 8 <= end) { e.localHeaderOffset = u64le(buf, q); }  // F-3:末字段,无后续消费不再累加 q
       return;
     }
     p += 4 + size;

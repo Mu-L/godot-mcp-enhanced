@@ -99,10 +99,10 @@ endpoint 空 → record 检测到后立即 return，**不入队、不调度、�
 
 ### update-checker（src/core/update-checker.ts）
 
-每次 MCP server 启动时，`src/index.ts:125-133` 异步调用 `checkForUpdateCached()`：
+每次 MCP server 启动时，`src/index.ts:152-153` 异步调用 `checkForUpdateCached()`：
 
 ```ts
-// src/index.ts:124-133
+// src/index.ts:152-153
 // self-update: 异步查 npm 最新版，有更新 stderr 提示（失败静默，不阻塞 stdio 握手）
 import('./core/update-checker.js')
   .then(({ checkForUpdateCached }) => checkForUpdateCached())
@@ -125,13 +125,26 @@ import('./core/update-checker.js')
 > 设 `GODOT_MCP_UPDATE_CHECK=false` 即可关闭启动时的 npm registry 查询（对齐 telemetry opt-in 哲学）。
 >
 > - **默认行为（未设 env）**：启动时被动查 npm registry（24h 缓存兜底，首次必传一次）
-> - **设 `GODOT_MCP_UPDATE_CHECK=false`**：完全跳过启动外传，`checkForUpdateCached` 直接返当前版本（不 fetch、不读缓存）。注：`self_update` 的 `check` action 不受此 env 门控——该 action 经 `force:true` 短路门控，且 risk='read' 不经确认令牌，**AI 可自主调用触发外传**（IP/UA 泄漏 npmjs.org）。严格零外传需防火墙、`NO_PROXY=registry.npmjs.org` 或 readOnly 模式拒整工具
+> - **设 `GODOT_MCP_UPDATE_CHECK=false`**：完全跳过启动外传，`checkForUpdateCached` 直接返当前版本（不 fetch、不读缓存）。注：`self_update` 的 `check` action 不受此 env 门控——该 action 经 `force:true` 短路门控，且 risk='read' 不经确认令牌，**AI 可自主调用触发外传**（IP/UA 泄漏 npmjs.org）。严格零外传需防火墙或 readOnly 模式拒整工具（**`NO_PROXY` 不是有效手段**——Node 原生 fetch 默认不读环境代理变量，见下节）
 >
 > 此前状态（已修复）：v0.25.0~v0.25.6 期间无 env 门控，与「默认零外传」声明冲突。原 workaround（防火墙/预置缓存/代理）仍可用，但现已非必需。
 
-### 代理环境变量遵守
+### 代理环境变量（实测：Node 原生 fetch 默认不读）
 
-> **代理环境**：update-checker 的 npm registry fetch 遵守 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node 默认 `trustEnv`）。这意味着：(1) 企业代理环境下请求经代理；(2) 完全阻断可设 `NO_PROXY=registry.npmjs.org` 或防火墙规则。**刻意不设 `trustEnv: false`**——那会切断合法企业代理用户的更新检查。
+> **实测修正（隐私P2，2026-08-20 审查）**：Node 原生 fetch（undici）**默认不读** `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 环境变量（Node ≥24 可设 `NODE_USE_ENV_PROXY=1` 启用；「Node 默认 trustEnv」是 axios/got 语义，不适用于原生 fetch）。实测：设 `HTTP_PROXY=http://127.0.0.1:1`（必拒端口）后 `fetch registry.npmjs.org` 仍返回 200 = 未走代理直连。因此：
+> (1) 企业强制代理环境下更新检查**实际直连**（可能被防火墙静默拦截，表现为更新检查无响应）；
+> (2) **`NO_PROXY` 不能作为零外传手段**。严格零外传的有效手段：防火墙规则、`GODOT_MCP_UPDATE_CHECK=false`（注意 `self_update` check 不受此门控）、readOnly 模式拒整工具。
+>
+> 此前状态（已订正）：本节曾声称「fetch 遵守代理环境变量（Node 默认 trustEnv）」并把 `NO_PROXY` 列为阻断手段——实测证伪，方向是「声称有遮蔽手段实际没有」，企业代理用户与隐私敏感用户会基于错误披露做决策。
+
+### 非 telemetry 外传点：CLI 下载链（隐私P3 披露补齐）
+
+除 update-checker 外，CLI 子命令有两个**用户主动触发**的 GitHub releases 下载出网点（非遥测、非默认启动路径）：
+
+- **`godot-mcp-enhanced install [tag]`**（`src/cli/godot-installer.ts`）：`api.github.com` 查最新 release（:100，自定义 User-Agent `godot-mcp-enhanced-installer`）+ 下载 Godot 二进制/SHA512-SUMS（`objects.githubusercontent.com` 等域名白名单，:17）。
+- **`godot-mcp-enhanced web <project>`**（`src/cli/web-exporter.ts`）：首次导出需安装 export templates（~1GB），复用同一下载信任链（`buildReleaseUrls`/`downloadWithProgress`，域名白名单 + SHA512 同源校验 + 失败即删）。
+
+特征：触发前有 y/N 交互确认（非 TTY 拒绝执行）；下载域名硬编码白名单；审计仅落本机 `~/.godot-mcp/machine-audit.jsonl`；`GODOT_MCP_INSTALL_TAG` 可 pin 版本。隐私影响：GitHub 侧可见 IP 与自定义 UA（可标识「godot-mcp-enhanced 用户」身份）。
 
 ---
 

@@ -3,7 +3,7 @@
 // 报告写 ~/.godot-mcp/qa-reports/<YYYYMMDD-HHmmss>-<suite>-<rand4>.{json,md}（不污染用户项目）。
 // JSON 是 diff 的机器可读真相源；md 是人读摘要。run_id = 文件名 stem（时间戳+套件名+4位随机,PR-2）。
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, realpathSync } from 'fs';
 import { join, isAbsolute, resolve, sep } from 'path';
 import { homedir } from 'os';
 
@@ -133,15 +133,29 @@ export function readReport(pathRef: string): QaReport {
 
   let full: string;
   if (isAbsolute(ref) || ref.includes('/') || ref.includes('\\')) {
-    const resolved = resolve(ref);
-    if (!(resolved === dir || resolved.startsWith(dir + sep))) {
-      // P2-17: dir 绝对路径不回显;ref 是用户原始输入,回显可接受
+    // 安全P3-3(2026-08-20 审查):前缀检查前先过 realpath——qa-reports 内预置 symlink
+    // 指向外部文件可绕过字符串前缀比对读任意 JSON。dir 同步 realpath 对称。
+    // 审查N-1:dir 不存在时归友好语义而非裸 ENOENT 冒泡。
+    // P2-17:错误消息不回显 resolve 后的绝对目录(与 master 侧口径一致),ref 是用户原始输入可回显。
+    let realDir: string;
+    try {
+      realDir = realpathSync(dir);
+    } catch {
+      throw new Error(`报告目录不存在(先 qa run)`);
+    }
+    let real: string;
+    try {
+      real = realpathSync(resolve(ref));
+    } catch {
+      throw new Error(`report_path 不存在或不可解析: ${ref}`);
+    }
+    if (!(real === realDir || real.startsWith(realDir + sep))) {
       throw new Error(`report_path 必须位于 QA 报告目录内（拒绝任意路径读取）: ${ref}`);
     }
-    full = resolved;
+    full = real;
   } else {
-    // 裸 run_id 或文件名
-    full = join(dir, ref.endsWith('.json') ? ref : `${ref}.json`);
+    // 裸 run_id 或文件名(审查N-2 对称:统一过 realpath,与带路径分支同威胁模型同防护)
+    full = realpathSync(join(dir, ref.endsWith('.json') ? ref : `${ref}.json`));
   }
   if (!existsSync(full)) {
     throw new Error(`QA 报告不存在: ${ref}`);

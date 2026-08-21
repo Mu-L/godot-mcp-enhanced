@@ -111,13 +111,22 @@ export function startWebServer(rootDir: string, portInput = 0): Promise<RunningW
           return;
         }
       }
-      res.writeHead(200, {
-        'content-type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-        'content-length': stat.size,
+      const mime = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+      const headers: Record<string, string> = {
+        'content-type': mime,
+        'content-length': String(stat.size),
         'cache-control': 'no-store',
         // MINOR(2026-08-21 架构审查):SVG 内嵌脚本等嗅探向量缓解
         'x-content-type-options': 'nosniff',
-      });
+      };
+      // 安全P3-2(2026-08-20 审查,修正稿):仅 SVG 响应加 CSP——SVG 是唯一内嵌脚本媒介,
+      // 直接导航 SVG URL 时脚本在 127.0.0.1 origin 执行可同源 XHR 读 serve 目录;
+      // 作为 <img> 加载时本就不执行脚本,CSP 无副作用。**不可统一加**:godot web 导出的
+      // index.html 需加载同源 js/wasm,统一 default-src 'none' 会弄坏试玩主路径。
+      if (mime === 'image/svg+xml') {
+        headers['content-security-policy'] = "default-src 'none'; style-src 'unsafe-inline'";
+      }
+      res.writeHead(200, headers);
       if (req.method === 'HEAD') { res.end(); return; }
       const stream = createReadStream(filePath);
       // N-2(审查):stat 后文件被删/独占时 open 失败若无监听会崩掉常驻 serve 进程

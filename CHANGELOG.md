@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.32.10] - 2026-08-21
+
 ### Fixed
 
 - `check:modules-sync` 修复架构审查 D-2 漏改的旧路径(仍指 `src/core/module-loader.ts`,实际已移至 `src/module-loader.ts`)+ import 深度正则与 `generate-all-modules.mjs` 对齐(兼容 `./tools/`)——此前该检查必挂,推上 CI(`ci.yml` 跑此检查)必红;`check:tool-groups` 失败消息中的旧路径同步更正。(业务流程复跑发现,2026-08-21)
@@ -25,6 +27,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **coerce String 数值严格判定(审查G-3 P3)**:TYPE_INT/TYPE_FLOAT 的 String 分支改 `is_valid_int()/is_valid_float()` 严格判定——裸 `int()` 部分解析("5px"→5)/失败零值("abc"→0)消除,非法保留原值由类型不匹配显式暴露。
 - **端口竞态实测归档(open,修复被证伪回退)**:双进程同瞬 spawn 20 轮 **18 轮双 listen OK**(Windows 双 bind 假成功坐实,远超预估);「listen 后回探自连判属主」修复真机证伪(双属主 15/20 与零属主 6/6 两态漂移)已回退,`_bind_available_port` 注释留实测事实+候选缓解(起始候选随机化);途中抓到 TCPServer 无 poll() 方法(check:gdscript 逐文件 parse 查不出运行时方法存在性)。
 - **测试**:契约 12 用例(`test/gd-symmetry-contract.test.ts`,sliceBetween 正负断言,删守卫红测实验双红实证 G-1a/P2a)+ 行为级 e2e 4 用例真机(`test/e2e-gd-symmetry.test.ts`:String value 假阳性回归/数值正向不误伤/button:"left" 映射 1/button:"abc" 结构化拒;freeze 守卫单连接 _sendLock 下行为不可达,契约级覆盖诚实标注)+ 既有 input_sequence e2e 6/6 回归 + 全量 6091 passed。
+
+
+### Fixed — 审查修复批 4:安全+隐私+杂项清挂账(2026-08-20 专项审查 安全P3-1/2/3、隐私P2/P3/Nit、审查F-3、claudemd 挂账处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 4 段)
+
+- **zip-extract 拒 NTFS 交替数据流(安全P3-1)**:`assertSafeEntryName` 补基名含 `:` 拒——`foo.txt:ads` 原可过全部校验,win32 `writeFileSync` 落 NTFS ADS 隐藏流(经典恶意载荷藏匿位)。负向 4 形态用例(foo.txt:ads/dir/hidden:stream/plain:colon/a:b:c)全拒,正向回归不破。
+- **web serve 仅 SVG 响应加 CSP(安全P3-2,方案修正稿)**:原待办草案「统一加 `default-src 'none'`」会**弄坏 Godot Web 试玩**(导出 index.html 需同源 js/wasm)——修正为仅对 `image/svg+xml` 响应加 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`,封「直接导航 SVG URL」的同源脚本执行面;真 HTTP 往返断言 SVG 带 CSP/index.html/pck 不带。
+- **qa readReport 过 realpath(安全P3-3)**:前缀检查前先过 `realpathSync`(dir 对称)——qa-reports 内预置 symlink 指向外部文件可绕字符串前缀比对读任意 JSON;symlink 负向用例实证(本机 symlink 可用,非 skip 假绿)。
+- **代理披露实测订正(隐私P2)**:三处(telemetry.md/README 双版)「fetch 遵守 HTTP_PROXY/NO_PROXY(Node 默认 trustEnv)」被实测证伪——Node 原生 fetch(undici)**默认不读**环境代理变量(实测:必拒代理端口下 fetch registry.npmjs.org 仍直连 200;≥24 可 `NODE_USE_ENV_PROXY=1` 启用)。`NO_PROXY` 从「零外传手段」清单移除(声称有遮蔽手段实际没有,误导企业代理与隐私敏感用户);行号漂移订正(src/index.ts:125-133 → :152-153);ToolDispatcher.ts:501 注释 `~/.godot/mcp/` 笔误改 `~/.godot-mcp/`(telemetry/config.ts:12 实证)。
+- **CLI 下载链披露补齐(隐私P3)**:telemetry.md 新增「非 telemetry 外传点:CLI 下载链」段——`install`/`web` 的 GitHub releases 下载(api.github.com + 自定义 UA godot-mcp-enhanced-installer,域名白名单+SHA512 同源+y/N 确认+审计仅本机+GODOT_MCP_INSTALL_TAG pin);README 双版各补一句指向。
+- **zip-extract 死赋值(审查F-3)**:zip64 extra field 末字段 `q += 8` 删(无后续消费),lint 恢复 0 warning。
+- **claudemd-builder 旧工具名清理(挂账)**:`capture_screenshot` → `screenshot(action="capture")`(与 0.32.9 批 P3-1 同点修复,合并取规范形态)(批 1 B-1 挂账,merged 架构改名残留最后一处 src 残留);改动触发 rules-version-bump 硬门禁(check-rules-version-bump.mjs:18 纳入 claudemd-builder.ts),按 N-C 例外条款照常 bump **0.32.10**(原定终态 0.32.9 已被同日七维度审核批用掉,版本终态后移)+ version-sync + 本定版段 + README 版本行(npm publish/tag 待用户)。
+
+### Fixed — 合并善后与批 3 处置
+
+- `e2e-gd-symmetry.test.ts` import 补跟 module-loader 移位(仍指 `src/core/module-loader.js`,套件级 Cannot find module 失败;audit-2 分支自建文件基于移位前 master,合并 master 后暴露)。
+- **批 3(`fix/audit-3-cli-args` = d20b1ff)处置**:CLI 参数双形式(init --template/qa --project/skills --target)已随 0.32.9 七维度审核批(P2-7/8/9/10)等价合入;独有内容(in-flight 计数器根治 setBridgeProjectDir 恒误报、`test/cli-args.test.ts`、qa parseFlag 收敛)已移植,分支废弃删除——本版本不含独立批 3 段。
 
 
 ## [0.32.9] - 2026-08-21

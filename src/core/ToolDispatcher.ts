@@ -498,7 +498,7 @@ export class ToolDispatcher {
       after: async (ctx, result) => {
         // T2: opt-out 前置守卫——必须在 recordTelemetry 参数求值前早 return。
         // 否则 hashProject(ctx.args.project_path) 在 record() 入口前先跑 → getInstallUUID
-        // （config.ts:28 首次 mint 创建 ~/.godot/mcp/telemetry-uuid.txt），违反 docs/telemetry.md
+        // （config.ts:28 首次 mint 创建 ~/.godot-mcp/telemetry-uuid.txt），违反 docs/telemetry.md
         // 「零副作用」承诺。守卫在 callee 内部无效（参数已求值），须在调用方 before-arg-eval。
         // 根因 [[feature-gate-inside-callee-defeated-by-arg-eval]]。
         if (!isTelemetryEnabled()) return result;
