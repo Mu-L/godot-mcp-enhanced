@@ -367,6 +367,12 @@ server 按场景分工三层,自动检测互不冲突:
 
 判定依据是"文件数 / 职责可分性",**不是行数**。大文件(如 `script.ts` ~1000 行)只要单文件单职责就不拆。新增工具时:先单文件起步,需要拆分时再升级为目录。
 
+### 分层约束与全局状态规则(2026-08-21 架构审查定规)
+
+- **core 不依赖 tools**(eslint `no-restricted-imports` 机械门禁,`src/core/**` 下禁止 import `../tools/`):组合根在 `src/module-loader.ts`(应用层,43 个工具模块 import 的唯一集中点)。
+- **CLI 子命令禁止散布 `import '../tools/...'`**:需要起游戏/bridge 的命令复用 `src/cli/bridge-session.ts` 会话链(装 bridge → run_project → teardown);底层 bridge 客户端(`sendToBridge`/`setBridgeProjectDir`)在 `src/core/bridge-client.ts`,CLI 直接 import core 版。CLI 与 server 同源的领域壳(如 `cli/qa.ts` 之于 `tools/qa/`)属合法例外,新增时须在文件头声明。
+- **禁止新增模块级 setter 注入点**(`export function setXxx(...)` 写模块级单例,现存量约 23 个:process-state/logger/progress/game-bridge 回调等):此类注入靠纪律维持,`GodotServer.close()` 需逐一手动清理,历史多次因清理遗漏致测试隔离泄漏/热重启残留(见 `GodotServer.ts` close() 注释的修复记录)。新代码的依赖一律走构造器注入(参照 `ToolDispatcher`/`EditorConnectionManager` 模式);给存量模块补功能时优先扩展既有 setter 语义而不是新增 setter。存量 23 个的清算是长期重构项,不做一次性大改。
+
 ### 分发产物与独立副本边界(改源不改产物)
 
 以下文件是**生成产物**,改动必须改源、跑生成命令,不直接编辑产物:
@@ -476,3 +482,4 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
 | 2026-08-16 | 双副本内容一致性 CI 从 advisory 假接线升级为 STRICT 阻断(`check-rules-content-sync.mjs` 归一化收紧+双向对账,`ci.yml` 传 `STRICT=1`);历史 drift 8/9 文件已清零;「改动 `.claude/rules/` 后」与「独立副本同步约束」两段同步更新 |
 | 2026-08-19 | 「发版前额外门禁」节新增"默认不发版"定规(小版本迭代不 bump 版本/不走版本链,变更进 CHANGELOG [Unreleased];仅用户明确要求发版时才 bump+verify_delivery)——源于 tileset 批次用户反馈 |
 | 2026-08-20 | 「发版前额外门禁」节新增例外条款:规则模板变更触发的 bump 硬门禁 ≠ 发版(照常 bump+version-sync+定版段+版本行,npm publish/tag 仍待用户)——用户裁决 N-C,解耦「版本号演进」与「发布动作」,消解与"默认不发版"的字面冲突 |
+| 2026-08-21 | 新增「分层约束与全局状态规则」:core→tools 禁止(eslint 门禁)/CLI 复用 bridge-session 会话链/禁止新增模块级 setter——源于当日全仓架构审查(C/D 组修复批) |

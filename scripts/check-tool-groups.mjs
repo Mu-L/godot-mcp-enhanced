@@ -7,7 +7,7 @@
 // C-1 (2026-08-14) 第 4 次复现后改造: 正则提取 TOOL_NAMES → require build 产物枚举。
 // 旧版靠正则扫各工具文件源码里的 `TOOL_NAMES = [...]`,工具不导出 TOOL_NAMES 即隐身
 // (audit.ts 即此盲区: 注册了 41 个工具但正则只扫到 40,exit 0 假绿)。
-// 新版直接 import build/core/module-loader.js + tool-registry.js,用运行时真实注册集
+// 新版直接 import build/module-loader.js + tool-registry.js,用运行时真实注册集
 // (registerAllModules → getAllToolDefinitions)对账 TOOL_GROUPS/ALWAYS_ALLOWED,
 // 不依赖任何源码文本模式,天然覆盖"不导出 TOOL_NAMES 的新工具"。
 //
@@ -23,7 +23,7 @@ const root = process.cwd();
 let registry, moduleLoader;
 try {
   registry = await import(`file://${root.replaceAll('\\', '/')}/build/core/tool-registry.js`);
-  moduleLoader = await import(`file://${root.replaceAll('\\', '/')}/build/core/module-loader.js`);
+  moduleLoader = await import(`file://${root.replaceAll('\\', '/')}/build/module-loader.js`);
 } catch (err) {
   console.error(`[tool-groups] 无法加载 build 产物(build/core/{tool-registry,module-loader}.js): ${err instanceof Error ? err.message : String(err)}`);
   console.error('  请先 npm run build');

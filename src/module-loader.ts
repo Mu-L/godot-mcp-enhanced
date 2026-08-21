@@ -4,72 +4,76 @@
  * Centralizes all tool module imports and registration in one place.
  * GodotServer.ts only needs to call registerAllModules().
  *
+ * 2026-08-21 架构审查 D-2:从 src/core/ 移到 src/ 根——本文件是应用层组合根(43 个
+ * tools import),放 core/ 使「core 不依赖 tools」声明名不副实;移出后 eslint 分层门禁
+ * (core→tools 禁止)不再需要豁免条目。
+ *
  * CMP-13 (2026-08-09): ALL_MODULES 数组由 scripts/generate-all-modules.mjs
  * 自动生成(从下方 import 块提取别名)。新增工具:① 加 import 行 ② 跑
  * `npm run generate:modules` 重生成数组。勿手动编辑 ALL_MODULES 数组。
  */
 
-import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel, type ToolModule } from './tool-registry.js';
+import { registerModule, TOOL_GROUPS, getToolMeta, type RiskLevel, type ToolModule } from './core/tool-registry.js';
 import type { Tool } from "@modelcontextprotocol/server";
 
 // ─── Tool module imports ─────────────────────────────────────────────────────
-import * as runtime from '../tools/runtime.js';
-import * as screenshot from '../tools/screenshot.js';
-import * as project from '../tools/project.js';
-import * as scene from '../tools/scene.js';
-import * as script from '../tools/script.js';
-import * as validation from '../tools/validation.js';
-import * as docs from '../tools/docs.js';
-import * as physicsOps from '../tools/physics-ops.js';
-import * as audioOps from '../tools/audio-ops.js';
-import * as tilemapOps from '../tools/tilemap-ops.js';
-import * as materialOps from '../tools/material-ops.js';
-import * as gameBridge from '../tools/game-bridge.js';
-import * as workflow from '../tools/workflow.js';
-import * as animationOps from '../tools/animation/animation-ops.js';
-import * as profilerOps from '../tools/profiler-ops.js';
+import * as runtime from './tools/runtime.js';
+import * as screenshot from './tools/screenshot.js';
+import * as project from './tools/project.js';
+import * as scene from './tools/scene.js';
+import * as script from './tools/script.js';
+import * as validation from './tools/validation.js';
+import * as docs from './tools/docs.js';
+import * as physicsOps from './tools/physics-ops.js';
+import * as audioOps from './tools/audio-ops.js';
+import * as tilemapOps from './tools/tilemap-ops.js';
+import * as materialOps from './tools/material-ops.js';
+import * as gameBridge from './tools/game-bridge.js';
+import * as workflow from './tools/workflow.js';
+import * as animationOps from './tools/animation/animation-ops.js';
+import * as profilerOps from './tools/profiler-ops.js';
 // test-framework → merged into validation (v0.18.0)
-// import * as testFramework from '../tools/test-framework.js';
-import * as animtreeOps from '../tools/animtree.js';
-import * as navigationOps from '../tools/navigation.js';
-import * as particlesOps from '../tools/particles.js';
-import * as signalOps from '../tools/signal-ops.js';
+// import * as testFramework from './tools/test-framework.js';
+import * as animtreeOps from './tools/animtree.js';
+import * as navigationOps from './tools/navigation.js';
+import * as particlesOps from './tools/particles.js';
+import * as signalOps from './tools/signal-ops.js';
 // batch-tools → merged into workflow (v0.18.0)
-// import * as batchTools from '../tools/batch-tools.js';
-import * as uiOps from '../tools/ui-tools.js';
+// import * as batchTools from './tools/batch-tools.js';
+import * as uiOps from './tools/ui-tools.js';
 // recording → merged into runtime (v0.18.0)
-// import * as recordingOps from '../tools/recording.js';
-import * as editorSync from '../tools/editor-sync.js';
-import * as animationTrack from '../tools/animation/animation-track.js';
+// import * as recordingOps from './tools/recording.js';
+import * as editorSync from './tools/editor-sync.js';
+import * as animationTrack from './tools/animation/animation-track.js';
 // delivery → merged into validation (v0.18.0)
-// import * as delivery from '../tools/delivery.js';
+// import * as delivery from './tools/delivery.js';
 // code-templates → merged into project (v0.18.0)
-// import * as codeTemplates from '../tools/code-templates.js';
+// import * as codeTemplates from './tools/code-templates.js';
 // ik-tools → merged into animation-ops (v0.18.0)
-// import * as ikTools from '../tools/ik-tools.js';
+// import * as ikTools from './tools/ik-tools.js';
 // game-design → merged into validation (v0.18.0)
-// import * as gameDesign from '../tools/game-design.js';
-import * as manageTools from '../tools/manage-tools.js';
-import * as instanceTools from '../tools/instance-tools.js';
-import * as advancedProxy from '../tools/advanced-proxy.js';
-import * as loadSkill from '../tools/load-skill.js';
-import * as androidOps from '../tools/android.js';
-import * as cpp from '../tools/cpp.js';
-import * as dataImport from '../tools/data-import.js';
-import * as getContext from '../tools/get-context.js';
-import * as asset from '../tools/asset/asset-ops.js';
-import * as blender from '../tools/blender.js';
-import * as selfUpdate from '../tools/self-update.js';
-import * as testing from '../tools/testing.js';
-import * as debug from '../tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
-import * as engine from '../tools/engine.js';  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
-import * as runtimeAssert from '../tools/runtime-assert.js';
-import * as qa from '../tools/qa/index.js';  // v0.30 B 批：QA 测试套件编排
-import * as analysis from '../tools/analysis/index.js';  // v0.30 C 批：理解层 signal_map/impact_check
-import * as help from '../tools/help.js';
-import * as audit from '../tools/audit.js';  // G3 (2026-08-13): 操作审计日志查询
-import * as uidOps from '../tools/uid-ops.js';  // P1-1 (2026-08-19): Godot 4.4+ 文件 UID 管理
-import * as translationOps from '../tools/translation-ops.js';  // P1-2 (2026-08-19): 翻译文件读写/注册
+// import * as gameDesign from './tools/game-design.js';
+import * as manageTools from './tools/manage-tools.js';
+import * as instanceTools from './tools/instance-tools.js';
+import * as advancedProxy from './tools/advanced-proxy.js';
+import * as loadSkill from './tools/load-skill.js';
+import * as androidOps from './tools/android.js';
+import * as cpp from './tools/cpp.js';
+import * as dataImport from './tools/data-import.js';
+import * as getContext from './tools/get-context.js';
+import * as asset from './tools/asset/asset-ops.js';
+import * as blender from './tools/blender.js';
+import * as selfUpdate from './tools/self-update.js';
+import * as testing from './tools/testing.js';
+import * as debug from './tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
+import * as engine from './tools/engine.js';  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
+import * as runtimeAssert from './tools/runtime-assert.js';
+import * as qa from './tools/qa/index.js';  // v0.30 B 批：QA 测试套件编排
+import * as analysis from './tools/analysis/index.js';  // v0.30 C 批：理解层 signal_map/impact_check
+import * as help from './tools/help.js';
+import * as audit from './tools/audit.js';  // G3 (2026-08-13): 操作审计日志查询
+import * as uidOps from './tools/uid-ops.js';  // P1-1 (2026-08-19): Godot 4.4+ 文件 UID 管理
+import * as translationOps from './tools/translation-ops.js';  // P1-2 (2026-08-19): 翻译文件读写/注册
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 

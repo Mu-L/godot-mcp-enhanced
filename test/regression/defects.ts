@@ -10,7 +10,7 @@ import { countMatchesInFile, countMatchesInDir, fileContains, readSrc, PROJECT_R
 // ts-gdscript-tool-drift 复用 M1
 import { diffMatrices } from '../../src/capability/diff-matrix.js';
 import { extractCapabilities } from '../../src/capability/extract.js';
-import { registerAllModules } from '../../src/core/module-loader.js';
+import { registerAllModules } from '../../src/module-loader.js';
 import type { ToolCapability } from '../../src/capability/schema.js';
 
 export type DefectStatus = 'open' | 'fixed';

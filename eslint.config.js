@@ -19,17 +19,17 @@ export default tseslint.config(
     },
   },
   // 2026-08-21 架构审查 MEDIUM-2:core→tools 分层门禁(机械约束替代纪律)。
-  // 历史上 core→tools 倒置收敛后仅剩 module-loader.ts 一个组合根(C-ARCH-01 有意例外,
-  // 43 个工具模块 import);此规则防止新增倒置——若经 tools/shared barrel(30+ 消费方)
-  // 反向引用,会瞬间形成 core→tools→core 大环。
+  // 历史上 core→tools 倒置收敛后仅剩 module-loader.ts 一个组合根(C-ARCH-01 有意例外);
+  // D-2 同批已把它移到 src/ 根(应用层组合根的真实位置),core 层零 tools 依赖——
+  // 此规则防新增倒置:若经 tools/shared barrel(30+ 消费方)反向引用,会瞬间形成
+  // core→tools→core 大环。
   {
     files: ['src/core/**/*.ts'],
-    ignores: ['src/core/module-loader.ts'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [{
           regex: '(\\.\\./)+tools/',
-          message: 'core 层禁止依赖 tools(分层约束,2026-08-21 架构审查)。组合根唯一例外是 src/core/module-loader.ts;新增工具模块请注册进 ALL_MODULES(加 import 行后跑 npm run generate:modules)。',
+          message: 'core 层禁止依赖 tools(分层约束,2026-08-21 架构审查)。组合根已移至 src/module-loader.ts;新增工具模块请在其中加 import 行后跑 npm run generate:modules。',
         }],
       }],
     },

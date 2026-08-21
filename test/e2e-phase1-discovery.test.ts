@@ -80,7 +80,7 @@ beforeAll(async () => {
   catch (e) { process.stderr.write(`[E2E-WARN] 清理 .godot 失败: ${(e as Error).message}\n`); }
 
   // 触发所有工具模块注册(让 getAllToolDefinitions 返回完整工具集)
-  const { registerAllModules } = await import('../src/core/module-loader.js');
+  const { registerAllModules } = await import('../src/module-loader.js');
   registerAllModules();
 
   editor = await startEditor();
