@@ -16,6 +16,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **e2e workflow 非空执行守门(测试G-2 P2)**:vitest 全 skip 返 exit 0(实测 total=2/pending=2 仍 0),fixture 供给链断掉时 e2e 假绿数月无人察(C5 家族)。`ci.yml` matrix e2e 步骤后加单行 gate(对齐 gdscript gate 范式,断言 `numTotalTests>0 && numPendingTests<numTotalTests`);`editor-e2e.yml` 5 个 vitest 步骤后加同款 gate(upload artifact 前)。判据红绿两态实测:正常报告 PASS exit 0/全 skip 报告 FAIL exit 1;YAML 语法 pyyaml 校验通过。
 - **mock-results 工厂编译期锚定(测试G-4 P3)**:`test/helpers/mock-results.js`→`.ts`,六工厂 import 真实类型(`ExecuteGdscriptResult`/`SpawnResult`)+ `satisfies` + `Partial` 参数 excess check;配套 `tsconfig.test.json` + `npm run typecheck:helpers` + ci.yml check job 接线——**防假接线**(test/ 不在主 tsconfig、eslint 只查 src、vitest esbuild 只剥类型不检查,单纯 satisfies 无人消费)。反向红测实测:接口外字段 `_probe` → TS2353 + exit 2。20 个消费文件 import 路径零改动(vite .js→.ts 解析,三类消费文件 84/84 验证)。**锚定边界(部分解决)**:接口加/删/改**必选**字段才红,可选字段(如 `autoload_detected?`)不触发;消费文件内联极简对象(不走工厂)仍无锚定。
 
+### Fixed — 审查修复批 2:GD bridge 对称性(2026-08-20 专项审查 审查G-1/G-2/G-3/可靠性P2/F-4 处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md` 批 2 段)
+
+- **`_compare_values` 数值分支类型白名单(审查G-1 P2)**:target 非数值(int/float 外)return false,对齐 Vector 分支的 N-1 修复——防 String 条件值经 `float("abc")=0` 静默按 0 比较致 `step_until` 假阳性 PASSED(比 N-1 修的假阴性更隐蔽)。
+- **freeze 入口 pending 守卫(可靠性 P2)**:开窗期间(input_seq/step_until in flight)并发 freeze 拒(对齐 step 的 D-6 范式)——防 bridge PROCESS_MODE_ALWAYS 下帧照走事件照注入(游戏不消费)的时间线假成功。
+- **mouse button 语义 + 深预检扩展(审查G-2 P3)**:新增 `_mouse_button_from_value`(int 1-9 直通/left/right/middle 映射/非法 -1),底层 `send_mouse_click` 与 timeline 深预检同享——`button:"left"` 不再 `int()=0=MOUSE_BUTTON_NONE` 注入无效事件仍报 success;touch/drag 深预检 `index` 非负整数。
+- **isq_result 补 `all_applied` 诊断字段(F-4 Nit)**:部分事件 ok:false 时 success 仍 true(截断语义只看 wall_timeout),加 `.all()` 折叠字段一眼区分全量/部分注入,不改 success 判定;qa runner 截断诊断同步透传。
+- **coerce String 数值严格判定(审查G-3 P3)**:TYPE_INT/TYPE_FLOAT 的 String 分支改 `is_valid_int()/is_valid_float()` 严格判定——裸 `int()` 部分解析("5px"→5)/失败零值("abc"→0)消除,非法保留原值由类型不匹配显式暴露。
+- **端口竞态实测归档(open,修复被证伪回退)**:双进程同瞬 spawn 20 轮 **18 轮双 listen OK**(Windows 双 bind 假成功坐实,远超预估);「listen 后回探自连判属主」修复真机证伪(双属主 15/20 与零属主 6/6 两态漂移)已回退,`_bind_available_port` 注释留实测事实+候选缓解(起始候选随机化);途中抓到 TCPServer 无 poll() 方法(check:gdscript 逐文件 parse 查不出运行时方法存在性)。
+- **测试**:契约 12 用例(`test/gd-symmetry-contract.test.ts`,sliceBetween 正负断言,删守卫红测实验双红实证 G-1a/P2a)+ 行为级 e2e 4 用例真机(`test/e2e-gd-symmetry.test.ts`:String value 假阳性回归/数值正向不误伤/button:"left" 映射 1/button:"abc" 结构化拒;freeze 守卫单连接 _sendLock 下行为不可达,契约级覆盖诚实标注)+ 既有 input_sequence e2e 6/6 回归 + 全量 6091 passed。
+
 
 ## [0.32.9] - 2026-08-21
 
