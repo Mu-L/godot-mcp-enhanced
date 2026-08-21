@@ -394,6 +394,9 @@ func _process(_delta: float) -> void:
 					"applied": isq_entry["applied"],
 					"applied_count": (isq_entry["applied"] as Array).size(),
 					"total_events": (isq_entry["timeline"] as Array).size(),
+					# F-4(2026-08-20 审查):部分事件 ok:false 时 success 仍 true(截断语义只看 wall_timeout),
+					# 加 all_applied 一眼区分全量/部分注入(诊断字段,不改变 success 判定语义)
+					"all_applied": (isq_entry["applied"] as Array).all(func(r): return bool((r as Dictionary).get("ok", false))),
 					"frames_elapsed": int(isq_entry["frame_counter"]),
 					"wall_timeout": bool(isq_entry.get("_wall_timeout", false)),
 					"refrozen": bool(isq_entry.get("refreeze", false)),
@@ -1499,12 +1502,15 @@ func _coerce_bridge_single(raw: Variant, declared_type: int) -> Variant:
 				return bool(raw)
 		TYPE_INT:
 			if raw is String:
-				return int(raw)
+				# 审查G-3 修复(2026-08-20):裸 int() 部分解析("5px"→5)/失败零值("abc"→0)静默吞;
+				# is_valid_int 严格判定,非法保留原值由后续类型不匹配显式暴露
+				return int(raw) if (raw as String).is_valid_int() else raw
 			if raw is float:
 				return int(raw)
 		TYPE_FLOAT:
 			if raw is String:
-				return float(raw)
+				# 同 TYPE_INT:is_valid_float 严格判定
+				return float(raw) if (raw as String).is_valid_float() else raw
 			if raw is int:
 				return float(raw)
 		TYPE_STRING:
@@ -1593,10 +1599,34 @@ func _key_from_string(key: String) -> int:
 	return 0
 
 
+# mouse 按钮值解析:MOUSE_BUTTON 枚举 int(1-9)直通;left/right/middle 字符串映射;非法返 -1。
+# 审查G-2 修复(2026-08-20):int() 对 String 裸转得 0(MOUSE_BUTTON_NONE)——button:"left"
+# 注入无效事件仍报 success,applied 谎报 ok。集中一处解析,直接调用与 timeline 深预检同享。
+func _mouse_button_from_value(v: Variant) -> int:
+	if v is int or v is float:
+		var i := int(v)
+		return i if i >= 1 and i <= 9 else -1
+	if v is String:
+		var m := {"left": MOUSE_BUTTON_LEFT, "right": MOUSE_BUTTON_RIGHT, "middle": MOUSE_BUTTON_MIDDLE}
+		return m.get((v as String).to_lower(), -1)
+	return -1
+
+
+# touch/drag 的 index 预检:非负整数(int 或整值 float;String 数值不收,对齐 button 同款严格语义)
+func _is_valid_touch_index(v: Variant) -> bool:
+	if v is int:
+		return v >= 0
+	if v is float:
+		return v >= 0.0 and v == float(int(v))
+	return false
+
+
 func _cmd_send_mouse_click(params: Dictionary) -> Variant:
 	var x: float = float(params.get("x", 0))
 	var y: float = float(params.get("y", 0))
-	var button: int = int(params.get("button", 1))
+	var button: int = _mouse_button_from_value(params.get("button", 1))
+	if button == -1:
+		return {"error": {"code": -1, "message": "Invalid mouse button: %s (use 1-9 or left/right/middle)" % str(params.get("button", 1))}}
 	var pressed: bool = params.get("pressed", true)
 	var event := InputEventMouseButton.new()
 	event.position = Vector2(x, y)
@@ -2425,6 +2455,10 @@ func _cmd_control_freeze(params: Dictionary, pid: int) -> Dictionary:
 	# owner 独占:已有其他 owner 持有 → 拒(防多 peer 冲突)
 	if _control_owner_pid != -1 and _control_owner_pid != pid:
 		return {"error": {"code": -1, "message": "control layer held by another session (owner_pid=%d)" % _control_owner_pid}}
+	# 可靠性审查修复(2026-08-20):开窗期间 freeze 拒——bridge PROCESS_MODE_ALWAYS 下
+	# frame_counter 照走、事件照注入(游戏不消费)→ 时间线假成功;对齐 step 的 D-6 frozen 守卫范式
+	if not _control_input_seq_pending.is_empty() or not _control_step_until_pending.is_empty():
+		return {"error": {"code": -1, "message": "control layer busy: input sequence / step_until in flight; finish before freeze"}}
 	_control_owner_pid = pid
 	# 2026-08-14 审查 D-2 修复:freeze 前保存游戏自身 paused 原值(在置 true 之前)。
 	# saved_valid 防"冻结中重复 freeze"把维持中的 true 覆盖真实原值。
@@ -2535,11 +2569,16 @@ func _cmd_control_input_sequence(params: Dictionary, pid: int) -> Dictionary:
 		var t := str(e["type"])
 		if not _INPUT_SEQ_TYPES.has(t):
 			return {"error": {"code": -1, "message": "type must be one of %s, got %s" % [str(_INPUT_SEQ_TYPES), t]}}
-		# 深预检(可判定的在登记前拒绝,all-or-nothing):key 可解析 / action 在 InputMap
+		# 深预检(可判定的在登记前拒绝,all-or-nothing):key 可解析 / action 在 InputMap /
+		# mouse_click button 可解析 / touch·drag index 非负整数(审查G-2:与 key 同款 all-or-nothing)
 		if t == "key" and _key_from_string(str(e.get("key", ""))) == 0:
 			return {"error": {"code": -1, "message": "Unknown key: %s (at_frame=%d)" % [str(e.get("key", "")), at_f]}}
 		if t == "action" and not InputMap.has_action(str(e.get("name", ""))):
 			return {"error": {"code": -1, "message": "Unknown action: %s (at_frame=%d); action must exist in project InputMap" % [str(e.get("name", "")), at_f]}}
+		if t == "mouse_click" and _mouse_button_from_value(e.get("button", 1)) == -1:
+			return {"error": {"code": -1, "message": "Invalid button: %s (at_frame=%d); use 1-9 or left/right/middle" % [str(e.get("button", 1)), at_f]}}
+		if (t == "touch" or t == "drag") and not _is_valid_touch_index(e.get("index", 0)):
+			return {"error": {"code": -1, "message": "Invalid index: %s (at_frame=%d); must be non-negative integer" % [str(e.get("index", 0)), at_f]}}
 		validated.append(e)
 		max_at = maxi(max_at, at_f)
 	var settle: int = int(params.get("settle_frames", 0))
@@ -2586,6 +2625,10 @@ func _inject_timeline_event(ev: Dictionary) -> Variant:
 # 结构化条件求值:actual op target(标量/String/Vector,不引入 Expression)
 func _compare_values(actual: Variant, op: String, target: Variant) -> bool:
 	if actual is float or actual is int:
+		# G-1 修复(2026-08-20 审查):数值分支对齐 Vector 分支的 N-1 白名单——target 非数值
+		# return false,防 String 条件值经 float("abc") 静默按 0 比较(step_until 假阳性 predicate_met)
+		if not (target is int or target is float):
+			return false
 		var a: float = float(actual)
 		var t: float = float(target)
 		match op:

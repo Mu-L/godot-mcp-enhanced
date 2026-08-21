@@ -403,6 +403,7 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
         return err(`send_input_sequence 截断: ${JSON.stringify({
           wall_timeout: seqResult.wall_timeout,
           applied_count: seqResult.applied_count,
+          all_applied: seqResult.all_applied,
           total_events: seqResult.total_events,
           frames_elapsed: seqResult.frames_elapsed,
         })}`);
