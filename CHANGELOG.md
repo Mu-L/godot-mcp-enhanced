@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — 审查修复批 1:测试基建(2026-08-20 六专项审查 G-1/G-2/G-4 处置;plan `docs/superpowers/plans/2026-08-21-audit-fixes-master-plan.md`)
+
+- **弱断言还债 860→732(测试G-1 P1)**:防恶化门禁顶格 860/860 零余量(两次复发前科 2b4bc8c/f5e3a8e),本批恢复 **128 预算**。113 处布尔表达式 `toBeTruthy()` 机械强化为 `toBe(true)`/`toBe(false)`(表达式含严格 boolean 信号:比较式/some/every/includes/existsSync 等)+ error-analyzer 15 处 `hasErrors` 布尔字段断言手工强化;2 处替换脚本误改人工修正(qa-index 泛型尖括号误命中判据→`toHaveProperty`;ui-import `find()` 返元素对象→改 `some()` 语义等价强断言)。B 类 83 处(访问前置)与 C 类 657 处(存在性语义)显式不动——达标即止,避免大面积分散改动引入新风险。
+- **e2e workflow 非空执行守门(测试G-2 P2)**:vitest 全 skip 返 exit 0(实测 total=2/pending=2 仍 0),fixture 供给链断掉时 e2e 假绿数月无人察(C5 家族)。`ci.yml` matrix e2e 步骤后加单行 gate(对齐 gdscript gate 范式,断言 `numTotalTests>0 && numPendingTests<numTotalTests`);`editor-e2e.yml` 5 个 vitest 步骤后加同款 gate(upload artifact 前)。判据红绿两态实测:正常报告 PASS exit 0/全 skip 报告 FAIL exit 1;YAML 语法 pyyaml 校验通过。
+- **mock-results 工厂编译期锚定(测试G-4 P3)**:`test/helpers/mock-results.js`→`.ts`,六工厂 import 真实类型(`ExecuteGdscriptResult`/`SpawnResult`)+ `satisfies` + `Partial` 参数 excess check;配套 `tsconfig.test.json` + `npm run typecheck:helpers` + ci.yml check job 接线——**防假接线**(test/ 不在主 tsconfig、eslint 只查 src、vitest esbuild 只剥类型不检查,单纯 satisfies 无人消费)。反向红测实测:接口外字段 `_probe` → TS2353 + exit 2。20 个消费文件 import 路径零改动(vite .js→.ts 解析,三类消费文件 84/84 验证)。
+
 ### Added — 小白一条龙批 5:game-wizard 向导(收官批,六批全落地)
 
 - **`skills/game-wizard/SKILL.md`**(第 7 个打包 skill,双副本分发):四档分诊(没想法/模糊/清晰/已有项目)→ 阶段机 S0-S5(环境→造→改玩法→**qa 硬门**→导出→分享);**gate 以 qa CLI 退出码为唯一真相**(0=全 PASSED 才放行——「不问文档写了吗,问游戏跑通了吗」,对标 CCGS gate-check 的文件存在检测);改玩法纪律「GDD→调参表→代码」(能改 `tuning-src/*.csv` 不写码);非 Claude Code 客户端触达(`--target` 项目级安装 / `GODOT_SKILL_LIBRARIES` load_skill 检索 / 纯 CLI 序列直跑);首跑冷启动预热规则内置。
