@@ -3,10 +3,12 @@
 > 提交入口：https://godotengine.org/asset-library/asset/edit （需 Godot 账号登录）
 > 本文档为逐字段对照材料，提交后进入审核队列（初列 Testing，编辑审核后转 Community）。
 
-> [!warning] Download URL 约定纠偏(2026-08-19,用户确认)
+> [!warning] Download URL 约定纠偏(2026-08-19 初次纠偏,2026-08-21 二次纠偏)
 > 本文记录的 release addon.zip 直链**不是实际惯例**——AssetLib 条目 5193 历次更新用的都是
-> **GitHub commit 归档直链**:`https://github.com/wgt19861219/godot-mcp-enhanced/archive/<完整40位SHA>.zip`
-> (SHA = 对应 tag 的 commit,`git rev-parse <tag>^{commit}`)。后续版本更新照此格式,勿再建议 release zip 链接。
+> **GitHub commit 归档直链 + 短 SHA(前 7 位截取)**:`https://github.com/wgt19861219/godot-mcp-enhanced/archive/<短SHA>.zip`
+> (短 SHA = `git rev-parse --short <tag>^{commit}`;初次纠偏时误记为完整 40 位 SHA,
+> 2026-08-21 v0.32.11 提交时用户指出实际惯例是短 SHA 截取,两种长度链接均可达但照短 SHA 填)。
+> 后续版本更新照此格式,勿再建议 release zip 链接或完整 40 位 SHA。
 
 ## 表单字段对照
 
