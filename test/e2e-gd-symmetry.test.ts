@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { registerAllModules } from '../src/core/module-loader.js';
+import { registerAllModules } from '../src/module-loader.js';
 import { getModuleForTool } from '../src/core/tool-registry.js';
 import type { ToolContext, ToolResult } from '../src/types.js';
 import { parseGodotConfig } from '../src/helpers.js';
