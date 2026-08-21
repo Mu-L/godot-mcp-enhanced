@@ -3,7 +3,8 @@ import { join, dirname } from 'path';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { opt } from './args.js';
 
-function parseInitArgs(args: string[]): { name: string; template: string } {
+// export 供 test/cli-args.test.ts 集成测试(空格形式不再静默落空骨架的 F-1 主张)
+export function parseInitArgs(args: string[]): { name: string; template: string } {
   const name = args[0] || 'my-game';
   // P2-7(七维度审核): --template 双形式(此前只认等号,空格形式静默落 empty 空骨架)
   return { name, template: opt(args, 'template') ?? 'empty' };

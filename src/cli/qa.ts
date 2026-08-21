@@ -13,6 +13,7 @@
  */
 import { join } from 'path';
 import { readdirSync, readFileSync } from 'fs';
+import { opt } from './args.js';
 import { makeCtx } from './ctx.js';
 import * as qaTool from '../tools/qa/index.js';
 import { findPreviousReport, diffReports, type QaReport } from '../tools/qa/report.js';
@@ -33,24 +34,24 @@ function usage(): void {
 }
 
 function parseFlag(rest: string[], name: string): { value?: string; positional: string[] } {
+  // F-2/P2-8(2026-08-21 七维度审核,对齐 d20b1ff 实现):值提取走共享 opt(双形式);
+  // positional 剥除同步覆盖两种形态
+  const bare = name.replace(/^--/, '');
   const out: string[] = [];
-  let value: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a === name) {
-      // 空格形式(相邻消费);尾部缺值不消费(由调用方的必传校验兜底)
-      if (rest[i + 1] !== undefined) { value = rest[i + 1]!; i++; }
-    } else if (a.startsWith(`${name}=`)) {
-      // P2-8(2026-08-21 七维度审核): 等号形式(此前只认空格形式,--project=<path> 时
-      // value 静默丢失且 token 混入 positional → QA 对错误项目静默执行)
-      value = a.split('=').slice(1).join('=');
+    if (a === `--${bare}` && rest[i + 1]) {
+      i++; // 空格形式:吞 flag+值(对齐原「有值才吞」语义,防误吞 positional)
+    } else if (a.startsWith(`--${bare}=`)) {
+      // 等号形式:仅吞 flag 本身(此前只认空格形式,--project=<path> 时 value 静默
+      // 丢失且 token 混入 positional → QA 对错误项目静默执行)
     } else {
       out.push(a);
     }
   }
   // 审查 Important-2：--json 是无值 flag，前置形态（qa run --json spec.json）不得混入
   // positional（否则 spec_path 被取成 '--json'）。统一在此剥除，各调用点免重复处理。
-  return { value, positional: out.filter(a => a !== '--json') };
+  return { value: opt(rest, bare), positional: out.filter(a => a !== '--json') };
 }
 
 /** 解析 handleTool 的 textResult JSON；返回 {json, isError} */

@@ -157,6 +157,11 @@ let _pushBuffer = '';
 // Without this, concurrent calls register overlapping 'data' handlers on the shared
 // socket, causing each handler to see partial/mixed response data.
 let _sendLock: Promise<unknown> = Promise.resolve();
+// in-flight 计数器(d20b1ff 移植,2026-08-20 可靠性审查):原用 Promise.resolve() ===
+// _sendLock 引用比较检测,首次请求后 _sendLock 永远是 new 出的实例,恒判 in-flight
+// (setBridgeProjectDir 每次 warn,监控价值归零)。计数器在锁链 run() 开始 ++ /
+// finally --,resetBridgeState 对称重置。C 组下沉 core 时此修复未随迁,本次补齐。
+let _sendInflight = 0;
 
 // G-1 (2026-08-14 审查 :935 P1): 订阅登记表 — bridge 断线重连后自动重发 watch/monitor 订阅。
 // 根因: GD 侧 mcp_bridge.gd 60s idle 断线(_cleanup_peer_state 清 per-peer 订阅状态)或 TS 侧
@@ -508,7 +513,7 @@ export function setBridgeProjectDir(projectDir: string | null): void {
   // 检测 in-flight:_sendLock 未 settle 意味着有 sendToBridge 正在用 _socket
   // (_sendLock 在 sendToBridge:385-388 获取,.finally(resolveLock) 释放)
   // Promise.resolve() === _sendLock 时表示无 in-flight(初始 settled state)
-  const inflightDetected = !(_sendLock as unknown as Promise<void> === Promise.resolve());
+  const inflightDetected = _sendInflight > 0;
   if (inflightDetected) {
     getLogger().warn('bridge',
       `setBridgeProjectDir('${projectDir}') called while sendToBridge in-flight — ` +
@@ -602,11 +607,14 @@ export function sendToBridge(method: string, params: Record<string, unknown> = {
     });
   };
 
-  // Chain onto the send lock — next request waits for this one to settle
+  // Chain onto the send lock — next request waits for this one to settle.
+  // 入口同步 ++(覆盖「排队中+运行中」两态:锁链上有未 settle 请求即 in-flight),
+  // settle 后 finally 归零——原 Promise.resolve() 引用比较首次请求后恒 false 恒误报,已弃。
   const prev = _sendLock;
   let resolveLock: () => void = () => {};
   _sendLock = new Promise<void>(r => { resolveLock = r; });
-  return prev.then(() => run()).finally(resolveLock);
+  _sendInflight++;
+  return prev.then(() => run()).finally(() => { _sendInflight--; resolveLock(); });
 }
 
 /** Reset all module state — for test isolation and service restart. */
@@ -625,6 +633,7 @@ export function resetBridgeState(): void {
   _cachedSecretAt = 0;
   _connectionLock = null;
   _sendLock = Promise.resolve();
+  _sendInflight = 0;
   // G-1: 订阅登记表 + keepalive timer 一并清(服务重启语义:旧订阅不复存在;timer 防测试隔离泄漏)
   _subscriptions = [];
   _resendInFlight = null;

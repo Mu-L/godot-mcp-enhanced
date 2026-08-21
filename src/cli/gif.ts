@@ -32,10 +32,10 @@ export async function runGif(args: string[]): Promise<void> {
     console.error('用法: gif <project-path> [--out <path>] [--fps 1-10] [--seconds N] [--keys up,left,…] [--seed N]');
     process.exit(2);
   }
-  // B-1(审查):opt/num 支持双形式,已收敛到 cli/args.ts 共享
+  // B-1(审查)/F-2(2026-08-20):参数解析统一走 args.ts 共享双形式 helper + range 钳制
   const outArg = opt(args, 'out');
-  const fps = Math.max(1, Math.min(10, num(args, 'fps', 4)));
-  const seconds = Math.max(1, Math.min(30, num(args, 'seconds', 8)));
+  const fps = num(args, 'fps', 4, [1, 10]);
+  const seconds = num(args, 'seconds', 8, [1, 30]);
   const seed = num(args, 'seed', 42);
   const defaultKeys = ['up', 'right', 'down', 'left'];
   const keys = opt(args, 'keys')?.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) ?? defaultKeys;
