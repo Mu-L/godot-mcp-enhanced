@@ -16,7 +16,7 @@ describe('error-analyzer', () => {
       expect(result.errors[0].file).toBe('res://scripts/player.gd');
       expect(result.errors[0].line).toBe(42);
       expect(result.errors[0].suggestion).toContain('Syntax error');
-      expect(result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(true);
     });
   });
 
@@ -103,7 +103,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('headless_limitation');
-      expect(!result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(false);
     });
 
     it('parses get_image() null', () => {
@@ -112,7 +112,7 @@ describe('error-analyzer', () => {
       ]);
       expect(result.errors.length).toBe(1);
       expect(result.errors[0].type).toBe('headless_limitation');
-      expect(!result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(false);
     });
 
     it('parses canvas_item condition', () => {
@@ -145,7 +145,7 @@ describe('error-analyzer', () => {
       expect(result.warnings[0].file).toBe('res://scripts/player.gd');
       expect(result.warnings[0].line).toBe(10);
       expect(result.errors.length).toBe(0);
-      expect(!result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(false);
     });
   });
 
@@ -161,7 +161,7 @@ describe('error-analyzer', () => {
       expect(result.errors.length).toBe(1);
       expect(result.warnings.length).toBe(1);
       expect(result.prints.length).toBe(3);
-      expect(result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(true);
       expect(result.summary).toContain('1 error');
       expect(result.summary).toContain('1 warning');
       expect(result.summary).toContain('3 print');
@@ -172,7 +172,7 @@ describe('error-analyzer', () => {
     it('returns "No errors" for empty output', () => {
       const result = analyzeOutput([]);
       expect(result.summary).toBe('No errors, warnings, or output found.');
-      expect(!result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(false);
     });
 
     it('separates headless limitations from real errors', () => {
@@ -181,7 +181,7 @@ describe('error-analyzer', () => {
         'SCRIPT ERROR: Identifier "x" not found.',
       ]);
       expect(result.errors.length).toBe(2);
-      expect(result.hasErrors).toBeTruthy();
+      expect(result.hasErrors).toBe(true);
       expect(result.summary).toContain('headless limitation');
     });
   });
@@ -285,7 +285,7 @@ describe('autoload headless filtering', () => {
     expect(result.errors[0].type).toBe('headless_limitation');
     expect(result.errors[0].suggestion).toContain('GameEvents');
     expect(result.errors[0].suggestion).toContain('autoload');
-    expect(!result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(false);
   });
 
   it('does not reclassify non-autoload identifier', () => {
@@ -294,7 +294,7 @@ describe('autoload headless filtering', () => {
     ], { autoloadNames: ['GameEvents', 'PlayerData'] });
     expect(result.errors.length).toBe(1);
     expect(result.errors[0].type).toBe('script_error');
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
   });
 
   it('works without autoloadNames (backward compatible)', () => {
@@ -303,7 +303,7 @@ describe('autoload headless filtering', () => {
     ]);
     expect(result.errors.length).toBe(1);
     expect(result.errors[0].type).toBe('script_error');
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
   });
 
   it('separates autoload errors from real errors in summary', () => {
@@ -312,7 +312,7 @@ describe('autoload headless filtering', () => {
       'SCRIPT ERROR: Identifier "RealBug" not found.',
     ], { autoloadNames: ['GameEvents'] });
     expect(result.errors.length).toBe(2);
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
     expect(result.summary).toContain('headless limitation');
     expect(result.summary).toContain('1 error');
   });
@@ -329,7 +329,7 @@ describe('class_name headless filtering (S3)', () => {
     expect(result.errors.length).toBe(1);
     expect(result.errors[0].type).toBe('headless_limitation');
     expect(result.errors[0].suggestion).toContain('PlayerData');
-    expect(!result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(false);
   });
 
   it('does not reclassify unknown identifier', () => {
@@ -337,7 +337,7 @@ describe('class_name headless filtering (S3)', () => {
       'SCRIPT ERROR: Identifier "SomeLocalVar" not found.',
     ], { classNames: ['PlayerData', 'Battler'] });
     expect(result.errors[0].type).toBe('script_error');
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
   });
 
   it('classNames combines with autoloadNames', () => {
@@ -349,7 +349,7 @@ describe('class_name headless filtering (S3)', () => {
     const types = result.errors.map(e => e.type);
     expect(types).toContain('headless_limitation'); // GameEvents(autoload) + Battler(class)
     expect(types).toContain('script_error'); // RealBug
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
   });
 
   it('works without classNames (backward compatible)', () => {
@@ -357,7 +357,7 @@ describe('class_name headless filtering (S3)', () => {
       'SCRIPT ERROR: Identifier "PlayerData" not found.',
     ]);
     expect(result.errors[0].type).toBe('script_error');
-    expect(result.hasErrors).toBeTruthy();
+    expect(result.hasErrors).toBe(true);
   });
 });
 

@@ -116,12 +116,12 @@ describe('sanitizeRecordingFileName', () => {
 describe('generateRecordingFileName', () => {
   it('generates a name matching recording_*.json', () => {
     const name = generateRecordingFileName();
-    expect(/^recording_[\w-]+\.json$/.test(name)).toBeTruthy();
+    expect(/^recording_[\w-]+\.json$/.test(name)).toBe(true);
   });
 
   it('includes timestamp-like portion', () => {
     const name = generateRecordingFileName();
-    expect(/recording_\d{8}_\d{6}\.json/.test(name)).toBeTruthy();
+    expect(/recording_\d{8}_\d{6}\.json/.test(name)).toBe(true);
   });
 
   it('passes sanitizeRecordingFileName', () => {

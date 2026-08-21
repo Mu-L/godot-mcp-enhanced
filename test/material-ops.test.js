@@ -404,7 +404,7 @@ describe('handleTool routing', () => {
     expect(result).toBeTruthy();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.success).toBe(true);
-    expect(parsed.data.templates.length >= 6).toBeTruthy();
+    expect(parsed.data.templates.length >= 6).toBe(true);
   });
 
   it('shader_edit rejects missing code for write', async () => {
