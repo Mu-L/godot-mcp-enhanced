@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSubcommand, isCliInvocation, isUnknownCommand } from '../../src/cli/router.js';
+import { parseSubcommand, isCliInvocation, isUnknownCommand, SUBCOMMANDS } from '../../src/cli/router.js';
 
 describe('router', () => {
   describe('parseSubcommand', () => {
@@ -72,7 +72,9 @@ describe('router', () => {
     });
 
     it('returns false for all known subcommands', () => {
-      for (const cmd of ['setup', 'configure', 'skills', 'doctor', 'init', 'dashboard', 'qa', 'install', 'gif', 'web'] as const) {
+      // P3(2026-08-21 七维度审核): 从 router 导入单一真相源,新增子命令自动跟随
+      // (此前硬编码重复清单,新增命令时测试不自动同步)
+      for (const cmd of SUBCOMMANDS) {
         expect(isUnknownCommand([cmd])).toBe(false);
       }
     });

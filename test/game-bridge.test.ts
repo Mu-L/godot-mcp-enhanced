@@ -4,7 +4,8 @@
 // 全仓仅原这两个文件 vi.mock('net'),Linux 全量运行时同 fork 内两个 net mock 互相影子化,
 // 致 game-bridge-error 的 mockCreate 实际未接管生产 net.createConnection → beforeEach
 // vi.clearAllMocks() 清空那个接错的实现 → createConnection() 返回 undefined →
-// game-bridge.ts:150 sock.on('data') TypeError → :739 catch 兜底 textResult(无 isError)
+// core/bridge-client.ts sock.on('data') TypeError → 兜底 catch textResult(无 isError)
+// (2026-08-21 C 组重构:实现自已删的 tools/game-bridge.ts:150/:739 下沉 core/bridge-client.ts)
 // → T-2/N-1 断言拿 undefined 而败。合并后同 fork 内仅一个 net mock,消除碰撞触发条件。
 // 本地 Windows 4.1.7/4.1.9 双版本 2852 全过(CI Linux 4.1.7 才败:平台敏感,版本无关)。
 //
