@@ -10,7 +10,7 @@ alwaysApply: false
 Editor 模式通过 WebSocket JSON-RPC 2.0 连接 Godot 编辑器内的 GDScript 插件，实时操作当前打开的场景。
 
 - **插件位置**：`addons/godot_mcp_server/`（需安装在目标项目中）
-- **连接机制**：launch_editor 启动编辑器后，服务端自动检测 WebSocket 连接（端口 13100）
+- **连接机制**：launch_editor 启动编辑器后，服务端自动检测 WebSocket 连接（端口 9090，被占自动递增至 9094）
 - **回退策略**：无编辑器连接时自动回退到 Headless 模式；设置 `GODOT_MCP_NO_FALLBACK=true` 禁止回退
 
 ## 工具清单与对比
@@ -92,7 +92,7 @@ editor_sync_start(project_path="D:/projects/my-game")
 - **forward 机制**：未明确处理的工具名会自动转发到编辑器插件，可能产生意外行为。
 - **断开重连**：编辑器崩溃或关闭后，sync 状态自动清理。需要重新 launch_editor。
 - **launch_editor 崩溃恢复（2026-08-07 审查 P2 文档化）**：launch_editor 是 fire-and-forget（detached + unref），不跟踪编辑器生命周期。编辑器崩溃后：① WS 断开 → EditorConnection 自动重连（20 次指数退避）；② 重连耗尽 → reconnectExhausted handler → handleEditorStall 降级 headless（用户可用 headless 工作）；③ 非 PERSISTENT_SECRET 模式下崩溃即删 secret，rebuildEditorConnection 需 secret 文件 → rebuild 失败需手动重新 launch_editor 或重启 MCP server。**用户预期管理**：系统不会自动重启崩溃的编辑器，需手动 launch_editor 或重启 server。心跳降级走 B-T5 分流（REQUEST_TIMEOUT 主线程卡死 → 降级；NOT_CONNECTED/CONNECTION_LOST 下线 → 让自动重连兜底不降级）。
-- **端口冲突**：默认端口 13100，如果被占用需检查编辑器插件配置。
+- **端口冲突**：默认端口 9090（`BASE_PORT`），被占自动递增至 9094；MCP 端默认连 9090，多实例场景可用 `GODOT_EDITOR_PORT` 指定。
 - **editor 插件 4.7 Vector 类兼容**：早期记忆称 4.7 编译失败（Vector.from_string 等 4.6 API 移除），但 master 已迁移（Vector→`_count_number_components`，`Color.from_string` 4.7 保留），headless 工具 4.7 正常。**但 `godot --check-only <file>` 是假绿**：该用法只打 banner 不触发编译（4.7+4.6.2 实测），2026-06-26 据此称"6 文件全编译通过"不可信。addon 全量编译验证应用 `godot --headless --import --path test/fixtures/gdscript-check`（启用 plugin + 建全局类 class_name 缓存）。
 - **原生类虚函数禁 super()（2026-07-04 修复 654b162 回归）**：`super()`（无方法名）对 Godot 原生类（EditorPlugin/Node/VBoxContainer）虚函数（`_ready`/`_process`/`_enter_tree`/`_exit_tree`，**含 `_init`**）一律是 **Parse Error**："Cannot call the parent class' virtual function ... hasn't been defined"，**4.6.2+ 均报（非 4.7 特有）**。调父类实现用 `super._method()`（带方法名）显式形式。IMP-4 "虚函数首行调 super" **仅适用 extends 自定义基类**（见 CHANGELOG `mcp_bridge.gd` 移除 super 先例 + `docs/review-followup-2026-06-18.md:93`）。654b162（v0.19.0）误加 6 处 super() 致 addon 加载失败/9090 不监听；2026-07-04 移除（plugin/websocket_server/status_panel），4.7+4.6.2 `--import` 实测全量编译通过。
 - **editor 模式 WebSocket 端口 9090-9094（非 13100）**：`addons/godot_mcp_server/websocket_server.gd:3` `BASE_PORT=9090`。`editor_get_scene_tree` 返回 `EDITOR_NOT_CONNECTED` 通常是**端口/key/未就绪**问题（非编译）：需 `mcp_editor.key` icacls 权限 + 等 editor GUI 就绪（插件 WebSocket 监听 9090）+ MCP 端连对端口。详见 [[godot-editor-plugin-e2e-verification]]。
