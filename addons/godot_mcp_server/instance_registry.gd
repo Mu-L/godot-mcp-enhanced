@@ -55,10 +55,14 @@ func _write_instance_json() -> void:
 			if ec != OK:
 				push_warning("[MCP] instance_registry: icacls tighten failed (exit %d), registry dir may be accessible to other users" % ec)
 	else:
-		# Linux/macOS: set_unix_permissions 0o700(owner-only,实例方法非静态,DirAccess.open)
-		var da := DirAccess.open(_registry_dir)
-		if da:
-			da.set_unix_permissions(_registry_dir, 0b111000000)  # 0o700 = owner rwx
+		# Linux/macOS: set_unix_permissions 0o700(owner-only)
+		# fix #65: set_unix_permissions 是 FileAccess 的静态方法,DirAccess 无此方法——
+		# 原实例调用在非 Windows 平台 runtime error 中止 _write_instance_json,
+		# _write_json_atomic 永不执行 → editor 实例 JSON 永不落盘(Windows 走 icacls 分支故未触发)。
+		# 镜像上方 Windows 分支:检查返回值,chmod 失败仅告警不阻断注册。
+		var perm_err := FileAccess.set_unix_permissions(_registry_dir, 0b111000000)  # 0o700 = owner rwx
+		if perm_err != OK:
+			push_warning("[MCP] instance_registry: chmod 0700 failed (err %d), registry dir may be readable by other users" % perm_err)
 
 	var project_path: String = ProjectSettings.globalize_path("res://").rstrip("/")
 	var project_name: String = project_path.get_file()

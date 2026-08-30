@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — instance_registry.gd chmod 调不存在的 DirAccess.set_unix_permissions,非 Windows 平台 editor 实例注册中断(issue #65)
+
+- **根因(本地 4.6.3 ClassDB + 运行时双实证)**:`set_unix_permissions` 是 `FileAccess` 的静态方法(method flags 含 static 位,签名 `(file: String, permissions: int) -> Error`),`DirAccess` 从无此方法(`ClassDB.class_has_method("DirAccess", "set_unix_permissions", true)` = false)。原代码在 `DirAccess.open()` 实例上调用它,macOS/Linux 走到该行即 `Invalid call. Nonexistent function 'set_unix_permissions' in base 'DirAccess'` 运行时错误并中止 `_write_instance_json()` → `_write_json_atomic` 永不执行 → `~/.godot-mcp/instances/` 目录建了却永远空着,`godot_list_instances` 发现不了 editor 实例,0700 权限收紧本身也从未生效。Windows 走 icacls 分支故开发期从未触发;`check:gdscript`(Godot `load()` 编译验证)只拦编译期错误,对该运行时错误天然不设防。
+- **修复**:改静态调用 `FileAccess.set_unix_permissions(_registry_dir, 0o700)` 并镜像上方 Windows 分支检查返回值——chmod 失败仅 `push_warning` 不阻断注册(registry 写入优先于权限收紧;单人 home 默认私有,本就属 defense-in-depth)。同时修正原注释"实例方法非静态,DirAccess.open"的错误认知。
+- **验证**:本地 Windows + Godot 4.6.3 headless 实证——①复现:原调用模式报与 issue 逐字一致的 runtime error,且错误行之后的代码不再执行(连 `quit()` 都不达,进程挂死需 kill);②修复后模拟非 Windows 分支:静态调用合法无中止,失败错误码仅走告警分支继续;③实例化修复后脚本跑 `_write_instance_json()` 全路径,registry JSON 真实落盘且字段完整;④`npm run check:gdscript` errors=0 warnings=0;`test/core/instance-manager.test.ts` 28 passed;`npm run lint` 绿。macOS/Linux 真机行为另由报告者 @mapip 对同思路补丁的验证佐证(instances 目录出现 editor-9090.json、权限 0o700=448、`godot_list_instances` 报 alive)。
+
 ### Fixed — editor e2e session 恢复竞态 v2:探测稳定代替盲等(issue #66)
 
 - **根因(run 33290914738 日志 + artifact 实证)**:editor"恢复上次会话场景"异步动作落在 N=5 并发 edit_node 序列**中间**——edit_node[0..2] 成功,[3][4] 报 `Node not found: Camera3D`(-32002,经 EditorToolExecutor PII 护栏转写为 `Internal error` 只留 code)。v1 防护(2026-08-16:盲等 1.5s + reopen)盲等后不再复查,CI runner 变慢后窗口再度失守;8-23/8-30 两次间歇红、同代码其余 14 次绿 = 纯时序竞态非回归。
