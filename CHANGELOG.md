@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — editor e2e session 恢复竞态 v2:探测稳定代替盲等(issue #66)
+
+- **根因(run 33290914738 日志 + artifact 实证)**:editor"恢复上次会话场景"异步动作落在 N=5 并发 edit_node 序列**中间**——edit_node[0..2] 成功,[3][4] 报 `Node not found: Camera3D`(-32002,经 EditorToolExecutor PII 护栏转写为 `Internal error` 只留 code)。v1 防护(2026-08-16:盲等 1.5s + reopen)盲等后不再复查,CI runner 变慢后窗口再度失守;8-23/8-30 两次间歇红、同代码其余 14 次绿 = 纯时序竞态非回归。
+- **修复(等条件代替赌时间)**:`e2e-resilience-editor.test.ts` 3b 段改为轮询 `editor_get_scene_stats` 的 `stats.path`(活动场景路径,sync_commands.gd 只读统计无副作用),直到连续 3 次(间隔 500ms)等于目标场景才开跑 N=5 并发;探测到被切走即重新 open_scene 切回(`open_scene_from_path` 异步生效,重复 reopen 幂等,Godot 聚焦已开 tab);15s 超时 throw 完整探测序列诊断。残余竞态窗口 = session 恢复迟到超 ~1.5s 观察窗,远低于 v1 的"盲等后不检查"。同款 1.5s 盲等也存在于 `e2e-asset-tools.test.ts`(操作"当前活动场景",语义不同且从未红过),未动。
+- **验证**:本地(Windows + Godot 4.7.1 GUI)`E2E_EDITOR=1` e2e 2 用例**两连跑全绿**(含探测循环的 N=5 用例 10.1s);`npm run lint`/`npm run build` 全绿;`npm test` 全量 6146 passed——唯一失败 `ui-layout-integration` 嵌套 rect 超时为既有并行负载 flake(基线对照:stash 改动后单跑该文件 7/7 绿证实与本改动无关)。
+
 ### Fixed — editor debug 一次性 stack_dump 信号错过致 frames 恒空(issue #63)
 
 - **根因(4.7 源码实证 + 本地确定性复现)**:Godot 4.7 起 `ScriptEditorDebugger._parse_message` 为 handler-map 优先——`stack_dump`/`stack_frame_vars` 等内置消息走内置 handler,**不再进入 `plugins_capture`**,`debugger_bridge.gd` 的 `_capture` 权威路径对这些消息恒不触发;frames/vars 唯一来源退化为面板信号兜底(`_on_panel_stack_dump` 等)。而引擎只在 break 瞬间请求一次 `get_stack_dump` → 面板只 emit 一次 `stack_dump` 信号:**若此刻 `ensure_connected` 尚未连接面板信号**(play 返回到首次 stack_trace 轮询之间的窗口;CI editor 首次导入期首个请求可延迟数秒,晚于游戏起跑),信号永久丢失,frames 恒空直至 continue 触发新 break——`waitForBreaked` 只能超时,快照 `breaked:true, frames:[]`。weekly run 32609819861(2026-08-23)即此模式;同代码次日重跑全绿(run 32627102577)= 间歇性时序竞态。

@@ -355,23 +355,56 @@ describe.skipIf(!canRun)('e2e-resilience (editor): executeChain 串行不变量�
     // 清空 times — open_scene 的 request 不参与 N=5 串行断言（只计 edit_node）
     times.length = 0;
 
-    // ─── 3b. session 恢复竞态防护(2026-08-16 daily 首跑失败根因) ────────────────
-    // startEditor 的就绪判定(9090 LISTEN)只证明 plugin _ready,editor 主循环仍在
-    // 初始化:Godot 4.6.3 实测(fixture push_warning 诊断)LISTEN 后数百 ms,editor
-    // 的"恢复上次会话场景"异步动作会把活动场景从 open_scene 的 main_3d 切回上次
-    // 会话的 main_2d → 后续 edit_node 全部 "Node not found"(CI Linux 启动慢,恢复
-    // 稳定落在 open_scene 之后 → daily 稳定红;本地 Windows 时序抖动 → 间歇红/绿)。
-    // 防护:缓冲 1.5s 让恢复动作先发生完,再 reopen 一次把活动场景切回 main_3d。
-    await new Promise((r) => setTimeout(r, 1500));
-    const reopenRes = await exec.execute('scene', {
-      project_path: REAL_PROJECT,
-      action: 'open_scene',
-      scene_path: 'res://scenes/3d/main_3d.tscn',
-    });
-    const cr = reopenRes.content[0];
-    const reopenMsg = cr && cr.type === 'text' ? cr.text : JSON.stringify(cr);
-    expect(reopenRes.isError, `reopen_scene 不应失败: ${reopenMsg}`).not.toBe(true);
-    // reopen 的 request 同样不参与 N=5 串行断言,清空后只计后续 edit_node
+    // ─── 3b. session 恢复竞态防护 v2(2026-08-30 issue #66) ───────────────────────
+    // v1(2026-08-16:盲等 1.5s + reopen)失守:CI runner 变慢后,editor"恢复上次会话
+    // 场景"的异步动作落在 N=5 edit_node 序列**中间**——edit_node[0..2] 成功,[3][4]
+    // 报 "Node not found: Camera3D"(run 33290914738;8-23/8-30 两次间歇红,同代码
+    // 其余 14 次绿 = 纯时序竞态非回归)。v1 盲等后不再复查,场景被切走无从感知。
+    // v2:等条件代替赌时间——轮询 editor_get_scene_stats 的 stats.path(活动场景路径,
+    // sync_commands.gd:128),直到连续 STABLE_PROBES 次等于目标场景;探测到被切走
+    // 即重新 open_scene 切回。观察窗 ~1.5s(3 探测×500ms),残余竞态窗口 = session
+    // 恢复迟到超观察窗,概率远低于 v1 的"盲等后不检查"。15s 超时 throw 探测序列。
+    const TARGET_SCENE = 'res://scenes/3d/main_3d.tscn';
+    const STABLE_PROBES = 3;
+    const PROBE_INTERVAL_MS = 500;
+    const STABLE_TIMEOUT_MS = 15_000;
+    const probeLog: string[] = [];
+    let stableCount = 0;
+    const stableDeadline = Date.now() + STABLE_TIMEOUT_MS;
+    while (Date.now() < stableDeadline && stableCount < STABLE_PROBES) {
+      let path = '<probe-error>';
+      try {
+        // get_scene_stats 只读统计(无 undo/无副作用);request reject = JSON-RPC error
+        // (如 -32005 No current scene)或连接层失败,记 probeLog 供超时诊断。
+        const stats = await conn.request('editor_get_scene_stats', {}) as {
+          stats?: { path?: string };
+        };
+        path = stats?.stats?.path ?? '<no-path>';
+      } catch (e) {
+        path = `<probe-failed: ${e instanceof Error ? e.message : String(e)}>`;
+      }
+      probeLog.push(path);
+      if (path === TARGET_SCENE) {
+        stableCount++;
+      } else {
+        stableCount = 0;
+        // 活动场景被切走(session 恢复/其他 editor 异步动作)→ 重新 open 切回。
+        // open_scene_from_path 异步生效,reopen 后下一轮探测可能仍是旧场景 →
+        // 重复 reopen(幂等,Godot 聚焦已开 tab),循环继续直到稳定或超时。
+        await exec.execute('scene', {
+          project_path: REAL_PROJECT,
+          action: 'open_scene',
+          scene_path: TARGET_SCENE,
+        });
+      }
+      await new Promise((r) => setTimeout(r, PROBE_INTERVAL_MS));
+    }
+    if (stableCount < STABLE_PROBES) {
+      throw new Error(
+        `活动场景 ${STABLE_TIMEOUT_MS}ms 内未稳定为 ${TARGET_SCENE}(探测序列: ${probeLog.join(' → ')})`,
+      );
+    }
+    // 探测/reopen 的 request 均不参与 N=5 串行断言,清空后只计后续 edit_node
     times.length = 0;
 
     // ─── 4. 并发 N=5 个 edit_node（改 Camera3D position，每个不同 value 防互覆盖平凡）───
