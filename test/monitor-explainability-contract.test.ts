@@ -40,6 +40,13 @@ describe('M-EXPLAIN: monitor 输出可解释性(mcp_bridge.gd)', () => {
     expect(s.includes('"dropped_blocked": dropped_blocked'), '返回体缺 dropped_blocked').toBe(true);
   });
 
+  it('M-b2: 全部属性被过滤时显性报错(-7),不静默空监控', () => {
+    const s = startFn();
+    expect(s.includes('All requested properties are blocked'), '缺 -7 全过滤显性报错').toBe(true);
+    // 报错必须在 dropped_blocked 收集之后(先收集后判定,保证错误路径也点名语义成立)
+    expect(s.indexOf('All requested properties are blocked')).toBeGreaterThan(s.indexOf('var dropped_blocked'));
+  });
+
   it('M-c: monitor_start 自述窗口上限(max_samples)', () => {
     expect(startFn().includes('"max_samples": MONITOR_DEFAULT_MAX_SAMPLES'), 'start 返回缺 max_samples').toBe(true);
   });

@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — bridge monitor 输出可解释性:dropped_blocked 点名 + 数值极值摘要(对标 satelliteoflove 2fb5f07/05f721b)
+
+- **动机**:satelliteoflove 3 天 11 版全打"输出自己解释自己",与 enhanced 工具族重叠度最高;复核 enhanced 现状发现 `monitor_start` 返回的 `properties` 用**原始请求列表**而非过滤后实际监控列表——被 BLOCKED_PROPERTIES 过滤的属性不点名不说明,返回还声称在监控它,比对手修前的"只报数量"更糟。
+- **改动**(`src/scripts/mcp_bridge.gd`):①返回 `properties` 改用 `filtered_props` + 新增 `dropped_blocked` 逐个点名(去重);②新增 `_monitor_summary`(数值属性 min/max 及发生帧/时刻;仅 int/float,Vector/Color 经 _jsonify 已是 Dict 跳过;error 样本跳过;同值极值保留首现),接入 `monitor_stop` 两个 return 与 `monitor_poll` active 分支;③start/stop 返回自述 `max_samples`/`interval_frames` 窗口;④`game` 工具描述与 `properties` 参数描述同步。push 模式单帧推送不带摘要(无累计语义,热路径开销考虑,poll 可得)。另固化 bridge 行协议 UTF-8 跨 chunk 免疫性质(对标 blender-mcp 3100b36 同款 bug 的防御证明:`raw.find(0x0A)` 字节切行 + 整行 `get_string_from_utf8` + 无效 UTF-8 主动断连)。
+- **验证**:契约测试 `test/monitor-explainability-contract.test.ts` 12/12(M 组 8 + U 组 4,正/负双向锚点);`npm run check:gdscript` errors=0;headless 真跑摘要算法 7/7 PASS(重复极值首现/非数值排除/error 跳过,Godot 4.6.3);game-bridge 44/44;全量 6165 passed。
+
+### Fixed — GODOT_PATH 指向目录:显性报错替代静默 fallback(对标 godot-ai 69ba29f)
+
+- **根因**:`findGodot` 的 env 分支此前对目录候选只在 `execFile` 报 ENOENT/EACCES 后落 debug 日志,用户可见的只剩含混的 "Godot binary not found",且静默落入 registry/scoop 搜索链会用别的 Godot 掩盖用户的配置错误。
+- **修复**(`src/core/godot-finder.ts`):新增 `isDirectoryPath`;`GODOT_PATH` 显式配置指向目录直接 throw(错误消息不含路径值,PII-safe;完整路径进 server 日志);`validateGodotBinary` 对目录候选 warn + 拒绝(不 spawn),覆盖 mcp-godot.json / godot-paths.json 候选。同批自查:configure 幂等续配天然满足(单次进程+json-config 原子写+isConfigured 幂等跳过,无 godot-ai daemon 竞态面);裸名解析不采纳(与白名单安全模型冲突);路径规范化已有 safeRealPath 白名单归一+版本签名双防线覆盖。
+- **验证**:`test/godot-finder.test.js` +2 例(目录 throw / validate 拒且不 spawn),48/48 绿。
+
+### Changed — 共享原子写上移 core + 高危覆盖点收口(对标官方 mcp servers 562feeb/642a911)
+
+- **动机**:全仓 94 处直接 `writeFileSync` 中,覆盖**已存在用户资产**的写入点非原子——`save_scene` 写回 .tscn 同目录已有 `writeAtomic` 却漏用直写;`edit_script` 三条路径直写 .gd(靠 validateAndRevert 兜"验证失败回滚",不兜进程崩溃窗口);而原子写实现已有 3 份重复(scene/helpers、project、json-config)。
+- **改动**:新增 `src/core/fs-atomic.ts`(三份实现的并集语义:mode 保持 + 随机 tmp 后缀防并发互踩 + 失败清理 + Windows 锁定降级直写),三处旧名薄委托/re-export 保兼容(消费方零改动;json-config 消费链 rename 失败语义从"直接抛"变"Windows 降级直写",已在其注释披露);接入 save_scene 写回、quick_scene 两处、edit_script 三条路径。**存量未收口点**(scene-instance/translation-ops/game-bridge/overrides 的自写 tmp+rename)逐步迁移,新增覆盖用户资产的写入点必须走共享实现。
+- **验证**:`test/fs-atomic.test.ts` 4/4(tmp 编排/mode 保持/Windows 降级/非 Windows 抛出);scene/script/project 定向 180/180;回归门禁 `adapter-no-mode-preserve` 谓词跟随实现位置更新(core 实现+mode 保持+re-export 链+adapter 调用四要素),defects-fixed 136/136;全量 6165 passed。
+
 ### Fixed — instance_registry.gd chmod 调不存在的 DirAccess.set_unix_permissions,非 Windows 平台 editor 实例注册中断(issue #65)
 
 - **根因(本地 4.6.3 ClassDB + 运行时双实证)**:`set_unix_permissions` 是 `FileAccess` 的静态方法(method flags 含 static 位,签名 `(file: String, permissions: int) -> Error`),`DirAccess` 从无此方法(`ClassDB.class_has_method("DirAccess", "set_unix_permissions", true)` = false)。原代码在 `DirAccess.open()` 实例上调用它,macOS/Linux 走到该行即 `Invalid call. Nonexistent function 'set_unix_permissions' in base 'DirAccess'` 运行时错误并中止 `_write_instance_json()` → `_write_json_atomic` 永不执行 → `~/.godot-mcp/instances/` 目录建了却永远空着,`godot_list_instances` 发现不了 editor 实例,0700 权限收紧本身也从未生效。Windows 走 icacls 分支故开发期从未触发;`check:gdscript`(Godot `load()` 编译验证)只拦编译期错误,对该运行时错误天然不设防。
