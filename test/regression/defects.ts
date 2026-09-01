@@ -1407,14 +1407,20 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     // C-T6 (F3, commit 10f0cc1): 13 adapter writeFileSync(tmpPath, data, 'utf-8') 第三参 encoding 非 mode,
     // tmp 默认 0o666, rename 后覆盖用户 chmod 0o600 的配置 mode（Unix 权限丢失,敏感配置变组可读）。
     // fix: json-config.ts 抽 writeFileAtomicWithMode helper（stat 原文件 mode → write tmp 显式传 mode → rename 保持）。
-    // detect: json-config export writeFileAtomicWithMode + ≥1 adapter 调用（删 export 或调用全删回 writeFileSync→detect=1）。
+    // A-ATOMIC (2026-09-01): 实现上移 src/core/fs-atomic.ts（三份重复原子写合并,P0-arch shared 原语
+    // 上移先例）,json-config.ts 改 re-export 保兼容——谓词跟随实现位置。
+    // detect: core 实现存在 + mode 保持逻辑在位 + json-config re-export 链在位 + ≥1 adapter 调用
+    //   （删 core 实现/mode 保持丢失/re-export 断链/adapter 调用全删回 writeFileSync → detect=1）。
     detect: () => {
+      const core = readSrc('src/core/fs-atomic.ts');
       const cfg = readSrc('src/cli/clients/json-config.ts');
-      const hasExport = /export function writeFileAtomicWithMode/.test(cfg);
-      // adapter 调用点（json-config 自身定义算1,adapter 调用至少1处 = 总计 - 自身 ≥ 1）
+      const hasImpl = /export function writeFileAtomicWithMode/.test(core)
+        && /mode !== undefined \? \{ mode, encoding: 'utf-8' \} : 'utf-8'/.test(core);
+      const hasReexport = /export \{ writeFileAtomicWithMode \} from/.test(cfg);
+      // adapter 调用点（re-export 后 json-config 自身无函数体调用,selfCount=0;adapter 调用至少 1 处）
       const allCalls = countMatchesInDir('src/cli/clients', /\bwriteFileAtomicWithMode\s*\(/g, /\.ts$/);
       const selfCount = (cfg.match(/\bwriteFileAtomicWithMode\s*\(/g) ?? []).length;
-      return hasExport && allCalls - selfCount >= 1 ? 0 : 1;
+      return hasImpl && hasReexport && allCalls - selfCount >= 1 ? 0 : 1;
     } },
   { key: 'adapter-env-field-overwrite', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     // C-T7 (C1, commit c04a6b0): 13 adapter `env: { GODOT_PATH: godotPath }` 完全覆盖 oldEntry.env,

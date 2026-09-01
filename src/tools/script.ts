@@ -1,5 +1,6 @@
 import { join, basename, extname } from 'path';
 import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, renameSync, unlinkSync, copyFileSync } from 'fs';
+import { writeFileAtomic } from '../core/fs-atomic.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { Tool } from "@modelcontextprotocol/server";
@@ -608,7 +609,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           // SEC-P1-1: edit_script 全量替换扫沙箱(扫描替换后的完整内容)
           const sandboxGuard = scanScriptSandboxOrThrow(finalContent, fullPath);
           if (sandboxGuard) return sandboxGuard;
-          writeFileSync(fullPath, finalContent, 'utf-8');
+          // A-ATOMIC (2026-09-01): 覆盖用户 .gd 走原子写(此前直写,进程崩溃/断电窗口
+          // 半写;validateAndRevert 只兜"验证失败回滚",不兜崩溃)
+          writeFileAtomic(fullPath, finalContent);
 
           if (godotPath) {
             const revertMsg = await validateAndRevert(fullPath, rawFile, godotPath, projectPath);
@@ -659,7 +662,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         // SEC-P1-1: edit_script 单 occurrence 替换扫沙箱(扫描替换后的完整内容)
         const sandboxGuard = scanScriptSandboxOrThrow(finalContent, fullPath);
         if (sandboxGuard) return sandboxGuard;
-        writeFileSync(fullPath, finalContent, 'utf-8');
+        writeFileAtomic(fullPath, finalContent);  // A-ATOMIC: 覆盖用户 .gd 原子写
 
         if (godotPath) {
           const revertMsg = await validateAndRevert(fullPath, rawFile, godotPath, projectPath);
@@ -791,7 +794,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       // SEC-P1-1: edit_script 行号模式扫沙箱(扫描替换后的完整内容)
       const sandboxGuard = scanScriptSandboxOrThrow(result, fullPath);
       if (sandboxGuard) return sandboxGuard;
-      writeFileSync(fullPath, result, 'utf-8');
+      writeFileAtomic(fullPath, result);  // A-ATOMIC: 覆盖用户 .gd 原子写
 
       if (godotPath) {
         const ctxInfo = `Lines ${startLine}-${endLine}:\n${beforeLines.join('\n')}\n→\n${adjustedLines.join('\n')}`;
