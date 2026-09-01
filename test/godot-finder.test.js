@@ -10,10 +10,11 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
   readFileSync: vi.fn(),
+  statSync: vi.fn(),
 }));
 
 import { execFile } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import {
   clearGodotPathCache,
   getCachedGodotPath,
@@ -25,6 +26,7 @@ import {
 const execFileMock = vi.mocked(execFile);
 const existsSyncMock = vi.mocked(existsSync);
 const readFileSyncMock = vi.mocked(readFileSync);
+const statSyncMock = vi.mocked(statSync);
 
 beforeEach(() => {
   clearGodotPathCache();
@@ -32,6 +34,7 @@ beforeEach(() => {
   execFileMock.mockReset();
   existsSyncMock.mockReset();
   readFileSyncMock.mockReset();
+  statSyncMock.mockReset();
 });
 
 // Helper: make execFile return successfully for a given stdout.
@@ -102,6 +105,24 @@ describe('findGodot', () => {
     mockExecFileError();
 
     await expect(findGodot()).rejects.toThrow('Godot binary not found');
+  });
+
+  it('G-CONF (2026-09-01): GODOT_PATH 指向目录 → 显性报错而非静默落入搜索链', async () => {
+    // 对标 godot-ai 69ba29f「拒绝指向目录的 GODOT_BIN」:此前目录候选只在 execFile
+    // 报错后落 debug 日志,用户只见含混的 "Godot binary not found"(且可能被后续
+    // registry/scoop fallback 掩盖配置错误)
+    vi.stubEnv('GODOT_PATH', '/opt/godot-dir');
+    existsSyncMock.mockReturnValue(true);
+    statSyncMock.mockImplementation(() => ({ isDirectory: () => true }));
+
+    await expect(findGodot()).rejects.toThrow(/directory, not an executable/);
+  });
+
+  it('G-CONF: validateGodotBinary 对目录候选返回 false 且不 spawn', async () => {
+    statSyncMock.mockImplementation(() => ({ isDirectory: () => true }));
+
+    await expect(validateGodotBinary('/opt/godot-dir')).resolves.toBe(false);
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it('skips GODOT_PATH when validation fails', async () => {

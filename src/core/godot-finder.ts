@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync, statSync } from 'fs';
 import { join, sep, dirname } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
@@ -129,9 +129,20 @@ export function isGodotPathAllowed(candidatePath: string): boolean {
   return isAllowed;
 }
 
+/** G-CONF (2026-09-01): 路径指向目录的显式判定(对标 godot-ai 69ba29f「拒绝指向目录的 GODOT_BIN」)。
+ * 此前目录候选只会在 execFile 报 ENOENT/EACCES 后落进 debug 日志,用户可见的只剩含混的
+ * "Godot binary not found"。stat 失败(不存在/权限)返回 false,交回原有失败路径。 */
+function isDirectoryPath(p: string): boolean {
+  try { return statSync(p).isDirectory(); } catch { return false; }
+}
+
 /** Validate a candidate binary by running --version and checking for Godot signature. */
 export async function validateGodotBinary(candidatePath: string): Promise<boolean> {
   if (!isGodotPathAllowed(candidatePath)) return false;
+  if (isDirectoryPath(candidatePath)) {
+    getLogger().warn('godot-finder', `godot candidate is a directory, not an executable: ${candidatePath}`);
+    return false;
+  }
   try {
     const { stdout } = await execFileAsync(candidatePath, ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     return isGodotVersionSignature(stdout);
@@ -357,6 +368,13 @@ export async function findGodot(projectPath?: string): Promise<string> {
   // 3. Environment variable — validate the binary
   if (process.env.GODOT_PATH) {
     if (existsSync(process.env.GODOT_PATH)) {
+      // G-CONF (2026-09-01): 显式 env 配置指向目录 → 显性报错而非静默落入后续搜索链
+      // (fallback 到 registry/scoop 找到的版本会掩盖用户的配置错误);路径值不进
+      // client 消息(PII-safe),完整路径见 server 日志。
+      if (isDirectoryPath(process.env.GODOT_PATH)) {
+        getLogger().warn('godot-finder', `GODOT_PATH is a directory, not an executable: ${process.env.GODOT_PATH}`);
+        throw new InternalError('GODOT_PATH points to a directory, not an executable (set it to the Godot executable file path)');
+      }
       if (await validateGodotBinary(process.env.GODOT_PATH)) {
         _pathCache.set(cacheKey, process.env.GODOT_PATH);
         return process.env.GODOT_PATH;
