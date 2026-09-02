@@ -16,7 +16,11 @@ import { PathError } from '../core/tool-errors.js';
  *  绕过成本 >10min)。修:改抛 PathError(结构化 PATH_NOT_ALLOWED,safeMessage 外传)+
  *  附允许根列表与修复指引。回显 basename 对齐 P2-17(不回显 resolve 后绝对路径)先例。 */
 function throwPathNotAllowed(kind: string, p: string): never {
-  const roots = [...getAllowedProjectPaths(), process.cwd()].join('; ');
+  // 审查 NIT-2: roots 提示必须与 isPathInAllowedRoots 判定同源(path-utils.ts)——
+  // allowlist 非空时 cwd 不放行(仅空 allowlist 才 cwd fallback),无条件列 cwd 会把用户
+  // 引向"移进 cwd 仍被拒"的新误导。指引本身是行为面而非文案面。
+  const allowlist = getAllowedProjectPaths();
+  const roots = (allowlist.length > 0 ? allowlist : [process.cwd()]).join('; ');
   throw new PathError(
     `${kind} is outside allowed project roots: ${basename(p)}. Allowed roots: ${roots}. ` +
     'Fix: move the file under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');

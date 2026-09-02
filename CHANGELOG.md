@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — headless 场景写工具退出码被 deferred quit 架空 + remove_node 从不落盘 + batch 静默失败(2026-09-02 反馈批,CardGame2 2026-08-27/08-30 反馈)
+
+- **退出码被架空(真机坐实的历史 bug)**:`godot_operations.gd` `_init` 尾部无参 `call_deferred("quit")` = quit(0),在所有 handler 内 `quit(1)` 之后执行并覆盖退出码——2026-08-07 审查 P1 修复(save/pack 失败必须 quit(1))与 batch「修真静默」机制**从未真正生效过**,两代修复均未真机验证最终 exit code。修:全部 `quit(N)` 收口 `_exit_with(N)`(模块级 `_requested_exit_code` 登记,Godot 4 无 exit code getter),尾部按登记值重放;连带收口 add_node/batch 的 save/pack 失败分支(此前只 log_error 落到 exit 0 假成功,审查 NIT-1)。真机三态验证:失败批 exit 1/成功批 exit 0/not-found exit 1。
+- **remove_node 迁持久化链**:原内联脚本只做 remove_child+queue_free **从无 pack+save**(add_node/edit_node/batch 均已迁 ops 持久化链,唯独 remove_node 遗漏)——success 假象不落盘,被删节点在后续写操作中"复活"与新节点双份并存;queue_free 在无帧循环的 --script 模式悬置 → RID leak exit 1。修:迁 `godot_operations.gd` 持久化链(含 uid 回填),TS case 改 spawnGodot+opsScript 模式(含 checkEditorSceneSave 守卫);node_path 补 scene_root.name 前缀剥离(对齐 add_node parent 特判,edit_node 同步对齐),root 删除显式拒绝。
+- **batch_add_nodes 静默失败三形态**:①属性 set 失败只 log 不计 failed_count,节点照常 add → "N/N added" 假成功;②node_name 缺失静默落 Godot 自动名 @Control@6;③per-node 错误仅 debug 级。修:任一属性失败 → 整节点失败(不 add_child+计数+free),node_name 守卫,per-node 失败清单 error 级上报。真机验证 unique_name_in_owner:true 落盘成功;@Control@6 自动名实为 remove_node 不落盘的下游症状(旧节点复活→同名 add_child 被引擎改名),随根因消除。
+- **验证**:真机 Godot 4.6.3 headless 十项(remove 落盘子树删除+scene uid 保留/退出码三态/unique_name_in_owner/root 拒绝/per-node 上报/缺名守卫);`check:gdscript` 0 错;全量 6155 passed;审查 SHIPPED WITH NITS 无 Blocking(docs/reviews/2026-09-02-feedback-batch.md)。
+
+### Fixed — bridge 反馈三项:send_drag 类型崩溃/take_screenshot path 误校验/install_override 不更新(2026-09-02 反馈批,CardGame2 2026-08-22 + fr2-standalone-game 2026-08-30 反馈)
+
+- **send_drag 类型崩溃卡死游戏**:relative/speed 声明 `Array` 类型化变量,MCP schema 是 object(Dictionary {x,y})——类型化赋值行直接 SCRIPT ERROR(守卫在赋值之后来不及生效)→ 游戏侧 Debugger Break 卡死 + bridge 后续请求全超时。修:`_vec2_from_param` 归一 Array `[x,y]` 与 Dictionary `{x,y}` 双形态(send_input_sequence timeline 同链受益);send_mouse_move 补可选 `button_mask`(1=left/2=right/4=middle,配合先 press 模拟按住拖动)。
+- **take_screenshot 的 path 被误校验为节点路径**:mcp 层要 /root/ 前缀、bridge 层要 user:// 前缀,两层校验互相矛盾任意取值必失败。修:`validateBridgePath` 加可选 method 参数(take_screenshot 的 path=文件路径语义豁免,node_path 键仍校验),game_query/write/input、bridgeAction、qa runner input/wait 调用点传 method,可选参向后兼容。
+- **install_override 幂等跳过从不比对内容**:修改源脚本后重复 install 返回成功但目标文件仍旧版。修:内容一致才跳过;漂移则重拷贝(autoload 注册不动)返回 `updated:true`;沙箱扫描上移到幂等检查前(重装=新内容=新威胁面须重扫,含负向测试)。
+- **验证**:game-bridge-validation +3/overrides +2 定向全绿;schema 描述同步 capability-matrix(game schema +146B)。
+
+### Fixed — screenshot 白名单外路径报笼统 Internal error(2026-09-02 反馈批,CardGame2 2026-08-19 反馈)
+
+- **根因**:6 处白名单校验 throw 原生 Error → `classifyError` 兜底成固定 `Internal error`(INTERNAL,PII 防护设计绝不读 err.message),白名单提示被顺带吞掉,误导排查方向(反馈实测绕过成本 >10min)。
+- **修复**:收口 `throwPathNotAllowed` → `PathError`(结构化 PATH_NOT_ALLOWED,safeMessage 外传),消息含允许根列表(与 isPathInAllowedRoots 判定同源生成——空 allowlist 才列 cwd,审查 NIT-2)与修复指引;回显 basename 对齐 P2-17;thumbnail 仅 PNG 的报错补指引(改传 PNG 或 detail=full,零依赖取舍非 bug)。
+
 ### Fixed — instance_registry.gd chmod 调不存在的 DirAccess.set_unix_permissions,非 Windows 平台 editor 实例注册中断(issue #65)
 
 - **根因(本地 4.6.3 ClassDB + 运行时双实证)**:`set_unix_permissions` 是 `FileAccess` 的静态方法(method flags 含 static 位,签名 `(file: String, permissions: int) -> Error`),`DirAccess` 从无此方法(`ClassDB.class_has_method("DirAccess", "set_unix_permissions", true)` = false)。原代码在 `DirAccess.open()` 实例上调用它,macOS/Linux 走到该行即 `Invalid call. Nonexistent function 'set_unix_permissions' in base 'DirAccess'` 运行时错误并中止 `_write_instance_json()` → `_write_json_atomic` 永不执行 → `~/.godot-mcp/instances/` 目录建了却永远空着,`godot_list_instances` 发现不了 editor 实例,0700 权限收紧本身也从未生效。Windows 走 icacls 分支故开发期从未触发;`check:gdscript`(Godot `load()` 编译验证)只拦编译期错误,对该运行时错误天然不设防。

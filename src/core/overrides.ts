@@ -105,9 +105,9 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
   const bypassSandbox = process.env.GODOT_MCP_UNRESTRICTED === 'true'
     && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true'
       || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
+  const srcContent = readFileSync(sourceScriptPath, 'utf-8');  // 沙箱扫描与内容比对共用(审查 NIT-4 双读复用)
   if (!bypassSandbox) {
-    const overrideContent = readFileSync(sourceScriptPath, 'utf-8');
-    const sandboxWarnings = scanGdscriptSandbox(overrideContent);
+    const sandboxWarnings = scanGdscriptSandbox(srcContent);
     if (sandboxWarnings.length > 0) {
       throw new Error(
         `Override script failed sandbox scan: ${sourceScriptPath}\n` +
@@ -127,7 +127,6 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
     // 反馈 2026-08-30 (fr2-standalone-game): 幂等跳过曾从不比对内容——修改源脚本后重复
     // install 返回成功但目标文件仍是旧版,「改动不生效」极易误判为脚本本身问题(排障>5min)。
     // 修:内容一致才跳过;漂移则重拷贝(autoload 已注册不动),返回带 updated 标记。
-    const srcContent = readFileSync(sourceScriptPath, 'utf-8');
     const destContent = existsSync(entry.destScriptPath)
       ? readFileSync(entry.destScriptPath, 'utf-8')
       : null;
@@ -283,6 +282,8 @@ function unlinkSyncQuiet(p: string): void {
  * @param sourcePaths 源脚本绝对路径数组
  * @param projectRoot 目标项目根
  * @returns 安装的 OverrideEntry 数组(已注册的跳过,不在结果里)
+ * @note 预校验只覆盖越权+存在性(快速失败);单条沙箱扫描/project.godot 改写失败时
+ *       已装条目不回滚(非全装或全不装,审查 NIT-6 措辞订正)——单条失败抛错由调用方处置。
  */
 export function installOverrides(sourcePaths: string[], projectRoot: string): OverrideEntry[] {
   // 预校验全部源路径(atomic: 任一失败则整体不装,避免半装状态)

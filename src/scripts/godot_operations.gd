@@ -534,8 +534,12 @@ func add_node(params):
 			print("Node '%s' of type '%s' added successfully" % [params.node_name, params.node_type])
 		else:
 			log_error("Failed to save scene: " + str(save_error))
+			cleanup_and_quit([scene_root], 1)
+			return
 	else:
 		log_error("Failed to pack scene: " + str(result))
+		cleanup_and_quit([scene_root], 1)
+		return
 	scene_root.free()
 
 
@@ -563,6 +567,10 @@ func edit_node(params):
 		node_path = node_path.substr(5)
 	elif node_path.begins_with("/"):
 		node_path = node_path.substr(1)
+	# 根名前缀剥离(对齐 remove_node):query_scene_tree 拷贝路径含场景根名,get_node_or_null
+	# 相对 scene_root 自身,不剥会误报 not found
+	if node_path.begins_with(scene_root.name + "/"):
+		node_path = node_path.substr(scene_root.name.length() + 1)
 	var node = scene_root.get_node_or_null(node_path)
 	if node == null:
 		log_error("Node not found: " + params.node_path)
@@ -764,8 +772,14 @@ func batch_add_nodes(params):
 				return
 		else:
 			log_error("Failed to save scene: " + str(save_error))
+			scene_root.free()
+			_exit_with(1)
+			return
 	else:
 		log_error("Failed to pack scene: " + str(result))
+		scene_root.free()
+		_exit_with(1)
+		return
 	scene_root.free()
 
 
