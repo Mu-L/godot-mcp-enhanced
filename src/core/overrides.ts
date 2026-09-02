@@ -79,10 +79,11 @@ export function deriveOverrideEntry(sourceScriptPath: string, projectRoot: strin
  *
  * @param sourceScriptPath 源脚本绝对路径(必须在白名单内)
  * @param projectRoot 目标项目根目录(必须含 project.godot 且在白名单内)
- * @returns OverrideEntry(含写入的 key/路径);若已安装(幂等)返回 null
- * @throws 路径越权 / project.godot 缺失 / 脚本拷贝失败
+ * @returns OverrideEntry(含写入的 key/路径;内容更新路径带 updated:true);
+ *          完全幂等(已注册且内容一致)返回 null
+ * @throws 路径越权 / project.godot 缺失 / 沙箱扫描失败 / 脚本拷贝失败
  */
-export function installOverride(sourceScriptPath: string, projectRoot: string): OverrideEntry | null {
+export function installOverride(sourceScriptPath: string, projectRoot: string): (OverrideEntry & { updated?: boolean }) | null {
   assertSourceAllowed(sourceScriptPath);
   assertProjectAllowed(projectRoot);
 
@@ -96,26 +97,11 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
 
   const entry = deriveOverrideEntry(sourceScriptPath, projectRoot);
 
-  // 幂等:新键已注册则跳过(G-5: 行首精确匹配,防短前缀误命中)。
-  // G-5 迁移:仅旧带前缀键存在 → 删旧行(下方插入逻辑写新行,旧项目自愈,
-  // 旧键在 Godot 侧截断为 "autoload" 节点与 MCPBridge 键冲突 → override 未加载)。
-  let config = readFileSync(configPath, 'utf-8');
-  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // autoload/MCPOVERRIDE_<stem>
-  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
-  if (hasNewKey) {
-    getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
-    return null;
-  }
-  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
-  if (hasLegacyKey) {
-    config = config.split('\n').filter(line => !line.startsWith(legacyKey + '=')).join('\n');
-    getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
-  }
-
   // 2026-08-06 审查 P1 修复：autoload 脚本 _ready 在游戏启动时执行 = 任意代码执行面，
   // 与 execute_gdscript 同威胁面，须对称走沙箱扫描（gdscript-executor.ts:1013 强制扫描）。
   // 双 opt-in 旁路对齐 execute_gdscript（gdscript-executor.ts:1017-1018）：
   // UNRESTRICTED && (DISABLE_SAFETY || ALLOW_UNSAFE)——单 env 不够，防误设。
+  // 扫描置于幂等检查之前：重复 install 走内容更新路径时同样重扫（新内容 = 新威胁面）。
   const bypassSandbox = process.env.GODOT_MCP_UNRESTRICTED === 'true'
     && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true'
       || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
@@ -129,6 +115,34 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
         `Set GODOT_MCP_DISABLE_SAFETY=true + GODOT_MCP_UNRESTRICTED=true to override (P0-1 double-opt-in).`,
       );
     }
+  }
+
+  // 幂等:新键已注册则跳过 autoload 改写(G-5: 行首精确匹配,防短前缀误命中)。
+  // G-5 迁移:仅旧带前缀键存在 → 删旧行(下方插入逻辑写新行,旧项目自愈,
+  // 旧键在 Godot 侧截断为 "autoload" 节点与 MCPBridge 键冲突 → override 未加载)。
+  let config = readFileSync(configPath, 'utf-8');
+  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // autoload/MCPOVERRIDE_<stem>
+  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
+  if (hasNewKey) {
+    // 反馈 2026-08-30 (fr2-standalone-game): 幂等跳过曾从不比对内容——修改源脚本后重复
+    // install 返回成功但目标文件仍是旧版,「改动不生效」极易误判为脚本本身问题(排障>5min)。
+    // 修:内容一致才跳过;漂移则重拷贝(autoload 已注册不动),返回带 updated 标记。
+    const srcContent = readFileSync(sourceScriptPath, 'utf-8');
+    const destContent = existsSync(entry.destScriptPath)
+      ? readFileSync(entry.destScriptPath, 'utf-8')
+      : null;
+    if (destContent === srcContent) {
+      getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
+      return null;
+    }
+    copyFileSync(sourceScriptPath, entry.destScriptPath);
+    getLogger().info('overrides', `Override already registered, dest script updated (content drift): ${entry.autoloadKey}`);
+    return { ...entry, updated: true };
+  }
+  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
+  if (hasLegacyKey) {
+    config = config.split('\n').filter(line => !line.startsWith(legacyKey + '=')).join('\n');
+    getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
   }
 
   // 拷贝脚本到项目根(参考 game-bridge.ts:556 copyFileSync)

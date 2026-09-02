@@ -47,6 +47,25 @@ describe('validateBridgePath (T-1/I-1: /root/ 绝对路径校验)', () => {
       expect(err).toContain('/root/');
     });
 
+    // 反馈 2026-08-22 (CardGame2): take_screenshot 的 path 是文件路径语义(user://…),
+    // 曾被误扫为节点路径——mcp 层要 /root/ 前缀、bridge 层要 user:// 前缀,任意取值必失败。
+    it('take_screenshot 的 path(user:// 文件路径) → 豁免节点路径校验(返回 null)', () => {
+      expect(validateBridgePath({ path: 'user://mcp_screenshot.png' }, 'take_screenshot')).toBeNull();
+      expect(validateBridgePath({ path: 'user://screens/hero.png' }, 'take_screenshot')).toBeNull();
+    });
+
+    it('take_screenshot 的 node_path(若误传)仍校验(非节点路径语义的字段不豁免)', () => {
+      const err = validateBridgePath({ node_path: 'Player' }, 'take_screenshot');
+      expect(err).not.toBeNull();
+      expect(err).toContain('/root/');
+    });
+
+    it('同形态 path(user://) 在非豁免 method(如 get_node_properties)仍拒绝', () => {
+      const err = validateBridgePath({ path: 'user://x.png' }, 'get_node_properties');
+      expect(err).not.toBeNull();
+      expect(err).toContain('/root/');
+    });
+
     it('monitor_start 的 node_path 合法(/root/Player) → null', () => {
       expect(validateBridgePath({ node_path: '/root/Player', properties: ['position'] })).toBeNull();
     });

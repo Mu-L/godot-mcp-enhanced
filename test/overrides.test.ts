@@ -80,6 +80,39 @@ describe('P2-1 overrides.ts', () => {
       expect(second).toBeNull();
     });
 
+    // 反馈 2026-08-30 (fr2-standalone-game): 幂等跳过曾从不比对内容——源脚本改后重复
+    // install 返回成功但目标仍是旧版。修:内容漂移 → 重拷贝 + updated:true;一致 → null。
+    it('re-installs with updated:true when source content drifted (dest file refreshed)', () => {
+      const srcScript = join(sourceScriptDir, 'log.gd');
+      writeFileSync(srcScript, 'extends Node\nvar version = 1\n', 'utf-8');
+      installOverride(srcScript, projectDir);
+
+      // 修改源脚本后重复 install
+      writeFileSync(srcScript, 'extends Node\nvar version = 2\n', 'utf-8');
+      const re = installOverride(srcScript, projectDir);
+      expect(re).not.toBeNull();
+      expect(re!.updated).toBe(true);
+      expect(re!.autoloadKey).toBe('MCPOVERRIDE_log');
+      // 目标文件已刷新为新内容
+      expect(readFileSync(join(projectDir, 'mcpoverride_log.gd'), 'utf-8')).toContain('version = 2');
+      // autoload 注册不重复(仍只有一行)
+      const config = readFileSync(join(projectDir, 'project.godot'), 'utf-8');
+      expect(config.match(/^MCPOVERRIDE_log=/gm)?.length).toBe(1);
+
+      // 内容一致时再次 install → null(幂等不受影响)
+      expect(installOverride(srcScript, projectDir)).toBeNull();
+    });
+
+    it('re-scan sandbox on content-drift re-install (new content = new threat surface)', () => {
+      const srcScript = join(sourceScriptDir, 'driftscan.gd');
+      writeFileSync(srcScript, 'extends Node\n', 'utf-8');
+      installOverride(srcScript, projectDir);
+
+      // 漂移成危险内容(含字符串拼接 OS.execute 模式)→ 重复 install 须被沙箱拦截
+      writeFileSync(srcScript, 'extends Node\nvar cmd = "cmd" + ".exe"\nOS.execute(cmd, [])\n', 'utf-8');
+      expect(() => installOverride(srcScript, projectDir)).toThrow(/sandbox/i);
+    });
+
     it('creates [autoload] section if missing', () => {
       const srcScript = join(sourceScriptDir, 'hook.gd');
       writeFileSync(srcScript, 'extends Node\n', 'utf-8');

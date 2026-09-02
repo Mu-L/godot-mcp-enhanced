@@ -1726,8 +1726,14 @@ func _cmd_send_mouse_move(params: Dictionary) -> Variant:
 	var event := InputEventMouseMotion.new()
 	event.position = Vector2(x, y)
 	event.global_position = Vector2(x, y)
+	# 反馈 2026-08-22 (CardGame2): 可选 button_mask(1=left 2=right 4=middle 位掩码)——
+	# move 事件默认不带按键状态,非 drag motion;传掩码可模拟按住拖动(先 press 再带 mask 的 move)。
+	var mask := int(params.get("button_mask", 0))
+	if mask < 0:
+		mask = 0
+	event.button_mask = mask
 	Input.parse_input_event(event)
-	return {"success": true, "x": x, "y": y}
+	return {"success": true, "x": x, "y": y, "button_mask": mask}
 
 
 # 阶段2b IMP-11: 触摸事件注入(对齐 recording_commands.gd :197 + recording.ts touch 回放契约)
@@ -1748,6 +1754,18 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 
 
 # IMP-11 补全: 触屏拖拽回放载体(对齐 _cmd_send_touch;speed best-effort,Godot 内部可能重算覆盖)
+# 反馈 2026-08-22 (CardGame2): relative/speed 曾声明 Array 类型化变量,MCP schema 是 object
+# (Dictionary {x,y})——类型化赋值行直接 SCRIPT ERROR(守卫在赋值之后,来不及生效)→游戏侧
+# Debugger Break 卡死 + bridge 后续请求全超时。修:Variant 接收 + Array/Dictionary 双形态归一。
+func _vec2_from_param(v: Variant, fallback: Vector2) -> Vector2:
+	if v is Array:
+		return Vector2(
+			float(v[0]) if v.size() > 0 else fallback.x,
+			float(v[1]) if v.size() > 1 else fallback.y)
+	elif v is Dictionary:
+		return Vector2(float(v.get("x", fallback.x)), float(v.get("y", fallback.y)))
+	return fallback
+
 func _cmd_send_drag(params: Dictionary) -> Variant:
 	var x: float = float(params.get("x", 0))
 	var y: float = float(params.get("y", 0))
@@ -1755,17 +1773,13 @@ func _cmd_send_drag(params: Dictionary) -> Variant:
 	if not _is_valid_touch_index(params.get("index", 0)):
 		return {"error": {"code": -1, "message": "Invalid drag index: %s (must be non-negative integer)" % str(params.get("index", 0))}}
 	var index: int = int(params.get("index", 0))
-	var relative: Array = params.get("relative", [0.0, 0.0])
-	if not (relative is Array):
-		relative = [0.0, 0.0]
-	var speed: Array = params.get("speed", [0.0, 0.0])
-	if not (speed is Array):
-		speed = [0.0, 0.0]
+	var relative := _vec2_from_param(params.get("relative", [0.0, 0.0]), Vector2.ZERO)
+	var speed := _vec2_from_param(params.get("speed", [0.0, 0.0]), Vector2.ZERO)
 	var event := InputEventScreenDrag.new()
 	event.position = Vector2(x, y)
 	event.index = index
-	event.relative = Vector2(float(relative[0]) if relative.size() > 0 else 0.0, float(relative[1]) if relative.size() > 1 else 0.0)
-	event.speed = Vector2(float(speed[0]) if speed.size() > 0 else 0.0, float(speed[1]) if speed.size() > 1 else 0.0)
+	event.relative = relative
+	event.speed = speed
 	Input.parse_input_event(event)
 	return {"success": true, "x": x, "y": y, "index": index, "relative": relative, "speed": speed}
 
