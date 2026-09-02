@@ -1,5 +1,7 @@
 // A-12/A-13/A-14: scene_path 输入校验 + edit_node/remove_node 并发控制 + 回归测试
 import { expect, it, beforeEach, afterEach, describe, vi } from 'vitest';
+import { writeFileSync } from 'fs';
+import { join } from 'path';
 import { mockSuccessResult, mockSuccessSpawn } from './helpers/mock-results.js';
 
 // Mock the executor — hoisted by Vitest
@@ -120,6 +122,59 @@ describe('A-12: scene_path validation', () => {
     }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('INVALID_PARAMS');
+  });
+
+  // --- 反馈 2026-08-27/08-30 (CardGame2): remove_node 迁 godot_operations.gd 持久化链 ---
+  // 原内联脚本只改内存(remove_child+queue_free 从不落盘)→success 假象;queue_free 悬置
+  // 致 exit 1。修后走 spawnGodot+opsScript(与 edit_node 同模式),不再走 executeGdscript。
+  it('remove_node — 走 opsScript 持久化链(spawnGodot 带 remove_node op),不走 executeGdscript', async () => {
+    const sceneFile = 'scenes/main.tscn';
+    writeFileSync(join(dirRef.path, sceneFile), '[gd_scene format=3]\n[node name="Main" type="Node2D"]\n', 'utf-8');
+    vi.mocked(mockSpawnGodot).mockImplementationOnce(() => Promise.resolve(mockSuccessSpawn({
+      stdout: "Node 'OldNode' removed successfully",
+    })));
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'remove_node',
+      scene_path: sceneFile,
+      node_path: 'root/Main/OldNode',
+    }, ctx);
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('removed successfully');
+    // spawnGodot 被调,且参数含 opsScript 与 'remove_node' op(持久化链标志)
+    expect(mockSpawnGodot).toHaveBeenCalled();
+    const spawnArgs = vi.mocked(mockSpawnGodot).mock.calls.at(-1)[1];
+    expect(spawnArgs).toContain('remove_node');
+    expect(String(spawnArgs)).toContain('godot_operations.gd');
+  });
+
+  it('remove_node — 场景文件不存在返回 FILE_NOT_FOUND(前置校验)', async () => {
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'remove_node',
+      scene_path: 'scenes/missing.tscn',
+      node_path: 'root/Main/OldNode',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('FILE_NOT_FOUND');
+  });
+
+  it('remove_node — GD 侧失败(exit 1)如实透传 errorResult(不吞成 success)', async () => {
+    const sceneFile = 'scenes/fail.tscn';
+    writeFileSync(join(dirRef.path, sceneFile), '[gd_scene format=3]\n', 'utf-8');
+    vi.mocked(mockSpawnGodot).mockImplementationOnce(() => Promise.resolve({
+      stdout: "ERROR: Node not found: root/Main/OldNode",
+      stderr: '', exitCode: 1, timedOut: false,
+    }));
+    const result = await scene.handleTool('scene', {
+      project_path: dirRef.path,
+      action: 'remove_node',
+      scene_path: sceneFile,
+      node_path: 'root/Main/OldNode',
+    }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('exit code 1');
+    expect(result.content[0].text).toContain('Node not found');
   });
 });
 

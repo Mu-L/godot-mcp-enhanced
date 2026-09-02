@@ -221,14 +221,14 @@ func _init():
 	var script_index = args.find("--script")
 	if script_index == -1:
 		log_error("Could not find --script argument")
-		quit(1)
+		_exit_with(1)
 		return
 	var operation_index = script_index + 2
 	var params_index = script_index + 3
 
 	if args.size() <= params_index:
 		log_error("Usage: godot --headless --script godot_operations.gd <operation> <json_params>")
-		quit(1)
+		_exit_with(1)
 		return
 	log_debug("All arguments: " + str(args))
 	var operation = args[operation_index]
@@ -246,11 +246,11 @@ func _init():
 	else:
 		log_error("Failed to parse JSON parameters: " + params_json)
 		log_error("JSON Error: " + json.get_error_message() + " at line " + str(json.get_error_line()))
-		quit(1)
+		_exit_with(1)
 		return
 	if not params:
 		log_error("Failed to parse JSON parameters: " + params_json)
-		quit(1)
+		_exit_with(1)
 		return
 	log_info("Executing operation: " + operation)
 
@@ -264,6 +264,8 @@ func _init():
 			add_node(params)
 		"edit_node":
 			edit_node(params)
+		"remove_node":
+			remove_node(params)
 		"batch_add_nodes":
 			batch_add_nodes(params)
 		"load_sprite":
@@ -280,7 +282,11 @@ func _init():
 			log_error("Unknown operation: " + operation)
 			cleanup_and_quit([], 1)
 
-	call_deferred("quit")
+	# 反馈 2026-08-27 真机坐实:无参 call_deferred("quit") = quit(0),在 handler 内
+	# quit(1)(如 batch failed_count>0 的「修真静默」、save/pack 失败的 2026-08-07 P1
+	# 修复)之后执行,退出码被覆盖回 0——历史上所有非零退出码从未真正到达 TS 层。
+	# 修:所有 quit(N) 收口为 _exit_with(N) 登记,尾部按登记值重放。
+	call_deferred("quit", _requested_exit_code)
 	return
 # ─── Logging helpers ──────────────────────────────────────────────────────────
 
@@ -294,11 +300,19 @@ func log_info(message: String) -> void:
 func log_error(message: String) -> void:
 	printerr("[ERROR] " + message)
 
+# 统一退出码登记(见 _init 尾部注释):quit(code) 的退出码无法读回(SceneTree 无 getter),
+# 尾部 deferred 无参 quit 会覆盖它——所有非零退出必须经 _exit_with 登记。
+var _requested_exit_code := 0
+
+func _exit_with(code: int) -> void:
+	_requested_exit_code = code
+	quit(code)
+
 func cleanup_and_quit(nodes: Array, exit_code: int = 0) -> void:
 	for node in nodes:
 		if is_instance_valid(node):
 			node.free()
-	quit(exit_code)
+	_exit_with(exit_code)
 	return
 
 # ─── Class helpers ────────────────────────────────────────────────────────────
@@ -413,7 +427,7 @@ func create_scene(params):
 	var scene_root = instantiate_class(root_node_type)
 	if not scene_root:
 		log_error("Failed to instantiate node of type: " + root_node_type)
-		quit(1)
+		_exit_with(1)
 		return
 
 	# C-03: apply root_node_name after successful instantiation (was dead code after return)
@@ -454,7 +468,7 @@ func create_scene(params):
 		print("Scene created successfully at: " + params.scene_path)
 	else:
 		log_error("Failed to save scene. Error: " + str(save_error))
-		quit(1)
+		_exit_with(1)
 		return
 func add_node(params):
 	log_info("Adding node to scene: " + params.scene_path)
@@ -465,12 +479,12 @@ func add_node(params):
 
 	if not FileAccess.file_exists(absolute_scene_path):
 		log_error("Scene file does not exist: " + absolute_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 
@@ -531,12 +545,12 @@ func edit_node(params):
 	var absolute_scene_path = ProjectSettings.globalize_path(full_scene_path)
 	if not FileAccess.file_exists(absolute_scene_path):
 		log_error("Scene file does not exist: " + absolute_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 	# node_path 规范化：TS 侧 normalizeNodePath 传 "/root/Root/X" 格式，
@@ -575,16 +589,77 @@ func edit_node(params):
 		else:
 			log_error("Failed to save scene: " + str(save_error))
 			scene_root.free()
-			quit(1)
+			_exit_with(1)
 			return
 	else:
 		log_error("Failed to pack scene: " + str(result))
 		scene_root.free()
-		quit(1)
+		_exit_with(1)
 		return
 	scene_root.free()
 	if failed > 0:
-		quit(1)
+		_exit_with(1)
+
+
+# 反馈 2026-08-27 (CardGame2): headless remove_node 原走 TS 拼接的内联脚本,只改内存
+# (remove_child + queue_free)从不落盘 → 返 success 但文件原样;后续写操作基于旧文件,
+# 被删节点"复活"与新节点双份并存;且 queue_free 在无帧循环的 --script 模式下悬置,
+# 进程退出报 RID leak exit 1(2026-08-30 形态)。迁 ops 持久化链对齐 edit_node:
+# load → instantiate → remove_child + free → pack → _save_atomic。
+func remove_node(params):
+	log_info("Removing node from scene: " + params.scene_path)
+	var full_scene_path = _sanitize_res_path(params.scene_path)
+	var absolute_scene_path = ProjectSettings.globalize_path(full_scene_path)
+	if not FileAccess.file_exists(absolute_scene_path):
+		log_error("Scene file does not exist: " + absolute_scene_path)
+		_exit_with(1)
+		return
+	var scene = load(full_scene_path)
+	if not scene:
+		log_error("Failed to load scene: " + full_scene_path)
+		_exit_with(1)
+		return
+	var scene_root = scene.instantiate()
+	# node_path 规范化：复用 edit_node 逻辑(TS 传 "/X/Y" 绝对路径形式)
+	var node_path = params.node_path
+	if node_path.begins_with("/root/"):
+		node_path = node_path.substr(6)
+	elif node_path.begins_with("root/"):
+		node_path = node_path.substr(5)
+	elif node_path.begins_with("/"):
+		node_path = node_path.substr(1)
+	# 对齐 add_node parent 特判(scene_root.name):get_node_or_null 相对 scene_root 自身,
+	# 用户从 query_scene_tree 拷的路径含场景根名(如 "Main/Child2")→剥根名前缀防误报 not found
+	if node_path.begins_with(scene_root.name + "/"):
+		node_path = node_path.substr(scene_root.name.length() + 1)
+	if node_path == "" or node_path == "." or node_path == scene_root.name:
+		log_error("Cannot remove root node")
+		cleanup_and_quit([scene_root], 1)
+		return
+	var node = scene_root.get_node_or_null(node_path)
+	if node == null:
+		log_error("Node not found: " + params.node_path)
+		cleanup_and_quit([scene_root], 1)
+		return
+	var parent = node.get_parent()
+	var node_name = str(node.name)
+	parent.remove_child(node)
+	node.free()  # 立即 free(脚本无帧循环,queue_free 悬置 = RID leak exit 1 根因)
+	var packed_scene = PackedScene.new()
+	var result = packed_scene.pack(scene_root)
+	if result == OK:
+		var save_error = _save_atomic(packed_scene, absolute_scene_path, absolute_scene_path)  # A5: 回填原 uid
+		if save_error == OK:
+			print("Node '%s' removed successfully from %s" % [node_name, params.scene_path])
+		else:
+			log_error("Failed to save scene: " + str(save_error))
+			cleanup_and_quit([scene_root], 1)
+			return
+	else:
+		log_error("Failed to pack scene: " + str(result))
+		cleanup_and_quit([scene_root], 1)
+		return
+	scene_root.free()
 
 
 func batch_add_nodes(params):
@@ -596,19 +671,28 @@ func batch_add_nodes(params):
 
 	if not FileAccess.file_exists(absolute_scene_path):
 		log_error("Scene file does not exist: " + absolute_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 	var nodes = params.nodes
 	var added_count = 0
 	var failed_count = 0
+	var failed_nodes: Array = []
 
 	for node_def in nodes:
+		var node_name = node_def.get("node_name", "")
+		if not (node_name is String) or node_name == "":
+			# 反馈 2026-08-27 形态3: name 缺失曾静默落成 Godot 自动名(@Control@6,%路径查不到)
+			log_error("Node definition missing/empty node_name, skipped: " + str(node_def))
+			failed_nodes.append("(missing node_name): " + str(node_def.get("node_type", "?")))
+			failed_count += 1
+			continue
+
 		var parent_path = "root"
 		if node_def.has("parent_node_path"):
 			parent_path = node_def.parent_node_path
@@ -619,30 +703,45 @@ func batch_add_nodes(params):
 		elif parent_path.begins_with("root/"):
 			parent = scene_root.get_node_or_null(parent_path.substr(5))
 			if not parent:
-				log_error("Parent node not found: " + parent_path + " for node: " + node_def.node_name)
+				log_error("Parent node not found: " + parent_path + " for node: " + node_name)
+				failed_nodes.append(node_name + " (parent not found: " + parent_path + ")")
 				failed_count += 1
 				continue
 		else:
 			parent = scene_root.get_node_or_null(parent_path)
 			if not parent:
-				log_error("Parent node not found: " + parent_path + " for node: " + node_def.node_name)
+				log_error("Parent node not found: " + parent_path + " for node: " + node_name)
+				failed_nodes.append(node_name + " (parent not found: " + parent_path + ")")
 				failed_count += 1
 				continue
 
 		var new_node = instantiate_class(node_def.node_type)
 		if not new_node:
 			log_error("Failed to instantiate: " + node_def.node_type)
+			failed_nodes.append(node_name + " (instantiate failed: " + str(node_def.node_type) + ")")
 			failed_count += 1
 			continue
 
-		new_node.name = node_def.node_name
-
+		# 反馈 2026-08-27 形态2: 属性设置失败曾只 log_error 不计数,节点照常 add +
+		# added_count+=1 → 最终 "N/N added" + exit 0 的假成功(unique_name_in_owner/name 静默丢失)。
+		# 修:任一属性失败 → 整节点失败(不 add_child,计 failed),per-node 清单上报。
+		var failed_props: Array = []
 		if node_def.has("properties"):
 			var properties = node_def.properties
 			for property in properties:
-				if _is_safe_property(property):
-					if not _set_property_with_coerce(new_node, property, properties[property]):
-						log_error("Failed to set property %s on %s" % [property, node_def.node_name])
+				if not _is_safe_property(property):
+					failed_props.append(property + " (blocked)")
+					continue
+				if not _set_property_with_coerce(new_node, property, properties[property]):
+					failed_props.append(property)
+		if failed_props.size() > 0:
+			log_error("Failed properties on %s: %s" % [node_name, ", ".join(PackedStringArray(failed_props))])
+			failed_nodes.append(node_name + " (failed properties: " + ", ".join(PackedStringArray(failed_props)) + ")")
+			failed_count += 1
+			new_node.free()
+			continue
+
+		new_node.name = node_name
 
 		parent.add_child(new_node)
 		new_node.owner = scene_root
@@ -657,11 +756,11 @@ func batch_add_nodes(params):
 			print("Batch add completed: %d/%d nodes added to %s" % [added_count, nodes.size(), params.scene_path])
 			if failed_count > 0:
 				log_error("Failed to add %d nodes" % failed_count)
-				for node_def in nodes:
-					log_debug("  - node: %s (%s) parent: %s" % [node_def.get("node_name", "?"), node_def.get("node_type", "?"), node_def.get("parent_node_path", "root")])
+				for failed_desc in failed_nodes:
+					log_error("  - " + failed_desc)
 				# 修真静默：failed_count>0 时 quit(1)，TS scene/index.ts:329 exitCode!=0 才抓得到
 				scene_root.free()
-				quit(1)
+				_exit_with(1)
 				return
 		else:
 			log_error("Failed to save scene: " + str(save_error))
@@ -677,14 +776,14 @@ func load_sprite(params):
 
 	if not FileAccess.file_exists(full_scene_path):
 		log_error("Scene file does not exist: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var full_texture_path = _sanitize_res_path(params.texture_path)
 
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 
@@ -738,7 +837,7 @@ func load_sprite(params):
 		log_error("Failed to pack scene: " + str(result))
 	# 2026-08-07 审查 P1 修复：save/pack 失败分支必须 quit(1)（同 save_scene，防假成功）
 	scene_root.free()
-	quit(1)
+	_exit_with(1)
 
 
 func export_mesh_library(params):
@@ -750,12 +849,12 @@ func export_mesh_library(params):
 
 	if not FileAccess.file_exists(full_scene_path):
 		log_error("Scene file does not exist: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 	var mesh_library = MeshLibrary.new()
@@ -825,12 +924,12 @@ func save_scene(params):
 
 	if not FileAccess.file_exists(full_scene_path):
 		log_error("Scene file does not exist: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene = load(full_scene_path)
 	if not scene:
 		log_error("Failed to load scene: " + full_scene_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var scene_root = scene.instantiate()
 
@@ -869,7 +968,7 @@ func save_scene(params):
 	# call_deferred("quit") 默认 quit(0) 致 TS 端按 exitCode 判定假成功（数据丢失却报告成功）。
 	# 对照 create_scene:277-278 / edit_node:433-449 / batch_add_nodes:516-532 的失败分支处理。
 	scene_root.free()
-	quit(1)
+	_exit_with(1)
 
 
 
@@ -947,7 +1046,7 @@ func find_files(path: String, extension: String, depth: int = 0) -> Array:
 func get_uid(params):
 	if not params.has("file_path"):
 		log_error("File path is required")
-		quit(1)
+		_exit_with(1)
 		return
 	var file_path = _sanitize_res_path(params.file_path)
 
@@ -957,7 +1056,7 @@ func get_uid(params):
 
 	if not FileAccess.file_exists(file_path):
 		log_error("File does not exist: " + file_path)
-		quit(1)
+		_exit_with(1)
 		return
 	var uid_path = file_path + ".uid"
 	var f = FileAccess.open(uid_path, FileAccess.READ)

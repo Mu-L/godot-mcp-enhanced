@@ -7,8 +7,7 @@ import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult, errorResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, parseMcpScriptOutput } from '../../helpers.js';
 import { parseTscn, parseTscnSummary } from '../../tscn/tscn-parser.js';
-import { executeGdscript } from '../../gdscript-executor.js';
-import { normalizeNodePath, escapeForGdLiteral, SCENE_TREE_HEADER, opsErrorResult, parseGdscriptResult, sanitizeResPath } from '../shared.js';
+import { normalizeNodePath, opsErrorResult, sanitizeResPath } from '../shared.js';
 import { addNode } from '../../tscn/tscn-editor.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { spawnGodot } from '../spawn-helper.js';
@@ -420,13 +419,28 @@ export async function handleTool(
     }
 
     case 'remove_node': {
+      // 反馈 2026-08-27/08-30 (CardGame2): 原内联脚本只改内存(无 pack+save)→success 假象
+      // 不落盘;queue_free 悬置致 exit 1。迁 godot_operations.gd remove_node 持久化链,
+      // 对齐 edit_node 的 spawnGodot+opsScript 模式(含 editor 场景写守卫)。
       const spErr = requireScenePath(args.scene_path); if (spErr) return spErr;
       if (!acquireShortRunningSlot()) return opsErrorResult('CONCURRENCY_LIMIT', 'too many concurrent headless operations (max 3). Please wait and retry.');
       try {
-        const p = requireProjectPath(args); const scenePath = resolveWithinRoot(p, normalizeUserProjectPath(args.scene_path as string)); const nodePath = normalizeNodePath(args.node_path as string);
-        const script = `${SCENE_TREE_HEADER}\nfunc _initialize():\n\tif not _mcp_load_scene("${escapeForGdLiteral(scenePath)}"):\n\t\t_mcp_done()\n\t\treturn\n\tvar node = _mcp_get_scene_node("${escapeForGdLiteral(nodePath)}")\n\tif node == null:\n\t\t_mcp_output("error", "Node not found: ${escapeForGdLiteral(nodePath)}")\n\t\t_mcp_done()\n\t\treturn\n\tvar parent = node.get_parent()\n\tvar node_name = node.name\n\tif parent:\n\t\tvar child_owner = node.owner\n\t\tparent.remove_child(node)\n\t\tnode.queue_free()\n\t\t_mcp_output("removed", {"node": "${escapeForGdLiteral(nodePath)}", "name": str(node_name)})\n\telse:\n\t\t_mcp_output("error", "Cannot remove root node")\n\t_mcp_done()\n`;
-        const godot = await ctx.findGodot(); const loadAutoloads = args.load_autoloads !== false;
-        return parseGdscriptResult(await executeGdscript({ godotPath: godot, projectPath: p, code: script, timeout: 30, loadAutoloads }), [], (msg) => msg.includes('not found') ? 'NODE_NOT_FOUND' : 'SCRIPT_EXEC_FAILED', { suggestion: 'Use query_scene_tree to list available nodes, or inspect_node to check a specific path.' });
+        const p = requireProjectPath(args);
+        const scenePath = normalizeUserProjectPath(args.scene_path as string);
+        const absPath = resolveWithinRoot(p, scenePath);
+        if (!existsSync(absPath)) return opsErrorResult('FILE_NOT_FOUND', `Scene file not found: ${scenePath}`);
+        if (ctx.checkEditorSceneSave) {
+          const sceneGuard = await ctx.checkEditorSceneSave(absPath);
+          if (sceneGuard.blocked) return opsErrorResult('EDITOR_SCENE_OPEN', sceneGuard.message ?? `Scene open in editor: ${absPath}`);
+        }
+        const nodePath = normalizeNodePath(args.node_path as string);
+        let godot: string; try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
+        const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', ctx.opsScript, 'remove_node', JSON.stringify({ scene_path: scenePath, node_path: nodePath })]);
+        releaseShortRunningSlot();
+        if (result.timedOut) return errorResult('remove_node timed out after 60s.');
+        if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
+        if (result.exitCode !== 0) return errorResult(`remove_node failed (exit code ${result.exitCode}):\n${result.stdout}`);
+        return { content: [{ type: 'text', text: result.stdout.trim() || `Node removed from ${scenePath}.` }] };
       } finally { releaseShortRunningSlot(); }
     }
 
