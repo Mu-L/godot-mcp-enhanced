@@ -17,7 +17,8 @@
  * 对齐 script.ts write_script 模式(文件路径参数白名单教训:dispatcher 只校验根级
  * 字段,工具内文件 IO 必须自校验)。
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync } from 'fs';
+import { writeFileAtomic } from '../core/fs-atomic.js';
 import { dirname, join } from 'path';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
@@ -286,9 +287,8 @@ export function registerTranslationsInProjectGodot(
   }
 
   const content = lines.join('\n');
-  const tmpPath = projectGodotPath + '.mcp-tmp-' + Date.now();
-  writeFileSync(tmpPath, content.endsWith('\n') ? content : content + '\n', 'utf-8');
-  renameSync(tmpPath, projectGodotPath);
+  // A-ATOMIC 存量收口:project.godot 覆盖走共享原子写(替换原自写 tmp+Date.now 后缀)
+  writeFileAtomic(projectGodotPath, content.endsWith('\n') ? content : content + '\n');
   return { changed: true, translations: current };
 }
 
@@ -417,9 +417,7 @@ export async function handleTool(
         }
         const csv = serializeTranslationCsv(languages, entryObj);
         mkdirSync(dirname(absPath), { recursive: true });
-        const tmpPath = absPath + '.mcp-tmp-' + Date.now();
-        writeFileSync(tmpPath, csv, 'utf-8');
-        renameSync(tmpPath, absPath);
+        writeFileAtomic(absPath, csv);  // A-ATOMIC 存量收口
         return okJson({ written: absPath, languages, entry_count: Object.keys(entryObj).length, bytes: Buffer.byteLength(csv, 'utf-8') });
       }
 

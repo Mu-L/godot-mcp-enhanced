@@ -1,6 +1,7 @@
 // Scene instance operations: instance_scene, set_instance_property, detach_instance.
 
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
+import { writeFileAtomic } from '../../core/fs-atomic.js';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
@@ -265,13 +266,10 @@ export function handleDetachInstance(args: Record<string, unknown>): ToolResult 
     return textResult(`Error detaching instance: ${(e as Error).message}`);
   }
 
-  const tmpPath = sceneAbsPath + '.tmp';
   try {
-    writeFileSync(tmpPath, result, 'utf-8');
-    renameSync(tmpPath, sceneAbsPath);
+    // A-ATOMIC 存量收口:覆盖用户 .tscn 走共享原子写(降级/清理在 core 统一处理)
+    writeFileAtomic(sceneAbsPath, result);
   } catch (e: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    try { unlinkSync(tmpPath); } catch (cleanupErr) { /* ignore cleanup error */ }
     return textResult(`Error writing scene: ${(e as Error).message}`);
   }
 

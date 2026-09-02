@@ -6,7 +6,8 @@
  * 不再需要 import tools 层;本文件保留 MCP 工具定义,并 re-export 客户端符号使既有消费方
  * (GodotServer/CLI/测试)import 路径零改动。
  */
-import { writeFileSync, readFileSync, existsSync, copyFileSync, unlinkSync, renameSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, copyFileSync, unlinkSync, readdirSync } from 'fs';
+import { writeFileAtomic } from '../core/fs-atomic.js';
 import { join, dirname } from 'path';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
@@ -391,9 +392,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         // Atomic write: write to temp file then rename
-        const tmpPath = configPath + '.mcp-tmp';
-        writeFileSync(tmpPath, config, 'utf-8');
-        renameSync(tmpPath, configPath);
+        // A-ATOMIC 存量收口:走共享原子写(mode 保持+随机 tmp+Windows 锁定降级)
+        writeFileAtomic(configPath, config);
         return textResult(JSON.stringify({
           success: true,
           // A1: 端口自动避让(默认起始候选在 9081-9090 内 crypto 随机——竞态缓解,env GODOT_MCP_BRIDGE_PORT 可固定起点;实际端口见 instance registry + ping 响应 pid/project 指纹)
@@ -422,9 +422,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         // 双键清理:新键行 + 旧带前缀键行都移除
         const lines = config.split('\n').filter(line =>
           !line.startsWith(AUTOLOAD_KEY + '=') && !line.startsWith(AUTOLOAD_KEY_LEGACY + '='));
-        const tmpPath = configPath + '.mcp-tmp';
-        writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
-        renameSync(tmpPath, configPath);
+        writeFileAtomic(configPath, lines.join('\n'));  // A-ATOMIC 存量收口
 
         // A2 (2026-08-18 反馈): 仅当脚本内容与工具自带版本一致(工具托管拷贝)才删除;
         // 内容不同(项目自管/git tracked + 用户修改)则保留并提示,防 uninstall 删掉 tracked 文件。

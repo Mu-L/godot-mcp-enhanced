@@ -21,8 +21,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed — 共享原子写上移 core + 高危覆盖点收口(对标官方 mcp servers 562feeb/642a911)
 
 - **动机**:全仓 94 处直接 `writeFileSync` 中,覆盖**已存在用户资产**的写入点非原子——`save_scene` 写回 .tscn 同目录已有 `writeAtomic` 却漏用直写;`edit_script` 三条路径直写 .gd(靠 validateAndRevert 兜"验证失败回滚",不兜进程崩溃窗口);而原子写实现已有 3 份重复(scene/helpers、project、json-config)。
-- **改动**:新增 `src/core/fs-atomic.ts`(三份实现的并集语义:mode 保持 + 随机 tmp 后缀防并发互踩 + 失败清理 + Windows 锁定降级直写),三处旧名薄委托/re-export 保兼容(消费方零改动;json-config 消费链 rename 失败语义从"直接抛"变"Windows 降级直写",已在其注释披露);接入 save_scene 写回、quick_scene 两处、edit_script 三条路径。**存量未收口点**(scene-instance/translation-ops/game-bridge/overrides 的自写 tmp+rename)逐步迁移,新增覆盖用户资产的写入点必须走共享实现。
-- **验证**:`test/fs-atomic.test.ts` 4/4(tmp 编排/mode 保持/Windows 降级/非 Windows 抛出);scene/script/project 定向 180/180;回归门禁 `adapter-no-mode-preserve` 谓词跟随实现位置更新(core 实现+mode 保持+re-export 链+adapter 调用四要素),defects-fixed 136/136;全量 6165 passed。
+- **改动**:新增 `src/core/fs-atomic.ts`(三份实现的并集语义:mode 保持 + 随机 tmp 后缀防并发互踩 + 失败清理 + Windows 锁定降级直写),三处旧名薄委托/re-export 保兼容(消费方零改动;json-config 消费链 rename 失败语义从"直接抛"变"Windows 降级直写",已在其注释披露);接入 save_scene 写回、quick_scene 两处、edit_script 三条路径。**存量收口(同日第二批)**:scene-instance(detach 写回 .tscn)/translation-ops(translation_register 写 project.godot + write CSV)/game-bridge(install/uninstall 写 project.godot)/overrides(install/uninstall/uninstallAll 三处)全部迁到共享实现——覆盖用户资产的自写 tmp+rename 至此清零。
+- **验证**:`test/fs-atomic.test.ts` 4/4(tmp 编排/mode 保持/Windows 降级/非 Windows 抛出);scene/script/project 定向 180/180;回归门禁 `adapter-no-mode-preserve` 谓词跟随实现位置更新(core 实现+mode 保持+re-export 链+adapter 调用四要素),defects-fixed 136/136;存量收口批定向 139/139(godot-finder/scene-instance/translation/game-bridge/overrides);全量 6165 passed。
+
+### Changed — godot-finder tried 诊断列表死代码清除(审查 N-4)
+
+- **根因**:`findGodot` 内 `tried` 列表只 push 从不消费,不进任何错误消息与日志——纯死代码(22 处),且给人"失败诊断可追溯"的错觉;失败原因的可读化实际由各分支自身的 warn/debug 日志承担(G-CONF 目录拒绝等)。
+- **修复**:`tryProjectOverride` 签名去掉 tried 参数,全部 push 与声明删除,相关注释同步;行为零变化。
+- **验证**:定向 godot-finder 48/48 绿;lint 0 错;build 0 TS 错。
 
 ### Fixed — instance_registry.gd chmod 调不存在的 DirAccess.set_unix_permissions,非 Windows 平台 editor 实例注册中断(issue #65)
 
