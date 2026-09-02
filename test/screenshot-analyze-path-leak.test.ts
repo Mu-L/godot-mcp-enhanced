@@ -48,8 +48,8 @@ describe('screenshot analyze path-leak #1: projectPath 校验（默认模式）'
       project_path: outsideDir,
       image_path: 'secret.png',
     }, makeCtx());
-    // :127 isPathInAllowedRoots(outsideDir)=false（不在 cwd=allowedDir）→ throw
-    await expect(result).rejects.toThrow(/not in ALLOWED_PROJECT_PATHS/);
+    // 反馈 2026-08-19 修复: 原生 Error → PathError(PATH_NOT_ALLOWED 结构化,消息含白名单提示)
+    await expect(result).rejects.toThrow(/outside allowed project roots/);
   });
 
   it('反向: project_path=allowed(cwd) 不误拒', async () => {

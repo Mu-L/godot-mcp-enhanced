@@ -8,7 +8,19 @@ import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
 import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii, diffPngBuffers } from './screenshot-detail.js';
-import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots } from '../helpers.js';
+import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots, getAllowedProjectPaths } from '../helpers.js';
+import { PathError } from '../core/tool-errors.js';
+
+/** 反馈 2026-08-19 (CardGame2): 白名单外路径曾 throw 原生 Error → classifyError 兜底成
+ *  笼统 'Internal error'(INTERNAL),无任何白名单提示,误导排查方向(误判工具坏了转投外部视觉模型,
+ *  绕过成本 >10min)。修:改抛 PathError(结构化 PATH_NOT_ALLOWED,safeMessage 外传)+
+ *  附允许根列表与修复指引。回显 basename 对齐 P2-17(不回显 resolve 后绝对路径)先例。 */
+function throwPathNotAllowed(kind: string, p: string): never {
+  const roots = [...getAllowedProjectPaths(), process.cwd()].join('; ');
+  throw new PathError(
+    `${kind} is outside allowed project roots: ${basename(p)}. Allowed roots: ${roots}. ` +
+    'Fix: move the file under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
+}
 import { routeImage } from '../core/vision-router.js';
 
 const TOOL_NAMES = ['screenshot'] as const;
@@ -98,7 +110,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             ? (() => {
                 const p = validatePath(outputPathRaw);
                 if (!isPathInAllowedRoots(p)) {
-                  throw new Error(`Output path is outside allowed project roots: ${p}`);
+                  throwPathNotAllowed('Output path', p);
                 }
                 return p;
               })()
@@ -172,7 +184,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       // #1 path-leak: projectPath 提供时校验 isPathInAllowedRoots（对齐 capture :60 requireProjectPath）。
       // analyze projectPath 可选（仅 image_path 时缺），不能直接换 requireProjectPath（强制必填）。
       if (projectPath && !isPathInAllowedRoots(projectPath)) {
-        throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${projectPath}. Check your ALLOWED_PROJECT_PATHS setting.`);
+        throwPathNotAllowed('project_path', projectPath);
       }
       const questionRaw = (args.question as string) ||
         'Describe what you see in this game screenshot. Focus on: UI elements, character positions, any visual issues or bugs.';
@@ -186,7 +198,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           // #2 path-leak: allowOutside 分支补 isPathInAllowedRoots（对齐 capture :68 守卫）。
           // validatePath 只 resolve 不校验 root，allowOutside 模式可读 ALLOWED_PROJECT_PATHS 外任意绝对路径。
           if (!isPathInAllowedRoots(imagePath)) {
-            throw new Error(`Image path is outside allowed project roots: ${imagePath}`);
+            throwPathNotAllowed('Image path', imagePath);
           }
         } else {
           if (!projectPath) {
@@ -331,7 +343,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       // detail=thumbnail:返回降采样 PNG base64(中等 token 成本)
       if (detail === 'thumbnail') {
         if (!isPng) {
-          return opsErrorResult('INVALID_PARAMS', 'detail=thumbnail 仅支持 PNG 图像(当前: ' + ext + ')。');
+          // 反馈 2026-08-19: 补修复指引(仅 PNG 解码是零依赖取舍,非 bug)
+          return opsErrorResult('INVALID_PARAMS', 'detail=thumbnail 仅支持 PNG 图像(当前: ' + ext + ')。改传 PNG,或改用 detail=full(JPEG 不受限)。');
         }
         // review Nit 3: 正数校验
         const targetWidth = Math.max(1, (args.thumbnail_width as number) ?? 256);
@@ -393,7 +406,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const projectPathRaw = typeof args.project_path === 'string' ? args.project_path : undefined;
       const projectPath = projectPathRaw?.trim() ? validatePath(projectPathRaw) : undefined;
       if (projectPath && !isPathInAllowedRoots(projectPath)) {
-        throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${projectPath}. Check your ALLOWED_PROJECT_PATHS setting.`);
+        throwPathNotAllowed('project_path', projectPath);
       }
 
       // image_a/image_b 必填
@@ -417,7 +430,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           }
           p = validatePath(p);
           if (!isPathInAllowedRoots(p)) {
-            throw new Error(`Image path is outside allowed project roots: ${p}`);
+            throwPathNotAllowed('Image path', p);
           }
         } else {
           p = resolveWithinRoot(projectPath!, normalizeUserProjectPath(p));
@@ -459,7 +472,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           ? (() => {
               const p = validatePath(diffPathRaw);
               if (!isPathInAllowedRoots(p)) {
-                throw new Error(`Output path is outside allowed project roots: ${p}`);
+                throwPathNotAllowed('Output path', p);
               }
               return p;
             })()
