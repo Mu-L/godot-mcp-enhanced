@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.32.12] - 2026-09-01
+
 ### Added — bridge monitor 输出可解释性:dropped_blocked 点名 + 数值极值摘要(对标 satelliteoflove 2fb5f07/05f721b)
 
 - **动机**:satelliteoflove 3 天 11 版全打"输出自己解释自己",与 enhanced 工具族重叠度最高;复核 enhanced 现状发现 `monitor_start` 返回的 `properties` 用**原始请求列表**而非过滤后实际监控列表——被 BLOCKED_PROPERTIES 过滤的属性不点名不说明,返回还声称在监控它,比对手修前的"只报数量"更糟。
