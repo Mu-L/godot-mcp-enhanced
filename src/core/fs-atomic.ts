@@ -9,9 +9,9 @@
  *  - Windows rename 失败(目标被 IDE/编辑器锁定)降级直写保可用(源自 project.ts I-1;
  *    非 Windows 的 rename 失败视为真错误直接抛)
  *
- * 使用约束(逐步迁移中):覆盖**已存在的用户项目资产**(.gd/.tscn/project.godot 等)
- * 的**新增**写入点必须走本函数;存量自写 tmp+rename 点位(scene-instance/translation-ops/
- * game-bridge/overrides)按批次逐步收口。新建文件(可整体重跑)与缓存/构建产物不强制。
+ * 使用约束:覆盖**已存在的用户项目资产**(.gd/.tscn/project.godot 等)的写入点
+ * 必须走本函数(存量七处已于 2026-09-02 全部收口清零);新建文件(可整体重跑)与
+ * 缓存/构建产物不强制。
  */
 import { writeFileSync, renameSync, statSync, unlinkSync } from 'fs';
 import { join, dirname, basename } from 'path';

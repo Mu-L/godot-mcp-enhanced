@@ -49,7 +49,11 @@
 1. GD 行为难测时的契约测试范式第二次成型:源码字符串锚点+区间切片+正/负双向断言,锚点缺失即红,天然防"接线零验证";结构缺口由 check:gdscript 兜住。U 组"固化性质而非实现"(禁止对整个缓冲 raw 先解码)是好样本。
 2. 共享原语上移低风险三步法:实现上移(并集语义)→ 旧位置薄委托/re-export 保签名 → 委托处注释显式披露语义差异,13 消费方零改动。
 
-## 分支状态(截至本报告落盘)
+## 分支状态(2026-09-02 挂账清偿后终态)
 
-- 6 commits 未 push,待用户决定 push/PR(建议 PR 标题:`feat: 竞品启发加固批——monitor 可解释性/GODOT_PATH 目录报错/原子写收口`)。
-- 挂账:N-3(规则模板版本链)、N-1 存量收口(scene-instance:271/translation-ops:291,422/game-bridge:396,427/overrides:165,199,243)、N-4(tried 死代码)。
+- **8 commits 未 push**,待用户决定 push/PR(建议 PR 标题:`feat: 竞品启发加固批——monitor 可解释性/GODOT_PATH 目录报错/原子写收口(0.32.12)`)。
+- 挂账清偿(用户批准"2,3"后执行):
+  - ✅ **N-3**(38ee293+57bf513):双副本规则文件 monitor 行同步新字段(dropped_blocked/summary/max_samples,含示例对齐真实产出),触发版本硬门禁按 N-C 条款走完整版本链 **0.32.11→0.32.12**(version-sync A 类 manifest/plugin.cfg/server.json/Dockerfile + build-matrix + gen:tool-docs + CHANGELOG 定版 + README 版本行;npm publish/tag 仍待用户)。STRICT=1 check:rules-sync 9 模板双向一致 ✓。
+  - ✅ **N-1**(38ee293):fs-atomic 存量七处收口(scene-instance detach 写 .tscn/translation-ops project.godot+CSV/game-bridge install+uninstall/overrides 三处)——覆盖用户资产的自写 tmp+rename 清零;定向 139/139。
+  - ✅ **N-4**(38ee293):godot-finder tried 死代码清除(22 处 push 从不消费,签名+声明全删,行为零变化)。
+- 全量门禁终态:lint 0 错 / build 0 TS 错 / npm test **6166 passed 0 failed** / version-check ✓ 0.32.12 / rules-version-bump 门禁 ✓。
