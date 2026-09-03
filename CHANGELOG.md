@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 全面维度审查四项顺手清偿:add_node 属性静默假成功/stderr 丢失/send_drag 回显退化/元素级类型崩溃(2026-09-03 审查,docs/reviews/2026-09-03-full-dimension-review.md)
+
+- **C-1(Critical,pre-existing) add_node GD fallback 属性失败静默假成功**:`godot_operations.gd` 属性 coerce 失败曾仅 `log_error`(走 stderr)后继续 add_child+pack+save→"added successfully"+exit 0,错误行被 TS 成功路径(只取 stdout)整体丢弃;同一属性集走 batch=整节点失败 exit 1、走 add_node=假成功(同文件同模式,NIT-1 处置只补了 save/pack else 分支漏了「log_error 后继续」路径)。修:对齐 batch「任一属性失败→整节点失败」(`new_node.free()`+`cleanup_and_quit(1)`);TS 成功路径补拼 stderr。真机三态验证:坏属性(`position:[100]` 分量不足)exit 1+stderr "Failed to set property position" 可见+节点不落盘;合法属性(`[100,200]`)/无属性 exit 0+落盘。
+- **I-A batch/edit_node/remove_node 失败呈现丢 stderr**:三处 `errorResult` 只拼 stdout,而 GD `log_error` 全走 printerr→stderr——"Node not found"/per-node 失败清单用户不可见,上批「per-node 清单上报」在 headless 路径未真正到达用户(同文件 add_node/create_scene 均已拼,三处是遗漏非惯例;mock 测试曾把错误放 stdout 掩盖漂移)。修:三处补拼 `${result.stderr}`。
+- **I-B send_drag 响应 Vector2 未序列化**:relative/speed 裸 Vector2 经 `JSON.stringify` 退化为 `"(100.0, 50.0)"` 字符串(真机 4.7 实证),旧版 Array 输出 `[100,50]` 可结构化消费——上批 `_vec2_from_param` 归一引入的对外契约退化。修:走 `_jsonify` 输出 `{"x","y"}`(对齐 wait_for_property 先例)。
+- **I-C float()/int() 元素级类型守卫缺失**:真机实证 `float([1,2])`/`float({"x":1})`/`float(null)` 是运行时 SCRIPT ERROR(上轮审查 A6「float() 对 null 安全」结论作废)——`_vec2_from_param` 元素级无守卫,嵌套容器/null 仍触发上批要根治的 bridge 卡死形态(同步分发无异常隔离,Debugger Break 冻结)。修:新增 `_num()` 白名单守卫(仅 int/float/合法数字字符串放行,其余回 fallback,对齐 `_is_valid_touch_index`/`_compare_values` 先例),覆盖 `_vec2_from_param` 两分支/send_drag 与 send_mouse_move 的 x/y/button_mask;探针实证 null/嵌套容器安全回退不崩。
+- **验证**:`check:gdscript` errors=0;lint 0 警告;tsc(build) 0 错;定向 6 文件 104 passed;fixture/build 产物逐字节同步;真机三态+探针如上。5 维度审查(判定 SHIPPED WITH NITS)其余 Important(I-D 三处白名单拒绝收口/I-E describeAllowedRoots 同源共享/I-F GD 侧 e2e 沉淀)与 Minor 留档下批,见报告「处置建议」。
+
 ### Fixed — headless 场景写工具退出码被 deferred quit 架空 + remove_node 从不落盘 + batch 静默失败(2026-09-02 反馈批,CardGame2 2026-08-27/08-30 反馈)
 
 - **退出码被架空(真机坐实的历史 bug)**:`godot_operations.gd` `_init` 尾部无参 `call_deferred("quit")` = quit(0),在所有 handler 内 `quit(1)` 之后执行并覆盖退出码——2026-08-07 审查 P1 修复(save/pack 失败必须 quit(1))与 batch「修真静默」机制**从未真正生效过**,两代修复均未真机验证最终 exit code。修:全部 `quit(N)` 收口 `_exit_with(N)`(模块级 `_requested_exit_code` 登记,Godot 4 无 exit code getter),尾部按登记值重放;连带收口 add_node/batch 的 save/pack 失败分支(此前只 log_error 落到 exit 0 假成功,审查 NIT-1)。真机三态验证:失败批 exit 1/成功批 exit 0/not-found exit 1。

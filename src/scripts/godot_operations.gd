@@ -515,12 +515,17 @@ func add_node(params):
 		return
 	new_node.name = params.node_name
 
+	# 审查 C-1(2026-09-03): 属性失败曾仅 log_error(走 stderr)后继续落盘→exit 0 假成功,
+	# 错误行被 TS 成功路径(只取 stdout)整体丢弃。对齐 batch_add_nodes「任一属性失败→整节点失败」。
 	if params.has("properties"):
 		var properties = params.properties
 		for property in properties:
 			if _is_safe_property(property):
 				if not _set_property_with_coerce(new_node, property, properties[property]):
 					log_error("Failed to set property %s on new node" % property)
+					new_node.free()
+					cleanup_and_quit([scene_root], 1)
+					return
 
 	parent.add_child(new_node)
 	new_node.owner = scene_root

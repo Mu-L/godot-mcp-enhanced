@@ -202,7 +202,8 @@ export async function handleTool(
         if (spawnResult.timedOut) return { content: [{ type: 'text', text: 'add_node timed out.' }], isError: true };
         if (spawnResult.exitCode === -1 && spawnResult.stdout.startsWith('SPAWN_FAILED:')) return opsErrorResult('SPAWN_FAILED', `Failed to spawn Godot: ${spawnResult.stdout.replace('SPAWN_FAILED: ', '')}`);
         if (spawnResult.exitCode !== 0) return { content: [{ type: 'text', text: `add_node failed (exit code ${spawnResult.exitCode}):\n${spawnResult.stdout}${spawnResult.stderr ? '\n' + spawnResult.stderr : ''}` }], isError: true };
-        return { content: [{ type: 'text', text: spawnResult.stdout.trim() || 'add_node completed successfully.' }] };
+        // 审查 C-1/I-A(2026-09-03): 成功路径也拼 stderr(headless 警告可见;对齐 :204 失败路径模式)
+        return { content: [{ type: 'text', text: (spawnResult.stdout.trim() || 'add_node completed successfully.') + (spawnResult.stderr ? '\n' + spawnResult.stderr : '') }] };
       }
 
       if (!result.success) {
@@ -361,7 +362,7 @@ export async function handleTool(
       releaseShortRunningSlot();
       if (result.timedOut) return errorResult('batch_add_nodes timed out after 60s.');
       if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
-      if (result.exitCode !== 0) return errorResult(`batch_add_nodes failed (exit code ${result.exitCode}):\n${result.stdout}`);
+      if (result.exitCode !== 0) return errorResult(`batch_add_nodes failed (exit code ${result.exitCode}):\n${result.stdout}${result.stderr ? '\n' + result.stderr : ''}`); // 审查 I-A: GD log_error 走 stderr,不拼则 per-node 失败清单不可见
       // IMPORTANT-1 (2026-06-23 审查修复): batch_add_nodes 走 GDScript ops(_is_safe_property 过滤),
       // 不经 TS _addNodesInner(其 allBlocked 聚合在此路径不生效)。TS 侧前置收集 BLOCKED_PROPS 命中,
       // 警告——与 add_node/edit_node 一致,避免 batch 路径静默 drop script 等(削弱 S1 完整性)。
@@ -408,7 +409,7 @@ export async function handleTool(
         releaseShortRunningSlot();
         if (result.timedOut) return errorResult('edit_node timed out after 60s.');
         if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
-        if (result.exitCode !== 0) return errorResult(`edit_node failed (exit code ${result.exitCode}):\n${result.stdout}`);
+        if (result.exitCode !== 0) return errorResult(`edit_node failed (exit code ${result.exitCode}):\n${result.stdout}${result.stderr ? '\n' + result.stderr : ''}`); // 审查 I-A: 补 stderr(Node not found 等错误详情)
         const out = result.stdout.trim() || `edit_node completed.`;
         if (blockedKeys.length > 0) {
           const hint = blockedKeys.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn with [ext_resource].' : '';
@@ -439,7 +440,7 @@ export async function handleTool(
         releaseShortRunningSlot();
         if (result.timedOut) return errorResult('remove_node timed out after 60s.');
         if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
-        if (result.exitCode !== 0) return errorResult(`remove_node failed (exit code ${result.exitCode}):\n${result.stdout}`);
+        if (result.exitCode !== 0) return errorResult(`remove_node failed (exit code ${result.exitCode}):\n${result.stdout}${result.stderr ? '\n' + result.stderr : ''}`); // 审查 I-A: 补 stderr(Node not found 等错误详情)
         return { content: [{ type: 'text', text: result.stdout.trim() || `Node removed from ${scenePath}.` }] };
       } finally { releaseShortRunningSlot(); }
     }

@@ -40,7 +40,7 @@
 - 豁免仅对 `key === 'path'`（:296），`node_path` 键在 take_screenshot 下仍校验——与测试 :57-61 契约一致。
 
 **A6. _vec2_from_param（`D:\GitHub\godot-mcp-series\godot-mcp-enhanced\src\scripts\mcp_bridge.gd:1760-1767`）— 通过**
-- 三形态归一：Array（越界/空数组回 fallback，:1761-1764）、Dictionary（缺 key 回 fallback，:166）、其他（null/字符串/数字）回 fallback。GDScript `float()` 对数字字符串与 null 均安全转换不崩。时间线回放路径复用同一函数（:2723-2724），录制序列化的 `{x,y}` 形态走 Dictionary 分支，双路径覆盖。修复了原 `Array` 类型化变量接 Dictionary 的 SCRIPT ERROR（:1757-1759 注释）。
+- 三形态归一：Array（越界/空数组回 fallback，:1761-1764）、Dictionary（缺 key 回 fallback，:166）、其他（null/字符串/数字）回 fallback。~~GDScript `float()` 对数字字符串与 null 均安全转换不崩~~（**2026-09-03 作废**：全面维度审查真机实证 `float(null)`/`float([1,2])`/`float({"x":1})` 是运行时 SCRIPT ERROR，见 `docs/reviews/2026-09-03-full-dimension-review.md` I-C——元素级守卫缺失已由 commit 9f1d379 补 `_num()` 白名单修复；仅数字字符串安全成立）。时间线回放路径复用同一函数（:2723-2724），录制序列化的 `{x,y}` 形态走 Dictionary 分支，双路径覆盖。修复了原 `Array` 类型化变量接 Dictionary 的 SCRIPT ERROR（:1757-1759 注释）。
 
 **A7. throwPathNotAllowed（`D:\GitHub\godot-mcp-series\godot-mcp-enhanced\src\tools\screenshot.ts:18-23`）— 主体通过，roots 提示见 NIT-2**
 - `never` 返回类型用法正确（函数体恒 throw）。`PathError extends ToolError`（`src/core/tool-errors.ts:62-67`），`classifyError` 对 ToolError 白名单外传 safeMessage（:123-131），原生 Error 才落笼统 'Internal error'（:132-133）——修复描述与代码行为自洽。被拒路径仅回显 `basename(p)`，对齐 P2-17；allowlist 是 env 配置非用户探测输入，外传无 P2-17 顾虑。

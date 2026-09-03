@@ -1721,14 +1721,15 @@ func _cmd_send_mouse_click(params: Dictionary) -> Variant:
 
 
 func _cmd_send_mouse_move(params: Dictionary) -> Variant:
-	var x: float = float(params.get("x", 0))
-	var y: float = float(params.get("y", 0))
+	# 审查 I-C: x/y/button_mask 与 _num 守卫(本函数本批新增 button_mask,同函数同形态一并守卫)
+	var x: float = _num(params.get("x", 0), 0.0)
+	var y: float = _num(params.get("y", 0), 0.0)
 	var event := InputEventMouseMotion.new()
 	event.position = Vector2(x, y)
 	event.global_position = Vector2(x, y)
 	# 反馈 2026-08-22 (CardGame2): 可选 button_mask(1=left 2=right 4=middle 位掩码)——
 	# move 事件默认不带按键状态,非 drag motion;传掩码可模拟按住拖动(先 press 再带 mask 的 move)。
-	var mask := int(params.get("button_mask", 0))
+	var mask := int(_num(params.get("button_mask", 0), 0.0))
 	if mask < 0:
 		mask = 0
 	event.button_mask = mask
@@ -1757,18 +1758,29 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 # 反馈 2026-08-22 (CardGame2): relative/speed 曾声明 Array 类型化变量,MCP schema 是 object
 # (Dictionary {x,y})——类型化赋值行直接 SCRIPT ERROR(守卫在赋值之后,来不及生效)→游戏侧
 # Debugger Break 卡死 + bridge 后续请求全超时。修:Variant 接收 + Array/Dictionary 双形态归一。
+# 审查 I-C(2026-09-03): float()/int() 对容器/null 是运行时 SCRIPT ERROR(真机 4.7 实证
+# float([1,2])/float({"x":1})/float(null) 全崩;上轮审查 A6「float() 对 null 安全」结论作废)——
+# 元素级无守卫会重现顶层形态同源的 bridge 卡死(同步分发无异常隔离)。_num 白名单守卫对齐
+# _is_valid_touch_index/_compare_values 先例:仅 int/float/合法数字字符串放行,其余回 fallback。
+func _num(v: Variant, fallback: float) -> float:
+	if v is int or v is float:
+		return float(v)
+	if v is String and String(v).is_valid_float():
+		return float(v)
+	return fallback
+
 func _vec2_from_param(v: Variant, fallback: Vector2) -> Vector2:
 	if v is Array:
 		return Vector2(
-			float(v[0]) if v.size() > 0 else fallback.x,
-			float(v[1]) if v.size() > 1 else fallback.y)
+			_num(v[0], fallback.x) if v.size() > 0 else fallback.x,
+			_num(v[1], fallback.y) if v.size() > 1 else fallback.y)
 	elif v is Dictionary:
-		return Vector2(float(v.get("x", fallback.x)), float(v.get("y", fallback.y)))
+		return Vector2(_num(v.get("x", fallback.x), fallback.x), _num(v.get("y", fallback.y), fallback.y))
 	return fallback
 
 func _cmd_send_drag(params: Dictionary) -> Variant:
-	var x: float = float(params.get("x", 0))
-	var y: float = float(params.get("y", 0))
+	var x: float = _num(params.get("x", 0), 0.0)
+	var y: float = _num(params.get("y", 0), 0.0)
 	# 审查N-1(对称):index 严格校验,直接调用路径与 timeline 深预检同语义
 	if not _is_valid_touch_index(params.get("index", 0)):
 		return {"error": {"code": -1, "message": "Invalid drag index: %s (must be non-negative integer)" % str(params.get("index", 0))}}
@@ -1781,7 +1793,9 @@ func _cmd_send_drag(params: Dictionary) -> Variant:
 	event.relative = relative
 	event.speed = speed
 	Input.parse_input_event(event)
-	return {"success": true, "x": x, "y": y, "index": index, "relative": relative, "speed": speed}
+	# 审查 I-B(2026-09-03): 裸 Vector2 经 JSON.stringify 退化为 "(x, y)" 字符串(真机实证),
+	# 走 _jsonify 输出 {"x","y"}(对齐 wait_for_property 先例),响应可结构化消费。
+	return {"success": true, "x": x, "y": y, "index": index, "relative": _jsonify(relative), "speed": _jsonify(speed)}
 
 
 func _cmd_send_text(params: Dictionary) -> Variant:
