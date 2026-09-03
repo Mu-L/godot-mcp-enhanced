@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — 全面维度审查留档项全清偿:I-D/E/F 三 Important + 12 项 Minor(2026-09-03 审查第二批处置,docs/reviews/2026-09-03-full-dimension-review.md)
+
+- **I-D 三处白名单拒绝收口 PathError**:`assertSourceAllowed`/`assertProjectAllowed`(overrides.ts)与 `requireProjectPath`(helpers.ts)原抛原生 Error——install_override 链 catch 直拼外传**绝对路径**(违 P2-17)且无结构化 code;screenshot capture 越权走 requireProjectPath 落笼统 `Internal error`(同工具行为分裂:output_path 有指引而 project_path 没有)。修:三处收口 PathError(PATH_NOT_ALLOWED),消息对齐 throwPathNotAllowed 模式(basename+同源 roots+指引);game-bridge install/uninstall catch 识别 PathError 透传其 code。requireProjectPath 是全仓共享 helper,全部调用方错误形态同步升级。
+- **I-E roots 提示同源共享函数**:NIT-2 的复刻式对齐仍有残余漂移(realpath 失败的 allowlist 条目判定侧跳过、提示侧无差别列出)。修:path-utils 导出 `describeAllowedRoots()`(与 isPathInAllowedRoots 同一归一化链),screenshot 调用之;补红测 #3(allowlist 非空消息不含 cwd/空 allowlist 含 cwd,mutation 锚定)。
+- **I-F 三件真机 e2e 沉淀**(新文件 `test/scene-gd-operations-e2e.test.ts`,GODOT_PATH skipIf 模式):①batch 属性失败注入→exit 1+stderr per-node 清单+成功节点已落盘+重试防重复提示;②remove_node 子树落盘删除+uid 保留+root 拒绝 exit 1;③parent 剥离链(见 M-3)。另修正 scene-validation-concurrency 的 mock 通道漂移("Node not found" 放 stdout 掩盖 I-A 缺陷,改 stderr 并锚定拼接行为)。
+- **Minor-1 部分失败语义显式化**:batch/edit_node 部分失败时 stderr 注明「成功 N 个已落盘,重试前 query_scene_tree 防重复」(add_node 无同级重名检测是已知 OPEN 缺陷,误重试会重复建节点)。
+- **Minor-6(M-3) parent 规范化统一**:新增 `_resolve_parent_node`(add_node/batch 共用)——补剥 `/root/` 前缀与场景根名前缀+剥后根名再判定,对齐 edit_node/remove_node;同一输入 `/root/Foo`、`Main/Child` 四操作行为一致(原 fallback 路径 not found)。真机 e2e 锚定。
+- **Minor-7 死 op 退出码收口**:export_mesh_library(save 失败/无有效 mesh)与 resave_resources(error_count>0)补 `_exit_with(1)`(原仅 log 落 exit 0 假成功);batch/edit_node 的 save/pack 失败分支手写 `free()+_exit_with` 统一为 `cleanup_and_quit`。
+- **Minor-2/L-1 installOverride TOCTOU 消除**:落盘改 `writeFileSync(已扫描的 srcContent 缓冲)`(替代 copyFileSync 重读盘)——扫描即落盘原子化,消除「扫描的内容≠落盘的内容」窗口。
+- **Minor-3 内容比对字节化**:`Buffer.equals` 替代 utf-8 解码字符串相等——GBK 等非 UTF-8 源两份字节不同解码出相同 U+FFFD 被误判一致的漂移漏检窗口消除(与拷贝字节语义对称)。
+- **Minor-13 类型与风格**:installOverrides 返回类型显式含 `updated?`;screenshot.ts 夹在函数间的 import 移顶部。
+- **L-2 take_screenshot 段检查 off-by-one**:`substr(8)`→`substr(7)`("user://" 是 7 字符,原首段永丢首字符;实测无逃逸路径,顺手修正)。
+- **L-3 node_name/parent_node_path 控制字符校验**:黑名单补 `\r\n\t`(GD Node.name 原样保留控制字符→stdout 展示层注入伪造 [ERROR]/成功行;判定层不受影响)+ parent_node_path 补控制字符拦截(单 add_node 与 batch 双侧)。
+- **M-2 TS blocked 警告死代码删除**:batch/edit_node 的 BLOCKED_PROPS 前置收集+成功路径警告分支不可达(blocked→GD `_is_safe_property` 拒→exit 1→error 路径先返回),删除并留注释;两清单(TS BLOCKED_PROPS/GD BLOCKED_PROPERTIES)不强行统一——GD 多拦 4 项属纵深防御,I-A 后 stderr 误拒详情已可见。
+- **M-2 timeline 深预检补 drag 键校验**:drag 事件键白名单+relative/speed 双形态校验——键名拼错(如 rel)原登记期不拒、注入期静默 fallback (0,0)→E2E 假绿,现 all-or-nothing 拒绝。
+- **Minor-10 send_drag 归一 fallback 显式警示**:relative/speed 形态非法时响应附 `warnings`(原静默归 (0,0),调用方无法区分「传 0」与「形态错归零」)。
+- **Minor-11 录制/回放 button_mask 对称**:GD 录制 mouse_move 补记 `button_mask`(按住拖动的按键态,旧回放器忽略未知字段向后兼容),recording.ts 回放透传——「按住左键拖动」录制回放不再丢按键态。
+- **规则沉淀**:engine-quirks 补「★ check:gdscript 编译层抓不到运行时类型错」条目(Variant 赋类型化变量编译过运行时崩;float(null)/float([1,2]) 实证崩;真机 e2e 模式指路)。
+- **验证**:check:gdscript errors=0;lint 0 警告;tsc 0 错;新 e2e 3 例+受影响定向 72 passed;全量见提交验证。**不处置**:Minor-12(safeMessage 携 allowlist——本地单用户设计取舍,多用户部署时回收)、F-1(flaky 治理——需立项复现矩阵,3 次全量 2 次失败且失败集各异)。
+
 ### Fixed — 全面维度审查四项顺手清偿:add_node 属性静默假成功/stderr 丢失/send_drag 回显退化/元素级类型崩溃(2026-09-03 审查,docs/reviews/2026-09-03-full-dimension-review.md)
 
 - **C-1(Critical,pre-existing) add_node GD fallback 属性失败静默假成功**:`godot_operations.gd` 属性 coerce 失败曾仅 `log_error`(走 stderr)后继续 add_child+pack+save→"added successfully"+exit 0,错误行被 TS 成功路径(只取 stdout)整体丢弃;同一属性集走 batch=整节点失败 exit 1、走 add_node=假成功(同文件同模式,NIT-1 处置只补了 save/pack else 分支漏了「log_error 后继续」路径)。修:对齐 batch「任一属性失败→整节点失败」(`new_node.free()`+`cleanup_and_quit(1)`);TS 成功路径补拼 stderr。真机三态验证:坏属性(`position:[100]` 分量不足)exit 1+stderr "Failed to set property position" 可见+节点不落盘;合法属性(`[100,200]`)/无属性 exit 0+落盘。

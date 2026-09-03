@@ -8,24 +8,22 @@ import { textResult } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { captureScreenshot } from '../screenshot.js';
 import { parseDetailLevel, downsampleToThumbnail, downsampleToAscii, diffPngBuffers } from './screenshot-detail.js';
-import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots, getAllowedProjectPaths } from '../helpers.js';
+import { validatePath, requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, allowOutsideProjectPaths, isPathInAllowedRoots, describeAllowedRoots } from '../helpers.js';
 import { PathError } from '../core/tool-errors.js';
+import { routeImage } from '../core/vision-router.js';
 
 /** 反馈 2026-08-19 (CardGame2): 白名单外路径曾 throw 原生 Error → classifyError 兜底成
  *  笼统 'Internal error'(INTERNAL),无任何白名单提示,误导排查方向(误判工具坏了转投外部视觉模型,
  *  绕过成本 >10min)。修:改抛 PathError(结构化 PATH_NOT_ALLOWED,safeMessage 外传)+
  *  附允许根列表与修复指引。回显 basename 对齐 P2-17(不回显 resolve 后绝对路径)先例。 */
 function throwPathNotAllowed(kind: string, p: string): never {
-  // 审查 NIT-2: roots 提示必须与 isPathInAllowedRoots 判定同源(path-utils.ts)——
-  // allowlist 非空时 cwd 不放行(仅空 allowlist 才 cwd fallback),无条件列 cwd 会把用户
-  // 引向"移进 cwd 仍被拒"的新误导。指引本身是行为面而非文案面。
-  const allowlist = getAllowedProjectPaths();
-  const roots = (allowlist.length > 0 ? allowlist : [process.cwd()]).join('; ');
+  // 审查 NIT-2→I-E: roots 提示必须与 isPathInAllowedRoots 判定同源——NIT-2 曾在本地复刻
+  // 分支逻辑,残余漂移(realpath 失败条目判定侧跳过/提示侧列出)。改调 path-utils 的
+  // describeAllowedRoots()(与判定同一归一化链),彻底消除两处再漂移的结构性可能。
   throw new PathError(
-    `${kind} is outside allowed project roots: ${basename(p)}. Allowed roots: ${roots}. ` +
+    `${kind} is outside allowed project roots: ${basename(p)}. Allowed roots: ${describeAllowedRoots()}. ` +
     'Fix: move the file under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
 }
-import { routeImage } from '../core/vision-router.js';
 
 const TOOL_NAMES = ['screenshot'] as const;
 

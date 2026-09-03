@@ -791,12 +791,13 @@ export const FIXED_DEFECTS: DefectEntry[] = [
     } },
   // spec §5: batch_add_nodes 部分节点失败原 exit 0 静默(TS 捕不到错误谎报成功)。
   // fix: failed_count > 0 分支 quit(1)(scene_root.free + quit 1 + return),TS scene/index.ts:329 exitCode!=0 才抓得到。
-  // detect: batch_add_nodes 函数体内 "if failed_count > 0" 后 300 字符内含 quit(1)(删 quit 或改回 0 即复发)。
+  // detect: batch_add_nodes 函数体内 "if failed_count > 0" 后 400 字符内含非零退出(删退出或改回 0 即复发)。
+  // 2026-09-03 审查收尾: cleanup_and_quit([scene_root], 1)(内部 _exit_with(1)→quit(1))为等价形态,一并接受。
   { key: 'batch-failed-quit-nonzero', status: 'fixed', severity: 'IMPORTANT', dimension: 'Correctness',
     detect: () => {
       const f = readSrc('src/scripts/godot_operations.gd');
       const fnBody = f.slice(f.indexOf('func batch_add_nodes'), f.indexOf('func load_sprite'));
-      return /if failed_count > 0:[\s\S]{0,300}?quit\(1\)/.test(fnBody) ? 0 : 1;
+      return /if failed_count > 0:[\s\S]{0,800}?(quit\(1\)|_exit_with\(1\)|cleanup_and_quit\(\[scene_root\], 1\))/.test(fnBody) ? 0 : 1;
     } },
   // spec editor-version-tear §3: editor handle_batch_add_nodes（预校验零内存改 + 批量 UndoRedo）。
   // detect: node_commands.gd 含 handle_batch_add_nodes 定义 + 白名单 ^[A-Za-z0-9_]+$（非 index.ts 黑名单）。

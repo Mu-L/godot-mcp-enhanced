@@ -315,6 +315,26 @@ func cleanup_and_quit(nodes: Array, exit_code: int = 0) -> void:
 	_exit_with(exit_code)
 	return
 
+# 审查 M-3(2026-09-03): parent 规范化统一——原 add_node/batch 只特判整体 "root"/裸根名 +
+# 剥 "root/" 前缀,不剥 "/root/" 与场景根名前缀,与 edit_node/remove_node 的 node_path 剥离链
+# 分叉(同一输入 "/root/Foo" 或 query_scene_tree 拷贝的 "Main/Foo" 在两路径行为不同)。
+# 统一剥离链;根/空串解析为 scene_root 自身;失败返回 null(调用方处置)。
+func _resolve_parent_node(parent_path: String, scene_root: Node) -> Node:
+	if parent_path == "" or parent_path == "root" or parent_path == "/root" or parent_path == scene_root.name:
+		return scene_root
+	var cleaned := parent_path
+	if cleaned.begins_with("/root/"):
+		cleaned = cleaned.substr(6)
+	elif cleaned.begins_with("root/"):
+		cleaned = cleaned.substr(5)
+	elif cleaned.begins_with("/"):
+		cleaned = cleaned.substr(1)
+	if cleaned.begins_with(scene_root.name + "/"):
+		cleaned = cleaned.substr(scene_root.name.length() + 1)
+	if cleaned == "" or cleaned == scene_root.name:
+		return scene_root
+	return scene_root.get_node_or_null(cleaned)
+
 # ─── Class helpers ────────────────────────────────────────────────────────────
 
 func get_script_by_name(name_of_class: String):
@@ -492,21 +512,11 @@ func add_node(params):
 	if params.has("parent_node_path"):
 		parent_path = params.parent_node_path
 
-	var parent = scene_root
-	if parent_path == "root" or parent_path == scene_root.name:
-		parent = scene_root
-	elif parent_path.begins_with("root/"):
-		parent = scene_root.get_node_or_null(parent_path.substr(5))
-		if not parent:
-			log_error("Parent node not found: " + parent_path)
-			cleanup_and_quit([scene_root], 1)
-			return
-	else:
-		parent = scene_root.get_node_or_null(parent_path)
-		if not parent:
-			log_error("Parent node not found: " + parent_path)
-			cleanup_and_quit([scene_root], 1)
-			return
+	var parent = _resolve_parent_node(parent_path, scene_root)
+	if not parent:
+		log_error("Parent node not found: " + parent_path)
+		cleanup_and_quit([scene_root], 1)
+		return
 
 	var new_node = instantiate_class(params.node_type)
 	if not new_node:
@@ -601,16 +611,16 @@ func edit_node(params):
 			print("Node '%s' edited successfully" % params.node_path)
 		else:
 			log_error("Failed to save scene: " + str(save_error))
-			scene_root.free()
-			_exit_with(1)
+			cleanup_and_quit([scene_root], 1)
 			return
 	else:
 		log_error("Failed to pack scene: " + str(result))
-		scene_root.free()
-		_exit_with(1)
+		cleanup_and_quit([scene_root], 1)
 		return
 	scene_root.free()
 	if failed > 0:
+		# 审查 Minor-1: 成功的属性变更已 pack+save 落盘(save 在 failed 判定前),整节点重试会重复。
+		log_error("Note: successful property changes are already persisted (%d failed); query_scene_tree before retrying to avoid duplicates." % failed)
 		_exit_with(1)
 
 
@@ -710,23 +720,12 @@ func batch_add_nodes(params):
 		if node_def.has("parent_node_path"):
 			parent_path = node_def.parent_node_path
 
-		var parent = scene_root
-		if parent_path == "root" or parent_path == scene_root.name:
-			parent = scene_root
-		elif parent_path.begins_with("root/"):
-			parent = scene_root.get_node_or_null(parent_path.substr(5))
-			if not parent:
-				log_error("Parent node not found: " + parent_path + " for node: " + node_name)
-				failed_nodes.append(node_name + " (parent not found: " + parent_path + ")")
-				failed_count += 1
-				continue
-		else:
-			parent = scene_root.get_node_or_null(parent_path)
-			if not parent:
-				log_error("Parent node not found: " + parent_path + " for node: " + node_name)
-				failed_nodes.append(node_name + " (parent not found: " + parent_path + ")")
-				failed_count += 1
-				continue
+		var parent = _resolve_parent_node(parent_path, scene_root)
+		if not parent:
+			log_error("Parent node not found: " + parent_path + " for node: " + node_name)
+			failed_nodes.append(node_name + " (parent not found: " + parent_path + ")")
+			failed_count += 1
+			continue
 
 		var new_node = instantiate_class(node_def.node_type)
 		if not new_node:
@@ -771,19 +770,19 @@ func batch_add_nodes(params):
 				log_error("Failed to add %d nodes" % failed_count)
 				for failed_desc in failed_nodes:
 					log_error("  - " + failed_desc)
+				# 审查 Minor-1: 部分失败语义显式化——成功的 added_count 个节点已随本次 pack+save 落盘,
+				# 整批重试会重复创建(add_node 无同级重名检测);重试前先 query_scene_tree 核对。
+				log_error("Note: %d successfully added nodes are already persisted; query_scene_tree before retrying to avoid duplicates." % added_count)
 				# 修真静默：failed_count>0 时 quit(1)，TS scene/index.ts:329 exitCode!=0 才抓得到
-				scene_root.free()
-				_exit_with(1)
+				cleanup_and_quit([scene_root], 1)
 				return
 		else:
 			log_error("Failed to save scene: " + str(save_error))
-			scene_root.free()
-			_exit_with(1)
+			cleanup_and_quit([scene_root], 1)
 			return
 	else:
 		log_error("Failed to pack scene: " + str(result))
-		scene_root.free()
-		_exit_with(1)
+		cleanup_and_quit([scene_root], 1)
 		return
 	scene_root.free()
 
@@ -931,8 +930,15 @@ func export_mesh_library(params):
 			print("MeshLibrary exported successfully with %d items to: %s" % [item_id, full_output_path])
 		else:
 			log_error("Failed to save MeshLibrary: " + str(error))
+			# 审查 M-7: 死 op 失败分支补非零登记(无 TS 调用方但 CLI 可达,原落 exit 0 假成功)
+			scene_root.free()
+			_exit_with(1)
+			return
 	else:
 		log_error("No valid meshes found in the scene")
+		scene_root.free()
+		_exit_with(1)
+		return
 	scene_root.free()
 
 
@@ -1150,6 +1156,9 @@ func resave_resources(params):
 				log_error("Failed to load resource: " + script_path)
 
 	print("Resave complete: %d scenes saved, %d errors, %d UIDs generated" % [success_count, error_count, generated_uids])
+	# 审查 M-7: 对齐 batch failed_count>0 语义——原 error_count>0 仅计数打印落 exit 0 假成功
+	if error_count > 0:
+		_exit_with(1)
 
 # B7: 原子化资源写——tmp+rename 防超时 kill 落在 save 中途产半截损坏 .tres/.tscn 阻塞项目加载。
 # tmp 必须以目标扩展名结尾(ResourceSaver 按扩展名分派 saver, 裸 .tmp 返回 err 15)。

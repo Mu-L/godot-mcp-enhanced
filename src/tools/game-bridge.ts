@@ -13,6 +13,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
+import { PathError } from '../core/tool-errors.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
@@ -495,6 +496,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             project_root: entry.projectRoot,
           }));
         } catch (err) {
+          // 审查 I-D: assertSourceAllowed/assertProjectAllowed 已收口 PathError——识别透传其
+          // 结构化 code(不再一律 OVERRIDE_INSTALL_FAILED 掩盖 PATH_NOT_ALLOWED 语义)。
+          if (err instanceof PathError) return opsErrorResult(err.code, err.message);
           return opsErrorResult('OVERRIDE_INSTALL_FAILED', getErrorMessage(err));
         }
       }
@@ -511,6 +515,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const entry = deriveOverrideEntry(sourceScriptPath, projectPath);
           return textResult(JSON.stringify({ success: true, removed, autoload_key: entry.autoloadKey }));
         } catch (err) {
+          if (err instanceof PathError) return opsErrorResult(err.code, err.message); // 审查 I-D: 同 install_override
           return opsErrorResult('OVERRIDE_UNINSTALL_FAILED', getErrorMessage(err));
         }
       }

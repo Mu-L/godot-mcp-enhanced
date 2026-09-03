@@ -11,7 +11,7 @@ import { normalizeNodePath, opsErrorResult, sanitizeResPath } from '../shared.js
 import { addNode } from '../../tscn/tscn-editor.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { spawnGodot } from '../spawn-helper.js';
-import { ACTIONS, requireScenePath, writeAtomic, BLOCKED_PROPS } from './helpers.js';
+import { ACTIONS, requireScenePath, writeAtomic } from './helpers.js';
 import { handleInstanceScene, handleSetInstanceProperty, handleDetachInstance } from './scene-instance.js';
 import { mergeTscn, checkSceneHealth } from './scene-merge.js';
 import { handleCreate3dNode } from '../node-3d-ops.js';
@@ -150,7 +150,7 @@ export async function handleTool(
       if (!/^[A-Za-z0-9_]+$/.test(String(args.node_type ?? ''))) {
         return textResult(`Error: node_type contains invalid characters: "${args.node_type}"`);
       }
-      if (!String(args.node_name ?? '') || /[\]["/:\\]/.test(String(args.node_name))) {
+      if (!String(args.node_name ?? '') || /[\]["/:\\\r\n\t]/.test(String(args.node_name))) {  // 审查 L-3: 补 \r\n\t(GD Node.name 保留控制字符→stdout 展示层注入)
         return textResult(`Error: node_name contains invalid characters: "${args.node_name}"`);
       }
 
@@ -347,7 +347,11 @@ export async function handleTool(
       const nodes = args.nodes as Array<{ node_type: string; node_name: string; parent_node_path?: string; properties?: Record<string, unknown> }>;
       if (!nodes || !Array.isArray(nodes) || nodes.length === 0) { releaseShortRunningSlot(); return opsErrorResult('INVALID_PARAMS', '"nodes" must be a non-empty array of node definitions.'); }
       if (nodes.length > 100) { releaseShortRunningSlot(); return textResult(`Error: Too many nodes (${nodes.length}). Maximum: 100`); }
-      for (let i = 0; i < nodes.length; i++) { const n = nodes[i]!; if (!n.node_type || !/^[A-Za-z0-9_]+$/.test(String(n.node_type))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_type contains invalid characters: "${n.node_type}"`); } if (!n.node_name || /[\]["/:\\]/.test(String(n.node_name))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_name contains invalid characters: "${n.node_name}"`); } }
+      // 审查 L-3(2026-09-03): node_name 黑名单补 \r\n\t + parent_node_path 补控制字符校验——
+      // GD Node.name 原样保留控制字符(真机实证),随 print/failed 清单拼进 stdout 可伪造 [ERROR]/
+      // 成功行(展示层注入);判定层不受影响(exitCode 不可由 stdout 驱动)。parent_node_path 合法
+      // 字符含 / . @ 等,仅拦控制字符。
+      for (let i = 0; i < nodes.length; i++) { const n = nodes[i]!; if (!n.node_type || !/^[A-Za-z0-9_]+$/.test(String(n.node_type))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_type contains invalid characters: "${n.node_type}"`); } if (!n.node_name || /[\]["/:\\\r\n\t]/.test(String(n.node_name))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].node_name contains invalid characters: "${n.node_name}"`); } if (n.parent_node_path !== undefined && /[\r\n\t]/.test(String(n.parent_node_path))) { releaseShortRunningSlot(); return textResult(`Error: nodes[${i}].parent_node_path contains control characters (CR/LF/tab)`); } }
       // P1-2 (2026-07-19 spec editor-version-tear §6): editor 场景写守卫——batch_add_nodes fallback headless
       // 路径(若该场景在 editor 打开, headless 改盘会被 editor GUI save 覆盖回旧版)。此 case 无 try/finally,
       // 守卫 return 前手动 releaseShortRunningSlot(否则 slot 泄漏)。acquire 已在 :317 完成。
@@ -363,21 +367,11 @@ export async function handleTool(
       if (result.timedOut) return errorResult('batch_add_nodes timed out after 60s.');
       if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
       if (result.exitCode !== 0) return errorResult(`batch_add_nodes failed (exit code ${result.exitCode}):\n${result.stdout}${result.stderr ? '\n' + result.stderr : ''}`); // 审查 I-A: GD log_error 走 stderr,不拼则 per-node 失败清单不可见
-      // IMPORTANT-1 (2026-06-23 审查修复): batch_add_nodes 走 GDScript ops(_is_safe_property 过滤),
-      // 不经 TS _addNodesInner(其 allBlocked 聚合在此路径不生效)。TS 侧前置收集 BLOCKED_PROPS 命中,
-      // 警告——与 add_node/edit_node 一致,避免 batch 路径静默 drop script 等(削弱 S1 完整性)。
-      const batchBlocked: string[] = [];
-      for (const n of nodes) {
-        if (n.properties) for (const k of Object.keys(n.properties)) {
-          if (BLOCKED_PROPS.has(k) && !batchBlocked.includes(k)) batchBlocked.push(k);
-        }
-      }
-      const batchOut = result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.`;
-      if (batchBlocked.length > 0) {
-        const hint = batchBlocked.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn ExtResource.' : '';
-        return { content: [{ type: 'text' as const, text: `⚠️ Blocked properties NOT written (security policy): ${batchBlocked.join(', ')}.${hint}\n${batchOut}` }] };
-      }
-      return { content: [{ type: 'text', text: batchOut }] };
+      // 审查 M-2(2026-09-03): 原 BLOCKED_PROPS 前置收集+成功路径警告分支不可达已删——blocked 属性
+      // 在 GD 侧 _is_safe_property 拒 → 整节点失败 → exit 1 → 上方 exitCode!==0 的 error 路径(含
+      // stderr 详情)先返回;错误比警告更严格,行为不变。GD 清单(BLOCKED_PROPERTIES)较 TS
+      // (BLOCKED_PROPS)多拦 4 项属纵深防御,清单不强行统一(I-A 后 stderr 误拒详情已可见)。
+      return { content: [{ type: 'text', text: result.stdout.trim() || `batch_add_nodes completed: ${nodes.length} nodes added.` }] };
     }
 
     case 'edit_node': {
@@ -398,11 +392,8 @@ export async function handleTool(
         const nodePath = normalizeNodePath(args.node_path as string);
         const properties = args.properties as Record<string, unknown>;
         if (!properties || typeof properties !== 'object' || Object.keys(properties).length === 0) return opsErrorResult('INVALID_PARAMS', '"properties" must be a non-empty object.');
-        // S1: BLOCKED_PROPS 前置警告（与 add_node/batch 一致，避免静默失败）
-        const blockedKeys: string[] = [];
-        for (const key of Object.keys(properties)) {
-          if (BLOCKED_PROPS.has(key) && !blockedKeys.includes(key)) blockedKeys.push(key);
-        }
+        // 审查 M-2(2026-09-03): 原 BLOCKED_PROPS 前置收集+成功路径警告分支不可达已删——blocked 属性
+        // 在 GD 侧 _is_safe_property 拒 → failed → exit 1 → 下方 exitCode!==0 的 error 路径先返回。
         let godot: string;
         try { godot = await ctx.findGodot(); } catch (e) { releaseShortRunningSlot(); throw e; }
         const result = await spawnGodot(godot, ['--headless', '--path', p, '--script', ctx.opsScript, 'edit_node', JSON.stringify({ scene_path: scenePath, node_path: nodePath, properties })]);
@@ -410,12 +401,7 @@ export async function handleTool(
         if (result.timedOut) return errorResult('edit_node timed out after 60s.');
         if (result.exitCode === -1 && result.stdout.startsWith('SPAWN_FAILED:')) return errorResult(result.stdout);
         if (result.exitCode !== 0) return errorResult(`edit_node failed (exit code ${result.exitCode}):\n${result.stdout}${result.stderr ? '\n' + result.stderr : ''}`); // 审查 I-A: 补 stderr(Node not found 等错误详情)
-        const out = result.stdout.trim() || `edit_node completed.`;
-        if (blockedKeys.length > 0) {
-          const hint = blockedKeys.includes('script') ? ' For scripts use quick_scene script_path or Write .tscn with [ext_resource].' : '';
-          return { content: [{ type: 'text' as const, text: `⚠️ Blocked properties NOT applied (security policy): ${blockedKeys.join(', ')}.${hint}\n${out}` }] };
-        }
-        return { content: [{ type: 'text', text: out }] };
+        return { content: [{ type: 'text', text: result.stdout.trim() || `edit_node completed.` }] };
       } finally { releaseShortRunningSlot(); }
     }
 

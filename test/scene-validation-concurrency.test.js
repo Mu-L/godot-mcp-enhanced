@@ -163,8 +163,10 @@ describe('A-12: scene_path validation', () => {
     const sceneFile = 'scenes/fail.tscn';
     writeFileSync(join(dirRef.path, sceneFile), '[gd_scene format=3]\n', 'utf-8');
     vi.mocked(mockSpawnGodot).mockImplementationOnce(() => Promise.resolve({
-      stdout: "ERROR: Node not found: root/Main/OldNode",
-      stderr: '', exitCode: 1, timedOut: false,
+      // 审查 I-A(2026-09-03) 通道修正: 真实 GD 的 log_error 走 printerr=stderr,原 mock 把
+      // "Node not found" 放 stdout 锚定了理想化行为,掩盖「TS 失败呈现丢 stderr」缺陷。
+      stdout: '',
+      stderr: 'ERROR: Node not found: root/Main/OldNode', exitCode: 1, timedOut: false,
     }));
     const result = await scene.handleTool('scene', {
       project_path: dirRef.path,
@@ -174,7 +176,7 @@ describe('A-12: scene_path validation', () => {
     }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('exit code 1');
-    expect(result.content[0].text).toContain('Node not found');
+    expect(result.content[0].text, 'I-A: stderr 错误详情拼进错误文本').toContain('Node not found');
   });
 });
 

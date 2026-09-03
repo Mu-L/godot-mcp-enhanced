@@ -318,7 +318,7 @@ describe('P2-1 overrides.ts', () => {
         // 越权路径:/outside/allow/evil.gd(不在 tmpRoot 也不在 cwd)
         const outside = join(tmpdir(), `outside-${Date.now()}.gd`);
         writeFileSync(outside, 'extends Node\n', 'utf-8');
-        expect(() => installOverride(outside, projectDir)).toThrow(/not in allowed roots/i);
+        expect(() => installOverride(outside, projectDir)).toThrow(/outside allowed project roots/i); // 审查 I-D: 收口 PathError 后的消息模板
         // 清理
         try { require('fs').unlinkSync(outside); } catch { /* best effort */ }
       } finally {
@@ -332,7 +332,7 @@ describe('P2-1 overrides.ts', () => {
         const srcScript = join(sourceScriptDir, 'log.gd');
         writeFileSync(srcScript, 'extends Node\n', 'utf-8');
         // projectDir 在 tmpRoot,但 UNRESTRICTED 关闭后须 ALLOWED_PROJECT_PATHS 显式允许
-        expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots/i);
+        expect(() => installOverride(srcScript, projectDir)).toThrow(/outside allowed project roots/i); // 审查 I-D
       } finally {
         restore();
       }
@@ -379,7 +379,7 @@ describe('P2-1 overrides.ts', () => {
       try {
         const srcScript = join(sourceScriptDir, 'danger2.gd');
         writeFileSync(srcScript, 'extends Node\nfunc _ready():\n\tOS.execute("calc")\n', 'utf-8');
-        expect(() => installOverride(srcScript, projectDir)).toThrow(/not in allowed roots|failed sandbox scan/i);
+        expect(() => installOverride(srcScript, projectDir)).toThrow(/outside allowed project roots|failed sandbox scan/i); // 审查 I-D
       } finally {
         restore();
       }

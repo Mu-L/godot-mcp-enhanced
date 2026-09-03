@@ -8,10 +8,11 @@
 // - MCP 工具 action(主入口):game_bridge 工具加 install_override/uninstall_override,agent 显式调用
 // - CLI flag(便捷):--overrides=<path> 指定默认 overrides,在 run_project 时自动注入
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, renameSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
 import { join, basename, extname } from 'path';
-import { isPathInAllowedRoots } from './path-utils.js';
+import { isPathInAllowedRoots, describeAllowedRoots } from './path-utils.js';
 import { getLogger } from './logger.js';
+import { PathError } from './tool-errors.js';
 import { scanGdscriptSandbox } from '../gdscript-executor.js';
 
 /** overrides 注入的 autoload key 前缀(卸载时按前缀批量清理)。
@@ -38,10 +39,12 @@ export interface OverrideEntry {
  */
 function assertSourceAllowed(sourceScriptPath: string): void {
   if (!isPathInAllowedRoots(sourceScriptPath)) {
-    throw new Error(
-      `Override source script not in allowed roots: ${sourceScriptPath}. ` +
-      `Set ALLOWED_PROJECT_PATHS to include the script location, or run with GODOT_MCP_UNRESTRICTED=true.`,
-    );
+    // 审查 I-D(2026-09-03): 收口 PathError——原生 Error 在 install_override 的 catch
+    // (game-bridge.ts getErrorMessage)直拼外传绝对路径(违 P2-17)且无结构化 code。
+    throw new PathError(
+      `Override source script is outside allowed project roots: ${basename(sourceScriptPath)}. ` +
+      `Allowed roots: ${describeAllowedRoots()}. ` +
+      'Fix: move the script under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
   }
 }
 
@@ -51,10 +54,10 @@ function assertSourceAllowed(sourceScriptPath: string): void {
  */
 function assertProjectAllowed(projectRoot: string): void {
   if (!isPathInAllowedRoots(projectRoot)) {
-    throw new Error(
-      `Target project not in allowed roots: ${projectRoot}. ` +
-      `Set ALLOWED_PROJECT_PATHS to include the project, or run with GODOT_MCP_UNRESTRICTED=true.`,
-    );
+    throw new PathError(
+      `Target project is outside allowed project roots: ${basename(projectRoot)}. ` +
+      `Allowed roots: ${describeAllowedRoots()}. ` +
+      'Fix: move the project under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
   }
 }
 
@@ -105,9 +108,14 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
   const bypassSandbox = process.env.GODOT_MCP_UNRESTRICTED === 'true'
     && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true'
       || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
-  const srcContent = readFileSync(sourceScriptPath, 'utf-8');  // 沙箱扫描与内容比对共用(审查 NIT-4 双读复用)
+  // Buffer 单读三用(审查 NIT-4 双读复用 + Minor-3 字节比对 + L-1 落盘同缓冲):
+  // (a) 沙箱扫描 toString('utf-8');(b) 漂移比对 Buffer.equals——原 utf-8 解码字符串相等对
+  // GBK 等非 UTF-8 源可能两份字节不同解码出相同 U+FFFD 被误判一致→漂移静默漏检(Minor-3),
+  // 与拷贝的字节语义不对称;(c) 落盘 writeFileSync(srcContent) 而非 copyFileSync 重读盘——
+  // 消除「扫描的内容 ≠ 落盘的内容」TOCTOU 窗口,扫描即落盘原子化(L-1)。
+  const srcContent = readFileSync(sourceScriptPath);
   if (!bypassSandbox) {
-    const sandboxWarnings = scanGdscriptSandbox(srcContent);
+    const sandboxWarnings = scanGdscriptSandbox(srcContent.toString('utf-8'));
     if (sandboxWarnings.length > 0) {
       throw new Error(
         `Override script failed sandbox scan: ${sourceScriptPath}\n` +
@@ -128,13 +136,13 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
     // install 返回成功但目标文件仍是旧版,「改动不生效」极易误判为脚本本身问题(排障>5min)。
     // 修:内容一致才跳过;漂移则重拷贝(autoload 已注册不动),返回带 updated 标记。
     const destContent = existsSync(entry.destScriptPath)
-      ? readFileSync(entry.destScriptPath, 'utf-8')
+      ? readFileSync(entry.destScriptPath)
       : null;
-    if (destContent === srcContent) {
+    if (destContent !== null && destContent.equals(srcContent)) {
       getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
       return null;
     }
-    copyFileSync(sourceScriptPath, entry.destScriptPath);
+    writeFileSync(entry.destScriptPath, srcContent);  // L-1: 落盘已扫描的缓冲
     getLogger().info('overrides', `Override already registered, dest script updated (content drift): ${entry.autoloadKey}`);
     return { ...entry, updated: true };
   }
@@ -144,8 +152,8 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
     getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
   }
 
-  // 拷贝脚本到项目根(参考 game-bridge.ts:556 copyFileSync)
-  copyFileSync(sourceScriptPath, entry.destScriptPath);
+  // 落盘脚本到项目根(L-1: writeFileSync 用已扫描缓冲,替代 copyFileSync 重读盘)
+  writeFileSync(entry.destScriptPath, srcContent);
 
   // project.godot 改写:find/insert [autoload] 段(参考 game-bridge.ts:568-574)
   const autoloadEntry = `${entry.autoloadKey}="*res://${entry.destScriptName}"`;
@@ -285,7 +293,9 @@ function unlinkSyncQuiet(p: string): void {
  * @note 预校验只覆盖越权+存在性(快速失败);单条沙箱扫描/project.godot 改写失败时
  *       已装条目不回滚(非全装或全不装,审查 NIT-6 措辞订正)——单条失败抛错由调用方处置。
  */
-export function installOverrides(sourcePaths: string[], projectRoot: string): OverrideEntry[] {
+// 审查 Minor-13: 返回类型显式含 updated——installOverride 单条可返回 { updated: true }(内容漂移重拷贝),
+// 原 OverrideEntry[] 类型擦除该标记,CLI 消费方无法从类型上区分「新装」与「漂移更新」(运行时字段仍在)。
+export function installOverrides(sourcePaths: string[], projectRoot: string): (OverrideEntry & { updated?: boolean })[] {
   // 预校验全部源路径(atomic: 任一失败则整体不装,避免半装状态)
   for (const p of sourcePaths) {
     assertSourceAllowed(p);
@@ -295,7 +305,7 @@ export function installOverrides(sourcePaths: string[], projectRoot: string): Ov
   }
   assertProjectAllowed(projectRoot);
 
-  const installed: OverrideEntry[] = [];
+  const installed: (OverrideEntry & { updated?: boolean })[] = [];
   for (const p of sourcePaths) {
     const entry = installOverride(p, projectRoot);
     if (entry) installed.push(entry);

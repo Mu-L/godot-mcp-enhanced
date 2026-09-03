@@ -23,6 +23,7 @@ export {
   normalizeUserProjectPath,
   getAllowedProjectPaths,
   isPathInAllowedRoots,
+  describeAllowedRoots,
   _resetPathAllowWarned,
 } from './core/path-utils.js';
 // Note: WINDOWS_DEVICE_RE intentionally NOT re-exported — internal to path-utils
@@ -47,11 +48,12 @@ export {
 
 import { dirname } from 'path';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from './core/logger.js';
-import { validatePath, isPathInAllowedRoots, getAllowedProjectPaths } from './core/path-utils.js';
+import { validatePath, isPathInAllowedRoots, getAllowedProjectPaths, describeAllowedRoots } from './core/path-utils.js';
+import { PathError } from './core/tool-errors.js';
 import { getErrorMessage } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -110,7 +112,13 @@ export function allowOutsideProjectPaths(): boolean {
 export function requireProjectPath(args: Record<string, unknown>): string {
   const resolved = validatePath(requireString(args, 'project_path'));
   if (!isPathInAllowedRoots(resolved)) {
-    throw new Error(`project_path not in ALLOWED_PROJECT_PATHS: ${resolved}. Check your ALLOWED_PROJECT_PATHS setting.`);
+    // 审查 I-D(2026-09-03): 原生 Error 被 classifyError 兜底成笼统 'Internal error'(INTERNAL)——
+    // screenshot capture 越权走此路径时正是反馈 2026-08-19 描述的误导形态(同工具行为分裂);
+    // 且消息外传 resolved 绝对路径(违 P2-17)。收口 PathError(结构化 PATH_NOT_ALLOWED,
+    // safeMessage 外传),消息对齐 screenshot throwPathNotAllowed 模式(basename+同源 roots+指引)。
+    throw new PathError(
+      `project_path is outside allowed project roots: ${basename(resolved)}. Allowed roots: ${describeAllowedRoots()}. ` +
+      'Fix: move the project under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
   }
   return resolved;
 }

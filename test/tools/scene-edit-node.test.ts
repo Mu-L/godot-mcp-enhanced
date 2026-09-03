@@ -108,12 +108,15 @@ describe('edit_node 迁移 godot_operations.gd（Task 3）', () => {
     expect(text).toMatch(/exit code 1/);
   });
 
-  it('Case 3: properties 含 script（BLOCKED_PROPS）→ 返 ⚠️ 警告 + spawnGodot 仍被调（前置警告非阻断）', async () => {
+  it('Case 3: properties 含 script（BLOCKED_PROPS）→ GD 侧拒绝 exit 1 透传 error(审查 M-2: 不可达警告分支已删)', async () => {
+    // 审查 M-2(2026-09-03): 原 TS 前置收集 BLOCKED_PROPS + 成功路径 ⚠️ 警告分支不可达(blocked 在
+    // GD 侧 _is_safe_property 拒 → failed → exit 1 → error 路径先返回),已删——本 Case 改锚定真实
+    // 行为:mock 对齐真实通道(log_error 走 stderr,原 mock 把成功 stdout 配 blocked 场景不真实)。
     mockSpawnGodot.mockResolvedValue({
-      stdout: "Node 'root/Root/MovableNode' edited successfully",
-      stderr: '',
+      stdout: '',
+      stderr: 'ERROR: Blocked property: script\nERROR: Note: successful property changes are already persisted (1 failed); query_scene_tree before retrying to avoid duplicates.',
       output: '',
-      exitCode: 0,
+      exitCode: 1,
       timedOut: false,
     });
 
@@ -125,14 +128,13 @@ describe('edit_node 迁移 godot_operations.gd（Task 3）', () => {
       properties: { script: 'res://scripts/main.gd', position: [1, 2] },
     }, ctx);
 
+    expect(result.isError).toBe(true);
     const text = result.content?.[0]?.text ?? '';
-    expect(text).toContain('⚠️');
-    expect(text).toContain('Blocked properties NOT applied');
-    expect(text).toContain('script');
-    // script 被前置拦截，但 spawnGodot 仍被调（仅警告非阻断，与 add_node/batch 一致）
+    expect(text).toMatch(/exit code 1/);
+    expect(text, 'I-A: stderr 详情拼进错误文本').toContain('Blocked property: script');
+    expect(text, 'Minor-1: 部分失败重试防重复提示').toContain('already persisted');
+    // spawnGodot 仍被调(TS 不剥离 properties,GD _is_safe_property 过滤——双层防御语义不变)
     expect(spawnGodot).toHaveBeenCalledTimes(1);
-    // 传给 spawnGodot 的 properties 仍含原 key（TS 不剥离，GDScript _is_safe_property 过滤）—
-    // 此处不强制断言 properties 内容，因 BLOCKED_PROPS 行为是"警告 + GD 侧拒绝"双层
   });
 
   it('Case 4（核心迁移断言）: edit_node 不再调 executeGdscript', async () => {

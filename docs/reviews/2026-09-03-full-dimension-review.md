@@ -2,6 +2,9 @@
 
 <!-- 审查方式：5 维度并行子代理（headless / bridge / TS 质量 / 安全 / 测试覆盖）+ 主 agent 实跑构建验证与对抗核实 -->
 <!-- 与上轮（2026-09-02-feedback-batch.md）的差异：上轮审查者无 Bash（未能跑 diff/构建/测试）；本轮全部命令实跑 + 真机探针 5 轮 -->
+<!-- 处置记录(2026-09-03): 第一批 f80e964 处置 C-1+I-A/I-B/I-C;第二批处置 I-D/I-E/I-F+Minor 1/2/3/5/6/7/8/9/10/11/13+L-2/L-3+规则沉淀(见 CHANGELOG 第二批条目)。
+     不处置: Minor-12(safeMessage 携 allowlist,本地单用户设计取舍,多用户部署时回收)、F-1(flaky 治理,需立项复现矩阵)。
+     处置中新发现并同批修复: _resolve_parent_node 剥后根名再判定边界(否则 "/root/<根名>" 误报 not found)。 -->
 
 ## 总体判定：SHIPPED WITH NITS（5/5 子审查一致，无阻断合并项）
 

@@ -337,7 +337,7 @@ describe('SEC-P2-1: test-framework requireProjectPath root enforcement', () => {
     expect(result).not.toBeNull();
     expect(result.isError).toBe(true);
     // requireProjectPath 抛错 → catch 包装成 INVALID_PATH,消息含 "not in ALLOWED_PROJECT_PATHS"
-    expect(result.content[0].text).toMatch(/INVALID_PATH|not in ALLOWED_PROJECT_PATHS/i);
+    expect(result.content[0].text).toMatch(/INVALID_PATH|outside allowed project roots|not in ALLOWED_PROJECT_PATHS/i); // 审查 I-D: requireProjectPath 收口 PathError
   });
 
   it('allows project_path inside ALLOWED_PROJECT_PATHS', async () => {

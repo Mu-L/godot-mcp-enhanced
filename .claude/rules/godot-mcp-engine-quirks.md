@@ -38,6 +38,7 @@ alwaysApply: false
 - **`_Ready()` 在 `--script` 的 `_Initialize()` 不触发**：`godot --script` 运行 SceneTree 脚本时，实例化场景节点的 `_Ready()` 在 `_Initialize()` 期间不触发，须 `Root.AddChild(node)` 后手动调 init 方法。关联：execute_gdscript 完整类模式。
 - **`Free()` vs `QueueFree()`**：`QueueFree()` 把节点留到帧末才移除，阻塞 name 重用；测试脚本里立即替换场景用 `Free()`。关联：execute_gdscript 测试脚本。
 - **★ `execute_gdscript --script` 不认 GutTest → 用 `run_tests`**：headless CLI `godot --script` 要求脚本 `extends SceneTree`/`MainLoop`，直接跑 `extends GutTest`（Node 子类）的 GUT 测试脚本必失败，弹窗 "Can't load the script ... as it doesn't inherit from SceneTree or MainLoop"。跑 GUT 单元测试用 `runtime` 工具的 `run_tests` action——它封装 `godot --headless --script addons/gut/gut_cmdln.gd -gdir=<test_script> -gquit`（`test_script` 默认 `res://test/`、须 `res://` 前缀，I-SEC-08 防目录穿越，自动解析 Tests/Failed 计数，120s 超时）。前提：项目装了 GUT addon（`addons/gut/gut_cmdln.gd`）。关联：execute_gdscript、runtime(run_tests)。
+- **★ `check:gdscript` 编译层抓不到运行时类型错（2026-09-03 审查 I-F）**：`--import`/`load()` 编译只验证语法与静态类型——`var x: Array = params.get(...)`（Variant 赋给类型化变量）**编译通过**，运行时接 Dictionary/嵌套容器/null 直接 SCRIPT ERROR。这是 send_drag 崩溃事故与 `_vec2_from_param` 元素级缺陷的共同盲区：「编译过 = 安全」是误判。真机行为锚定走 GODOT_PATH 门控 e2e（`test/scene-gd-operations-e2e.test.ts` 的 skipIf 模式，单例秒级）。另真机实证（4.7）：`float(null)`/`float([1,2])`/`float({"x":1})` 均运行时崩（"float() 对 null 安全"是错误结论）；MCP 输入是任意嵌套 JSON，数值参数须白名单守卫（`_num()` 先例，对齐 `_is_valid_touch_index`）。关联：game_input 输入归一、bridge 同步分发（无异常隔离，一处崩全桥堵死）。
 
 ## 输入与相机（game_input / screenshot）
 
