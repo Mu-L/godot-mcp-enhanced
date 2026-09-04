@@ -13,6 +13,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult, errorResult, getErrorMessage } from '../types.js';
 import { opsErrorResult } from './shared.js';
 import { requireProjectPath } from '../helpers.js';
+import { PathError } from '../core/tool-errors.js';
 import { launchDashboardOnce } from '../dashboard/launcher.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { getLogger } from '../core/logger.js';
@@ -109,7 +110,7 @@ export function getToolDefinitions(): Tool[] {
           source_script_path: { type: 'string', description: 'install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload;插入 [autoload] 段末尾=在游戏 autoload 之后加载,脚本 _ready 可直接访问游戏单例,无需 await <Singleton>.ready）' },
           method: {
             type: 'string',
-            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes (支持 root 参数限定子树搜索范围,推荐绝对路径如 /root/Main;节点不存在时报错非静默全树), get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method (协程方法默认 fire-and-forget,返 {coroutine:true} 标记+说明;传 params.await_completion=true 走延迟响应等待返回值,长协程注意调大 timeout)。game_input: send_key, send_mouse_click (button 支持 int 1-9/left/right/middle), send_mouse_move, send_text, send_touch, send_drag, send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
+            description: 'game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes (支持 root 参数限定子树搜索范围,推荐绝对路径如 /root/Main;节点不存在时报错非静默全树), get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method (协程方法默认 fire-and-forget,返 {coroutine:true} 标记+说明;传 params.await_completion=true 走延迟响应等待返回值,长协程注意调大 timeout)。game_input: send_key, send_mouse_click (button 支持 int 1-9/left/right/middle), send_mouse_move (可选 button_mask 1=left/2=right/4=middle 位掩码,配合先 press 可模拟按住拖动), send_text, send_touch, send_drag (relative/speed 支持 [x,y] 数组或 {x,y} 对象), send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)',
           },
           params: {
             type: 'object',
@@ -284,11 +285,16 @@ function ensureProjectDir(ctx: ToolContext, args: Record<string, unknown>): void
 
 /** T-1 (2026-06-24 审查): game_write/wait/query 的 path 参数须 /root/ 绝对路径(文档 godot-mcp-bridge.md
  *  声称必须,原 TS 端下放 GDScript 端)。无 path 的 method(ping/get_tree/get_performance 等)不校验。
- *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。 */
-export function validateBridgePath(params: Record<string, unknown>): string | null {
+ *  返回错误消息或 null(校验通过)。纯函数,无 IO/socket,测试见 game-bridge-validation.test.ts。
+ *  反馈 2026-08-22 (CardGame2): take_screenshot 的 path 是文件路径语义(user://…,GD 侧自有
+ *  "must start with user://" 校验),曾被本函数误扫为节点路径——两层校验互相矛盾,任意取值必失败。
+ *  修:method 为 take_screenshot 时跳过 path 键(其 path 非节点路径);node_path 键仍校验(该方法无此参数)。 */
+export function validateBridgePath(params: Record<string, unknown>, method?: string): string | null {
   // I-1 (审查反馈): 节点路径字段名混用——game_write/wait/query 用 path,monitor/watch 用 node_path,
   // click_button 用 path。统一检查两者。无节点路径的方法(ping/get_tree/find_ui_elements 的 pattern)不校验。
+  const skipPathKey = method === 'take_screenshot';  // path=文件路径(user://),非节点路径
   for (const key of ['path', 'node_path'] as const) {
+    if (key === 'path' && skipPathKey) continue;
     const p = params[key];
     if (typeof p === 'string' && p.length > 0 && p !== '/root' && !p.startsWith('/root/')) {
       return `${key} must be an absolute path starting with "/root/" (got "${p}"). game tools require /root/-prefixed node paths; see godot-mcp-bridge.md.`;
@@ -315,7 +321,7 @@ export function validateWaitPropertyParams(method: string, params: Record<string
 /** Shared helper: set project dir, send to bridge, format response. */
 async function bridgeAction(method: string, params: Record<string, unknown>, ctx: ToolContext, timeout: number): Promise<ToolResult> {
   ensureProjectDir(ctx, params);
-  const pathErr = validateBridgePath(params);  // I-1(审查): 覆盖 monitor/watch/click_button 的 node_path/path
+  const pathErr = validateBridgePath(params, method);  // I-1(审查): 覆盖 monitor/watch/click_button 的 node_path/path;take_screenshot 的 path(文件路径)豁免
   if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
   const resp = await sendToBridge(method, params, timeout);
   // T-2 (2026-06-24 审查): bridge 返回 error 时(密钥失效 -32001/-32002/方法不存在等)用 errorResult
@@ -470,7 +476,17 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const { installOverride } = await import('../core/overrides.js');
           const entry = installOverride(sourceScriptPath, projectPath);
           if (entry === null) {
-            return textResult(JSON.stringify({ success: true, message: 'Override already registered, skipped.', already_installed: true }));
+            return textResult(JSON.stringify({ success: true, message: 'Override already registered and content identical, skipped.', already_installed: true }));
+          }
+          if (entry.updated) {
+            // 反馈 2026-08-30: 源脚本内容漂移时重拷贝,autoload 注册不动
+            return textResult(JSON.stringify({
+              success: true,
+              message: `Override already registered; dest script updated to match source (content drift). Restart the game to load the new version.`,
+              autoload_key: entry.autoloadKey,
+              dest_script: `res://${entry.destScriptName}`,
+              updated: true,
+            }));
           }
           return textResult(JSON.stringify({
             success: true,
@@ -480,6 +496,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
             project_root: entry.projectRoot,
           }));
         } catch (err) {
+          // 审查 I-D: assertSourceAllowed/assertProjectAllowed 已收口 PathError——识别透传其
+          // 结构化 code(不再一律 OVERRIDE_INSTALL_FAILED 掩盖 PATH_NOT_ALLOWED 语义)。
+          if (err instanceof PathError) return opsErrorResult(err.code, err.message);
           return opsErrorResult('OVERRIDE_INSTALL_FAILED', getErrorMessage(err));
         }
       }
@@ -496,6 +515,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const entry = deriveOverrideEntry(sourceScriptPath, projectPath);
           return textResult(JSON.stringify({ success: true, removed, autoload_key: entry.autoloadKey }));
         } catch (err) {
+          if (err instanceof PathError) return opsErrorResult(err.code, err.message); // 审查 I-D: 同 install_override
           return opsErrorResult('OVERRIDE_UNINSTALL_FAILED', getErrorMessage(err));
         }
       }
@@ -523,7 +543,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         // H1 (2026-08-20): send_input_sequence 延迟响应,超时经 computePlaytestTimeoutMs
         // 统一放宽(wall+10s,审查 N-4 收敛——与 step_until 同一纯函数,不再内联公式)
         const timeout = computePlaytestTimeoutMs(method, params.wall_budget_ms, rawTimeout);
-        const pathErr = validateBridgePath(params);
+        const pathErr = validateBridgePath(params, method);  // T-1: path /root/ 前置校验(take_screenshot 的文件路径豁免)
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);  // T-1: path /root/ 前置校验
         const response = await sendToBridge(method, params, timeout);
         if (response.error) {
@@ -552,7 +572,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         const totalMs = clampTimeoutMs(args.timeout);
         const intervalMs = clampTimeoutMs(args.interval_ms, 50, 2000, 200);
 
-        const pathErr = validateBridgePath(params);  // T-1: path /root/ 前置校验
+        const pathErr = validateBridgePath(params, method);  // T-1: path /root/ 前置校验
         if (pathErr) return opsErrorResult('INVALID_PATH', pathErr);
 
         // I-2: wait_for_property 还需 property + value;wait_for_node 不校验(纯函数抽离,见模块顶)。

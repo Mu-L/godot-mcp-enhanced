@@ -1721,13 +1721,20 @@ func _cmd_send_mouse_click(params: Dictionary) -> Variant:
 
 
 func _cmd_send_mouse_move(params: Dictionary) -> Variant:
-	var x: float = float(params.get("x", 0))
-	var y: float = float(params.get("y", 0))
+	# 审查 I-C: x/y/button_mask 与 _num 守卫(本函数本批新增 button_mask,同函数同形态一并守卫)
+	var x: float = _num(params.get("x", 0), 0.0)
+	var y: float = _num(params.get("y", 0), 0.0)
 	var event := InputEventMouseMotion.new()
 	event.position = Vector2(x, y)
 	event.global_position = Vector2(x, y)
+	# 反馈 2026-08-22 (CardGame2): 可选 button_mask(1=left 2=right 4=middle 位掩码)——
+	# move 事件默认不带按键状态,非 drag motion;传掩码可模拟按住拖动(先 press 再带 mask 的 move)。
+	var mask := int(_num(params.get("button_mask", 0), 0.0))
+	if mask < 0:
+		mask = 0
+	event.button_mask = mask
 	Input.parse_input_event(event)
-	return {"success": true, "x": x, "y": y}
+	return {"success": true, "x": x, "y": y, "button_mask": mask}
 
 
 # 阶段2b IMP-11: 触摸事件注入(对齐 recording_commands.gd :197 + recording.ts touch 回放契约)
@@ -1748,26 +1755,58 @@ func _cmd_send_touch(params: Dictionary) -> Variant:
 
 
 # IMP-11 补全: 触屏拖拽回放载体(对齐 _cmd_send_touch;speed best-effort,Godot 内部可能重算覆盖)
+# 反馈 2026-08-22 (CardGame2): relative/speed 曾声明 Array 类型化变量,MCP schema 是 object
+# (Dictionary {x,y})——类型化赋值行直接 SCRIPT ERROR(守卫在赋值之后,来不及生效)→游戏侧
+# Debugger Break 卡死 + bridge 后续请求全超时。修:Variant 接收 + Array/Dictionary 双形态归一。
+# 审查 I-C(2026-09-03): float()/int() 对容器/null 是运行时 SCRIPT ERROR(真机 4.7 实证
+# float([1,2])/float({"x":1})/float(null) 全崩;上轮审查 A6「float() 对 null 安全」结论作废)——
+# 元素级无守卫会重现顶层形态同源的 bridge 卡死(同步分发无异常隔离)。_num 白名单守卫对齐
+# _is_valid_touch_index/_compare_values 先例:仅 int/float/合法数字字符串放行,其余回 fallback。
+func _num(v: Variant, fallback: float) -> float:
+	if v is int or v is float:
+		return float(v)
+	if v is String and String(v).is_valid_float():
+		return float(v)
+	return fallback
+
+func _vec2_from_param(v: Variant, fallback: Vector2) -> Vector2:
+	if v is Array:
+		return Vector2(
+			_num(v[0], fallback.x) if v.size() > 0 else fallback.x,
+			_num(v[1], fallback.y) if v.size() > 1 else fallback.y)
+	elif v is Dictionary:
+		return Vector2(_num(v.get("x", fallback.x), fallback.x), _num(v.get("y", fallback.y), fallback.y))
+	return fallback
+
 func _cmd_send_drag(params: Dictionary) -> Variant:
-	var x: float = float(params.get("x", 0))
-	var y: float = float(params.get("y", 0))
+	var x: float = _num(params.get("x", 0), 0.0)
+	var y: float = _num(params.get("y", 0), 0.0)
 	# 审查N-1(对称):index 严格校验,直接调用路径与 timeline 深预检同语义
 	if not _is_valid_touch_index(params.get("index", 0)):
 		return {"error": {"code": -1, "message": "Invalid drag index: %s (must be non-negative integer)" % str(params.get("index", 0))}}
 	var index: int = int(params.get("index", 0))
-	var relative: Array = params.get("relative", [0.0, 0.0])
-	if not (relative is Array):
-		relative = [0.0, 0.0]
-	var speed: Array = params.get("speed", [0.0, 0.0])
-	if not (speed is Array):
-		speed = [0.0, 0.0]
+	# 审查 Minor-10: 归一 fallback 静默无警示——形态非法静默归 (0,0) 且回显归一后值,
+	# 调用方无法区分「用户传 0」与「形态错被归零」(如 {"speed":"fast"} 静默零速)。补 warnings。
+	var warnings: Array = []
+	for vec_key in ["relative", "speed"]:
+		if params.has(vec_key):
+			var raw_v: Variant = params[vec_key]
+			if not (raw_v is Array or raw_v is Dictionary):
+				warnings.append("%s has invalid form (%s); fell back to (0,0)" % [vec_key, str(raw_v)])
+	var relative := _vec2_from_param(params.get("relative", [0.0, 0.0]), Vector2.ZERO)
+	var speed := _vec2_from_param(params.get("speed", [0.0, 0.0]), Vector2.ZERO)
 	var event := InputEventScreenDrag.new()
 	event.position = Vector2(x, y)
 	event.index = index
-	event.relative = Vector2(float(relative[0]) if relative.size() > 0 else 0.0, float(relative[1]) if relative.size() > 1 else 0.0)
-	event.speed = Vector2(float(speed[0]) if speed.size() > 0 else 0.0, float(speed[1]) if speed.size() > 1 else 0.0)
+	event.relative = relative
+	event.speed = speed
 	Input.parse_input_event(event)
-	return {"success": true, "x": x, "y": y, "index": index, "relative": relative, "speed": speed}
+	# 审查 I-B(2026-09-03): 裸 Vector2 经 JSON.stringify 退化为 "(x, y)" 字符串(真机实证),
+	# 走 _jsonify 输出 {"x","y"}(对齐 wait_for_property 先例),响应可结构化消费。
+	var resp := {"success": true, "x": x, "y": y, "index": index, "relative": _jsonify(relative), "speed": _jsonify(speed)}
+	if warnings.size() > 0:
+		resp["warnings"] = warnings
+	return resp
 
 
 func _cmd_send_text(params: Dictionary) -> Variant:
@@ -1818,7 +1857,9 @@ func _cmd_take_screenshot(params: Dictionary) -> Variant:
 	if not clean_path.begins_with("user://"):
 		return {"error": {"code": -1, "message": "Screenshot path must start with user://"}}
 	# Check each segment for traversal
-	for segment in clean_path.substr(8).split("/"):
+	# 审查 L-2: "user://" 是 7 字符,原 substr(8) 首段永丢首字符("user://foo/x" → 段 ["oo","x"])。
+	# 实测无逃逸路径(.. 段仍拒 + 引擎 user 目录沙箱兜底),但本检查是 TS 豁免后唯一段级防线,顺手修正。
+	for segment in clean_path.substr(7).split("/"):
 		if segment == ".." or segment == ".":
 			return {"error": {"code": -1, "message": "Screenshot path contains directory traversal"}}
 	var viewport := get_viewport()
@@ -2668,6 +2709,16 @@ func _cmd_control_input_sequence(params: Dictionary, pid: int) -> Dictionary:
 			return {"error": {"code": -1, "message": "Invalid button: %s (at_frame=%d); use 1-9 or left/right/middle" % [str(e.get("button", 1)), at_f]}}
 		if (t == "touch" or t == "drag") and not _is_valid_touch_index(e.get("index", 0)):
 			return {"error": {"code": -1, "message": "Invalid index: %s (at_frame=%d); must be non-negative integer" % [str(e.get("index", 0)), at_f]}}
+		if t == "drag":
+			# 审查 M-2: 深预检补 drag 形态——relative/speed 键名拼错(如 rel)或形态非法原本
+			# 登记期不拒,注入期静默 fallback (0,0) → E2E 假绿。键白名单 + 双形态校验。
+			var drag_keys := ["at_frame", "type", "x", "y", "index", "relative", "speed"]
+			for k in e.keys():
+				if not (k in drag_keys):
+					return {"error": {"code": -1, "message": "Unknown drag event key: %s (at_frame=%d); valid keys: %s" % [str(k), at_f, str(drag_keys)]}}
+			for vec_key in ["relative", "speed"]:
+				if e.has(vec_key) and not (e[vec_key] is Array or e[vec_key] is Dictionary):
+					return {"error": {"code": -1, "message": "Invalid %s: %s (at_frame=%d); must be [x,y] array or {x,y} object" % [vec_key, str(e[vec_key]), at_f]}}
 		validated.append(e)
 		max_at = maxi(max_at, at_f)
 	var settle: int = int(params.get("settle_frames", 0))
@@ -2776,7 +2827,9 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton:
 		_recorded_events.append({"type": "mouse_click", "position": [event.position.x, event.position.y], "button": event.button_index, "pressed": event.pressed, "time_offset": time_ms})
 	elif event is InputEventMouseMotion:
-		_recorded_events.append({"type": "mouse_move", "position": [event.position.x, event.position.y], "time_offset": time_ms})
+		# 审查 Minor-11: 补记 button_mask——「按住拖动」的 motion 带按键态,不记则录制回放
+		# 丢失按键态(与 send_mouse_move 的 button_mask 注入能力对称);旧回放器忽略未知字段,向后兼容。
+		_recorded_events.append({"type": "mouse_move", "position": [event.position.x, event.position.y], "button_mask": event.button_mask, "time_offset": time_ms})
 	elif event is InputEventScreenTouch:  # IMP-11: 触摸事件录制(对齐 recording_commands.gd :46 + _cmd_send_touch 契约)
 		_recorded_events.append({"type": "touch", "position": [event.position.x, event.position.y], "pressed": event.pressed, "index": event.index, "time_offset": time_ms})
 	elif event is InputEventScreenDrag:  # IMP-11 补全: 拖拽录制(对齐 recording_commands.gd + _cmd_send_drag 契约)

@@ -276,5 +276,26 @@ export function isPathInAllowedRoots(requestedPath: string): boolean {
   });
 }
 
+/** 审查 I-E(2026-09-03): 错误消息里的「允许根列表」必须与 isPathInAllowedRoots 判定同源生成。
+ *  上轮 NIT-2 的复刻式对齐(调用方本地重写分支逻辑)仍有残余漂移:判定侧对每条 allowlist 条目做
+ *  safeRealPath 归一化、realpath 失败的条目跳过不放行,复刻的提示侧无差别列出——用户按提示把
+ *  文件放进该条目仍被拒。本函数与判定走相同归一化链:realpath 失败条目同样不列;空 allowlist 时
+ *  列 cwd fallback(同样归一化)。全部条目 realpath 失败时回列原始配置(此时问题在配置本身)。 */
+export function describeAllowedRoots(): string {
+  const allowed = getAllowedProjectPaths();
+  if (allowed.length === 0) {
+    return normalize(safeRealPath(resolvePath('.')));
+  }
+  const roots: string[] = [];
+  for (const p of allowed) {
+    try {
+      roots.push(normalize(safeRealPath(resolvePath(p))));
+    } catch {
+      // 与 isPathInAllowedRoots 同语义:realpath 失败条目判定侧不放行,提示侧同样不列。
+    }
+  }
+  return roots.length > 0 ? roots.join('; ') : allowed.join('; ');
+}
+
 /** Reset log state (test-only). */
 export function _resetPathAllowWarned(): void { _pathAllowLogged.clear(); }

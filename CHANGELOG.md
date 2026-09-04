@@ -12,6 +12,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Fix**: `process.stdin.on('end', () => gracefulShutdown('stdin-end'))`, added alongside the existing `SIGTERM`/`SIGINT` registration and routed into the same `gracefulShutdown` — inherits its existing QA-run cancel-and-await-settle (bounded at `min(60s, ttl)`), spawned-Godot-process kill, and state-flush behavior for free, no new shutdown path. `'end'` is a session-level signal: the stdio pipe stays open across arbitrarily long tool calls for as long as the client process is alive, so this cannot fire mid-call while a live client is still waiting on a response — only once the client is actually gone.
 - **Verification**: `test/stdin-close-shutdown.test.ts` spawns the real built binary and closes its stdin exactly like a dead client would (mocking `process.stdin` would not exercise real OS pipe EOF propagation, which is the thing that was actually broken), then asserts it exits within 5s. Confirmed hanging past that bound on the pre-fix code and exiting in ~20ms after; `npm run build`, `npm run lint`, `npm run check:test-quality` all clean; full `npm test` — same 30 pre-existing failures (missing local `GODOT_PATH`, environment-specific) on both the pre-fix baseline and this change, none newly introduced or fixed.
 
+### Fixed — 全面维度审查留档项全清偿:I-D/E/F 三 Important + 12 项 Minor(2026-09-03 审查第二批处置,docs/reviews/2026-09-03-full-dimension-review.md)
+
+- **I-D 三处白名单拒绝收口 PathError**:`assertSourceAllowed`/`assertProjectAllowed`(overrides.ts)与 `requireProjectPath`(helpers.ts)原抛原生 Error——install_override 链 catch 直拼外传**绝对路径**(违 P2-17)且无结构化 code;screenshot capture 越权走 requireProjectPath 落笼统 `Internal error`(同工具行为分裂:output_path 有指引而 project_path 没有)。修:三处收口 PathError(PATH_NOT_ALLOWED),消息对齐 throwPathNotAllowed 模式(basename+同源 roots+指引);game-bridge install/uninstall catch 识别 PathError 透传其 code。requireProjectPath 是全仓共享 helper,全部调用方错误形态同步升级。
+- **I-E roots 提示同源共享函数**:NIT-2 的复刻式对齐仍有残余漂移(realpath 失败的 allowlist 条目判定侧跳过、提示侧无差别列出)。修:path-utils 导出 `describeAllowedRoots()`(与 isPathInAllowedRoots 同一归一化链),screenshot 调用之;补红测 #3(allowlist 非空消息不含 cwd/空 allowlist 含 cwd,mutation 锚定)。
+- **I-F 三件真机 e2e 沉淀**(新文件 `test/scene-gd-operations-e2e.test.ts`,GODOT_PATH skipIf 模式):①batch 属性失败注入→exit 1+stderr per-node 清单+成功节点已落盘+重试防重复提示;②remove_node 子树落盘删除+uid 保留+root 拒绝 exit 1;③parent 剥离链(见 M-3)。另修正 scene-validation-concurrency 的 mock 通道漂移("Node not found" 放 stdout 掩盖 I-A 缺陷,改 stderr 并锚定拼接行为)。
+- **Minor-1 部分失败语义显式化**:batch/edit_node 部分失败时 stderr 注明「成功 N 个已落盘,重试前 query_scene_tree 防重复」(add_node 无同级重名检测是已知 OPEN 缺陷,误重试会重复建节点)。
+- **Minor-6(M-3) parent 规范化统一**:新增 `_resolve_parent_node`(add_node/batch 共用)——补剥 `/root/` 前缀与场景根名前缀+剥后根名再判定,对齐 edit_node/remove_node;同一输入 `/root/Foo`、`Main/Child` 四操作行为一致(原 fallback 路径 not found)。真机 e2e 锚定。
+- **Minor-7 死 op 退出码收口**:export_mesh_library(save 失败/无有效 mesh)与 resave_resources(error_count>0)补 `_exit_with(1)`(原仅 log 落 exit 0 假成功);batch/edit_node 的 save/pack 失败分支手写 `free()+_exit_with` 统一为 `cleanup_and_quit`。
+- **Minor-2/L-1 installOverride TOCTOU 消除**:落盘改 `writeFileSync(已扫描的 srcContent 缓冲)`(替代 copyFileSync 重读盘)——扫描即落盘原子化,消除「扫描的内容≠落盘的内容」窗口。
+- **Minor-3 内容比对字节化**:`Buffer.equals` 替代 utf-8 解码字符串相等——GBK 等非 UTF-8 源两份字节不同解码出相同 U+FFFD 被误判一致的漂移漏检窗口消除(与拷贝字节语义对称)。
+- **Minor-13 类型与风格**:installOverrides 返回类型显式含 `updated?`;screenshot.ts 夹在函数间的 import 移顶部。
+- **L-2 take_screenshot 段检查 off-by-one**:`substr(8)`→`substr(7)`("user://" 是 7 字符,原首段永丢首字符;实测无逃逸路径,顺手修正)。
+- **L-3 node_name/parent_node_path 控制字符校验**:黑名单补 `\r\n\t`(GD Node.name 原样保留控制字符→stdout 展示层注入伪造 [ERROR]/成功行;判定层不受影响)+ parent_node_path 补控制字符拦截(单 add_node 与 batch 双侧)。
+- **M-2 TS blocked 警告死代码删除**:batch/edit_node 的 BLOCKED_PROPS 前置收集+成功路径警告分支不可达(blocked→GD `_is_safe_property` 拒→exit 1→error 路径先返回),删除并留注释;两清单(TS BLOCKED_PROPS/GD BLOCKED_PROPERTIES)不强行统一——GD 多拦 4 项属纵深防御,I-A 后 stderr 误拒详情已可见。
+- **M-2 timeline 深预检补 drag 键校验**:drag 事件键白名单+relative/speed 双形态校验——键名拼错(如 rel)原登记期不拒、注入期静默 fallback (0,0)→E2E 假绿,现 all-or-nothing 拒绝。
+- **Minor-10 send_drag 归一 fallback 显式警示**:relative/speed 形态非法时响应附 `warnings`(原静默归 (0,0),调用方无法区分「传 0」与「形态错归零」)。
+- **Minor-11 录制/回放 button_mask 对称**:GD 录制 mouse_move 补记 `button_mask`(按住拖动的按键态,旧回放器忽略未知字段向后兼容),recording.ts 回放透传——「按住左键拖动」录制回放不再丢按键态。
+- **规则沉淀**:engine-quirks 补「★ check:gdscript 编译层抓不到运行时类型错」条目(Variant 赋类型化变量编译过运行时崩;float(null)/float([1,2]) 实证崩;真机 e2e 模式指路)。
+- **验证**:check:gdscript errors=0;lint 0 警告;tsc 0 错;新 e2e 3 例+受影响定向 72 passed;全量见提交验证。**不处置**:Minor-12(safeMessage 携 allowlist——本地单用户设计取舍,多用户部署时回收)、F-1(flaky 治理——需立项复现矩阵,3 次全量 2 次失败且失败集各异)。
+
+### Fixed — 全面维度审查四项顺手清偿:add_node 属性静默假成功/stderr 丢失/send_drag 回显退化/元素级类型崩溃(2026-09-03 审查,docs/reviews/2026-09-03-full-dimension-review.md)
+
+- **C-1(Critical,pre-existing) add_node GD fallback 属性失败静默假成功**:`godot_operations.gd` 属性 coerce 失败曾仅 `log_error`(走 stderr)后继续 add_child+pack+save→"added successfully"+exit 0,错误行被 TS 成功路径(只取 stdout)整体丢弃;同一属性集走 batch=整节点失败 exit 1、走 add_node=假成功(同文件同模式,NIT-1 处置只补了 save/pack else 分支漏了「log_error 后继续」路径)。修:对齐 batch「任一属性失败→整节点失败」(`new_node.free()`+`cleanup_and_quit(1)`);TS 成功路径补拼 stderr。真机三态验证:坏属性(`position:[100]` 分量不足)exit 1+stderr "Failed to set property position" 可见+节点不落盘;合法属性(`[100,200]`)/无属性 exit 0+落盘。
+- **I-A batch/edit_node/remove_node 失败呈现丢 stderr**:三处 `errorResult` 只拼 stdout,而 GD `log_error` 全走 printerr→stderr——"Node not found"/per-node 失败清单用户不可见,上批「per-node 清单上报」在 headless 路径未真正到达用户(同文件 add_node/create_scene 均已拼,三处是遗漏非惯例;mock 测试曾把错误放 stdout 掩盖漂移)。修:三处补拼 `${result.stderr}`。
+- **I-B send_drag 响应 Vector2 未序列化**:relative/speed 裸 Vector2 经 `JSON.stringify` 退化为 `"(100.0, 50.0)"` 字符串(真机 4.7 实证),旧版 Array 输出 `[100,50]` 可结构化消费——上批 `_vec2_from_param` 归一引入的对外契约退化。修:走 `_jsonify` 输出 `{"x","y"}`(对齐 wait_for_property 先例)。
+- **I-C float()/int() 元素级类型守卫缺失**:真机实证 `float([1,2])`/`float({"x":1})`/`float(null)` 是运行时 SCRIPT ERROR(上轮审查 A6「float() 对 null 安全」结论作废)——`_vec2_from_param` 元素级无守卫,嵌套容器/null 仍触发上批要根治的 bridge 卡死形态(同步分发无异常隔离,Debugger Break 冻结)。修:新增 `_num()` 白名单守卫(仅 int/float/合法数字字符串放行,其余回 fallback,对齐 `_is_valid_touch_index`/`_compare_values` 先例),覆盖 `_vec2_from_param` 两分支/send_drag 与 send_mouse_move 的 x/y/button_mask;探针实证 null/嵌套容器安全回退不崩。
+- **验证**:`check:gdscript` errors=0;lint 0 警告;tsc(build) 0 错;定向 6 文件 104 passed;fixture/build 产物逐字节同步;真机三态+探针如上。5 维度审查(判定 SHIPPED WITH NITS)其余 Important(I-D 三处白名单拒绝收口/I-E describeAllowedRoots 同源共享/I-F GD 侧 e2e 沉淀)与 Minor 留档下批,见报告「处置建议」。
+
+### Fixed — headless 场景写工具退出码被 deferred quit 架空 + remove_node 从不落盘 + batch 静默失败(2026-09-02 反馈批,CardGame2 2026-08-27/08-30 反馈)
+
+- **退出码被架空(真机坐实的历史 bug)**:`godot_operations.gd` `_init` 尾部无参 `call_deferred("quit")` = quit(0),在所有 handler 内 `quit(1)` 之后执行并覆盖退出码——2026-08-07 审查 P1 修复(save/pack 失败必须 quit(1))与 batch「修真静默」机制**从未真正生效过**,两代修复均未真机验证最终 exit code。修:全部 `quit(N)` 收口 `_exit_with(N)`(模块级 `_requested_exit_code` 登记,Godot 4 无 exit code getter),尾部按登记值重放;连带收口 add_node/batch 的 save/pack 失败分支(此前只 log_error 落到 exit 0 假成功,审查 NIT-1)。真机三态验证:失败批 exit 1/成功批 exit 0/not-found exit 1。
+- **remove_node 迁持久化链**:原内联脚本只做 remove_child+queue_free **从无 pack+save**(add_node/edit_node/batch 均已迁 ops 持久化链,唯独 remove_node 遗漏)——success 假象不落盘,被删节点在后续写操作中"复活"与新节点双份并存;queue_free 在无帧循环的 --script 模式悬置 → RID leak exit 1。修:迁 `godot_operations.gd` 持久化链(含 uid 回填),TS case 改 spawnGodot+opsScript 模式(含 checkEditorSceneSave 守卫);node_path 补 scene_root.name 前缀剥离(对齐 add_node parent 特判,edit_node 同步对齐),root 删除显式拒绝。
+- **batch_add_nodes 静默失败三形态**:①属性 set 失败只 log 不计 failed_count,节点照常 add → "N/N added" 假成功;②node_name 缺失静默落 Godot 自动名 @Control@6;③per-node 错误仅 debug 级。修:任一属性失败 → 整节点失败(不 add_child+计数+free),node_name 守卫,per-node 失败清单 error 级上报。真机验证 unique_name_in_owner:true 落盘成功;@Control@6 自动名实为 remove_node 不落盘的下游症状(旧节点复活→同名 add_child 被引擎改名),随根因消除。
+- **验证**:真机 Godot 4.6.3 headless 十项(remove 落盘子树删除+scene uid 保留/退出码三态/unique_name_in_owner/root 拒绝/per-node 上报/缺名守卫);`check:gdscript` 0 错;全量 6155 passed;审查 SHIPPED WITH NITS 无 Blocking(docs/reviews/2026-09-02-feedback-batch.md)。
+
+### Fixed — bridge 反馈三项:send_drag 类型崩溃/take_screenshot path 误校验/install_override 不更新(2026-09-02 反馈批,CardGame2 2026-08-22 + fr2-standalone-game 2026-08-30 反馈)
+
+- **send_drag 类型崩溃卡死游戏**:relative/speed 声明 `Array` 类型化变量,MCP schema 是 object(Dictionary {x,y})——类型化赋值行直接 SCRIPT ERROR(守卫在赋值之后来不及生效)→ 游戏侧 Debugger Break 卡死 + bridge 后续请求全超时。修:`_vec2_from_param` 归一 Array `[x,y]` 与 Dictionary `{x,y}` 双形态(send_input_sequence timeline 同链受益);send_mouse_move 补可选 `button_mask`(1=left/2=right/4=middle,配合先 press 模拟按住拖动)。
+- **take_screenshot 的 path 被误校验为节点路径**:mcp 层要 /root/ 前缀、bridge 层要 user:// 前缀,两层校验互相矛盾任意取值必失败。修:`validateBridgePath` 加可选 method 参数(take_screenshot 的 path=文件路径语义豁免,node_path 键仍校验),game_query/write/input、bridgeAction、qa runner input/wait 调用点传 method,可选参向后兼容。
+- **install_override 幂等跳过从不比对内容**:修改源脚本后重复 install 返回成功但目标文件仍旧版。修:内容一致才跳过;漂移则重拷贝(autoload 注册不动)返回 `updated:true`;沙箱扫描上移到幂等检查前(重装=新内容=新威胁面须重扫,含负向测试)。
+- **验证**:game-bridge-validation +3/overrides +2 定向全绿;schema 描述同步 capability-matrix(game schema +146B)。
+
+### Fixed — screenshot 白名单外路径报笼统 Internal error(2026-09-02 反馈批,CardGame2 2026-08-19 反馈)
+
+- **根因**:6 处白名单校验 throw 原生 Error → `classifyError` 兜底成固定 `Internal error`(INTERNAL,PII 防护设计绝不读 err.message),白名单提示被顺带吞掉,误导排查方向(反馈实测绕过成本 >10min)。
+- **修复**:收口 `throwPathNotAllowed` → `PathError`(结构化 PATH_NOT_ALLOWED,safeMessage 外传),消息含允许根列表(与 isPathInAllowedRoots 判定同源生成——空 allowlist 才列 cwd,审查 NIT-2)与修复指引;回显 basename 对齐 P2-17;thumbnail 仅 PNG 的报错补指引(改传 PNG 或 detail=full,零依赖取舍非 bug)。
+
 ### Fixed — instance_registry.gd chmod 调不存在的 DirAccess.set_unix_permissions,非 Windows 平台 editor 实例注册中断(issue #65)
 
 - **根因(本地 4.6.3 ClassDB + 运行时双实证)**:`set_unix_permissions` 是 `FileAccess` 的静态方法(method flags 含 static 位,签名 `(file: String, permissions: int) -> Error`),`DirAccess` 从无此方法(`ClassDB.class_has_method("DirAccess", "set_unix_permissions", true)` = false)。原代码在 `DirAccess.open()` 实例上调用它,macOS/Linux 走到该行即 `Invalid call. Nonexistent function 'set_unix_permissions' in base 'DirAccess'` 运行时错误并中止 `_write_instance_json()` → `_write_json_atomic` 永不执行 → `~/.godot-mcp/instances/` 目录建了却永远空着,`godot_list_instances` 发现不了 editor 实例,0700 权限收紧本身也从未生效。Windows 走 icacls 分支故开发期从未触发;`check:gdscript`(Godot `load()` 编译验证)只拦编译期错误,对该运行时错误天然不设防。

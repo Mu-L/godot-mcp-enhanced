@@ -8,10 +8,11 @@
 // - MCP 工具 action(主入口):game_bridge 工具加 install_override/uninstall_override,agent 显式调用
 // - CLI flag(便捷):--overrides=<path> 指定默认 overrides,在 run_project 时自动注入
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, renameSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
 import { join, basename, extname } from 'path';
-import { isPathInAllowedRoots } from './path-utils.js';
+import { isPathInAllowedRoots, describeAllowedRoots } from './path-utils.js';
 import { getLogger } from './logger.js';
+import { PathError } from './tool-errors.js';
 import { scanGdscriptSandbox } from '../gdscript-executor.js';
 
 /** overrides 注入的 autoload key 前缀(卸载时按前缀批量清理)。
@@ -38,10 +39,12 @@ export interface OverrideEntry {
  */
 function assertSourceAllowed(sourceScriptPath: string): void {
   if (!isPathInAllowedRoots(sourceScriptPath)) {
-    throw new Error(
-      `Override source script not in allowed roots: ${sourceScriptPath}. ` +
-      `Set ALLOWED_PROJECT_PATHS to include the script location, or run with GODOT_MCP_UNRESTRICTED=true.`,
-    );
+    // 审查 I-D(2026-09-03): 收口 PathError——原生 Error 在 install_override 的 catch
+    // (game-bridge.ts getErrorMessage)直拼外传绝对路径(违 P2-17)且无结构化 code。
+    throw new PathError(
+      `Override source script is outside allowed project roots: ${basename(sourceScriptPath)}. ` +
+      `Allowed roots: ${describeAllowedRoots()}. ` +
+      'Fix: move the script under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
   }
 }
 
@@ -51,10 +54,10 @@ function assertSourceAllowed(sourceScriptPath: string): void {
  */
 function assertProjectAllowed(projectRoot: string): void {
   if (!isPathInAllowedRoots(projectRoot)) {
-    throw new Error(
-      `Target project not in allowed roots: ${projectRoot}. ` +
-      `Set ALLOWED_PROJECT_PATHS to include the project, or run with GODOT_MCP_UNRESTRICTED=true.`,
-    );
+    throw new PathError(
+      `Target project is outside allowed project roots: ${basename(projectRoot)}. ` +
+      `Allowed roots: ${describeAllowedRoots()}. ` +
+      'Fix: move the project under an allowed root, or extend ALLOWED_PROJECT_PATHS (semicolon-separated).');
   }
 }
 
@@ -79,10 +82,11 @@ export function deriveOverrideEntry(sourceScriptPath: string, projectRoot: strin
  *
  * @param sourceScriptPath 源脚本绝对路径(必须在白名单内)
  * @param projectRoot 目标项目根目录(必须含 project.godot 且在白名单内)
- * @returns OverrideEntry(含写入的 key/路径);若已安装(幂等)返回 null
- * @throws 路径越权 / project.godot 缺失 / 脚本拷贝失败
+ * @returns OverrideEntry(含写入的 key/路径;内容更新路径带 updated:true);
+ *          完全幂等(已注册且内容一致)返回 null
+ * @throws 路径越权 / project.godot 缺失 / 沙箱扫描失败 / 脚本拷贝失败
  */
-export function installOverride(sourceScriptPath: string, projectRoot: string): OverrideEntry | null {
+export function installOverride(sourceScriptPath: string, projectRoot: string): (OverrideEntry & { updated?: boolean }) | null {
   assertSourceAllowed(sourceScriptPath);
   assertProjectAllowed(projectRoot);
 
@@ -96,32 +100,22 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
 
   const entry = deriveOverrideEntry(sourceScriptPath, projectRoot);
 
-  // 幂等:新键已注册则跳过(G-5: 行首精确匹配,防短前缀误命中)。
-  // G-5 迁移:仅旧带前缀键存在 → 删旧行(下方插入逻辑写新行,旧项目自愈,
-  // 旧键在 Godot 侧截断为 "autoload" 节点与 MCPBridge 键冲突 → override 未加载)。
-  let config = readFileSync(configPath, 'utf-8');
-  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // autoload/MCPOVERRIDE_<stem>
-  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
-  if (hasNewKey) {
-    getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
-    return null;
-  }
-  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
-  if (hasLegacyKey) {
-    config = config.split('\n').filter(line => !line.startsWith(legacyKey + '=')).join('\n');
-    getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
-  }
-
   // 2026-08-06 审查 P1 修复：autoload 脚本 _ready 在游戏启动时执行 = 任意代码执行面，
   // 与 execute_gdscript 同威胁面，须对称走沙箱扫描（gdscript-executor.ts:1013 强制扫描）。
   // 双 opt-in 旁路对齐 execute_gdscript（gdscript-executor.ts:1017-1018）：
   // UNRESTRICTED && (DISABLE_SAFETY || ALLOW_UNSAFE)——单 env 不够，防误设。
+  // 扫描置于幂等检查之前：重复 install 走内容更新路径时同样重扫（新内容 = 新威胁面）。
   const bypassSandbox = process.env.GODOT_MCP_UNRESTRICTED === 'true'
     && (process.env.GODOT_MCP_DISABLE_SAFETY === 'true'
       || process.env.GODOT_MCP_ALLOW_UNSAFE === 'true');
+  // Buffer 单读三用(审查 NIT-4 双读复用 + Minor-3 字节比对 + L-1 落盘同缓冲):
+  // (a) 沙箱扫描 toString('utf-8');(b) 漂移比对 Buffer.equals——原 utf-8 解码字符串相等对
+  // GBK 等非 UTF-8 源可能两份字节不同解码出相同 U+FFFD 被误判一致→漂移静默漏检(Minor-3),
+  // 与拷贝的字节语义不对称;(c) 落盘 writeFileSync(srcContent) 而非 copyFileSync 重读盘——
+  // 消除「扫描的内容 ≠ 落盘的内容」TOCTOU 窗口,扫描即落盘原子化(L-1)。
+  const srcContent = readFileSync(sourceScriptPath);
   if (!bypassSandbox) {
-    const overrideContent = readFileSync(sourceScriptPath, 'utf-8');
-    const sandboxWarnings = scanGdscriptSandbox(overrideContent);
+    const sandboxWarnings = scanGdscriptSandbox(srcContent.toString('utf-8'));
     if (sandboxWarnings.length > 0) {
       throw new Error(
         `Override script failed sandbox scan: ${sourceScriptPath}\n` +
@@ -131,8 +125,35 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
     }
   }
 
-  // 拷贝脚本到项目根(参考 game-bridge.ts:556 copyFileSync)
-  copyFileSync(sourceScriptPath, entry.destScriptPath);
+  // 幂等:新键已注册则跳过 autoload 改写(G-5: 行首精确匹配,防短前缀误命中)。
+  // G-5 迁移:仅旧带前缀键存在 → 删旧行(下方插入逻辑写新行,旧项目自愈,
+  // 旧键在 Godot 侧截断为 "autoload" 节点与 MCPBridge 键冲突 → override 未加载)。
+  let config = readFileSync(configPath, 'utf-8');
+  const legacyKey = LEGACY_KEY_PREFIX + entry.autoloadKey;  // autoload/MCPOVERRIDE_<stem>
+  const hasNewKey = new RegExp(`^${entry.autoloadKey}\\s*=`, 'm').test(config);
+  if (hasNewKey) {
+    // 反馈 2026-08-30 (fr2-standalone-game): 幂等跳过曾从不比对内容——修改源脚本后重复
+    // install 返回成功但目标文件仍是旧版,「改动不生效」极易误判为脚本本身问题(排障>5min)。
+    // 修:内容一致才跳过;漂移则重拷贝(autoload 已注册不动),返回带 updated 标记。
+    const destContent = existsSync(entry.destScriptPath)
+      ? readFileSync(entry.destScriptPath)
+      : null;
+    if (destContent !== null && destContent.equals(srcContent)) {
+      getLogger().info('overrides', `Override already registered, skipping: ${entry.autoloadKey}`);
+      return null;
+    }
+    writeFileSync(entry.destScriptPath, srcContent);  // L-1: 落盘已扫描的缓冲
+    getLogger().info('overrides', `Override already registered, dest script updated (content drift): ${entry.autoloadKey}`);
+    return { ...entry, updated: true };
+  }
+  const hasLegacyKey = new RegExp(`^${legacyKey}\\s*=`, 'm').test(config);
+  if (hasLegacyKey) {
+    config = config.split('\n').filter(line => !line.startsWith(legacyKey + '=')).join('\n');
+    getLogger().info('overrides', `Migrating legacy prefixed override key to unprefixed: ${entry.autoloadKey}`);
+  }
+
+  // 落盘脚本到项目根(L-1: writeFileSync 用已扫描缓冲,替代 copyFileSync 重读盘)
+  writeFileSync(entry.destScriptPath, srcContent);
 
   // project.godot 改写:find/insert [autoload] 段(参考 game-bridge.ts:568-574)
   const autoloadEntry = `${entry.autoloadKey}="*res://${entry.destScriptName}"`;
@@ -269,8 +290,12 @@ function unlinkSyncQuiet(p: string): void {
  * @param sourcePaths 源脚本绝对路径数组
  * @param projectRoot 目标项目根
  * @returns 安装的 OverrideEntry 数组(已注册的跳过,不在结果里)
+ * @note 预校验只覆盖越权+存在性(快速失败);单条沙箱扫描/project.godot 改写失败时
+ *       已装条目不回滚(非全装或全不装,审查 NIT-6 措辞订正)——单条失败抛错由调用方处置。
  */
-export function installOverrides(sourcePaths: string[], projectRoot: string): OverrideEntry[] {
+// 审查 Minor-13: 返回类型显式含 updated——installOverride 单条可返回 { updated: true }(内容漂移重拷贝),
+// 原 OverrideEntry[] 类型擦除该标记,CLI 消费方无法从类型上区分「新装」与「漂移更新」(运行时字段仍在)。
+export function installOverrides(sourcePaths: string[], projectRoot: string): (OverrideEntry & { updated?: boolean })[] {
   // 预校验全部源路径(atomic: 任一失败则整体不装,避免半装状态)
   for (const p of sourcePaths) {
     assertSourceAllowed(p);
@@ -280,7 +305,7 @@ export function installOverrides(sourcePaths: string[], projectRoot: string): Ov
   }
   assertProjectAllowed(projectRoot);
 
-  const installed: OverrideEntry[] = [];
+  const installed: (OverrideEntry & { updated?: boolean })[] = [];
   for (const p of sourcePaths) {
     const entry = installOverride(p, projectRoot);
     if (entry) installed.push(entry);

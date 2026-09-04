@@ -362,6 +362,9 @@ export async function handleTool(
               await sendToBridge('send_mouse_move', {
                 x: Number(posArr[0] ?? 0),
                 y: Number(posArr[1] ?? 0),
+                // 审查 Minor-11: 回放透传 button_mask(录制侧已补记)——「按住拖动」的 motion
+                // 保留按键态;旧录制无此字段回退 0(不带按键),与旧行为一致。
+                button_mask: Number((evt as Record<string, unknown>).button_mask ?? 0),
               }, 3000);
               played++;
             } else if (evtType === 'touch') {

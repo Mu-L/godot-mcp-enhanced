@@ -405,7 +405,7 @@ function jsonEqual(a: unknown, b: unknown): boolean {
 async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: number, projectPath: string, runState: RunState): Promise<StepOutcome> {
   switch (step.type) {
     case 'input': {
-      const pathErr = validateBridgePath(step.params);
+      const pathErr = validateBridgePath(step.params, step.method);
       if (pathErr) return err(pathErr);
       // H1 审查 N-4 收敛:send_input_sequence 超时经 computePlaytestTimeoutMs 统一放宽
       // (wall+10s;与 game-bridge 同一纯函数,不再内联公式)
@@ -428,7 +428,7 @@ async function execStep(step: QaStep, o: ResolvedOptions, runId: string, index: 
       return { status: 'PASSED', detail: `${step.method} ok (${condense(resp.result)})` };
     }
     case 'wait': {
-      const pathErr = validateBridgePath(step.params) ?? validateWaitPropertyParams(step.method, step.params);
+      const pathErr = validateBridgePath(step.params, step.method) ?? validateWaitPropertyParams(step.method, step.params);
       if (pathErr) return err(pathErr);
       const totalMs = step.timeout_ms ?? o.wait_timeout_ms;
       const r = await pollWaitCondition(

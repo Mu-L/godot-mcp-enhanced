@@ -24,9 +24,9 @@ describe('A5 契约: _save_atomic preserve_uids_from(源码断言)', () => {
     expect(body.indexOf('ResourceSaver.save')).toBeLessThan(body.indexOf('_restore_uids_in_file(tmp, uids)'));
   });
 
-  it('场景写盘 5 调用点传原路径(save_scene/add_node/edit_node/batch/load_sprite)', () => {
+  it('场景写盘 6 调用点传原路径(save_scene/add_node/edit_node/remove_node/batch/load_sprite)', () => {
     expect(gd.match(/_save_atomic\(packed_scene, absolute_scene_path, absolute_scene_path\)/g)?.length)
-      .toBe(3);  // add_node/edit_node/batch
+      .toBe(4);  // add_node/edit_node/remove_node/batch(remove_node 2026-08-27 反馈迁持久化链)
     expect(gd).toContain('_save_atomic(packed_scene, full_scene_path, full_scene_path)');  // load_sprite
     expect(gd).toContain('_save_atomic(packed_scene, save_path, full_scene_path)');        // save_scene(new_path 时 uid 仍取原文件)
   });
