@@ -46,7 +46,8 @@ import { getLogger, withRequestLogLevelAsync, withRequestLogFn, type LogLevel } 
 import { resolveProjectPath } from './path-utils.js';
 import { record as recordTelemetry, hashProject, isTelemetryEnabled } from '../telemetry/index.js';
 import type { AgentContextManager } from './agent-context.js';
-import { createProgressEmitter, type ProgressEmitter, type ProgressToken } from './progress.js';
+import { createProgressEmitter, withToolHeartbeat, type ProgressEmitter, type ProgressToken } from './progress.js';
+import { markInflight, clearInflight } from './inflight.js';
 
 /** Known profile names for IDE autocomplete. Unknown strings fall through to resolveProfile(). */
 type KnownProfile = 'full' | 'basic' | 'lite' | 'minimal' | 'bridge_dev' | '3d_dev';
@@ -258,7 +259,17 @@ export class ToolDispatcher {
     return withRequestLogFn(requestLogFn ?? null, () =>
       withRequestLogLevelAsync(requestLogLevel, () =>
         executeMiddleware(this.middleware, ctx, async () => {
-          return this.executeToolCall(name, args, startTime, ctx.traceId, progressEmitter, srvCtx, clientTasksCapable);
+          // 心跳保活(2026-09-11 P1 批):长工具每 20s 发 progress 心跳防客户端 idle 杀;
+          // 无 progressToken 时 no-op。详见 progress.ts withToolHeartbeat。
+          // P4-3 (2026-09-11): in-flight 登记——进程被杀后下个 server 启动时 stderr 报丧
+          // (BuildersGate 取消经济学:把"静默损失"变成可诊断事件)。见 core/inflight.ts。
+          markInflight(name);
+          try {
+            return await withToolHeartbeat(progressEmitter, name, () =>
+              this.executeToolCall(name, args, startTime, ctx.traceId, progressEmitter, srvCtx, clientTasksCapable));
+          } finally {
+            clearInflight(name);
+          }
         }),
       ),
     );

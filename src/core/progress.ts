@@ -51,3 +51,36 @@ export function resetProgressSender(): void {
   _progressSender = null;
   _progressClientReady = false;
 }
+
+/**
+ * 心跳保活(2026-09-11 P1 批,来源 BuildersGate server.py:789-844 的取消经济学):
+ * MCP 客户端对"无响应无进度"的调用按 idle 上限(常见 1800s)杀,但 server 侧线程照样
+ * 跑完——钱照扣、文件照写、结果没处送("白花钱的取消")。心跳不是让慢工具变快,是让
+ * 慢工具别变成静默损失:每 20s 发一次 progress notification 证明请求活着。
+ * 首个 tick 在 20s 时——20s 内完成的工具零消息、零开销。
+ * 无 progressToken(客户端未带 _meta.progressToken)时不发:progress 必须按 token
+ * 路由到特定请求,无 token 无法投递(协议约束,非实现选择)。
+ * message 明示 heartbeat 语义,防客户端误读为业务进度。
+ */
+export async function withToolHeartbeat<T>(
+  emitter: ((progress: number, total: number, message?: string) => void) | undefined,
+  toolName: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!emitter) return fn();
+  const startedAt = Date.now();
+  const timer = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+    emitter(elapsedSec, 0, `${toolName}: still working (${elapsedSec}s) — heartbeat, not progress`);
+  }, 20_000);
+  // N-6(审查):unref 防"长工具永不 settle + server close"时 interval 吊住 event loop
+  // (vitest fake timers 无 unref,防御式探测)
+  if (typeof (timer as unknown as { unref?: () => void }).unref === 'function') {
+    (timer as unknown as { unref: () => void }).unref();
+  }
+  try {
+    return await fn();
+  } finally {
+    clearInterval(timer);
+  }
+}

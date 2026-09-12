@@ -16,13 +16,14 @@
  */
 
 import { spawn } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { writeFile, mkdir, rm, readdir, lstat, mkdtemp } from 'fs/promises';
 import { join, basename, resolve } from 'path';
 import { tmpdir, userInfo } from 'os';
 import { randomUUID, createHash } from 'crypto';
 import { analyzeOutput, type ParsedError } from './error-analyzer.js';
 import { forceKillTree, getProjectDir, getRunningProcess, acquireShortRunningSlot, releaseShortRunningSlot, registerSpawnedGodotPid, unregisterSpawnedGodotPid } from './core/process-state.js';
+import { tokenize, classifyFirstArgument } from './core/gdscript-scanner.js';
 import { buildSafeEnv } from './helpers.js';
 import { MARKER_RESULT as MARKER_RESULT_SHARED, MARKER_ERROR as MARKER_ERROR_SHARED, GD_MCP_GET_ROOT, GD_MCP_GET_NODE, GD_MCP_LOAD_MAIN_SCENE, GD_MCP_OUTPUT } from './tools/shared.js';
 import { normalizeIndentToTabs as _sharedNormalizeIndent } from './tools/shared/value-serializer.js';
@@ -170,6 +171,53 @@ export function parseAutoloadNames(projectPath: string): string[] {
     return names;
   } catch {
     return [];
+  }
+}
+
+/**
+ * P2-4(审查 I-2 修正): orphan 行判定——键形态按写入方常量。新键 MCPBridge=(AUTOLOAD_KEY,
+ * bridge-client.ts/game-bridge.ts 写入);旧键 autoload/MCPBridge=(≤0.23.x 误写,
+ * AUTOLOAD_KEY_LEGACY)。且行值须指向 res://mcp_bridge.gd 才删——防误删用户自定义
+ * 同名 autoload(指向其他脚本)。原版注释把新旧键说反且漏 legacy 形态。
+ */
+function isOrphanBridgeLine(l: string): boolean {
+  const t = l.trimStart();
+  const isKey = t.startsWith('MCPBridge=') || t.startsWith('autoload/MCPBridge=');
+  return isKey && l.includes('res://mcp_bridge.gd');
+}
+
+/**
+ * 纯函数:project.godot 内容含 orphan bridge autoload 行时返回移除后的新内容,否则 null。
+ * (逻辑/IO 分离:纯字符串可稳定单测。注意键大小写——真实键为 MCPBridge(大写,
+ * bridge-client.ts AUTOLOAD_KEY),首版实现与测试双双手误小写 McpBridge,错打正着
+ * 掩盖至审查 I-2 修正;键名常量必须 grep 写入方核对,不能信记忆/注释。)
+ */
+export function removeOrphanBridgeLines(content: string): string | null {
+  const lines = content.split('\n');
+  if (!lines.some(isOrphanBridgeLine)) return null;
+  return lines.filter(l => !isOrphanBridgeLine(l)).join('\n');
+}
+
+/**
+ * P2-4 (2026-09-11): orphan autoload 修复——project.godot 残留 McpBridge autoload 条目但
+ * 脚本本体已删(手删/卸载残留)时,每次 headless 操作都会因 autoload 加载失败而崩
+ * (来源 Erodenn bridge-manager.ts repairOrphaned 的前置自愈)。IO 壳:读→纯函数判定→原子写。
+ * 返回 true = 本次修复了(调用方 warn 留痕)。幂等:无 orphan 返回 false 零写入。
+ * 行为断言走纯函数 removeOrphanBridgeLines(本壳 IO 含 tmpdir 写盘,冒烟级覆盖)。
+ */
+export function repairOrphanedBridgeAutoload(projectPath: string): boolean {
+  try {
+    const configPath = join(projectPath, 'project.godot');
+    const scriptPath = join(projectPath, 'mcp_bridge.gd');
+    if (!existsSync(configPath) || existsSync(scriptPath)) return false;
+    const next = removeOrphanBridgeLines(readFileSync(configPath, 'utf-8'));
+    if (next === null) return false;
+    const tmpPath = configPath + '.mcp-tmp';
+    writeFileSync(tmpPath, next, 'utf-8');
+    renameSync(tmpPath, configPath);
+    return true;
+  } catch {
+    return false;  // best-effort:修复失败不阻塞执行(错误由后续 spawn 自然暴露)
   }
 }
 
@@ -418,7 +466,7 @@ export function loadExtraDangerousPatterns(): Array<{ pattern: RegExp; label: st
   return patterns;
 }
 
-export function scanGdscriptSandbox(code: string): string[] {
+export function scanGdscriptSandbox(code: string, opts?: { skipPhase3?: boolean }): string[] {
   // P0-1 (2026-07-06 RCE 审查): 双开关 — SANDBOX=disabled 需同时设 GODOT_MCP_UNRESTRICTED=true 才生效,
   // 防 CI/Docker/.envrc 误设单 env 关闭整个沙箱。UNRESTRICTED 是项目级“开发者自担风险”总开关。
   if (process.env.GODOT_MCP_SANDBOX === 'disabled') {
@@ -460,6 +508,37 @@ export function scanGdscriptSandbox(code: string): string[] {
   //    它自己提取字符串字面量内容做拼接重构;喂骨架会让所有拼接绕过检测失效。
   const concatWarnings = detectStringConcatBypass(code);
   warnings.push(...concatWarnings);
+
+  // Phase 3 (P6 2026-09-11, Erodenn tokenizer 移植): 非字面量 load/preload/ResourceLoader.load。
+  // ⚠️ 时序契约(审查 N-4): 本扫描必须发生在 wrapSnippet 注入模板头(内含 load(_sp))**之前**——
+  // 扫的是 options.code 原文;若未来把 wrap 提到 scan 前,execute_gdscript 将因模板头的 load(_sp)
+  // 全量误拦(P6 B-1 同根源陷阱)。
+  // 正则只拦字面量非 res://(load("C:/x"));变量/表达式形式(load(p)/load("res://" + evil))
+  // 正则不可见(纯变量零特征,拼接形式 Phase 2 只抓黑名单 token)。
+  // classifyFirstArgument 括号深度感知判 nonliteral("res://" + x 不被前导字面量骗过)。
+  // 取舍对齐 Erodenn Tier 1(动态资源路径=任意加载面,静态不可判指向);override 走既有
+  // double opt-in(UNRESTRICTED + DISABLE_SAFETY/SANDBOX=disabled)。
+  if (opts?.skipPhase3 === true) {
+    return warnings;  // runtime 通道(executeGdscriptRuntime):模板代码的动态 load 是服务端固定行为
+  }
+  const tokens = tokenize(code);
+  for (let ti = 0; ti < tokens.length; ti++) {
+    const tok = tokens[ti]!;
+    if (tok.kind !== 'identifier' && tok.kind !== 'memberChain') continue;
+    const isBareLoad = tok.kind === 'identifier' && (tok.text === 'load' || tok.text === 'preload');
+    const isRLoad = tok.kind === 'memberChain'
+      && tok.chain !== undefined && tok.chain.length === 2
+      && tok.chain[0] === 'ResourceLoader' && tok.chain[1] === 'load';
+    if (!isBareLoad && !isRLoad) continue;
+    // 找紧随的调用括号(容忍换行)
+    let tj = ti + 1;
+    while (tj < tokens.length && tokens[tj]!.kind === 'newline') tj++;
+    if (tj >= tokens.length || tokens[tj]!.kind !== 'punct' || tokens[tj]!.text !== '(') continue;
+    if (classifyFirstArgument(tokens, tj) === 'nonliteral') {
+      const name = isBareLoad ? tok.text : 'ResourceLoader.load';
+      warnings.push(`[SANDBOX] Potential dangerous operation detected: ${name}() with non-literal path (dynamic resource load, tokenizer deep analysis)`);
+    }
+  }
 
   return warnings;
 }
@@ -540,6 +619,20 @@ const _trustedSymbol = Symbol('trusted');
 /** Execute GDScript with sandbox scanning disabled. Only for internal trusted code paths. */
 export function executeGdscriptTrusted(options: Omit<ExecuteGdscriptOptions, '_skipSandbox'>): Promise<ExecuteGdscriptResult> {
   (options as unknown as Record<symbol, boolean>)[_trustedSymbol] = true;
+  return executeGdscript(options as ExecuteGdscriptOptions);
+}
+
+/**
+ * P6 (2026-09-11): runtime 工具族通道——只跳 Phase 3(tokenizer 非字面量 load 拦截),
+ * **保留 Phase 1(危险 API 正则)/Phase 2(拼接绕过)全部防线**(与全豁免的 Trusted 区分)。
+ * 语义:调用方(animation/signal/physics 等)的 code 是服务端固定模板 + 转义插值参数,
+ * 模板自身的动态 load(主场景路径来自 ProjectSettings)是合法服务端行为;AI 若经插值
+ * 逃逸注入任意代码,Phase 1/2 正则(OS.execute/ClassDB/网络类等)仍拦。opaque symbol
+ * 防外部(AI 经 execute_gdscript 工具)伪造此标记。
+ */
+const _p3SkipSymbol = Symbol('p3-skip');
+export function executeGdscriptRuntime(options: Omit<ExecuteGdscriptOptions, '_skipSandbox'>): Promise<ExecuteGdscriptResult> {
+  (options as unknown as Record<symbol, boolean>)[_p3SkipSymbol] = true;
   return executeGdscript(options as ExecuteGdscriptOptions);
 }
 /** Re-export markers from shared.ts for consumers that import from this module */
@@ -1024,6 +1117,11 @@ export async function executeGdscript(
   }
   const startTime = Date.now();
 
+  // P2-4: orphan bridge autoload 前置自愈——残留条目+脚本已删会让每次 headless 操作崩
+  if (repairOrphanedBridgeAutoload(projectPath)) {
+    getLogger().warn('gdscript', `Repaired orphaned McpBridge autoload entry in ${projectPath} (script missing) — removed the dangling entry.`);
+  }
+
   // Warn if same project is being used by a running game process
   const activeProjectDir = getProjectDir();
   if (activeProjectDir && getRunningProcess() && resolve(projectPath) === resolve(activeProjectDir)) {
@@ -1049,7 +1147,8 @@ export async function executeGdscript(
 
   // C-SEC-02: Sandbox scan — BLOCKS execution on dangerous patterns by default
   const skipSandbox = (options as unknown as Record<symbol, boolean>)[_trustedSymbol] === true;
-  const sandboxWarnings = skipSandbox ? [] : scanGdscriptSandbox(code);
+  const p3Skip = (options as unknown as Record<symbol, boolean>)[_p3SkipSymbol] === true;
+  const sandboxWarnings = skipSandbox ? [] : scanGdscriptSandbox(code, { skipPhase3: p3Skip });
   // C-02: Support both new GODOT_MCP_DISABLE_SAFETY and legacy GODOT_MCP_ALLOW_UNSAFE
   // P0-1 (2026-07-06 RCE 审查): 双开关 — 上述 flag 需同时设 GODOT_MCP_UNRESTRICTED=true 才生效,
   // 防误设单 env 绕过沙箱报警。kill switch (ALLOW_EXECUTE_GDSCRIPT=false, 上方) 优先于此。

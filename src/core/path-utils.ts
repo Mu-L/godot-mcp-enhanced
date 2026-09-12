@@ -174,6 +174,14 @@ export function resolveWithinRoot(root: string, userPath: string): string {
   }
 
   const normalizedPath = decoded.replace(/\\/g, '/');
+  // P2-6 (2026-09-11,审查修正): drive-relative("C:foo",盘符后无路径分隔符)——path.resolve
+  // 会丢弃 base 解析到盘符 cwd;目标不存在时 safeRealPath 回落 base,造成"静默指向项目根"
+  // 的语义歧义(BuildersGate padserver 实测形态),显式拒。**带根的 "C:/x" 不在此拒**——
+  // 项目内绝对路径是 read_scene 等的合法用法(e2e 实用),由后续 resolve+relative 链放行
+  // (项目内)或拒(项目外)。首版 /^[A-Za-z]:/ 误伤项目内绝对路径,e2e read_scene 全红。
+  if (/^[A-Za-z]:(?:$|[^/])/.test(normalizedPath)) {
+    throw new PathError('Path traversal detected');
+  }
   // F-4: 段级精确匹配,避免误拒含 ".." 的合法文件名(my..file.txt、..hidden、foo/..bar)
   // 子串匹配会 over-block;第180行 realpath+relative 兜底仍保留作纵深防御
   const segments = normalizedPath.split('/');

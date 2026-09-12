@@ -49,6 +49,16 @@ var _debug_in_flight := false
 var _debug_in_flight_since := 0
 # I-5: peer 进入 STATE_CONNECTING 的起始时刻(peer instance id → msec),握手完成/移除时清。
 var _connecting_since: Dictionary = {}
+# P4-2 (2026-09-11) 失焦降速对抗(beckett 轻量版):编辑器失焦时 Godot 主循环 sleep 提到
+# unfocused_low_processor_mode_sleep_usec(默认 ~100ms ≈ 10fps),_process 轮询跟着掉速——
+# 而编辑器失焦恰是 MCP 会话常态(人在聊天窗口)。有 MCP 流量时 clamp 进程级
+# OS.low_processor_usage_mode_sleep_usec 到 60fps,空闲 10s 后恢复原值(进程级运行时变量,
+# 无持久化零恢复负担)。诚实边界:效果依赖 OS.low_processor_usage_mode 开启(编辑器默认开);
+# 不碰 EditorSettings 的 unfocused_* 机器级配置(NPGameDev 全量版才走,需备份+自愈全套)。
+const FOCUS_BOOST_SLEEP_USEC := 16666  # 60fps
+const FOCUS_IDLE_TIMEOUT_MS := 10000
+var _focus_boost_until_ms := 0
+var _focus_saved_sleep_usec := -1  # -1 = 未在 boost 期(原值未存)
 
 func setup(plugin: EditorPlugin) -> void:
 	_plugin = plugin
@@ -286,6 +296,7 @@ func _port_in_use(port: int) -> bool:
 func _process(delta: float) -> void:
 	# P1-5 fix: _exit_tree 后残留 deferred _process 调用时 _server 可能已 stop/free, is_instance_valid 守卫防误用
 	if not _server or not is_instance_valid(_server): return
+	_update_focus_boost()
 
 	if _server.is_connection_available():
 		var tcp_peer = _server.take_connection()
@@ -303,6 +314,7 @@ func _process(delta: float) -> void:
 		_peers.append(ws_peer)
 		# I-5: 记录握手起始时刻(CONNECTING 超时判定的基准)
 		_connecting_since[ws_peer.get_instance_id()] = Time.get_ticks_msec()
+		_mark_focus_traffic()  # P4-2: 新连接即流量
 		print("[MCP] Client connected (total: %d)" % _peers.size())
 		_update_panel("MCP: %d client(s) connected" % _peers.size())
 
@@ -346,6 +358,7 @@ func _process(delta: float) -> void:
 		print("[MCP] Client disconnected")
 
 func _handle_message(text: String, peer: WebSocketPeer) -> void:
+	_mark_focus_traffic()  # P4-2: 入站消息即流量(出站响应必随入站请求,RPC 模式流量对齐)
 	var pid: int = peer.get_instance_id()
 
 	var parsed = JSON.parse_string(text)
@@ -601,8 +614,36 @@ func _constant_time_compare(a: String, b: String) -> bool:
 		result = result | (ord(a[i]) ^ ord(b[i]))
 	return result == 0
 
+# P4-2 (2026-09-11) 失焦降速对抗——流量驱动 clamp(见 _focus_boost_until_ms 声明处注释)。
+func _mark_focus_traffic() -> void:
+	_focus_boost_until_ms = Time.get_ticks_msec() + FOCUS_IDLE_TIMEOUT_MS
+
+
+func _update_focus_boost() -> void:
+	if Time.get_ticks_msec() < _focus_boost_until_ms:
+		if _focus_saved_sleep_usec < 0:
+			_focus_saved_sleep_usec = OS.low_processor_usage_mode_sleep_usec
+		OS.low_processor_usage_mode_sleep_usec = FOCUS_BOOST_SLEEP_USEC
+	else:
+		_restore_focus_sleep()
+
+
+func _restore_focus_sleep() -> void:
+	if _focus_saved_sleep_usec >= 0:
+		OS.low_processor_usage_mode_sleep_usec = _focus_saved_sleep_usec
+		_focus_saved_sleep_usec = -1
+
+
+# I-3(2026-09-11 审查): boost 期间用户回焦时,引擎已把 sleep 设回有焦值——saved 里存的
+# 失焦原值已过期,恢复会"有焦编辑器 ~10fps"。捕获回焦事件放弃恢复(saved=-1),交还引擎自管。
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_focus_saved_sleep_usec = -1
+
+
 func _exit_tree() -> void:
 	set_process(false)
+	_restore_focus_sleep()  # P4-2: 插件停用/编辑器退出前恢复 sleep 原值(防 boost 残留)
 	if _heartbeat:
 		_heartbeat.timeout_detected.disconnect(_on_heartbeat_timeout)
 	if _server: _server.stop()

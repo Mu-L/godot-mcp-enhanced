@@ -29,6 +29,10 @@ export interface ToolContext {
   checkEditorSceneSave?: (path: string) => Promise<{ blocked: boolean; code?: number; message?: string }>;
   /** MCP Progress 通知 emitter（per-request，dispatcher 注入）。无 progressToken 时 undefined，调用方用 ctx.progress?.()。 */
   progress?: (progress: number, total: number, message?: string) => void;
+  /** P2 (2026-09-11): run_project(profiling=true) 创建的函数级 profiler 实例——
+   * spawn 前绑 127.0.0.1:0 端口并传 --remote-debug 给引擎回拨;profiler 工具的
+   * capture_functions action 从此读。进程 close 时由 runtime 清理(close())。 */
+  functionProfiler?: import('./core/function-profiler.js').DebuggerProfiler;
   /** PR-2: 客户端声明 tasks 能力(tools/call task-augmented)时 true——qa run 据此自动转 async
    *  并在响应 _meta.relatedTask 回指 task。由 GodotServer tools/call handler 从
    *  server.getClientCapabilities() 读出注入(dispatcher 层拿不到 server 引用)。 */

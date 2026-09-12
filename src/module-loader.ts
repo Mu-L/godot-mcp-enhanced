@@ -66,6 +66,7 @@ import * as blender from './tools/blender.js';
 import * as selfUpdate from './tools/self-update.js';
 import * as testing from './tools/testing.js';
 import * as debug from './tools/debug.js';  // CMP-3 (2026-08-08): debug 组 Phase 1 断点管理
+import * as dap from './tools/dap.js';  // P9 (2026-09-12): debug 组 DAP 断点调试(TS 直连 editor DAP server)
 import * as engine from './tools/engine.js';  // CMP-4 (2026-08-08): engine 组 实时 ClassDB 内省
 import * as runtimeAssert from './tools/runtime-assert.js';
 import * as qa from './tools/qa/index.js';  // v0.30 B 批：QA 测试套件编排
@@ -114,6 +115,7 @@ const ALL_MODULES: ToolModule[] = [
   selfUpdate,
   testing,
   debug,
+  dap,
   engine,
   runtimeAssert,
   qa,
@@ -220,22 +222,16 @@ function injectTags(defs: Tool[]): Tool[] {
 // 参数 + 追加到 description 的提示文本。阈值 SLIM_THRESHOLD_BYTES 决定哪些工具触发瘦身。
 export const SLIM_THRESHOLD_BYTES = 8000;
 
+// P4-1 (2026-09-11) 勘误(初版标注口径错,审查 B-1 证伪):slim 对 ui **实际生效**——
+// 阈值判断用变换前的原始 barrel schema(≥8000B 触发),registry/matrix 侧看到的 ~4.8KB
+// 是瘦身后产物(descHint 追加 + theme 系/tree/ops/geometry 属性移除),勿把产物值当触发
+// 输入。game(原始 ~8.2KB)无配置走人工压缩路线;整属性移除机制保留作应急通道,日常
+// 瘦身优先"源描述人工压缩"(解释性文本删/结构形状保,完整解释归 .claude/rules 规则文档)。
 export const SLIM_CONFIG: Record<string, { removeProps: string[]; descHint: string }> = {
-  ui: {
-    // theme 系列 11 个参数（theme_action/theme_path/params/theme_create_action/
-    // source_node_path/save_path/theme_node_path/item_type/prop_name/theme_type/value）
-    // 只服务 theme_create/theme_set_property/ui_set_theme 三个 action，但对所有 action 暴露。
-    // tree（build_layout 专属）+ ops（draw_recipe 专属）是复杂嵌套结构，体积最大。
-    removeProps: [
-      'theme_action', 'theme_path', 'params', 'theme_create_action', 'source_node_path',
-      'save_path', 'theme_node_path', 'item_type', 'prop_name', 'theme_type', 'value',
-      'tree', 'ops',
-      // v2 N-4(prototype-import):geometry/geometry_path 同 tree——复杂嵌套/低频专属参数,
-      // 移进 description 提示,handler 仍从 args 读(additionalProperties 传入)。
-      'geometry', 'geometry_path',
-    ],
-    descHint: ' 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一;bg/fill/borderRadius/border→StyleBoxFlat)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)→ 返回 style_verify/flow_verify; ui_pixel_verify→geometry/geometry_path+scene_path(必填,已构建场景;bg 节点截图采样 vs 目标色,Windows 窗口模式弹窗;终验——几何+style_verify 全绿后跑一次)',
-  },
+  // P8-3 (2026-09-11): ui 条目移除——P8-2 unknown-param 拒绝语义反转后,"从 properties
+  // 移除但 handler 仍读"的 additionalProperties 约定失效(agent 传 theme_action/tree/ops 等
+  // 会被拒,theme/draw/prototype 功能破坏)。schema 不撒谎是 SSOT 防线前提:键属于结构
+  // 形状不可砍(P4 边界结论的自恰延伸)。机制(空配置)保留作应急通道;日常瘦身走源描述人工压缩。
 };
 
 /**
