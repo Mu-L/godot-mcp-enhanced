@@ -45,7 +45,9 @@ describe('checkBudget', () => {
     expect(THRESHOLDS.perToolTotal.error).toBe(14000);
     // totalSum warn 2026-08-16 校准 80KB→90KB(实测 86412B 超旧线 5.5%,对齐覆盖率阈值
     // ">4% 持续超额应上调"惯例);error 120KB 硬线不变。见 check-token-budget.mjs 注释。
-    expect(THRESHOLDS.totalSum.warn).toBe(90 * 1024);
+    // P4-1 (2026-09-11) game 描述瘦身后全量 ~94KB,warn 90→95KB;P9 (2026-09-12) 校准 95→105KB
+    // (P8 热加载/SSOT 描述 + P9 dap 工具正当增量推至 ~103.9KB,审查 N-5 记录)
+    expect(THRESHOLDS.totalSum.warn).toBe(105 * 1024);
     expect(THRESHOLDS.totalSum.error).toBe(120 * 1024);
   });
 });

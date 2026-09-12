@@ -1,5 +1,6 @@
 // Level B 集成测试：场景操作工具（scene.handleTool）
 import { expect, it, beforeEach, describe, vi } from 'vitest';
+import { stripEnvelope } from '../src/core/untrusted-wrap.js';
 import { mockSuccessResult, mockSuccessSpawn } from './helpers/mock-results.js';
 
 // Mock the executor — hoisted to top by Vitest
@@ -39,7 +40,7 @@ function isSuccessful(result) {
   const text = result.content?.[0]?.text || '';
   if (/failed \(exit code \d+\)/i.test(text)) return false;
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(stripEnvelope(text));
     if (parsed.success === false) return false;
   } catch { /* 非 JSON，忽略 */ }
   return true;
@@ -211,7 +212,7 @@ describe('Level B: Scene Operations', () => {
     // 如果返回 confirmation_token，使用它完成删除
     if (text.includes('confirmation_token')) {
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(stripEnvelope(text));
         if (parsed.confirmation_token) {
           const confirmResult = await scene.handleTool('scene', {
             project_path: dirRef.path,
@@ -260,7 +261,7 @@ describe('Level B: Scene Operations', () => {
     function getNodeNames(readResult) {
       const text = readResult.content?.[0]?.text || '';
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(stripEnvelope(text));
         // nodeTree 是根节点数组，每个节点有 name；递归收集所有节点名
         const names = [];
         const walk = (nodes) => {

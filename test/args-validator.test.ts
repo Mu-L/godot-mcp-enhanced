@@ -2,7 +2,7 @@
  * args-validator 测试 — validateArgs 各 JSON schema 关键字正反例
  */
 import { describe, it, expect } from 'vitest';
-import { validateArgs } from '../src/core/args-validator.js';
+import { validateArgs, similarity, checkUnknownParams } from '../src/core/args-validator.js';
 
 describe('validateArgs', () => {
   // ── type ──
@@ -73,9 +73,44 @@ describe('validateArgs', () => {
     expect(r.errors.join(';')).toContain('depth');
   });
 
-  // ── 未知字段允许 ──
-  it('未知字段允许(additionalProperties 不拒)', () => {
-    const schema = { type: 'object', properties: { a: { type: 'string' } } };
-    expect(validateArgs({ a: 'x', unknown: 1 }, schema).ok).toBe(true);
+  // ── P8-2 (2026-09-11): 未知字段语义反转——regiellis 移植后顶层 unknown 拒 + did-you-mean ──
+  it('未知字段拒(P8-2 语义反转,regiellis 移植)+ did-you-mean 提示', () => {
+    const schema = { type: 'object', properties: { alpha: { type: 'string' } } };
+    const r = validateArgs({ alpha: 'x', alpah: 1 }, schema);  // 换位 typo(编辑距离 2/5 → sim 0.6)
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('未知参数');
+    expect(r.errors.join(' ')).toContain("想传 'alpha'");
+  });
+
+  it('未知字段:相似度 <0.4 无 did-you-mean,列出全部声明参数', () => {
+    const schema = { type: 'object', properties: { alpha: { type: 'string' } } };
+    const r = validateArgs({ alpha: 'x', zzzz: 1 }, schema);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('不是已声明参数');
+    expect(r.errors.join(' ')).not.toContain('想传');
+  });
+
+  it('无 properties 的 schema(自由 dict 工具)不查 unknown', () => {
+    const r = validateArgs({ anything: 1, goes: 2 }, { type: 'object' });
+    expect(r.ok).toBe(true);
+  });
+
+  it('checkUnknownParams: 全部声明则空;dispatcher 级公共键豁免(P8 审查 B-1 清偿)', () => {
+    expect(checkUnknownParams({ a: 1 }, { a: {} })).toEqual([]);
+    expect(checkUnknownParams({ a: 1, b: 2 }, { a: {} }).length).toBe(1);
+    // godot_path 是 ToolDispatcher 对所有工具的 per-call 覆盖键(消费在 validateArgs 之前),
+    // 未声明它的 ~19 个 headless 工具(particles/tilemap/signal/...)同样支持——豁免防
+    // "dispatcher 消费了却被 unknown 拒"的自相矛盾(与 check-ssot-params.mjs 特判同源)
+    expect(checkUnknownParams({ a: 1, godot_path: 'D:/x.exe' }, { a: {} })).toEqual([]);
+    const r = validateArgs({ a: 'x', godot_path: 'D:/x.exe' }, { type: 'object', properties: { a: { type: 'string' } } });
+    expect(r.ok, 'validateArgs 全链路同样豁免').toBe(true);
+  });
+
+  it('similarity:相同=1/空=0/编辑距离比率(Levenshtein,对齐 GD String.similarity)', () => {
+    expect(similarity('abc', 'abc')).toBe(1);
+    expect(similarity('', 'abc')).toBe(0);
+    expect(similarity('ab', 'ax')).toBeCloseTo(0.5, 5);
+    expect(similarity('pattern', 'patern')).toBeGreaterThanOrEqual(0.4); // did-you-mean 阈内
+    expect(similarity('pattern', 'zzzzzzz')).toBeLessThan(0.4);
   });
 });

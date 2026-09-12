@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { stripEnvelope } from '../src/core/untrusted-wrap.js';
 import { EventEmitter } from 'events';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -343,7 +344,7 @@ describe('runtime handleTool — stop_project', () => {
     expect(killProcess).toHaveBeenCalledWith(existingProc);
     expect(ctx.setRunningProcess).toHaveBeenCalledWith(null);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(stripEnvelope(result.content[0].text));
     expect(parsed.status).toBe('stopped');
     expect(parsed.errors.length).toBeGreaterThan(0);
     expect(parsed.warnings.length).toBeGreaterThan(0);
@@ -373,10 +374,24 @@ describe('runtime handleTool — get_debug_output', () => {
 
     const result = await handleTool('runtime', { action: 'get_debug_output' }, ctx);
     expect(result).not.toBeNull();
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(stripEnvelope(result.content[0].text));
     expect(parsed.running).toBe(true);
     expect(parsed.errors.length).toBeGreaterThan(0);
     expect(parsed.warnings.length).toBeGreaterThan(0);
+    expect(result.content[0].text.startsWith('<untrusted-'), 'get_debug_output 输出须信封包裹').toBe(true);
+  });
+
+  it('stop_project 输出也带信封(同数据源防护对称,审查 I-2)', async () => {
+    const ctx = createMockCtx({
+      runningProcess: mockProc(),
+      outputBuffer: ['hello from game print'],
+    });
+    const result = await handleTool('runtime', { action: 'stop_project' }, ctx);
+    expect(result).not.toBeNull();
+    const text = result.content[0].text;
+    expect(text.startsWith('<untrusted-'), 'stop 输出须信封包裹(游戏 print 是注入载体)').toBe(true);
+    const parsed = JSON.parse(stripEnvelope(text));
+    expect(Array.isArray(parsed.prints)).toBe(true);
   });
 });
 

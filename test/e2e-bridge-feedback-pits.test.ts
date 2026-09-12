@@ -64,6 +64,8 @@ describe.skipIf(!RUN)('反馈坑 2/4: find_nodes root + call_method 协程(行�
       hadExtraEnv = true;
     }
     if (!_registered) { registerAllModules(); _registered = true; }
+    // N-4: 清残留防 install 幂等保留旧副本(同 input-seq 注释)
+    try { rmSync(resolve(FIXTURE, 'mcp_bridge.gd'), { force: true }); } catch { /* EPERM best-effort */ }
     const install = await callTool({ action: 'game_bridge_install', project_path: FIXTURE });
     expect(install.isError, `install failed: ${install.text.slice(0, 200)}`).toBe(false);
     const runMod = getModuleForTool('runtime');

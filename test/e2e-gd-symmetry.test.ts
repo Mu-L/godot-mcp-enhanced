@@ -86,13 +86,16 @@ describe.skipIf(!hasGodot || !hasFixture || !RUN)('批 2 GD 对称性 e2e (L2)',
     // Main 是 Node2D,rotation 默认 0.0(纯 float,命中数值分支)。修复前 float("abc")=0 →
     // 0>=0 恒真 → 帧未跑即 predicate_met=true(假阳性);修复后数值分支白名单拒非数值
     // target → 耗尽 30 帧 false。注意 property 不支持 "position:x" 子字段语法。
+    // wall_budget 20000(D1 清偿 2026-09-12):本地慢机(背景 Godot 进程抢资源)实测 ~417ms/帧,
+    // 30 帧需 12.5s——原 5000 预算下 wall 先于帧耗尽,frames_elapsed=5~12 波动假失败。
+    // 断言语义不变:String 拒斥 + 帧耗尽,只是给慢机足够时间预算。
     const r = await callTool({
       action: 'game_playtest', method: 'playtest.step_until',
       params: {
         conditions: [{ path: '/root/Main', property: 'rotation', op: '>=', value: 'abc' }],
-        max_frames: 30, wall_budget_ms: 5000,
+        max_frames: 30, wall_budget_ms: 30000,
       },
-      timeout: 15000,
+      timeout: 40000,
     });
     expect(r.isError, `step_until errored: ${r.text.slice(0, 300)}`).toBe(false);
     const parsed = JSON.parse(r.text) as { predicate_met?: boolean; frames_elapsed?: number };

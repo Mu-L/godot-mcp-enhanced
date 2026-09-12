@@ -6,12 +6,16 @@ import { tmpdir } from 'os';
 import { mockSuccessResult } from './helpers/mock-results.js';
 
 // ─── Mock gdscript-executor ────────────────────────────────────────────────
-vi.mock('../src/gdscript-executor.js', () => ({
-  scanGdscriptSandbox: vi.fn(() => []),
-  executeGdscript: vi.fn(async () => mockSuccessResult({
+vi.mock('../src/gdscript-executor.js', () => {
+  const _execMock = vi.fn(async () => mockSuccessResult({
     outputs: [{ key: 'perf', value: '{"orphan_node_count":5,"static_memory_mb":50.0,"resource_count":120}' }],
-  })),
-}));
+  }));
+  return {
+    scanGdscriptSandbox: vi.fn(() => []),
+    executeGdscript: _execMock,
+    executeGdscriptRuntime: _execMock,
+  };
+});
 
 // ─── Mock validation batchValidateScripts ──────────────────────────────────
 vi.mock('../src/tools/validation.js', () => ({

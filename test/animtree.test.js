@@ -9,13 +9,17 @@ import {
 } from '../src/tools/animtree.js';
 
 // F-6: mock executeGdscript 以验证 handler→generator 路由(原 bug 下此路径是死代码)
-vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn().mockResolvedValue({
+vi.mock('../src/gdscript-executor.js', () => {
+  const _execMock = vi.fn().mockResolvedValue({
     success: true, compile_success: true, run_success: true,
     outputs: [{ value: '{"ok": true}' }], raw_output: '', run_error: '', errors: [],
     duration_ms: 1,
-  }),
-}));
+  });
+  return {
+    executeGdscript: _execMock,
+    executeGdscriptRuntime: _execMock,
+  };
+});
 
 const fakeCtx = { findGodot: async () => '/fake/godot' };
 

@@ -34,6 +34,10 @@ describe('game-bridge tool definitions', () => {
       'watch_poll',
       'find_ui_elements',
       'click_button',
+      // P3 (2026-09-11): 弱网注入 + 项目本地命令
+      'network_conditioner',
+      'custom_command',
+      'sync_state',  // P10 (2026-09-12): 多人状态同步(快照/比对两段式)
     ]);
   });
 

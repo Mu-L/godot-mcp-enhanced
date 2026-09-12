@@ -20,6 +20,13 @@ vi.mock('../../src/core/tool-registry.js', () => ({
   LEGACY_TOOL_MAP: {
     node_create_3d: { tool: 'scene', action: 'create_3d_node' },
   },
+  // P3-4 (2026-09-11): list_groups 价格标签消费的两导出(mock 下返回空定义即可,
+  // profilePriceTags 容忍空数组;PROFILES 给最小两键)
+  PROFILES: {
+    full: ['core', 'animation', 'bridge'],
+    minimal: ['core'],
+  },
+  getAllToolDefinitions: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../../src/tools/shared.js', () => ({

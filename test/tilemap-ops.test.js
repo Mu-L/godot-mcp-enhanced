@@ -247,6 +247,7 @@ import { handleTool as tilemapHandleTool } from '../src/tools/tilemap-ops.js';
 const { execMock } = vi.hoisted(() => ({ execMock: vi.fn() }));
 vi.mock('../src/gdscript-executor.js', () => ({
   executeGdscript: execMock,
+  executeGdscriptRuntime: execMock,
   executeGdscriptTrusted: vi.fn(),
 }));
 

@@ -12,7 +12,7 @@ describe('CMP-9-B: bridge _cmd_call_method 放宽（GD 源码契约）', () => {
 
   it('CMP-9B-a: _cmd_call_method 含 did-you-mean 调用', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 3200);
+    const slice = gd.slice(fnStart, fnStart + 4200);
     expect(slice.includes('_suggest_bridge_method'), '缺 did-you-mean 调用').toBe(true);
     expect(slice.includes('Did you mean'), '缺 did-you-mean 提示文案').toBe(true);
   });
@@ -89,13 +89,13 @@ describe('CMP-9-B: 向后兼容不变量（GD 源码契约）', () => {
 
   it('CMP-9B-j: get() 的 blocked property 检查保留(line 941 原逻辑)', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 3200);
+    const slice = gd.slice(fnStart, fnStart + 4200);
     expect(slice.includes('_is_blocked_property'), '缺 blocked property 检查').toBe(true);
   });
 
   it('CMP-9B-k: args 数量上限 8 保留', () => {
     const fnStart = gd.indexOf('func _cmd_call_method');
-    const slice = gd.slice(fnStart, fnStart + 3200);
+    const slice = gd.slice(fnStart, fnStart + 4200);
     expect(slice.includes('max 8'), '缺 args 数量上限').toBe(true);
   });
 });
@@ -104,11 +104,15 @@ describe('CMP-9-B: game-bridge.ts 文档更新', () => {
   it('CMP-9B-l: call_method params 描述含类型强转 + deny-list + undoable 说明', () => {
     const src = readFileSync('src/tools/game-bridge.ts', 'utf8');
     // 找 call_method 相关 params 描述段
-    const descIdx = src.indexOf('EXTRA_METHODS_BLOCKLIST');
-    expect(descIdx, 'game-bridge.ts params 描述缺 EXTRA_METHODS_BLOCKLIST 说明').toBeGreaterThan(-1);
-    const slice = src.slice(descIdx - 200, descIdx + 400);
-    expect(slice.includes('GODOT_MCP_BRIDGE_EXTRA_METHODS'), '缺 env 扩展说明').toBe(true);
-    expect(slice.includes('undoable'), '缺 undoable 说明').toBe(true);
-    expect(slice.includes('did-you-mean') || slice.includes('Did you mean'), '缺 did-you-mean 说明').toBe(true);
+    // P4-1 瘦身后 params 描述留紧凑指引(白名单+GDA_CALLABLE+预检-10 见规则),
+    // EXTRA_METHODS/undoable/did-you-mean 完整说明承接进 .claude/rules/godot-mcp-bridge.md
+    const descIdx = src.indexOf('白名单+GDA_CALLABLE+预检-10 见规则');
+    expect(descIdx, 'game-bridge.ts params 描述缺规则指引').toBeGreaterThan(-1);
+    const slice = src.slice(Math.max(0, descIdx - 200), descIdx + 200);
+    expect(slice.includes('call_method'), '缺 call_method 指引上下文').toBe(true);
+    const rules = readFileSync('.claude/rules/godot-mcp-bridge.md', 'utf8');
+    expect(rules.includes('EXTRA_METHODS_BLOCKLIST'), '规则文档缺 BLOCKLIST 说明').toBe(true);
+    expect(rules.includes('undoable'), '规则文档缺 undoable 说明').toBe(true);
+    expect(rules.includes('did-you-mean'), '规则文档缺 did-you-mean 说明').toBe(true);
   });
 });

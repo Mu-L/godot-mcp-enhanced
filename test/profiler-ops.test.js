@@ -2,13 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mockSuccessResult } from './helpers/mock-results.js';
 
 // Mock gdscript-executor before importing the module under test
-vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(async () => mockSuccessResult({
+vi.mock('../src/gdscript-executor.js', () => {
+  const _execMock = vi.fn(async () => mockSuccessResult({
     outputs: [
       { key: 'snapshot', value: '{"fps":60,"memory_static_mb":50}' },
     ],
-  })),
-}));
+  }));
+  return {
+    executeGdscript: _execMock,
+    executeGdscriptRuntime: _execMock,
+  };
+});
 
 import {
   getToolDefinitions,

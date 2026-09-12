@@ -109,6 +109,9 @@ describe.skipIf(!hasGodot || !hasFixture || !RUN)('H1 send_input_sequence e2e (L
         registerAllModules();
         _registered = true;
       }
+      // N-4(2026-09-11 P1 审查): 清上次运行的 bridge 残留——afterEach rmSync 遇 Windows EPERM
+      // 可能留旧副本,而 install 幂等逻辑对"内容 differs"选择保留不覆盖,e2e 会测到旧 bridge。
+      rmSync(resolve(FIXTURE, 'mcp_bridge.gd'), { force: true });
       const install = await callTool({ action: 'game_bridge_install' });
       if (install.isError) throw new Error(`game_bridge_install failed: ${install.text}`);
       const run = await callToolRealRun();

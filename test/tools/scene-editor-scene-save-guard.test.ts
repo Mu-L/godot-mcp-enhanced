@@ -22,7 +22,7 @@ const { mockSpawnGodot, mockExecuteGdscript, mockExists } = vi.hoisted(() => ({
 vi.mock('../../src/tools/spawn-helper.js', () => ({ spawnGodot: mockSpawnGodot }));
 
 // Mock executeGdscript（scene.commit 走此路径;守卫拦截场景不应被调）
-vi.mock('../../src/gdscript-executor.js', () => ({ executeGdscript: mockExecuteGdscript }));
+vi.mock('../../src/gdscript-executor.js', () => ({ executeGdscript: mockExecuteGdscript, executeGdscriptRuntime: mockExecuteGdscript }));
 
 // fs.exists let requireScenePath/early guards 通过
 vi.mock('fs', async (importOriginal) => {

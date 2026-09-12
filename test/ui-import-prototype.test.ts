@@ -370,15 +370,21 @@ describe('ui_import_prototype 登记契约', () => {
     expect(TOOL_META.ui!.actionRisks!.ui_import_prototype).toBe('write');
   });
 
-  it('SLIM_CONFIG: geometry/geometry_path 进 removeProps,descHint 提及新 action', () => {
-    const cfg = SLIM_CONFIG['ui']!;
-    expect(cfg.removeProps).toContain('geometry');
-    expect(cfg.removeProps).toContain('geometry_path');
-    expect(cfg.descHint).toContain('ui_import_prototype');
+  it('SLIM_CONFIG: ui 条目已移除(P8-3),geometry/geometry_path 留在 schema(unknown-param 拒绝语义下键不可砍)', () => {
+    expect(SLIM_CONFIG['ui'], 'P8-3 (2026-09-12) 移除——schema 是参数 SSOT').toBeUndefined();
+    const uiDef = getToolDefinitions().find(d => d.name === 'ui');
+    expect(uiDef, 'ui def').toBeDefined();
+    const props = Object.keys(uiDef!.inputSchema.properties ?? {});
+    expect(props).toContain('geometry');
+    expect(props).toContain('geometry_path');
   });
 
-  it('SLIM_CONFIG descHint: ui_import_prototype 段提及 style_verify/flow_verify 返回(PR-2)', () => {
-    expect(SLIM_CONFIG['ui']!.descHint).toContain('返回 style_verify/flow_verify');
+  it('ui_import_prototype 的 style_verify/flow_verify 返回说明留在工具 description(不依赖 descHint)', () => {
+    // P2-11 时代此说明在 SLIM_CONFIG descHint(slim 时追加);P8-3 移除条目后,
+    // 说明常驻源 description——unknown-param 语义下 schema/description 不撒谎
+    const uiDef = getToolDefinitions().find(d => d.name === 'ui');
+    expect(uiDef!.description).toContain('style_verify');
+    expect(uiDef!.description).toContain('ui_import_prototype');
   });
 });
 

@@ -1,0 +1,25 @@
+; Engine configuration file.
+; P3 (2026-09-11) e2e fixture: UI 按钮(CheckBox/Button)+ ENet peer 建立/拆除
+; (供 click_button real_event / network_conditioner / custom_command e2e)。
+; main.gd 用 GDA_CALLABLE 声明 call_method 可调面;mcp_commands/example.gd 演示
+; 项目本地命令目录。注:game_bridge_install 会在运行时写 [autoload] 段并放置
+; mcp_bridge.gd —— 均为运行时产物,不入库(e2e afterAll / gitignore 兜底)。
+config_version=5
+
+[application]
+
+config/name="p3-e2e"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.5")
+
+; P0-2 (2026-09-11): dual-key file logging off — concurrent instances share user://logs,
+; RotatedFileLogger rotate race makes abort look like engine_crashed (aigengame pit).
+; Base key defaults false, but the .pc feature-tag override defaults TRUE on desktop and
+; wins at startup — closing only the base key is a no-op.
+[debug]
+
+file_logging/enable_file_logging=false
+file_logging/enable_file_logging.pc=false
+
+[autoload]
+MCPBridge="*res://mcp_bridge.gd"
