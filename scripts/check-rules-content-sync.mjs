@@ -122,6 +122,8 @@ for (const f of ruleFiles) {
     const legalPorts = new Set();
     for (let p = editorBase; p <= editorMax; p++) legalPorts.add(p);
     for (let p = bridgeBase; p < bridgeBase + bridgeAttempts; p++) legalPorts.add(p);
+    // P9 (2026-09-12): dap 工具的 editor 内置 DAP server 端口(引擎默认 6006,非本仓 GD 常量)
+    legalPorts.add(6006);
     for (const filename of templateKeys) {
       for (const m of String(DETAILED_RULE_TEMPLATES[filename]).matchAll(/端口 (\d{4,5})/g)) {
         if (!legalPorts.has(Number(m[1]))) {
