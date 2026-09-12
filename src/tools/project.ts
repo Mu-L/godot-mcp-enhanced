@@ -215,6 +215,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         '',
         'renderer="' + renderer + '"',
         '',
+        // P0-2 (2026-09-11): 双 key 关文件日志,防并发实例共享 user://logs 的 RotatedFileLogger
+        // rotate race(aigengame 实测:race 使 abort 伪装 engine_crashed)。必须写两个 key——
+        // base key 默认 false,但 .pc feature-tag override 在桌面平台默认 true 且启动时获胜,
+        // 只关 base 是 no-op。create_project 建的项目专供 MCP 自动化(单/多实例),无需文件日志。
+        '[debug]',
+        '',
+        'file_logging/enable_file_logging=false',
+        'file_logging/enable_file_logging.pc=false',
+        '',
       ].join('\n');
       writeFileSync(join(p, 'project.godot'), projectGodot, 'utf-8');
 

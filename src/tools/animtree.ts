@@ -2,7 +2,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../gdscript-executor.js';
 import { normalizeNodePath, gdEscape, escapeForGdLiteral, ensureNumber, SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────

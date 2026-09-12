@@ -2,9 +2,10 @@ import { join, dirname } from 'path';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
+import { maybeWrapUntrusted } from '../core/untrusted-wrap.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../helpers.js';
-import { executeGdscript, executeGdscriptTrusted } from '../gdscript-executor.js';
+import { executeGdscript, executeGdscriptTrusted, executeGdscriptRuntime } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, parseGdscriptResult, wrapAssertionCode, opsErrorResult, validateTimeout, escapeForGdLiteral } from './shared.js';
 import { batchValidateScripts } from './validation.js';
 import { sendToBridge, setBridgeProjectDir, BRIDGE_READ_ONLY_METHODS } from './game-bridge.js';
@@ -351,7 +352,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         try {
           outputs[entry.key] = JSON.parse(entry.value);
         } catch {
-          outputs[entry.key] = entry.value;
+          // P1-1: parse 失败的自由文本 = 游戏 stdout 自由 print(最典型注入载体),包 nonce 信封;
+          // parse 成功的结构化值是哨兵标记提取的受控输出,不包(保格式)。折中见 untrusted-wrap.ts。
+          outputs[entry.key] = maybeWrapUntrusted('workflow.execute', entry.key, entry.value);
         }
       }
       result.outputs = outputs;
@@ -624,7 +627,11 @@ func _initialize():
             }
             try {
               const wrappedCode = wrapAssertionCode(a.gdscript, desc, true, a.expect);
-              const assertResult = await executeGdscript({
+              // B-1(2026-09-11 审查): wrappedCode 内联 SCENE_TREE_HEADER(含 load(_sp) 模板)——
+              // 普通通道 Phase 3(tokenizer 非字面量 load)必拦。切 Runtime 通道(delivery.ts 同款):
+              // 只跳 Phase 3,Phase 1/2 保留;AI 原始 assertion 代码已有 wrapAssertionCode 内的
+              // 前置 scanGdscriptSandbox 全相位扫描兜底(assertions.ts)。
+              const assertResult = await executeGdscriptRuntime({
                 godotPath: godot, projectPath, code: wrappedCode, timeout: Math.min(timeout, 15), loadAutoloads,
               });
 

@@ -5,7 +5,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult } from '../../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath } from '../../helpers.js';
-import { executeGdscript } from '../../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../../gdscript-executor.js';
 import { generateCommitScript, validateCommitOperations, TILESET_RESOURCE_OPS, type CommitOperation } from './scene-commit.js';
 import { acquireShortRunningSlot, releaseShortRunningSlot } from '../../core/process-state.js';
 import { opsErrorResult } from '../shared.js';

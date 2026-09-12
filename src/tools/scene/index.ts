@@ -5,6 +5,8 @@ import type { Tool } from "@modelcontextprotocol/server";
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult, errorResult } from '../../types.js';
+import { maybeWrapUntrusted } from '../../core/untrusted-wrap.js';
+import { pluginSelfPathGuard } from '../shared/file-guard.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir, parseMcpScriptOutput } from '../../helpers.js';
 import { parseTscn, parseTscnSummary } from '../../tscn/tscn-parser.js';
 import { normalizeNodePath, opsErrorResult, sanitizeResPath } from '../shared.js';
@@ -135,10 +137,12 @@ export async function handleTool(
       const sp = resolveWithinRoot(requireProjectPath(args), normalizeUserProjectPath(args.scene_path as string));
       if (!existsSync(sp)) return textResult(`Scene file not found: ${sp}`);
       const content = readFileSync(sp, 'utf-8');
-      if (args.summary_only) return textResult(parseTscnSummary(content));
+      // P1-1: 场景文件内容 nonce 信封(输出侧防注入)
+      if (args.summary_only) return textResult(maybeWrapUntrusted('scene.read', sp, parseTscnSummary(content)));
       const parsed = parseTscn(content);
       const roots = parsed.nodes.filter(n => !n.parent);
-      return textResult(JSON.stringify({ header: parsed.header, extResources: parsed.extResources, subResources: parsed.subResources, nodeTree: roots, connections: parsed.connections, totalNodes: parsed.nodes.length }, null, 2));
+      // P1-1: 场景文件内容 nonce 信封(输出侧防注入)
+      return textResult(maybeWrapUntrusted('scene.read', sp, JSON.stringify({ header: parsed.header, extResources: parsed.extResources, subResources: parsed.subResources, nodeTree: roots, connections: parsed.connections, totalNodes: parsed.nodes.length }, null, 2)));
     }
 
     // P1 file-op shortcut for add_node: try pure text editing first,
@@ -210,6 +214,9 @@ export async function handleTool(
         return textResult(`Error: ${result.message}`);
       }
 
+      // P1-2 FileGuard: 拒写插件自资产(commit 目标可能是 addons 内 .tscn)
+      const selfGuardC = pluginSelfPathGuard(absPath);
+      if (selfGuardC) return selfGuardC;
       // Write back the modified .tscn
       if (result.scene) {
         writeFileSync(absPath, result.scene, 'utf-8');
@@ -297,6 +304,13 @@ export async function handleTool(
       if (scriptRelPath && scriptContent && !existsSync(resolveWithinRoot(p, scriptRelPath))) {
         const sandboxGuard = scanScriptSandboxOrThrow(scriptContent, resolveWithinRoot(p, scriptRelPath));
         if (sandboxGuard) return sandboxGuard;
+      }
+      // P1-2 FileGuard: quick_scene 的场景与脚本写点拒插件自资产
+      const selfGuardQ1 = pluginSelfPathGuard(sceneAbsPath);
+      if (selfGuardQ1) return selfGuardQ1;
+      if (scriptRelPath && scriptContent) {
+        const selfGuardQ2 = pluginSelfPathGuard(resolveWithinRoot(p, scriptRelPath));
+        if (selfGuardQ2) return selfGuardQ2;
       }
       try { ensureDir(sceneAbsPath); writeFileSync(sceneAbsPath, tscnContent, 'utf-8'); } catch (e: unknown) { return textResult(`Error writing scene: ${(e as Error).message}`); }
       if (scriptRelPath && scriptContent) { const scriptAbsPath = resolveWithinRoot(p, scriptRelPath); if (!existsSync(scriptAbsPath)) { try { ensureDir(scriptAbsPath); writeFileSync(scriptAbsPath, scriptContent, 'utf-8'); } catch (e: unknown) { return textResult(`Scene created but script write failed: ${(e as Error).message}`); } } }

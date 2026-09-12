@@ -2,7 +2,7 @@ import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, gdEscape, escapeForGdLiteral, normalizeNodePath, validateVector3, TYPE_WHITELIST, validateIdentifier, appendRuntimePersistWarning } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────

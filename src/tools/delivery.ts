@@ -5,7 +5,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, scanFiles } from '../helpers.js';
 import { getLogger } from '../core/logger.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../gdscript-executor.js';
 import { batchValidateScripts } from './validation.js';
 import { SCENE_TREE_HEADER, wrapAssertionCode, opsErrorResult } from './shared.js';
 import { parseAsserts } from './frame-verify/assert-protocol.js';

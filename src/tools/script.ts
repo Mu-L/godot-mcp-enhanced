@@ -4,6 +4,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
+import { maybeWrapUntrusted } from '../core/untrusted-wrap.js';
 import { textResult } from '../types.js';
 import { requireProjectPath, resolveWithinRoot, normalizeUserProjectPath, ensureDir } from '../helpers.js';
 import { executeGdscript } from '../gdscript-executor.js';
@@ -13,6 +14,7 @@ import { batchValidateScripts } from './validation.js';
 import { lintGDScript, formatLintResults } from './gdscript-lint.js';
 import { getTemplateSuggestion } from './code-templates.js';
 import { opsErrorResult, escapeForGdLiteral } from './shared.js';
+import { pluginSelfPathGuard } from './shared/file-guard.js';
 import { runDotnetBuild } from './shared/validation.js';
 
 const execFileAsync = promisify(execFile);
@@ -462,7 +464,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           const usingMatch = line.match(/^\s*using\s+([^;]+);/);
           if (usingMatch && csUsings.length < 50) csUsings.push(usingMatch[1]!.trim());
         }
-        return textResult(JSON.stringify({
+        // P1-1: 源码内容 nonce 信封(输出侧防注入,src/core/untrusted-wrap.ts)
+        return textResult(maybeWrapUntrusted('script.read', sp, JSON.stringify({
           path: sp,
           language: 'csharp',
           namespace: csNamespace,
@@ -471,7 +474,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           usings: csUsings,
           lines: lines.length,
           content,
-        }, null, 2));
+        }, null, 2)));
       }
 
       // GDScript 文件：解析 extends / class_name
@@ -485,19 +488,23 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         if (clsMatch) className = clsMatch[1]!;
       }
 
-      return textResult(JSON.stringify({
+      // P1-1: 源码内容 nonce 信封(输出侧防注入,src/core/untrusted-wrap.ts)
+      return textResult(maybeWrapUntrusted('script.read', sp, JSON.stringify({
         path: sp,
         extends: extendsClass,
         class_name: className,
         lines: lines.length,
         content,
-      }, null, 2));
+      }, null, 2)));
     }
 
     case 'write_script': {
       const scriptPath = args.script_path as string;
       const projectPath = requireProjectPath(args);
       const sp = resolveWithinRoot(projectPath, normalizeUserProjectPath(scriptPath));
+      // P1-2 FileGuard: 拒写插件自资产(bridge 脚本/editor 插件源码,防自毁防御)
+      const selfGuardW = pluginSelfPathGuard(sp);
+      if (selfGuardW) return selfGuardW;
       const content = args.content as string;
       const overwrite = args.overwrite === true; // default false
 
@@ -546,6 +553,9 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       const scriptPath = args.script_path as string;
       const projectPath = requireProjectPath(args);
       const fullPath = resolveWithinRoot(projectPath, normalizeUserProjectPath(scriptPath));
+      // P1-2 FileGuard: 拒写插件自资产
+      const selfGuardE = pluginSelfPathGuard(fullPath);
+      if (selfGuardE) return selfGuardE;
 
       if (!existsSync(fullPath)) {
         return opsErrorResult('NOT_FOUND', `File not found: ${fullPath}`, {
@@ -1110,6 +1120,13 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         changedFiles.push(relOf(filePath));
       }
 
+      // P1-2 FileGuard: 拒写插件自资产——整批原子检查(任一命中全拒,保持批量原子性)
+      if (!dryRun && pendingWrites.length > 0) {
+        for (const pw of pendingWrites) {
+          const selfGuardP = pluginSelfPathGuard(pw.filePath);
+          if (selfGuardP) return selfGuardP;
+        }
+      }
       // Phase 2: Best-effort atomic write — backup originals, write .tmp, rename with rollback
       if (!dryRun && pendingWrites.length > 0) {
         const tmpFiles: string[] = [];
