@@ -335,17 +335,18 @@ export ALLOWED_PROJECT_PATHS="D:/GitHub/godot-mcp-enhanced"
 
 ## 架构约束
 
-### 三层架构(headless + editor + bridge)
+### 三层架构(headless + editor + bridge 域,层=目标进程域×通道矩阵)
 
-server 按场景分工三层,自动检测互不冲突:
+server 按目标进程域分工三层,自动检测互不冲突。**"层"的语义是目标进程域,一个域可含多条通道**(2026-09-12 架构检查 D2 定规:P9 的 dap 引入第 4 条通道后,原"层=连接方式"表述已不覆盖):
 
-| 层 | 连接方式 | 适用场景 | 核心入口 |
+| 域 | 通道 | 适用场景 | 核心入口 |
 |---|---|---|---|
-| **Headless CLI** | 独立 Godot 进程 | 文件读写、批量创建、一次性验证(默认) | `src/gdscript-executor.ts` |
-| **Editor WebSocket** | 连接运行中的编辑器 | 实时操作当前场景、Undo、场景树同步 | `src/core/EditorConnection.ts` |
-| **Game Bridge** | TCP 连接运行中的游戏 | E2E 测试、运行时调试、输入模拟、状态验证 | `src/tools/game-bridge.ts` + `addons/` |
+| **Headless**(独立 Godot 进程) | CLI 子进程 | 文件读写、批量创建、一次性验证(默认) | `src/gdscript-executor.ts` |
+| **Editor**(运行中的编辑器) | ① WebSocket 9090(经 editor 插件) | 实时操作当前场景、Undo、场景树同步 | `src/core/EditorConnection.ts` |
+| | ② DAP TCP 6006(TS 直连官方调试协议,**不经 method-map**) | 断点/单步/栈帧/REPL 调试 | `src/tools/dap.ts` |
+| **Game Bridge**(运行中的游戏) | TCP(bridge autoload) | E2E 测试、运行时调试、输入模拟、状态验证 | `src/tools/game-bridge.ts` + `addons/` |
 
-新增工具时必须明确属于哪一层,并在 `src/core/editor-method-map.ts` 登记(editor 层工具需要)。
+新增工具时必须明确属于哪个域、哪条通道。**仅 editor 域的 WebSocket 通道工具需在 `src/core/editor-method-map.ts` 登记**;DAP 通道与 editor-method-map 无关(dap 工具不经该表)。未来新增第 5 条通道时,先在此表登记通道再实现工具。
 
 ### 安全体系(核心护城河,改动需谨慎)
 
@@ -483,3 +484,4 @@ CI 双脚本把关: `check-rules-version-bump.mjs` 在模板变更时强制要�
 | 2026-08-19 | 「发版前额外门禁」节新增"默认不发版"定规(小版本迭代不 bump 版本/不走版本链,变更进 CHANGELOG [Unreleased];仅用户明确要求发版时才 bump+verify_delivery)——源于 tileset 批次用户反馈 |
 | 2026-08-20 | 「发版前额外门禁」节新增例外条款:规则模板变更触发的 bump 硬门禁 ≠ 发版(照常 bump+version-sync+定版段+版本行,npm publish/tag 仍待用户)——用户裁决 N-C,解耦「版本号演进」与「发布动作」,消解与"默认不发版"的字面冲突 |
 | 2026-08-21 | 新增「分层约束与全局状态规则」:core→tools 禁止(eslint 门禁)/CLI 复用 bridge-session 会话链/禁止新增模块级 setter——源于当日全仓架构审查(C/D 组修复批) |
+| 2026-09-12 | 「架构约束」三层表述升级为"域×通道矩阵"(editor 域两通道:WS 9090 需登记 method-map / DAP TCP 6006 免登记)——源于九轮迭代架构检查 D2(报告 `docs/reviews/2026-09-12-九轮迭代架构检查.md`) |
