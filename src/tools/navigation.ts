@@ -3,7 +3,7 @@ import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { getErrorMessage } from '../types.js';
 import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../gdscript-executor.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult, normalizeNodePath, gdEscape, escapeForGdLiteral, validateVector3, appendRuntimePersistWarning } from './shared.js';
 import { validateTimeout } from './shared/validation.js';
 import { ff } from './shared/value-serializer.js';

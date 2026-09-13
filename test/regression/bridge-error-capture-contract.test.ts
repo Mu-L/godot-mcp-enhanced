@@ -154,7 +154,7 @@ describe('CMP-2: game-bridge.ts 白名单登记', () => {
 
   it('CMP-2k: method 描述含 get_errors/clear_errors 说明', () => {
     // method description 在 inputSchema 里
-    const descIdx = ts.indexOf('game_query: ping, get_tree');
+    const descIdx = ts.indexOf('game_query: ping/get_tree');
     expect(descIdx, '未找到 method 描述').toBeGreaterThan(-1);
     const slice = ts.slice(descIdx, descIdx + 600);
     expect(slice.includes('get_errors'), 'method 描述缺少 get_errors').toBe(true);

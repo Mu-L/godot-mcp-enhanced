@@ -507,6 +507,18 @@ describe.skipIf(!hasGodot || !hasProject)('E2E: Godot-dependent tools', { timeou
     expectSuccess(r, 'workflow_ok');
   });
 
+  it('workflow: dev_loop acceptance gdscript 断言真链路(P6 B-1 回归锚)', async () => {
+    // P6 B-1(2026-09-11 审查): wrappedCode 内联模板头(load(_sp))曾走普通通道被 Phase 3 误拦。
+    // mock executor 的单测对沙箱行为结构性假绿——必须有真链路(不 mock)锚。
+    const r = await callTool('workflow', {
+      action: 'dev_loop',
+      code: 'var _v = 1\n_mcp_output("v", _v)\n_mcp_done()',
+      acceptance: { assertions: [{ description: 'value check', gdscript: 'return "p6ok"', expect: 'p6ok' }] },
+    });
+    expectSuccess(r);
+    expect(r.text, 'acceptance 断言不应被沙箱误拦(P6 B-1)').not.toContain('Sandbox violation');
+  });
+
   it('scene: inspect_node returns structured node info', async () => {
     const r = await callTool('scene', {
       action: 'inspect_node',

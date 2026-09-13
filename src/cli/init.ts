@@ -56,6 +56,14 @@ export async function runInit(args: string[]): Promise<void> {
       'window/size/viewport_width=1280',
       'window/size/viewport_height=720',
       '',
+      // P0-2 (2026-09-11): 双 key 关文件日志,防并发实例共享 user://logs 的 rotate race。
+      // .pc feature-tag 桌面默认 true 且启动时获胜,只关 base 是 no-op。init 建的项目引导
+      // qa run 自动化(多实例场景),无需文件日志。
+      '[debug]',
+      '',
+      'file_logging/enable_file_logging=false',
+      'file_logging/enable_file_logging.pc=false',
+      '',
     ].join('\n'), 'utf-8');
     for (const f of readGameTemplateFiles(template)) {
       const dest = join(projectDir, f.path);
@@ -84,6 +92,12 @@ export async function runInit(args: string[]): Promise<void> {
     '',
     'window/size/viewport_width=1280',
     'window/size/viewport_height=720',
+    '',
+    // P0-2 (2026-09-11): 双 key 关文件日志(同 game 模板分支,init 引导 qa run 自动化场景)
+    '[debug]',
+    '',
+    'file_logging/enable_file_logging=false',
+    'file_logging/enable_file_logging.pc=false',
     '',
   ].join('\n'), 'utf-8');
 

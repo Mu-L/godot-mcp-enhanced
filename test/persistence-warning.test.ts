@@ -18,6 +18,7 @@ const SUCCESS_RESULT = mockSuccessResult({
 
 vi.mock('../src/gdscript-executor.js', () => ({
   executeGdscript: vi.fn(async () => SUCCESS_RESULT),
+  executeGdscriptRuntime: vi.fn(async () => SUCCESS_RESULT),
   executeGdscriptTrusted: vi.fn(async () => SUCCESS_RESULT),
 }));
 

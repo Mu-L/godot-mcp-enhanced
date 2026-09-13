@@ -21,7 +21,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 46 个 MCP 工具（271 个 action，权威数据见 docs/capability-matrix.md，由 \`npm run build-matrix\` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -87,6 +87,15 @@ godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 d
 - **list_breakpoints**：列出当前活跃 tab 脚本的断点。
 - **⚠️ Phase 1 限制**：脚本必须在编辑器中打开且是当前活跃 tab。headless 模式返回 EDITOR_ONLY。
 
+### dap — DAP 断点调试（P9，TS 直连 editor DAP server）
+
+LuoxuanLove 移植：MCP server 直连 Godot editor 自带 DAP server（Debug Adapter Protocol，默认 127.0.0.1:6006）——引擎官方调试协议，比对标竞品"按图标找调试器按钮"的面板 hack 稳。与 \`debug\` 工具（editor 插件 EditorDebuggerPlugin 路径）并存互补；断点/单步调试优先用本工具。
+
+- **前置（一次性）**：editor 开启调试服务器——Editor Settings → Network → Debug Adapter（默认端口 6006）；launch 调试还需 Debug 菜单勾选 "Deploy with Remote Debug"。未开启时 \`initialize\` 报 DAP_UNAVAILABLE（附开启指引）。
+- **会话流（三段状态机，乱序拒）**：\`initialize\`（建 TCP + DAP 握手）→ \`launch\`（让 editor 启动调试会话；或 \`attach\`）→ \`set_breakpoint\`（可多次）→ \`configuration_done\`（断点下发完成）→ 断点命中后 \`stack_trace\` / \`step_over\` / \`continue\` / \`pause\`；\`output\` 收集调试输出；\`disconnect\`（可选 terminate_debuggee）/\`terminate\` 收尾。
+- **断点语义**：本地簿记 + \`setBreakpoints\` 全量重发（DAP 全量协议）；上限 512 sources × 256 lines；\`list_breakpoints\` 读本地簿记。source_path 接受 \`res://\`（须配 project_path 转绝对路径）或绝对路径。
+- **安全**：host 强制 loopback（127.0.0.1/localhost/::1；远程需 set_settings allow_remote_hosts 显式开）；DAP 响应经 sensitive-key 清洗（token/password/authorization/bearer 等键值 → [redacted]，防调试输出泄漏 secret）；超时上限 30s；会话上限 8。
+- **限制（诚实声明）**：只覆盖 GDScript（C# 断点需 .NET debugger，引擎 DAP scope）；\`attach\` 对 Godot DAP 支持有限（协议层透传，由 server 行为决定）；\`stack_trace\` 需暂停在断点；e2e 未覆盖真 editor（单测用 mock DAP server 覆盖协议层/状态机/清洗/上限，真 editor 路径手动验证）。
 ### engine — 实时 ClassDB 内省（editor-only）
 
 - **class_info**：查单个类的完整结构（属性/方法/信号/枚举/继承），默认 no_inherit=true 只看本类 own 成员。
@@ -142,6 +151,7 @@ Headless 模式下场景截图可能完全空白——headless 进程默认用 *
 - **add_node 无节点级冲突检测（吸收自 ai-kit enhanced-boundaries #5）**：\`batch_add_nodes\` 后再单独 \`add_node\` 加同名子节点不会报错，可能产生重复节点（尤其同父路径，Godot 加载时拒绝）。add 前先 \`query_scene_tree\` 查目标父下是否已有同名节点，走"query → 条件 add"模式。实现层（\`src/tscn/tscn-editor-add.ts\` \`_addNodeInner\`）无同级重名扫描；defects.md \`addnode-no-duplicate-check\`（OPEN）跟踪实现层修复。
 - **validate_scripts vs run_and_verify 可能不一致（吸收自 enhanced-boundaries #4）**：validate_scripts 跑 headless 验证器脚本（捕跨文件编译依赖），但不等于实跑场景（运行时动态行为/场景加载）。关键验证结论（如"脚本通过"）用 validate_scripts + run_and_verify 交叉确认，不一致时以 run_and_verify 实跑为准。
 - **load_skill 召回的是参考代码（吸收自 enhanced-boundaries #12）**：\`load_skill\` 检索第三方 skill 库（GodotPrompter / gd-agentic 等）召回的 scripts 是教学示例，非生产代码（可能含硬编码密钥 / null 崩溃 / 未验证模式）。复制到生产项目前必须人工审。
+- **未知参数被拒 + did-you-mean（P8, 2026-09-12）**：所有工具的顶层未声明参数（不在 inputSchema properties 中）一律拒绝——早期 additionalProperties 静默容忍已反转（regiellis 模式移植）；拼写接近时返回 did-you-mean 建议（Levenshtein 相似度 > 0.4，如 alpah → 想传 alpha?）。inputSchema 是参数 SSOT：handler 私下读取的键必须声明进 schema（CI \`check:ssot-params\` 审计声明面↔使用面零漂移，白名单 scripts/ssot-allowlist.json 记录有意例外；dispatcher 级公共键 \`godot_path\` 豁免——ToolDispatcher 对所有工具读它做 per-call Godot 二进制覆盖，~19 个未声明它的 headless 工具同样支持，P8 审查 B-1 清偿）；传错参数名会立刻报错而非被静默忽略。
 `,
 
   'godot-mcp-bridge.md': `---
@@ -175,7 +185,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 |--------|------|
 | \`ping\` | 检查游戏是否运行 |
 | \`get_tree\` | 获取场景树结构 |
-| \`find_nodes\` | 按名称/类型/路径查找节点 |
+| \`find_nodes\` | 按名称/类型/路径查找节点。params 可传 root 限定子树搜索范围（推荐绝对路径如 /root/Main；节点不存在时报错非静默全树）；near_node+max_distance 近邻查询（锚点须 Node2D/Node3D，只收同维度节点按距离升序含 distance 字段，锚点自身排除；max_distance 默认 1000）；observation_profile 观察档见「语义观察层」段 |
 | \`get_node_properties\` | 获取节点属性值 |
 | \`get_node_layout\` | 获取节点完整布局快照（type + position/global_position 成对 + Control anchor/offset + Sprite2D centered + Node3D Vector3，全走 _jsonify） |
 | \`get_performance\` | 获取性能统计（FPS/内存等） |
@@ -189,8 +199,8 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | method | 说明 |
 |--------|------|
 | \`send_key\` | 发送键盘事件（key + pressed） |
-| \`send_mouse_click\` | 发送鼠标点击（x, y, button, pressed） |
-| \`send_mouse_move\` | 移动鼠标（x, y） |
+| \`send_mouse_click\` | 发送鼠标点击（x, y, button, pressed）。button 支持 int 1-9 或 left/right/middle |
+| \`send_mouse_move\` | 移动鼠标（x, y；可选 button_mask 1=left/2=right/4=middle 位掩码，配合先 press 可模拟按住拖动） |
 | \`send_text\` | 输入文本（text） |
 | \`send_input_sequence\` | H1(2026-08-20) 帧定时输入时间线（timeline=[{at_frame:1-600 开窗后第N帧, type:"action"/"key"/"mouse_click"/"mouse_move"/"touch"/"drag", ...事件参数}], settle_frames, wall_budget_ms）。延迟响应;owner 互斥同 control 层;frozen 下自动开窗播放+完成 refreeze;与 playtest.seed/fixed_delta 组合=确定性完全体。action 事件需 name 在项目 InputMap |
 
@@ -199,7 +209,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 | method | 说明 |
 |--------|------|
 | \`set_node_property\` | 设置节点属性值（path + property + value） |
-| \`call_method\` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单(get/has_*/get_meta 等),env \`GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2\` 可扩展(含写方法如 take_damage);\`EXTRA_METHODS_BLOCKLIST\`(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线;args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数正确转换);方法不存在时返回 did-you-mean 建议;response 含 undoable=false(call 不可 undo) |
+| \`call_method\` | 调用节点方法（path + method + args）。CMP-9-B(2026-08-08)增强:默认只读白名单(get/has_*/get_meta 等),env \`GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2\` 可扩展(含写方法如 take_damage),或游戏侧在节点脚本声明 const \`GDA_CALLABLE\` := ["方法名"](per-node 声明白名单,2026-09-11,default deny,零执行静态枚举);\`EXTRA_METHODS_BLOCKLIST\`(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线(env/声明均不可越过);args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数正确转换);强转不可达组合(个数不足/超出、类型不可转如 String→int 非数字、Dictionary→Object、typed Array)调用前显式报错 code -10(P0-1,防 callv 静默失败返回 null 被误读为成功);方法不存在时返回 did-you-mean 建议;response 含 undoable=false(call 不可 undo) |
 
 ### 等待 — game_wait
 
@@ -212,7 +222,7 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 
 | action | 说明 |
 |--------|------|
-| \`monitor_start\` | 开始属性采样（node_path + properties + interval_frames） |
+| \`monitor_start\` | 开始属性采样（node_path + properties + interval_frames）。P0-3(2026-09-11):interval_frames 为 60fps 基准标称帧数,实际按游戏时间毫秒调度(interval_ms=interval_frames*1000/60),帧率变化节奏不漂移;paused/freeze 期间游戏时间停走不采样;样本含 t_game_ms 游戏时间戳 |
 | \`monitor_stop\` | 停止采样，返回完整时间线 |
 | \`monitor_poll\` | 获取当前采样数据（不停止） |
 
@@ -228,14 +238,64 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 
 | action | 说明 |
 |--------|------|
-| \`find_ui_elements\` | 查找可见 Control 节点（pattern / type / visible_only / limit） |
-| \`click_button\` | 点击按钮（text 或 path） |
+| \`find_ui_elements\` | 查找可见 Control 节点（pattern / type / visible_only / limit / observation_profile），输出含 role/label 语义字段（见「语义观察层」段） |
+| \`click_button\` | 点击按钮（text 或 path；real_event=true 走真实输入事件路径） |
+
+### 弱网注入与自定义命令 — network_conditioner / custom_command
+
+| action | 说明 |
+|--------|------|
+| \`network_conditioner\` | op=set/clear/status——包装 MultiplayerPeer 出向注入 latency_ms/loss_pct/jitter_ms（多人联机弱网测试，masteryee 同款 MultiplayerPeerExtension 装饰器） |
+| \`custom_command\` | 调用游戏项目 res://mcp_commands/*.gd 声明的 custom.* 命令（method 必须以 custom. 开头，params 透传；支持运行中热加载，见下方「自定义命令热加载」段） |
+
+### 自定义命令热加载 — mcp_commands 状态机（P8）
+
+游戏运行中修改/新增/删除 \`res://mcp_commands/*.gd\` 会被 bridge 自动感知并重载（LuoxuanLove executor 模式移植），无需重启游戏：
+
+- **扫描节奏**：每 300ms debounce tick 对比文件 mtime（\`_process\` 限频，无变更秒回）；变更标记 \`reload_pending\`。
+- **quiesce 语义**：命令调用中（\`active_calls > 0\`）绝不换实例——重载/卸载推迟到调用归零（\`waiting_quiesce\`），防运行中 Callable 失效。
+- **失败回滚**：新版本加载失败（非 Node/缺 get_commands/非 Dictionary 契约违反）→ slot 进 \`reload_failed\` + \`last_error\`，**旧实例与旧命令原样可用**（旧版本继续服务）。文件修好后下次 mtime 变更自动恢复。
+- **独立加载（不走 ResourceLoader）**：新版本用 \`FileAccess\` 读源码 + \`GDScript.new()\` 独立对象加载——同路径 \`ResourceLoader.load\` 即使 \`CACHE_MODE_IGNORE\` 也会就地替换 ResourceCache 共享资源，旧实例的方法表随之消失（实测回滚保留的旧 Callable \`is_valid()=false\`）；独立对象加载失败即丢弃，旧脚本资源从未被触碰，回滚天然有效。
+- **删除处理**：文件消失时若调用中则 \`removed_pending\` 等归零再卸载；空闲直接卸载 slot。
+- **重名冲突**：多个 .gd 声明同一 \`custom.xxx\` → **路径字典序靠前者赢**（索引按 sort 顺序全量重建，与注册时间无关），后者 slot \`reload_failed\` 清空命令集（\`last_error\` 报 Duplicate）。
+- **内建诊断**：\`game(action=custom_command, method=custom.list)\` 返回全部 slot 状态快照（state/version/commands/active_calls/pending_reload/last_error）——agent 可观察热加载结果与失败原因。
+- **env 开关**：\`GODOT_MCP_BRIDGE_CUSTOM_HOT_RELOAD=0\` 关闭热重载（退化为启动加载一次；mtime 变更不再触发重载，状态字段照常上报）。
+- **⚠️ 已知引擎限制**：运行中写入**语法坏**的 .gd 会触发 Godot Script Debugger REPL（debug> 提示符停等 stdin，主循环挂死，bridge 不可防）——语法错误请在 IDE 侧先消灭；bridge 防线覆盖"合法语法但违反契约"的坏文件（如 extends RefCounted）。
+
+### 多人状态同步 — sync_state（P10）
+
+masteryee sync_state 移植裁剪——**快照/比对两段式原语，不做进程编排**（多游戏实例由用户/agent 起在各端口，bridge 端口避让已有；借连接切换打多个快照后比对）：
+
+- **收集约定（游戏侧声明）**：节点实现 \`_mcp_state() -> Dictionary\` 即被 \`collect_state\` 收集（返回**离散状态**——wave/score/phase 等；浮点位置类建议游戏侧自行量化）。返回非 Dictionary 记 \`__error__\` 标记；嵌套 Object 递归降级 str()（不炸 JSON）；上限 256 节点/深度 8。
+- **group 参数**（如 \`mcp_watch\`）：组内**无** \`_mcp_state\` 的成员记 \`{"__present__": true}\` 存在性标记——参与节点集比对（节点增删可测）。
+- **快照流**：\`game(action=sync_state, sub_action=snapshot, label=host)\` 收集当前 bridge 状态存内存快照（进程生命周期）；切到另一实例连接再 snapshot(label=client)；\`sub_action=compare, label_a=host, label_b=client, tolerance=0.0001\` 比对；\`list\`/\`clear\` 管理快照。
+- **浮点容差（关键设计——masteryee 亲读坑）**：数值 \`|a-b|<=tolerance\` 视为相等（默认 0.0001）；**Vector2/3/4/Color 自动转 \`{x,y,z}\` dict 走分量级容差**（裸几何类型经 JSON 序列化退化字符串会让容差完全失效——审查 B-1 清偿）；float 的 INF/NaN 降级字符串（防序列化漂移值语义）。原版 dict 严格相等比对在真实多人游戏**永远 false**（host/client 各自物理步进后浮点位置不逐位相等）——容差参数是该坑的修复，比对语义的一部分。
+- **比对输出**：\`in_sync\` / \`paths_compared\` / \`missing_in_b\` / \`missing_in_a\` / \`diffs[{path,key,a,b}]\`（键级 diff，嵌套数值在容差内不报）。
+- **典型用法**（多人同步验证）：起 host+client 两游戏 → 各自连接 → 同一逻辑时刻各 snapshot → compare 容差调到游戏可接受精度 → \`in_sync=true\` 证明状态同步；diffs 定位失步字段。
+- **边界（诚实声明）**：collect_state **不经 P7 观察层**（observation_profile 不生效）——\`_mcp_state\` 是游戏方声明面（与 custom_command 同构，节点自己决定暴露什么），player 档下需过滤的由游戏方在 \`_mcp_state\` 内自实现；快照 label 进程内全局（跨实例场景建议带实例前缀防静默覆盖）；256 节点截断时响应含 \`truncated: true\`（两侧同截断可能漏比，扩容靠游戏侧收窄声明面）。
+
+### 语义观察层 — observation_profile（P7）
+
+观察通道（\`find_nodes\` / \`get_node_properties\` / \`get_node_layout\` / \`get_tree\` / \`find_ui_elements\` / \`monitor_start\` / \`watch_start\` / \`game_wait\` 的 wait_for_node·wait_for_property / \`call_method\` / playtest.step·step_until 的 report 搭车与 conditions）支持 \`observation_profile\` 参数（\`"debug"|"player"\`，默认 debug；game_query/game_wait/game_write 走 params 内同名键）：
+
+- **debug**：直通现状——所有节点与属性全量可见（节点有规则也不投影）。
+- **player**：投影档。**门禁三态**（env \`GODOT_MCP_BRIDGE_ALLOWED_PROFILES\`，启动时读一次）：未设/\`debug\` = 仅 debug（请求 player 得 -21，非法值 -20）；**单值 \`player\` = host 强制档**——全部观察请求被静默提升为 player（agent 不能自降级绕过投影，对齐 gua "profile 由 host 持有"）；多值 \`debug,player\` = 请求级可选（开发/测试模式）。生效行为：
+  - **可见性级联**：节点或任一祖先 meta \`agent_exposure="private"\` 或 \`visible_to_player=false\`（bool 或字符串 "false"，均大小写不敏感）→ 整棵子树不可观察：不进 find_nodes/find_ui_elements/get_tree 结果（get_tree 整枝剪除）；get_node_properties/get_node_layout/monitor_start/watch_start/call_method 对其报 \`Node not found\`（存在性不泄露，报 404 而非 403）；wait_for_node 对其 exists=false；report 搭车/conditions 对其报 node not found。两维度正交：private=对象级整藏，visible_to_player=玩家不可见；与渲染 visible 无关（纯声明语义）。
+  - **字段投影**：节点 meta \`agent_field_rules\`（Array，每条 \`{path, mode, replacement?, quantum?}\`；path 是输出 dict 键，支持 \`position.x/y/z\` 分量级；单节点上限 32 条，重复 path 后者覆盖）——\`omit\` 删键 / \`redact\` 数值归 0·bool 归 false·字符串换 "[redacted]" / \`replace\` 换声明替值（须安全标量，Object 型降级 redact）/ \`quantize\` 数值按 quantum snapped（整键作用于 dict 值如 position 时逐分量应用）。坏规则 fail-closed 降级为 redact（写错规则不会被惩罚成裸暴露）。规则每次查询实时读取，游戏运行中改 meta 即时生效（战争迷雾类动态语义）。
+  - **call_method 读白名单同语义**：player 档下 \`get(prop)\` 返回值过字段投影（含 await_completion 协程路径）；结构枚举方法（get_children/get_child/get_child_count/get_parent/get_index/get_groups/get_incoming_connections/get_signal_connection_list）整组拒（-22——树已剪枝，枚举语义不成立且 index 两档漂移是错位陷阱，枚举请用 get_tree player 档）；其余白名单方法照常。
+  - **wait_for_property / conditions**：current 显示与 match 比较均基于投影后值（防"显示投影值按真值 match"的二分探测侧信道）。
+  - **playtest.snapshot / restore 在 player 档拒绝**（-23）——快照必须保真才能恢复，投影快照 restore 会把投影值写回游戏（语义冲突，诚实拒绝）。
+  - **monitor/watch 中途隐藏**：采样/事件在节点不可观察期间静默跳过（时间线缺格），恢复可见自动续记；断线重连后订阅重发。
+  - **near 联动**：player 档下 position 有任何字段规则的锚点被拒（-11，防距离差分反推隐藏/粗化坐标）、候选节点被静默排除。
+  - **边界（诚实声明）**：watch 事件 args 不做字段投影（信号参数是位置参数无字段名——需要隐藏的信号把信号源藏进不可见子树，或不在 player 档监听）；**take_screenshot 是玩家视角的诚实呈现**（private 但渲染可见的节点在截图中视觉存在——渲染层的隐藏是游戏自己的 visible 逻辑，观察投影管数据通道不管像素）；写类操作（set_node_property/输入注入/click_button）不受观察档影响（授权走既有白名单三通道）；editor 层（read_scene 等 headless 文件操作）不经此层——"防看穿"覆盖 bridge 运行时数据通道。
+
+\`find_ui_elements\` 输出含 \`role\`/\`label\`（**全档位**，语义信息非隐私）：Button→button、CheckBox/CheckButton→checkbox、OptionButton→combobox、Slider/SpinBox→slider、LineEdit/TextEdit→textbox、Label→text、ProgressBar→progressbar、ItemList→list、TabContainer→tablist、ScrollContainer→scrollarea、其余 Control→panel；label 取 text 类控件（Button/Label/LineEdit/TextEdit）的 text、OptionButton 取节点名（其 text 是选中项文本）、容器类取节点名。
 
 ### 工具组管理 — manage_tools
 
 | action | 说明 |
 |--------|------|
-| \`list_groups\` | 列出所有工具组及其启用/停用状态 |
+| \`list_groups\` | 列出所有工具组及其启用/停用状态 + 每 profile 实测 bytes/approxTokens 价格标签 |
 | \`activate\` | 启用指定工具组（按名称） |
 | \`deactivate\` | 停用指定工具组（按名称） |
 | \`sync\` | 返回各工具组的 \`requires\` 连接状态（editor/bridge/headless） |
@@ -316,7 +376,7 @@ game(action="monitor_start", node_path="/root/Player", properties=["position", "
 // → { monitoring: true, node_path: "/root/Player", properties: [...], interval_frames: 5 }
 
 game(action="monitor_poll")
-// → { monitoring: true, samples: [{frame: 100, time: 1.667, values: {position: {x:10,y:0}}}], sample_count: 1 }
+// → { monitoring: true, samples: [{frame: 100, time: 1.667, t_game_ms: 1666.7, values: {position: {x:10,y:0}}}], sample_count: 1 }
 
 game(action="monitor_stop")
 // → { monitoring: false, samples: [...], sample_count: 30, duration_seconds: 2.5 }
@@ -370,9 +430,13 @@ game_query(method="ping")
 - **watch Lambda 适配器**：信号回调使用 0-4 参数的匹配 Callable，超过 4 参数的信号只记录前 4 个。
 - **watch 自动断开**：事件达到 max_events 后自动断开信号连接并停止。
 - **find_ui_elements 最大返回**：默认 200，上限 500 条结果。
-- **click_button**：通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件。
+- **click_button**：默认通过 emit_signal("pressed") 触发，不模拟实际鼠标点击事件（**不切换 button_pressed 状态**——CheckBox/RadioButton 点击"成功"但没勾上时用此解释）。传 \`real_event=true\` 走真实输入事件路径：press/release InputEventMouseButton 注入 viewport，走完整引擎输入管道（切换 button_pressed/触发 button_group 互斥/focus），响应含 \`signal_counts\`（pressed/toggled 等信号计数）与 \`verified\`（等 4 帧延迟响应，同 call_method await_completion 模式）。
 - **call_method 白名单只读（S5, v0.18.x+）**：\`ALLOWED_METHODS\` 仅含只读方法（get/has_*/get_meta/get_signal_list 等），刻意禁状态修改（防 call_method 任意执行）。\`emit_signal\`/\`_on_*\` 回调/业务方法默认被拒。需触发业务逻辑时：(a) 设环境变量 \`GODOT_MCP_BRIDGE_EXTRA_METHODS=emit_signal,xxx\` 显式扩展（opt-in，注意 emit_signal 会触发已连接的任意回调，安全降级）；(b) 用 \`set_node_property\` 改属性间接触发；(c) 业务逻辑内联到 GDScript 片段。注：\`_cmd_call_method\` 仍有 \`args.size() > 8\` 拒绝限制（>8 参数的调用/emit_signal 会失败）。
-- **call_method CMP-9-B 增强（v0.27.0+）**：(1) args 按方法声明类型自动强转（传 \`[1,2,3]\` 给 Vector3 参数正确转换，Godot callv 不自动转，防静默零值）；(2) 方法不存在时返回 did-you-mean 建议（\`String.similarity\` > 0.6 取最高分）；(3) response 含 \`undoable: false\`（call 不可 undo，对标竞品）；(4) \`EXTRA_METHODS_BLOCKLIST\`（free/queue_free/set_script/call/callv/emit_signal/connect/disconnect 等）是不可覆盖硬底线（即使 env 列出也拒，防 RCE/运行时结构破坏）。向后兼容：不设 env 时行为完全不变。
+- **call_method CMP-9-B 增强（v0.27.0+）**：(1) args 按方法声明类型自动强转（传 \`[1,2,3]\` 给 Vector3 参数正确转换，Godot callv 不自动转，防静默零值）；(2) 方法不存在时返回 did-you-mean 建议（\`String.similarity\` > 0.6 取最高分）；(3) response 含 \`undoable: false\`（call 不可 undo，对标竞品）；(4) \`EXTRA_METHODS_BLOCKLIST\`（free/queue_free/set_script/call/callv/emit_signal/connect/disconnect 等）是不可覆盖硬底线（即使 env 列出也拒，防 RCE/运行时结构破坏）。向后兼容：不设 env 时行为完全不变。(5) P0-1(2026-09-11) callv 参数预检——coerce 后仍不可达方法声明的组合(个数不足/超出、类型不可转如 String→int 非数字、Dictionary→Object、null→int、typed Array/Dict、JSON array→Array[int])在调用前显式拒绝(code -10),防 callv 静默失败返回 null 被误读为成功(与 void 返回不可区分);方法签名取不到的动态方法放行,由 callv 自行处理。(6) GDA_CALLABLE per-node 声明白名单(2026-09-11 P1 批)——游戏侧在节点脚本声明 const GDA_CALLABLE := ["take_damage"],bridge 沿脚本基类链静态读 get_script_constant_map() 枚举(零项目代码执行,default deny:不声明=不可调);信任边界:声明是声明者的断言(进游戏方 code review),bridge 保证未声明方法绝不可调;BLOCKLIST 仍是硬底线(声明也拦)。
+- **monitor 游戏时间调度（P0-3, 2026-09-11）**：采样节奏锚定游戏时间(delta*1000 累计,含 time_scale)而非帧数——帧步长在窗口期帧率变化时实际节奏漂移 2-4 倍(satellite #378 同款坑)。paused/freeze 期间不计时不采样;长帧跨多个采样点只 resync 不 burst 补帧;monitor_stop 时若游戏时间推进过但末次采样未赶上会补采终态。已知限制:采样在 bridge 帧前执行,读数统一迟一帧(时间线形状无损);帧末精确对齐需独立采样器子节点(评估后未做,防帧定时输入注入的时序偏移)。
+- **P2 control 层增强（2026-09-11）**：(1) report 搭车——playtest.step/step_until 可带 report=[{path,property}](≤16 条,结构化,不引入 Expression,属性过黑名单),响应自带终态读数(省紧随观察往返);逐条失败带 error 不炸。(2) freeze 竞争上报——游戏代码在 freeze 下 unpause 时 bridge re-assert 并计数,unfreeze 响应含 frozen_for_ms/contended_reasserts(>0 = 游戏对抗过 freeze,每次 re-assert 可漏一帧,诚实报数)。(3) 函数级 profiling——run_project(profiling=true) 传 --remote-debug(spawn 前绑端口,attach 会话无此通道),之后 profiler 工具 capture_functions(seconds/top/sort/capture_limit) 一次调用采窗口+排名(引擎原生流,函数级 self/total 热点+最慢帧 top30,等价编辑器 Profiler 面板;帧级分析仍用 get_data)。
+- **P3 能力扩展（2026-09-11）**：(1) 弱网注入 network_conditioner——op=set 包装当前 MultiplayerPeer(MultiplayerPeerExtension 装饰器,只改**出向**:静默丢包/延迟+jitter 进队列 16ms flush;无带宽限制;host 侧装=影响 host 发给所有 client,双向对称需两端各装;依赖 SceneMultiplayer 高阶 API,raw socket 不走此管道),无 peer(OfflineMultiplayerPeer)诚实报错不装空壳;clear 恢复原 peer(游戏自行换过 peer 则不覆盖)且幂等;status 报 pending_packets。(2) custom_command 项目本地命令——游戏开发者丢 .gd 进 res://mcp_commands/(get_commands() -> {"custom.xxx": Callable}),bridge _ready 宽容注册(load 失败/非 Node/无方法/非 Dictionary 一律跳过不崩启动),custom. 前缀强制(内建零冲突,default deny;信任边界同 GDA_CALLABLE:声明面=游戏源码方责任,进游戏方 code review);调用 game(action=custom_command, method=custom.xxx, params=...),未声明命令 bridge 返 -32601。(3) manage_tools list_groups 响应加 profiles 价格标签(每 profile 实测 bytes + approxTokens,Buffer.byteLength 口径含中文)——切 profile 前先看价格(对照 BuildersGate 105k 基线)。
+- **P8 热加载（2026-09-12）**：mcp_commands 状态机——mtime+300ms debounce tick 感知文件变更；命令调用中不换实例(quiesce,active_calls 归零才重载/卸载)；加载失败回滚旧实例继续服务(slot=reload_failed+last_error,文件修好后自动恢复)；GDScript.new()+FileAccess **独立加载**(不走 ResourceLoader:同路径 load 即使 CACHE_MODE_IGNORE 也就地替换共享资源,旧实例方法表消失、旧 Callable is_valid()=false——实测坑,独立对象加载失败即丢弃,回滚天然有效)；删除文件 quiesce 后卸载 slot；重名冲突路径字典序靠前者赢(后者 reload_failed 清空);\`custom.list\` 内建诊断返回 slot 状态快照；env GODOT_MCP_BRIDGE_CUSTOM_HOT_RELOAD=0 关闭热重载。已知边界：运行中写入**语法坏** .gd 触发 Script Debugger REPL 挂死主循环(引擎层,bridge 不可防——语法错误 IDE 侧先消灭;bridge 防线覆盖"合法语法坏契约"如 extends RefCounted)。
 - **send_key 已支持 physical_keycode（S6, v0.18.x+）**：\`_cmd_send_key\` 同时设 \`keycode\` + \`physical_keycode\`，触发用物理键码映射的 input action（Godot 4 推荐 physical_keycode 映射）。早期版本只设 keycode，physical 映射项目（如 \`ui_right\` 用 physical）不触发。
 - **多用户环境不安全**：Bridge 使用 TCP 绑定 127.0.0.1 + 共享密钥认证。在单用户本地开发环境下足够安全，但在多用户共享系统（如远程开发服务器）上，localhost 通信可被同一机器上的其他用户嗅探。如需多用户隔离，考虑使用 Unix Domain Socket（仅文件权限控制访问）。
 `,
@@ -959,6 +1023,12 @@ alwaysApply: false
 - **★ Label 垂直对齐默认 TOP，CSS line-height 居中惯用法失效**：CSS \`line-height = height\` 的文本垂直居中在 Godot 不成立——Label 默认 \`vertical_alignment=0\`(TOP)，单行文本会贴顶。需显式 \`vertical_alignment=1\`(CENTER)。\`ui_import_prototype\` 翻译器对全部 Label 已固定 \`vertical_alignment:1\`；手写 properties 时勿漏。关联：ui_build_layout/ui_create_control 文本节点、ui_import_prototype 翻译规则 3。
 - **Control 高度被字体最小行高钳制（minimum_size 顶开）**：Label/Button 的 rect.h 小于字体行高时，引擎 \`Control.minimum_size\` 把高度顶开到行高——**无警告静默变高**，verify 的 \`dh\` 会暴露（实际比目标高）。文本控件 rect.h 需 ≥ fontSize*1.5，或显式调小字号。\`ui_import_prototype\` 翻译器对 rect.h < fontSize*1.5 发 warning（"可能被字体最小行高钳制"）。关联：ui_import_prototype 行高预警、ui_measure_layout(layout_verify.diff 的 dh)。
 - **★ ProgressBar 默认主题最小高 27px（Godot 4.7，实测）**：默认主题 stylebox 把 ProgressBar 的 \`Control.minimum_size\` 顶到约 27px——原型 rect.h=16 落地实测 27px（2026-08-16 RTS HUD fixture HpBar 集成验收，dh=+11）。这是主题硬约束非 bug；处置：原型侧把 rect.h 调到 ≥27，或换自定义 Theme stylebox。\`ui_import_prototype\` 翻译器对 rect.h < 27 发 "will be clamped" warning（具名常量 PROGRESS_BAR_MIN_HEIGHT=27，**无条件**——实测 Godot 4.7.1 h=16：无 override→27、bg-only→23、fill-only→27、bg+fill→23，全组合被钳，override 只改变钳制值不消除钳制）。同类：Button 默认主题也有最小高约束。关联：ui_import_prototype 引擎下限预警、ui_set_theme。
+
+## 多人联机与弱网测试（network_conditioner / ENet peer / 多人 e2e）
+
+- **★ ENetMultiplayerPeer.get_local_port() 在 Windows Godot 4.6.3 阻塞挂死主循环（实测）**：探针二分定位——create_server(0) 返回 OK、set_multiplayer_peer 不挂，**唯独 get_local_port() 调用后进程无响应挂死**（--script 探针与完整游戏均复现，stdout 因挂死未 flush 看似无输出）。多人 e2e fixture 与探针一律**不调 get_local_port()**；需要端口信息的场景改从 create_server 显式传端口 + 自记录。关联：test/fixtures/p3-e2e/main.gd setup_net_peer 注释、network_conditioner e2e。
+- **多人 peer 未配置时 get_multiplayer_peer() 返回 OfflineMultiplayerPeer 而非 null**：判断"多人未启用"要同时查 null 与 \`is OfflineMultiplayerPeer\`（bridge network.set_conditions 的空壳防护即此形态）。
+- **弱网注入只作用于出向包**：host 侧装 conditioner = 影响 host 发给所有 client 的包；双向对称弱网需两端各装。无带宽限制；raw socket 不走 MultiplayerPeer 管道（依赖 SceneMultiplayer 高阶 API）。
 `,
 
   'godot-mcp-workflow-bridge-e2e.md': `---

@@ -11,6 +11,8 @@
  * NIT-7 修复：CLI 直调不经 ToolDispatcher（无 confirm/audit 门），run/nightly 成功后手动
  * appendAuditLine 留痕（best-effort，失败不阻断跑批）——夜间跑批的操作审计可追溯。
  */
+import { EXIT_CODES } from '../core/exit-codes.js';
+
 import { join } from 'path';
 import { readdirSync, readFileSync } from 'fs';
 import { opt } from './args.js';
@@ -107,14 +109,14 @@ export async function runQa(args: string[]): Promise<void> {
     const specPath = positional[0];
     if (!specPath) {
       usage();
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     const runArgs: Record<string, unknown> = { action: 'run', spec_path: specPath };
     if (project) runArgs.project_path = project;
     const { json, text, isError } = await callQa('run', runArgs);
     if (isError || !json || json.success !== true) {
       console.error(text);
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     const data = json.data as RunData;
     await auditRun(data);
@@ -125,7 +127,7 @@ export async function runQa(args: string[]): Promise<void> {
       console.log(`QA ${data.summary.status}: ${s.passed} passed / ${s.failed} failed / ${s.errors} errors / ${s.skipped} skipped (${(s.duration_ms / 1000).toFixed(1)}s)`);
       console.log(`  report: ${data.report.md_path}`);
     }
-    process.exit(data.summary.status === 'PASSED' ? 0 : 1);
+    process.exit(data.summary.status === 'PASSED' ? EXIT_CODES.EXIT_OK : EXIT_CODES.EXIT_OPERATION_FAILED);
   }
 
   if (verb === 'nightly') {
@@ -134,7 +136,7 @@ export async function runQa(args: string[]): Promise<void> {
     const specDir = positional[0];
     if (!specDir) {
       usage();
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     // 安全裁决（审查 Nit-1，对齐 project.ts list_projects search_dir 先例）：specDir 为本地
     // CLI 用户自定目录，不做前置白名单（仅目录文件名元数据枚举，且 CLI 为本地主动运行非
@@ -144,11 +146,11 @@ export async function runQa(args: string[]): Promise<void> {
       files = readdirSync(specDir).filter(f => f.endsWith('.json') || f.endsWith('.md')).sort();
     } catch (err) {
       console.error(`spec 目录不可读: ${specDir} (${err instanceof Error ? err.message : String(err)})`);
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     if (files.length === 0) {
       console.error(`目录内无 spec 文件(*.json / *.md): ${specDir}`);
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
 
     const results: Array<Record<string, unknown>> = [];
@@ -220,14 +222,14 @@ export async function runQa(args: string[]): Promise<void> {
     } else {
       console.log(`\nnightly 汇总: ${results.length} 套件 · ${passedCount} PASSED / ${results.length - passedCount} FAILED · 回归 ${regressions} · 修复 ${fixed}`);
     }
-    process.exit(anyFailed ? 1 : 0);
+    process.exit(anyFailed ? EXIT_CODES.EXIT_OPERATION_FAILED : EXIT_CODES.EXIT_OK);
   }
 
   if (verb === 'report') {
     const { json, text, isError } = await callQa('report', { action: 'report', report_path: rest[0] ?? 'latest' });
     if (isError || !json || json.success !== true) {
       console.error(text);
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     console.log(JSON.stringify((json.data as { report: unknown }).report, null, 2));
     return;
@@ -241,7 +243,7 @@ export async function runQa(args: string[]): Promise<void> {
     });
     if (isError || !json || json.success !== true) {
       console.error(text);
-      process.exit(2);
+      process.exit(EXIT_CODES.EXIT_USAGE);
     }
     const d = json.data as { verdict: string; regressions: unknown[]; fixed: unknown[]; added: unknown[]; removed: unknown[]; base_run_id: string; head_run_id: string };
     console.log(`diff ${d.base_run_id} → ${d.head_run_id}: ${d.verdict}`);
@@ -249,9 +251,9 @@ export async function runQa(args: string[]): Promise<void> {
     for (const r of d.regressions as { case: string; head_detail?: string }[]) {
       console.log(`  REGRESSION  ${r.case}${r.head_detail ? ` — ${r.head_detail}` : ''}`);
     }
-    process.exit(d.verdict === 'REGRESSED' ? 1 : 0);
+    process.exit(d.verdict === 'REGRESSED' ? EXIT_CODES.EXIT_OPERATION_FAILED : EXIT_CODES.EXIT_OK);
   }
 
   usage();
-  process.exit(2);
+  process.exit(EXIT_CODES.EXIT_USAGE);
 }

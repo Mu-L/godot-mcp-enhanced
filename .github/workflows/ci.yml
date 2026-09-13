@@ -41,6 +41,17 @@ jobs:
         # 校验手写工具数/action 数与 capability-matrix.json 一致；漂移 exit 1。
         # 覆盖独立副本同步约束（rule-templates.ts vs .claude/rules/），补 check-rules-version-bump 的内容盲区。
         run: node scripts/check-tool-count.mjs
+      - name: Check SSOT params（P8-3：handler args 键 ⊆ schema ∪ 白名单）
+        # 双防线第二道：静态对账 handler 源码读取的顶层参数键与 inputSchema.properties。
+        # 与运行时 unknown-param 拒绝（P8-2）互补——防 handler 读未声明键的 typo 黑洞。
+        # 白名单 scripts/ssot-allowlist.json 需人工核对后提交（--fix 生成初稿）。
+        # 读 committed matrix（drift step 已保证最新），对账 src/tools/ 源码。
+        run: node scripts/check-ssot-params.mjs
+      - name: Check e2e L2 coverage（架构检查 D1：gate 文件 ⊆ CI L2 列表机械对账）
+        # p3/p8/p7 三连漏加白名单事故的机械防线：引用 GODOT_MCP_E2E_L2 gate 的测试文件
+        # 必须在下方 E2E 步骤的 vitest 文件列表里（漏加 = CI 恒 skip = 无护栏）。
+        # 新 L2 文件要么补进列表，要么文件头加 "e2e-l2-coverage: exempt(<原因>)" 豁免标记。
+        run: node scripts/check-e2e-l2-coverage.mjs
       - name: Check tool groups invariant（CMP-12/13：module 注册 ↔ TOOL_GROUPS 归组一致性）
         # 校验 module-loader 注册的每个工具都在 TOOL_GROUPS 的 tools 或 ALWAYS_ALLOWED 里。
         # 防"module 注册了但 TOOL_GROUPS 漏加"→ isToolAllowed 恒 false → 工具发现层隐藏 + 执行层不可用。
@@ -210,7 +221,14 @@ jobs:
         # 扫描发现端口,双实例并行 secret/端口串门致 run_project wait_for_bridge 失败
         # (master 32485788334 两连红同用例,同代码 PR run 绿 = 时序竞态非代码回归;
         # PR#57 前 GD 确定性绑 9081 掩盖此竞态)。
-        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run --no-file-parallelism test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
+        # P8 审查 N-1 (2026-09-12): 补 p3-e2e/p8-e2e 进白名单——L2 列表是白名单制,
+        # 新增 e2e 文件默认不进 CI(check job 的 vitest 收集但无 GODOT_MCP_E2E_L2 恒 skip),
+        # p3/p8 连续两批漏加致热加载运行中改/删/回滚行为无 CI 护栏。
+        # 架构检查 D1 (2026-09-12): 再补 6 个更早漏加的 gate 文件(p7-e2e/qa-suite/qa-assert-batch/
+        # bridge-feedback-pits/bridge-input-seq/gd-symmetry——其 L2 用例在 CI 从未跑过),
+        # 并转对账制:check job 的 check-e2e-l2-coverage 步骤机械校验"引用 GODOT_MCP_E2E_L2
+        # gate 的文件 ⊆ 本列表",新 L2 文件漏加即 CI 红,白名单漏加事故(p3/p8/p7 三连)不再可能。
+        run: xvfb-run -a -s '-screen 0 1920x1080x24' npx vitest run --no-file-parallelism test/e2e-full-tool-verification.test.ts test/e2e-p1-p5.test.ts test/tools/data-import-integration.test.ts test/e2e-resilience-headless.test.ts test/gdscript-unit.test.ts test/gdscript-bridge-error-capture.test.ts test/e2e-bridge-get-node-layout.test.ts test/p3-e2e.test.ts test/p8-e2e.test.ts test/p7-e2e.test.ts test/e2e-qa-suite.test.ts test/e2e-qa-assert-batch.test.ts test/e2e-bridge-feedback-pits.test.ts test/e2e-bridge-input-sequence.test.ts test/e2e-gd-symmetry.test.ts --reporter=json --outputFile=coverage/e2e-report-${{ matrix.name }}.json
         env:
           GODOT_PATH: ${{ env.GODOT_PATH }}
           # 2026-08-06 审查测试-P2-4：L2 bridge 字段级守护。

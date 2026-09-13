@@ -1,9 +1,13 @@
 import { expect, it, beforeEach, describe, vi } from 'vitest';
 import { mockSuccessResult } from './helpers/mock-results.js';
 
-vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(() => Promise.resolve(mockSuccessResult())),
-}));
+vi.mock('../src/gdscript-executor.js', () => {
+  const _execMock = vi.fn(() => Promise.resolve(mockSuccessResult()));
+  return {
+    executeGdscript: _execMock,
+    executeGdscriptRuntime: _execMock,
+  };
+});
 
 vi.mock('../src/helpers.js', () => ({
   requireProjectPath: vi.fn((args) => args.project_path || '/fake/project'),

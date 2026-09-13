@@ -5,9 +5,13 @@ import { tmpdir } from 'os';
 import { mockSuccessResult } from './helpers/mock-results.js';
 
 // A3 测试需要捕获 executeGdscript 收到的 GDScript 片段, 断言含持久化回写(owner+pack+save)。
-vi.mock('../src/gdscript-executor.js', () => ({
-  executeGdscript: vi.fn(async () => mockSuccessResult({ duration_ms: 1 })),
-}));
+vi.mock('../src/gdscript-executor.js', () => {
+  const _execMock = vi.fn(async () => mockSuccessResult({ duration_ms: 1 }));
+  return {
+    executeGdscript: _execMock,
+    executeGdscriptRuntime: _execMock,
+  };
+});
 
 import * as scene from '../src/tools/scene.js';
 import { executeGdscript } from '../src/gdscript-executor.js';

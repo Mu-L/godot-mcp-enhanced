@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { stripEnvelope } from '../src/core/untrusted-wrap.js';
 import { rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -76,7 +77,7 @@ describe('read_script — C# 文件', () => {
       script_path: csPath,
     }, ctx);
 
-    const data = JSON.parse((result as { content: Array<{ text: string }> }).content[0]!.text);
+    const data = JSON.parse(stripEnvelope((result as { content: Array<{ text: string }> }).content[0]!.text));
     expect(data.language).toBe('csharp');
     expect(data.namespace).toBe('Game;');
     expect(data.class_name).toBe('Player');
@@ -95,7 +96,7 @@ describe('read_script — C# 文件', () => {
       script_path: csPath,
     }, ctx);
 
-    const data = JSON.parse((result as { content: Array<{ text: string }> }).content[0]!.text);
+    const data = JSON.parse(stripEnvelope((result as { content: Array<{ text: string }> }).content[0]!.text));
     expect(data.usings).toEqual([]);
   });
 });

@@ -8,6 +8,8 @@
  */
 
 /** 取字符串选项;两种形式都认。未指定返回 undefined。 */
+import { EXIT_CODES } from '../core/exit-codes.js';
+
 export function opt(args: string[], name: string): string | undefined {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -29,7 +31,7 @@ export function num(args: string[], name: string, fallback: number, range?: [num
   const n = Number(v);
   if (!Number.isFinite(n)) {
     console.error(`--${name} 需要数字,收到 "${v}"`);
-    process.exit(2);
+    process.exit(EXIT_CODES.EXIT_USAGE);
   }
   return range ? Math.max(range[0], Math.min(range[1], n)) : n;
 }

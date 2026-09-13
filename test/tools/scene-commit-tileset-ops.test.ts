@@ -13,7 +13,7 @@ const { mockExecuteGdscript, mockExists } = vi.hoisted(() => ({
   mockExists: vi.fn(() => true),
 }));
 
-vi.mock('../../src/gdscript-executor.js', () => ({ executeGdscript: mockExecuteGdscript }));
+vi.mock('../../src/gdscript-executor.js', () => ({ executeGdscript: mockExecuteGdscript, executeGdscriptRuntime: mockExecuteGdscript }));
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();

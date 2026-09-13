@@ -1,3 +1,5 @@
+import { EXIT_CODES } from '../core/exit-codes.js';
+
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -23,7 +25,7 @@ export async function routeCommand(args: string[]): Promise<void> {
   if (!parsed) {
     console.error(`Unknown command: ${args[0]!}`);
     console.error('Run "godot-mcp-enhanced --help" for usage.');
-    process.exit(1);
+    process.exit(EXIT_CODES.EXIT_OPERATION_FAILED);
   }
 
   switch (parsed.subcommand) {
@@ -56,7 +58,7 @@ export async function routeCommand(args: string[]): Promise<void> {
       const { launchDashboardOnce } = await import('../dashboard/launcher.js');
       launchDashboardOnce();
       console.log('Dashboard starting... (use the separate terminal window)');
-      process.exit(0);
+      process.exit(EXIT_CODES.EXIT_OK);
       break; // unreachable — no-fallthrough 需要显式终止语句（process.exit 不被识别）
     }
     case 'qa': {

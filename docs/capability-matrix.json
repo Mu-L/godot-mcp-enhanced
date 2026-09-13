@@ -1,5 +1,5 @@
 {
-  "version": "0.32.11",
+  "version": "0.33.0",
   "tools": [
     {
       "name": "analysis",
@@ -1553,6 +1553,186 @@
       }
     },
     {
+      "name": "dap",
+      "group": "debug",
+      "description": "DAP 断点调试 — TS 直连 Godot editor 自带 DAP server(默认 127.0.0.1:6006,P9 移植)。 会话流:initialize → launch(或 attach)→ set_breakpoint(s) → configuration_done → (断点命中后) stack_trace/step_over/continue。 断点簿记本地自存 + setBreakpoints 全量重发(512 sources × 256 lines 上限);DAP 响应经 sensitive-key 清洗(防调试输出泄漏 secret)。 前置:editor 开启调试服务器(Editor Settings → Network → Debug Adapter,端口 6006);launch 还需 Debug 菜单\"Deploy with Remote Debug\"。 ⚠️ 只覆盖 GDScript(C# 断点需 .NET debugger);与 debug 工具(editor 插件面板 hook)并存互补,稳定性优先用本工具。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "get_settings",
+              "set_settings",
+              "initialize",
+              "launch",
+              "attach",
+              "configuration_done",
+              "disconnect",
+              "terminate",
+              "threads",
+              "set_breakpoint",
+              "remove_breakpoint",
+              "list_breakpoints",
+              "pause",
+              "continue",
+              "step_over",
+              "stack_trace",
+              "output"
+            ],
+            "description": "Action type: status | get_settings | set_settings | initialize | launch | attach | configuration_done | disconnect | terminate | threads | set_breakpoint | remove_breakpoint | list_breakpoints | pause | continue | step_over | stack_trace | output"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "DAP 会话 id(默认 settings.default_session_id,初始 \"default\")"
+          },
+          "host": {
+            "type": "string",
+            "description": "DAP host(默认 127.0.0.1;非 loopback 需 settings.allow_remote_hosts)"
+          },
+          "port": {
+            "type": "integer",
+            "description": "DAP 端口(默认 6006)"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "断点 source_path 用 res:// 相对路径时的项目根(转绝对路径给 DAP)"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "DAP 请求超时毫秒(默认 1000,上限 30000;launch 等慢操作建议传大)"
+          },
+          "settings": {
+            "type": "object",
+            "description": "set_settings: 运行时 DAP 设置(host/port/timeout_ms/default_session_id/default_launch_args/default_attach_args/allow_remote_hosts)"
+          },
+          "include_raw": {
+            "type": "boolean",
+            "description": "响应附带清洗后的原始 DAP request/response/messages(调试协议层用)"
+          },
+          "adapter_args": {
+            "type": "object",
+            "description": "launch/attach: 透传给 adapter 的参数字典(与默认合并,后者优先级高)"
+          },
+          "program": {
+            "type": "string",
+            "description": "launch: 可选 program 参数"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "launch: 可选工作目录"
+          },
+          "restart": {
+            "type": "boolean",
+            "description": "launch/attach/disconnect: DAP restart 标志"
+          },
+          "terminate_debuggee": {
+            "type": "boolean",
+            "description": "disconnect: 是否同时终止被调试进程"
+          },
+          "source_path": {
+            "type": "string",
+            "description": "set/remove_breakpoint: 脚本路径(res://... 或绝对路径;res:// 需配 project_path)"
+          },
+          "line": {
+            "type": "integer",
+            "description": "set/remove_breakpoint: 1-based 行号"
+          },
+          "thread_id": {
+            "type": "integer",
+            "description": "pause/continue/step_over/stack_trace: DAP thread id(默认 1)"
+          },
+          "disconnect": {
+            "type": "boolean",
+            "description": "terminate: 成功后同时关闭本地 DAP 会话(清断点簿记)"
+          },
+          "client_id": {
+            "type": "string",
+            "description": "initialize: DAP clientID 标识(默认 godot-mcp-enhanced)"
+          },
+          "client_name": {
+            "type": "string",
+            "description": "initialize: DAP clientName 显示名(默认 godot-mcp-enhanced)"
+          },
+          "adapter_id": {
+            "type": "string",
+            "description": "initialize: DAP adapterID(默认 godot)"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredParams": [
+        "action"
+      ],
+      "optionalParams": [
+        "session_id",
+        "host",
+        "port",
+        "project_path",
+        "timeout_ms",
+        "settings",
+        "include_raw",
+        "adapter_args",
+        "program",
+        "cwd",
+        "restart",
+        "terminate_debuggee",
+        "source_path",
+        "line",
+        "thread_id",
+        "disconnect",
+        "client_id",
+        "client_name",
+        "adapter_id"
+      ],
+      "readonly": false,
+      "longRunning": true,
+      "guarded": true,
+      "securityLevel": "guarded",
+      "riskDistribution": {
+        "read": 6,
+        "write": 12,
+        "destructive": 0,
+        "process": 0
+      },
+      "groupRequires": [
+        "editor"
+      ],
+      "offlineCapable": false,
+      "needsGodot": true,
+      "needsEditor": true,
+      "gdScriptImpl": {
+        "headless": {
+          "exists": false,
+          "path": null
+        },
+        "editor": {
+          "exists": false,
+          "path": null
+        }
+      },
+      "relatedDefects": [],
+      "verification": {
+        "l1": "extracted",
+        "l2": "none",
+        "l3": "unverified",
+        "lastRun": null
+      },
+      "size": {
+        "descBytes": 688,
+        "schemaBytes": 2667,
+        "totalBytes": 3355
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
       "name": "debug",
       "group": "debug",
       "description": "交互式调试器 — 断点管理 + Phase 2/3 调试器集成（editor-only）。 Phase 1: set/clear/list breakpoint（走 CodeEdit gutter，CMP-14 后支持自动打开脚本）。 Phase 2: stack_trace（读调用栈+变量）/ inspect_frame（切帧+读变量）/ evaluate（断点上下文 REPL）。 Phase 3: step（into/over 单步）/ continue（继续到下断点）/ pause（请求中断）/ reload_scripts（热重载）。 ⚠️ editor-only：需 GODOT_MCP_MODE=editor + 安装 Godot 插件 + 运行中游戏(F5)。 ⚠️ Phase 2/3 需游戏暂停在断点(step/inspect/evaluate)或运行中(pause/reload)。",
@@ -1950,7 +2130,7 @@
     {
       "name": "game",
       "group": "bridge",
-      "description": "游戏桥接操作。安装/卸载: game_bridge_install, game_bridge_uninstall。P2-1 overrides 注入: install_override/uninstall_override (启动游戏前注入任意调试脚本到项目 autoload,如日志钩子/状态快照)。查询: game_query (ping, get_tree, find_nodes, get_node_properties, get_performance, get_viewport_info, take_screenshot)。写入: game_write (set_node_property, call_method)。输入: game_input (send_key, send_mouse_click, send_mouse_move, send_text, send_touch, send_drag, send_input_sequence 帧定时输入时间线)。等待: game_wait (wait_for_node, wait_for_property)。P2-4 确定性 playtest: game_playtest (playtest.seed 锁随机, playtest.fixed_delta 锁步长, playtest.step 单步推进, playtest.snapshot/restore 状态快照)。G1 control 层: playtest.freeze (冻结游戏循环,bridge 仍响应), playtest.unfreeze (解冻), playtest.step_until (条件满足/帧尽/wall 超时即停,结构化条件 {path,property,op,value}[] AND)。监控: monitor_start/stop/poll (属性时间线采样)。信号: watch_start/stop/poll (信号事件记录)。UI: find_ui_elements/click_button (UI元素发现+按钮点击)。",
+      "description": "游戏桥接操作(游戏运行时经 bridge 通信):安装/卸载 bridge、查询场景树/节点属性/截图、写入属性/调方法、模拟输入、等待条件、确定性 playtest(seed/锁步长/单步/快照)、freeze 控制、monitor 属性采样、watch 信号记录、UI 元素发现与点击、弱网注入、项目自定义命令。完整用法见规则文档(或 help 工具)。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1977,7 +2157,10 @@
               "watch_stop",
               "watch_poll",
               "find_ui_elements",
-              "click_button"
+              "click_button",
+              "network_conditioner",
+              "custom_command",
+              "sync_state"
             ],
             "description": "操作类型"
           },
@@ -1990,13 +2173,43 @@
             "type": "string",
             "description": "install_override/uninstall_override: 源调试脚本绝对路径（必须在 ALLOWED_PROJECT_PATHS 白名单内,拷贝到项目根注册为 MCPOVERRIDE_<basename> autoload;插入 [autoload] 段末尾=在游戏 autoload 之后加载,脚本 _ready 可直接访问游戏单例,无需 await <Singleton>.ready）"
           },
+          "sub_action": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "compare",
+              "list",
+              "clear"
+            ],
+            "description": "sync_state 子操作:snapshot=收集当前 bridge 状态存快照|compare=比对两快照(浮点容差)|list=快照清单|clear=清空快照。"
+          },
+          "label": {
+            "type": "string",
+            "description": "sync_state snapshot: 快照标签(如 host/client);进程内全局——跨实例场景建议带实例前缀(如 gameA-host)防静默覆盖;compare 时用 label_a/label_b。"
+          },
+          "label_a": {
+            "type": "string",
+            "description": "sync_state compare: 比对快照 A 的标签。"
+          },
+          "label_b": {
+            "type": "string",
+            "description": "sync_state compare: 比对快照 B 的标签。"
+          },
+          "tolerance": {
+            "type": "number",
+            "description": "sync_state compare: 浮点容差(默认 0.0001,数值 |a-b|<=tolerance 视为相等;Vector2/3/4 自动转 {x,y,z} dict 分量级容差;浮点位置类不逐位相等是多人比对必然,masteryee 亲读坑)。"
+          },
+          "group": {
+            "type": "string",
+            "description": "sync_state snapshot: 可选组名(如 mcp_watch)——组内无 _mcp_state 的成员记存在性标记参与节点集比对。"
+          },
           "method": {
             "type": "string",
-            "description": "game_query/game_write/game_input/game_wait/game_playtest 的具体方法。game_query: ping, get_tree, find_nodes (支持 root 参数限定子树搜索范围,推荐绝对路径如 /root/Main;节点不存在时报错非静默全树), get_node_properties, get_node_layout, get_performance, get_viewport_info, take_screenshot, get_errors (查询游戏运行时错误,支持 since_seq 增量 + clear 读即焚), clear_errors (清空错误 buffer)。game_write: set_node_property, call_method (协程方法默认 fire-and-forget,返 {coroutine:true} 标记+说明;传 params.await_completion=true 走延迟响应等待返回值,长协程注意调大 timeout)。game_input: send_key, send_mouse_click (button 支持 int 1-9/left/right/middle), send_mouse_move (可选 button_mask 1=left/2=right/4=middle 位掩码,配合先 press 可模拟按住拖动), send_text, send_touch, send_drag (relative/speed 支持 [x,y] 数组或 {x,y} 对象), send_input_sequence (帧定时时间线,延迟响应)。game_wait: wait_for_node, wait_for_property。game_playtest: playtest.seed (锁全局 RNG,仅覆盖 randi/randf), playtest.fixed_delta (锁 physics 步长,delta=1/hz), playtest.step (单步推进 N 帧,走 coroutine 延迟响应), playtest.snapshot (快照场景树属性,不保信号/物理/已free节点), playtest.restore (从快照恢复属性)。G1 control 层: playtest.freeze (冻结 tree.paused), playtest.unfreeze (解冻), playtest.step_until (推进至 conditions 满足/帧尽/wall 超时,结构化条件 {path,property,op,value}[] AND,不引入 Expression)"
+            "description": "方法名(按 action 选)。game_query: ping/get_tree/find_nodes/get_node_properties/get_node_layout/get_performance/get_viewport_info/take_screenshot/get_errors/clear_errors。game_write: set_node_property/call_method。game_input: send_key/send_mouse_click/send_mouse_move/send_text/send_touch/send_drag/send_input_sequence。game_wait: wait_for_node/wait_for_property。game_playtest: playtest.seed/playtest.fixed_delta/playtest.step/playtest.snapshot/playtest.restore/playtest.freeze/playtest.unfreeze/playtest.step_until。细节见规则文档。"
           },
           "params": {
             "type": "object",
-            "description": "方法参数。game_query: 因方法而异。get_errors {since_seq?:int(默认0,只返回 seq>since_seq 的), clear?:bool(默认false,查询后清空 buffer)}。game_write: set_node_property {path, property, value}, call_method {path, method, args}。call_method 默认只读白名单(get/has_*/get_meta 等),env GODOT_MCP_BRIDGE_EXTRA_METHODS=method1,method2 可扩展(含写方法如 take_damage);EXTRA_METHODS_BLOCKLIST(free/queue_free/set_script/call/emit_signal 等)是不可覆盖硬底线。args 按方法声明类型自动强转(传 [1,2,3] 给 Vector3 参数会正确转换)。方法不存在时返回 did-you-mean 建议。response 含 undoable=false(call 不可 undo)。game_input: send_key {key, pressed}, send_mouse_click {x, y, button, pressed}, send_mouse_move {x, y}, send_text {text}, send_touch {x, y, pressed, index}, send_drag {x, y, index, relative, speed}, send_input_sequence {timeline:[{at_frame:1-600(开窗后第N帧),type:action|key|mouse_click|mouse_move|touch|drag,...事件参数}], settle_frames?:int(0-600), wall_budget_ms?:int(1000-50000), 事件≤256}(action 字段 name/pressed/strength?,其余 type 字段同各 send_*;frozen 下自动开窗播放+完成 refreeze)。game_wait: wait_for_node {path}, wait_for_property {path, property, value}。game_playtest: playtest.seed {seed:int}, playtest.fixed_delta {hz:int}, playtest.step {frames:int(1-60)}, playtest.snapshot/restore 无参数。G1 control: playtest.freeze/unfreeze 无参数, playtest.step_until {conditions:[{path:String,property:String,op:String(==/!=/</>/<=/>=),value:标量/几何}], max_frames?:int(1-600,默认600), wall_budget_ms?:int(1000-50000,默认30000)}"
+            "description": "方法参数(紧凑形状,完整说明见规则文档)。find_nodes{pattern?,type?,group?,limit?,root?,near_node?,max_distance?,observation_profile?}(near_node 近邻:同维度升序,锚点排除;player 档下 position 有字段规则的锚点/候选不参与测距);get_node_properties{path,observation_profile?};get_node_layout{path,observation_profile?};get_errors{since_seq?,clear?};set_node_property{path,property,value};call_method{path,method,args}(白名单+GDA_CALLABLE+预检-10 见规则);send_key{key,pressed};send_mouse_click{x,y,button,pressed};send_mouse_move{x,y};send_text{text};send_touch{x,y,pressed,index};send_drag{x,y,index,relative,speed};send_input_sequence{timeline[{at_frame(1-600),type,...}],settle_frames?(0-600),wall_budget_ms?(1000-50000)};wait_for_node{path};wait_for_property{path,property,value};playtest.seed{seed};fixed_delta{hz};step{frames};step_until{conditions[{path,property,op,value}],max_frames?(1-600),wall_budget_ms?(1000-50000,默认30000)};network set{latency_ms,loss_pct,jitter_ms};custom 命令参数由游戏方定义。"
           },
           "timeout": {
             "type": "number",
@@ -2020,7 +2233,7 @@
           },
           "interval_frames": {
             "type": "number",
-            "description": "monitor_start: 采样间隔帧数（默认 10，最小 1，最大 300）"
+            "description": "monitor_start: 采样间隔(60fps 基准下的标称帧数,默认 10,最小 1,最大 300;实际按游戏时间毫秒调度,帧率变化节奏不漂移,paused/freeze 期间游戏时间停走不采样,样本含 t_game_ms 游戏时间戳)"
           },
           "signal_name": {
             "type": "string",
@@ -2033,6 +2246,15 @@
           "push": {
             "type": "boolean",
             "description": "P3-6 watch_start/monitor_start: 启用 push 模式（事件/采样产生时主动推送 MCP notification，无需 poll）。client 需订阅 resources/subscribe 才能收到"
+          },
+          "observation_profile": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "player"
+            ],
+            "description": "P7 观察档位(默认 debug;player 需游戏侧 env GODOT_MCP_BRIDGE_ALLOWED_PROFILES 授权,节点 meta 级联隐藏 + agent_field_rules 字段投影生效,详见规则文档)",
+            "default": "debug"
           },
           "pattern": {
             "type": "string",
@@ -2058,6 +2280,31 @@
             "type": "string",
             "description": "click_button: 按钮节点路径（和 text 二选一）"
           },
+          "real_event": {
+            "type": "boolean",
+            "description": "click_button: 走真实输入事件路径(默认 false=emit_signal)。true 时注入 press/release InputEventMouseButton 到 viewport,走完整引擎输入管道(切换 button_pressed 状态/触发 button_group 互斥/focus),等 4 帧后返回 signal_counts 信号计数与 verified;延迟响应(同 call_method await_completion)。修复\"点击成功但 CheckBox 没勾上\"类问题"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "set",
+              "clear",
+              "status"
+            ],
+            "description": "network_conditioner: 子操作。set=包装当前 MultiplayerPeer 注入弱网(latency_ms/loss_pct/jitter_ms 参数),clear=拆除恢复原 peer,status=查询当前状态"
+          },
+          "latency_ms": {
+            "type": "number",
+            "description": "network_conditioner set: 注入延迟毫秒(>=0,默认 0)"
+          },
+          "loss_pct": {
+            "type": "number",
+            "description": "network_conditioner set: 丢包百分比 0-100(默认 0)"
+          },
+          "jitter_ms": {
+            "type": "number",
+            "description": "network_conditioner set: 抖动毫秒(>=0,默认 0,实际延迟 = latency ± jitter)"
+          },
           "godot_path": {
             "type": "string",
             "description": "覆盖 Godot 二进制路径（可选，优先于项目配置和环境变量）"
@@ -2074,6 +2321,12 @@
         "project_path",
         "port",
         "source_script_path",
+        "sub_action",
+        "label",
+        "label_a",
+        "label_b",
+        "tolerance",
+        "group",
         "method",
         "params",
         "timeout",
@@ -2084,12 +2337,18 @@
         "signal_name",
         "max_events",
         "push",
+        "observation_profile",
         "pattern",
         "type",
         "visible_only",
         "limit",
         "text",
         "path",
+        "real_event",
+        "op",
+        "latency_ms",
+        "loss_pct",
+        "jitter_ms",
         "godot_path"
       ],
       "readonly": false,
@@ -2097,8 +2356,8 @@
       "guarded": true,
       "securityLevel": "guarded",
       "riskDistribution": {
-        "read": 11,
-        "write": 4,
+        "read": 12,
+        "write": 6,
         "destructive": 0,
         "process": 2
       },
@@ -2126,9 +2385,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 1163,
-        "schemaBytes": 6591,
-        "totalBytes": 7754
+        "descBytes": 393,
+        "schemaBytes": 7557,
+        "totalBytes": 7950
       },
       "annotations": {
         "readOnlyHint": false,
@@ -2443,7 +2702,7 @@
     {
       "name": "help",
       "group": "core",
-      "description": "获取任意工具的完整文档。可用工具名：analysis, android, animation, animation_track, animtree, asset, audio, audit, blender, cpp, csv_to_resources, debug, docs, editor, engine, game, godot_advanced_tool, godot_get_context, godot_list_dynamic_routes, godot_list_instances, godot_select_instance, help, load_skill, manage_tools, material, nav, particles, physics, profiler, project, qa, runtime, runtime_assert, scene, screenshot, script, self_update, signal, testing, tilemap, translation, ui, uid, validation, workflow。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。",
+      "description": "获取任意工具的完整文档。可用工具名：analysis, android, animation, animation_track, animtree, asset, audio, audit, blender, cpp, csv_to_resources, dap, debug, docs, editor, engine, game, godot_advanced_tool, godot_get_context, godot_list_dynamic_routes, godot_list_instances, godot_select_instance, help, load_skill, manage_tools, material, nav, particles, physics, profiler, project, qa, runtime, runtime_assert, scene, screenshot, script, self_update, signal, testing, tilemap, translation, ui, uid, validation, workflow。传 tool_name 获取该工具的详细用法、参数、action 列表。拼写纠错自动提示最接近的工具名。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2461,6 +2720,7 @@
               "blender",
               "cpp",
               "csv_to_resources",
+              "dap",
               "debug",
               "docs",
               "editor",
@@ -2539,9 +2799,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 657,
-        "schemaBytes": 661,
-        "totalBytes": 1318
+        "descBytes": 662,
+        "schemaBytes": 667,
+        "totalBytes": 1329
       },
       "annotations": {
         "readOnlyHint": true,
@@ -2622,7 +2882,7 @@
     {
       "name": "manage_tools",
       "group": "core",
-      "description": "动态管理工具组的启用/停用状态。始终可用，不可被禁用。支持 list_groups（列出所有组）、activate（启用组）、deactivate（停用组）、sync（同步连接状态）、reconnect（手动重连）。",
+      "description": "动态管理工具组的启用/停用状态。始终可用，不可被禁用。支持 list_groups（列出所有组+profile 价格标签）、discover（关键词发现工具——全量 45 工具×action 搜索评分,返回匹配/所属组/激活态/激活指引,未激活组里的能力由此发现）、activate（启用组）、deactivate（停用组）、sync（同步连接状态）、reconnect（手动重连）。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2630,6 +2890,7 @@
             "type": "string",
             "enum": [
               "list_groups",
+              "discover",
               "activate",
               "deactivate",
               "sync",
@@ -2644,6 +2905,14 @@
               "type": "string"
             },
             "description": "目标组名数组（activate/deactivate 时使用）"
+          },
+          "query": {
+            "type": "string",
+            "description": "discover: 关键词(空格/逗号分词,大小写不敏感)。按工具名/action 名/组名/描述加权评分,返回 top 匹配与激活指引"
+          },
+          "top": {
+            "type": "number",
+            "description": "discover: 返回条数上限(默认 8,最大 20)"
           }
         },
         "required": [
@@ -2654,14 +2923,16 @@
         "action"
       ],
       "optionalParams": [
-        "groups"
+        "groups",
+        "query",
+        "top"
       ],
       "readonly": true,
       "longRunning": false,
       "guarded": true,
       "securityLevel": "danger-api",
       "riskDistribution": {
-        "read": 4,
+        "read": 5,
         "write": 2,
         "destructive": 0,
         "process": 0
@@ -2688,9 +2959,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 236,
-        "schemaBytes": 308,
-        "totalBytes": 544
+        "descBytes": 421,
+        "schemaBytes": 595,
+        "totalBytes": 1016
       },
       "annotations": {
         "readOnlyHint": false,
@@ -3571,9 +3842,10 @@
               "stop",
               "get_data",
               "get_active_processes",
-              "get_signal_connections"
+              "get_signal_connections",
+              "capture_functions"
             ],
-            "description": "操作类型"
+            "description": "操作类型。capture_functions(P2,2026-09-11):函数级热点——需先 run_project(profiling=true) 起 spawn 会话,一次调用完成采样窗口+排名(引擎原生 profiler 流,等价编辑器 Profiler 面板;帧级 get_data 之外的函数级 self/total 热点+最慢帧 top30)"
           },
           "target_fps": {
             "type": "number",
@@ -3601,6 +3873,22 @@
           "load_autoloads": {
             "type": "boolean",
             "description": "是否加载 Autoload 上下文（默认 true）"
+          },
+          "seconds": {
+            "type": "number",
+            "description": "capture_functions: 采样窗口秒数(默认 3,上限 60;窗口从首帧真实数据起算,自动停)"
+          },
+          "top": {
+            "type": "number",
+            "description": "capture_functions: 返回热点行数(默认 20,上限 100,按 sort 排序)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "capture_functions: 排序键(selfMs|totalMs|calls,默认 selfMs)"
+          },
+          "capture_limit": {
+            "type": "number",
+            "description": "capture_functions: 引擎每帧行数上限(默认 256,范围 16-512;越大覆盖函数越多开销越高)"
           }
         },
         "required": [
@@ -3617,14 +3905,18 @@
         "dimensions",
         "leak_threshold_mb",
         "node_path",
-        "load_autoloads"
+        "load_autoloads",
+        "seconds",
+        "top",
+        "sort",
+        "capture_limit"
       ],
       "readonly": false,
       "longRunning": false,
       "guarded": false,
       "securityLevel": "safe",
       "riskDistribution": {
-        "read": 6,
+        "read": 7,
         "write": 0,
         "destructive": 0,
         "process": 0
@@ -3652,8 +3944,8 @@
       },
       "size": {
         "descBytes": 476,
-        "schemaBytes": 1061,
-        "totalBytes": 1537
+        "schemaBytes": 1880,
+        "totalBytes": 2356
       },
       "annotations": {
         "readOnlyHint": true,
@@ -4027,6 +4319,11 @@
             "default": false,
             "description": "true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)"
           },
+          "profiling": {
+            "type": "boolean",
+            "default": false,
+            "description": "true 时 spawn 前绑 debugger 端口并传 --remote-debug(函数级 profiling 前置;之后用 profiler 工具 action=capture_functions 采样;仅 spawn 模式,attach/已运行会话无 debugger 通道)"
+          },
           "bridge_timeout": {
             "type": "number",
             "default": 10,
@@ -4078,6 +4375,7 @@
         "project_path",
         "timeout",
         "wait_for_bridge",
+        "profiling",
         "bridge_timeout",
         "test_script",
         "quit_flag",
@@ -4120,8 +4418,8 @@
       },
       "size": {
         "descBytes": 98,
-        "schemaBytes": 1886,
-        "totalBytes": 1984
+        "schemaBytes": 2153,
+        "totalBytes": 2251
       },
       "annotations": {
         "readOnlyHint": false,
@@ -5715,7 +6013,7 @@
     {
       "name": "ui",
       "group": "ui",
-      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>;返回 style_verify 逐槽位样式 diff/flow_verify flow 直接子层 rect diff)。像素终验: ui_pixel_verify(bg 节点截图采样 vs 目标色 RGB 距离;Windows 窗口模式会弹窗,几何+style_verify 全绿后跑一次)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。 专属参数(additionalProperties): ui_set_theme→theme_action/theme_path/params; theme_create→theme_create_action/source_node_path/save_path; theme_set_property→theme_node_path/item_type/prop_name/theme_type/value; ui_build_layout→tree({type,name,properties,anchor_preset,layout,flex,children}); ui_draw_recipe→ops([{kind,...}]); ui_measure_layout→node_path(可选,默认整场景)/max_depth; ui_import_prototype→geometry({viewport,nodes} 内联 JSON,与 geometry_path 二选一;bg/fill/borderRadius/border→StyleBoxFlat)/geometry_path(几何 JSON 文件路径,支持 res://)/tolerance(默认 2)→ 返回 style_verify/flow_verify; ui_pixel_verify→geometry/geometry_path+scene_path(必填,已构建场景;bg 节点截图采样 vs 目标色,Windows 窗口模式弹窗;终验——几何+style_verify 全绿后跑一次)",
+      "description": "UI 操作。节点: ui_create_control, ui_container_add, ui_build_layout。布局: ui_set_layout, ui_get_layout, ui_anchor_preset。原型: ui_import_prototype(几何 JSON 一次调用翻译+构建+测量+校验+持久化;bg/fill/borderRadius/border→StyleBoxFlat,落盘 theme_override_styles/<slot>;返回 style_verify 逐槽位样式 diff/flow_verify flow 直接子层 rect diff)。像素终验: ui_pixel_verify(bg 节点截图采样 vs 目标色 RGB 距离;Windows 窗口模式会弹窗,几何+style_verify 全绿后跑一次)。主题: ui_set_theme, theme_create, theme_set_property。绘图: ui_draw_recipe。运行时操作，仅影响当前执行上下文。如需持久化，请编辑 .tscn 文件。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5891,6 +6189,25 @@
             ],
             "description": "ui_anchor_preset: 锚点预设名称"
           },
+          "theme_action": {
+            "type": "string",
+            "enum": [
+              "set_params",
+              "create",
+              "save",
+              "load"
+            ],
+            "description": "ui_set_theme: 操作类型（set_params/create/save/load）"
+          },
+          "theme_path": {
+            "type": "string",
+            "description": "ui_set_theme: Theme 资源路径（save/load 时必填）"
+          },
+          "params": {
+            "type": "object",
+            "description": "ui_set_theme(set_params): 键值对（number/bool/string/array[4]→Color）",
+            "additionalProperties": true
+          },
           "child_type": {
             "type": "string",
             "enum": [
@@ -5935,6 +6252,152 @@
             "description": "ui_container_add: 子节点属性（支持 string/number/bool/null）",
             "additionalProperties": true
           },
+          "theme_create_action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "extract"
+            ],
+            "description": "theme_create: 操作类型（create 创建空 Theme | extract 从节点提取）"
+          },
+          "source_node_path": {
+            "type": "string",
+            "description": "theme_create(extract): 源节点路径"
+          },
+          "save_path": {
+            "type": "string",
+            "description": "theme_create: 可选保存路径（res://themes/xxx.tres）"
+          },
+          "theme_node_path": {
+            "type": "string",
+            "description": "theme_set_property: 拥有 Theme 的节点路径"
+          },
+          "item_type": {
+            "type": "string",
+            "enum": [
+              "default_font",
+              "color",
+              "constant",
+              "stylebox"
+            ],
+            "description": "theme_set_property: 属性类型"
+          },
+          "prop_name": {
+            "type": "string",
+            "description": "theme_set_property: 属性名"
+          },
+          "theme_type": {
+            "type": "string",
+            "description": "theme_set_property: Theme 类型名（可选）"
+          },
+          "value": {
+            "description": "theme_set_property: 属性值（default_font/stylebox 为资源路径，color 为 [r,g,b,a]，constant 为数字）"
+          },
+          "ops": {
+            "type": "array",
+            "description": "ui_draw_recipe: 绘图操作数组（最多 200 个）",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "rect",
+                    "circle",
+                    "line",
+                    "arc",
+                    "polygon",
+                    "polyline",
+                    "string"
+                  ],
+                  "description": "操作类型"
+                },
+                "position": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[x, y]"
+                },
+                "size": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[w, h]"
+                },
+                "center": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[x, y] 圆心"
+                },
+                "radius": {
+                  "type": "number",
+                  "description": "半径"
+                },
+                "from": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[x, y] 起点"
+                },
+                "to": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[x, y] 终点"
+                },
+                "start_angle": {
+                  "type": "number",
+                  "description": "起始角度（弧度）"
+                },
+                "end_angle": {
+                  "type": "number",
+                  "description": "结束角度（弧度）"
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "description": "[[x,y], ...]"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "文本"
+                },
+                "color": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[r,g,b] 或 [r,g,b,a]，0-1"
+                },
+                "width": {
+                  "type": "number",
+                  "description": "线宽"
+                },
+                "filled": {
+                  "type": "boolean",
+                  "description": "是否填充（默认 true）"
+                },
+                "font_size": {
+                  "type": "number",
+                  "description": "字号（默认 16）"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          },
           "max_depth": {
             "type": "number",
             "description": "ui_measure_layout: 最大遍历深度(默认 16,上限 64)"
@@ -5944,6 +6407,15 @@
             "description": "ui_measure_layout: 可选目标树(同 ui_build_layout tree,含 rect);提供时输出逐节点 diff/重叠/越界",
             "additionalProperties": true
           },
+          "geometry": {
+            "type": "object",
+            "description": "ui_import_prototype/ui_pixel_verify: 原型几何 JSON(inline,{viewport,nodes},扁平视口坐标;与 geometry_path 二选一,同时给时本参优先;样式字段:bg/fill(ProgressBar fill 槽色)/borderRadius(number 或 {tl,tr,br,bl})/border({width,color})→StyleBoxFlat 四控件槽位(Panel/ProgressBar/Button/Label))",
+            "additionalProperties": true
+          },
+          "geometry_path": {
+            "type": "string",
+            "description": "ui_import_prototype/ui_pixel_verify: 几何 JSON 文件路径(相对项目,支持 res:// 前缀;与 geometry 二选一)"
+          },
           "tolerance": {
             "type": "number",
             "description": "ui_import_prototype: layout_verify 容差(px,默认 2)"
@@ -5951,6 +6423,207 @@
           "parent_path": {
             "type": "string",
             "description": "ui_build_layout: 父节点路径;ui_import_prototype: 须为原点对齐(global_position≈0,0)的节点,默认 root——非原点挂载时 layout_verify 根级条目期望按视口原点求解,根级 diff 恒误报"
+          },
+          "tree": {
+            "type": "object",
+            "description": "ui_build_layout: UI 节点树（最大深度 10）;节点可带 styleboxes: [{slot: panel|normal|background|fill|hover|pressed|disabled, box: {bg_color:[r,g,b,a]0-1, corner_radius: 数值或{tl,tr,br,bl}, border_width, border_color, draw_center}}]→add_theme_stylebox_override(StyleBoxFlat)",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Button",
+                  "Label",
+                  "Panel",
+                  "LineEdit",
+                  "TextEdit",
+                  "RichTextLabel",
+                  "LinkButton",
+                  "HSlider",
+                  "VSlider",
+                  "CheckBox",
+                  "CheckButton",
+                  "OptionButton",
+                  "SpinBox",
+                  "ProgressBar",
+                  "TextureRect",
+                  "ColorPickerButton",
+                  "TabContainer",
+                  "Tree",
+                  "ItemList",
+                  "MarginContainer",
+                  "HBoxContainer",
+                  "VBoxContainer",
+                  "GridContainer",
+                  "CenterContainer",
+                  "ScrollContainer",
+                  "PanelContainer",
+                  "HSplitContainer",
+                  "VSplitContainer",
+                  "NinePatchRect"
+                ],
+                "description": "Control 子类"
+              },
+              "name": {
+                "type": "string",
+                "description": "节点名称"
+              },
+              "properties": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "节点属性"
+              },
+              "anchor_preset": {
+                "type": "string",
+                "enum": [
+                  "top_left",
+                  "top_right",
+                  "bottom_left",
+                  "bottom_right",
+                  "center_left",
+                  "center_top",
+                  "center_right",
+                  "center_bottom",
+                  "center",
+                  "left_wide",
+                  "top_wide",
+                  "right_wide",
+                  "bottom_wide",
+                  "vcenter_wide",
+                  "hcenter_wide",
+                  "full_rect"
+                ],
+                "description": "锚点预设"
+              },
+              "layout": {
+                "type": "object",
+                "description": "CSS Flexbox 布局描述（存在时覆盖 type 字段）",
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "row",
+                      "column",
+                      "row-reverse",
+                      "column-reverse",
+                      "grid"
+                    ],
+                    "description": "主轴方向"
+                  },
+                  "justify": {
+                    "type": "string",
+                    "enum": [
+                      "flex-start",
+                      "center",
+                      "flex-end",
+                      "space-between",
+                      "space-around",
+                      "space-evenly"
+                    ],
+                    "description": "主轴对齐"
+                  },
+                  "align": {
+                    "type": "string",
+                    "enum": [
+                      "stretch",
+                      "flex-start",
+                      "center",
+                      "flex-end"
+                    ],
+                    "description": "交叉轴对齐"
+                  },
+                  "wrap": {
+                    "type": "string",
+                    "enum": [
+                      "nowrap",
+                      "wrap"
+                    ],
+                    "description": "换行模式"
+                  },
+                  "gap": {
+                    "type": "number",
+                    "description": "主轴间距"
+                  },
+                  "row_gap": {
+                    "type": "number",
+                    "description": "换行时行间距（仅 wrap 模式）"
+                  },
+                  "columns": {
+                    "type": "number",
+                    "description": "Grid 列数（仅 grid 方向）"
+                  },
+                  "padding": {
+                    "description": "内边距：数字或 [上, 右, 下, 左]",
+                    "oneOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "direction"
+                ]
+              },
+              "flex": {
+                "type": "object",
+                "description": "子节点 flex 控制",
+                "properties": {
+                  "grow": {
+                    "type": "number",
+                    "description": "扩展比例（0=不扩展）"
+                  },
+                  "shrink": {
+                    "type": "number",
+                    "description": "收缩比例（忽略，无 Godot 对应）"
+                  },
+                  "align_self": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "flex-start",
+                      "center",
+                      "flex-end",
+                      "stretch"
+                    ],
+                    "description": "单独对齐覆盖"
+                  },
+                  "min_width": {
+                    "type": "number",
+                    "description": "最小宽度"
+                  },
+                  "min_height": {
+                    "type": "number",
+                    "description": "最小高度"
+                  },
+                  "max_width": {
+                    "type": "number",
+                    "description": "最大宽度（忽略，无 Godot 对应）"
+                  },
+                  "max_height": {
+                    "type": "number",
+                    "description": "最大高度（忽略，无 Godot 对应）"
+                  }
+                }
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "description": "子节点"
+              }
+            },
+            "required": [
+              "type",
+              "name"
+            ]
           },
           "load_autoloads": {
             "type": "boolean",
@@ -5996,13 +6669,28 @@
         "custom_minimum_size",
         "grow_direction",
         "preset",
+        "theme_action",
+        "theme_path",
+        "params",
         "child_type",
         "child_name",
         "child_properties",
+        "theme_create_action",
+        "source_node_path",
+        "save_path",
+        "theme_node_path",
+        "item_type",
+        "prop_name",
+        "theme_type",
+        "value",
+        "ops",
         "max_depth",
         "expect_tree",
+        "geometry",
+        "geometry_path",
         "tolerance",
         "parent_path",
+        "tree",
         "load_autoloads",
         "viewport",
         "persist"
@@ -6039,9 +6727,9 @@
         "lastRun": null
       },
       "size": {
-        "descBytes": 1545,
-        "schemaBytes": 4760,
-        "totalBytes": 6305
+        "descBytes": 709,
+        "schemaBytes": 10927,
+        "totalBytes": 11636
       },
       "annotations": {
         "readOnlyHint": false,

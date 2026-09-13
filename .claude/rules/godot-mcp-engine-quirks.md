@@ -67,3 +67,9 @@ alwaysApply: false
 - **★ Label 垂直对齐默认 TOP，CSS line-height 居中惯用法失效**：CSS `line-height = height` 的文本垂直居中在 Godot 不成立——Label 默认 `vertical_alignment=0`(TOP)，单行文本会贴顶。需显式 `vertical_alignment=1`(CENTER)。`ui_import_prototype` 翻译器对全部 Label 已固定 `vertical_alignment:1`；手写 properties 时勿漏。关联：ui_build_layout/ui_create_control 文本节点、ui_import_prototype 翻译规则 3。
 - **Control 高度被字体最小行高钳制（minimum_size 顶开）**：Label/Button 的 rect.h 小于字体行高时，引擎 `Control.minimum_size` 把高度顶开到行高——**无警告静默变高**，verify 的 `dh` 会暴露（实际比目标高）。文本控件 rect.h 需 ≥ fontSize*1.5，或显式调小字号。`ui_import_prototype` 翻译器对 rect.h < fontSize*1.5 发 warning（"可能被字体最小行高钳制"）。关联：ui_import_prototype 行高预警、ui_measure_layout(layout_verify.diff 的 dh)。
 - **★ ProgressBar 默认主题最小高 27px（Godot 4.7，实测）**：默认主题 stylebox 把 ProgressBar 的 `Control.minimum_size` 顶到约 27px——原型 rect.h=16 落地实测 27px（2026-08-16 RTS HUD fixture HpBar 集成验收，dh=+11）。这是主题硬约束非 bug；处置：原型侧把 rect.h 调到 ≥27，或换自定义 Theme stylebox。`ui_import_prototype` 翻译器对 rect.h < 27 发 "will be clamped" warning（具名常量 PROGRESS_BAR_MIN_HEIGHT=27，**无条件**——实测 Godot 4.7.1 h=16：无 override→27、bg-only→23、fill-only→27、bg+fill→23，全组合被钳，override 只改变钳制值不消除钳制）。同类：Button 默认主题也有最小高约束。关联：ui_import_prototype 引擎下限预警、ui_set_theme。
+
+## 多人联机与弱网测试（network_conditioner / ENet peer / 多人 e2e）
+
+- **★ ENetMultiplayerPeer.get_local_port() 在 Windows Godot 4.6.3 阻塞挂死主循环（实测）**：探针二分定位——create_server(0) 返回 OK、set_multiplayer_peer 不挂，**唯独 get_local_port() 调用后进程无响应挂死**（--script 探针与完整游戏均复现，stdout 因挂死未 flush 看似无输出）。多人 e2e fixture 与探针一律**不调 get_local_port()**；需要端口信息的场景改从 create_server 显式传端口 + 自记录。关联：test/fixtures/p3-e2e/main.gd setup_net_peer 注释、network_conditioner e2e。
+- **多人 peer 未配置时 get_multiplayer_peer() 返回 OfflineMultiplayerPeer 而非 null**：判断"多人未启用"要同时查 null 与 `is OfflineMultiplayerPeer`（bridge network.set_conditions 的空壳防护即此形态）。
+- **弱网注入只作用于出向包**：host 侧装 conditioner = 影响 host 发给所有 client 的包；双向对称弱网需两端各装。无带宽限制；raw socket 不走 MultiplayerPeer 管道（依赖 SceneMultiplayer 高阶 API）。

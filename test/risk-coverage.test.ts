@@ -25,6 +25,7 @@ const GUARDED_KEYS = new Set([
   'qa',      // v0.30 B 批: run action 是 process(装 bridge+起游戏+输入/写状态,dispatcher confirm+audit 一次覆盖);report/diff 仍 read
   'uid',     // P1-1 (2026-08-19): uid_set 是 write(写 .uid 文件);scan/get/check_refs 仍 read
   'translation',  // P1-2 (2026-08-19): write/register 是 write(写 CSV/改 project.godot);read 仍 read
+  'dap',     // P9 (2026-09-12): launch/terminate/断点/执行控制是 write(改 editor 调试会话);status/get_settings/list_breakpoints/stack_trace/output 仍 read
 ]);
 
 /** 从 inputSchema.action.enum 提取某工具全部 action 名 */

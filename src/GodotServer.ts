@@ -33,6 +33,7 @@ const require = createRequire(import.meta.url);
 const pkgVersion = require('../package.json').version;
 import { ReadOnlyGuard } from './core/ReadOnlyGuard.js';
 import { ToolDispatcher } from './core/ToolDispatcher.js';
+import { reportOrphanedInflight, clearAllInflight } from './core/inflight.js';
 import * as guard from './core/guard.js';
 import { EditorConnectionManager } from './core/EditorConnectionManager.js';
 import { dynamicSchema } from './core/dynamic-schema.js';
@@ -112,6 +113,9 @@ export class GodotServer {
     this.opsScript = opsScript;
     this.options = options;
     this.readOnlyGuard = new ReadOnlyGuard(options.readOnly ?? false);
+    // P4-3 (2026-09-11): 启动时报丧——上个 server 进程非正常退出时留下的 in-flight 记录
+    // 走 stderr(stdout 是 MCP transport),把"进程被杀的静默损失"变成可诊断事件。
+    reportOrphanedInflight();
     this.connectionMode = options.connectionMode ?? 'headless';
     this.noFallback = options.noFallback ?? false;
     this.agentCtx = new AgentContextManager();
@@ -637,6 +641,8 @@ export class GodotServer {
     };
     let serverClosed = false;
     try {
+      // P4-3: 清本进程 in-flight 记录文件(正常退出不留孤儿;异常死亡才留 → 下个启动报丧)
+      await safeStep('clearInflight', () => clearAllInflight());
       // P2-1: 自动卸载 overrides(graceful shutdown 时清理,防半装状态)。
       // 仅对已知项目路径卸载(editorProjectPath);headless 模式下项目路径不持久化,
       // agent 须手动调 uninstall_override action。

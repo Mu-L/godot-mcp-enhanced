@@ -1,8 +1,10 @@
 import type { Tool } from "@modelcontextprotocol/server";
+import { ProfilerError } from '../core/function-profiler.js';
+import { textResult } from '../types.js';
 import type { ToolContext, ToolResult } from '../types.js';
 import type { RiskLevel } from '../core/tool-registry.js';
 import { requireProjectPath } from '../helpers.js';
-import { executeGdscript } from '../gdscript-executor.js';
+import { executeGdscriptRuntime as executeGdscript } from '../gdscript-executor.js';
 import { escapeForGdLiteral, ff } from './shared.js';
 import { SCENE_TREE_HEADER, NON_PERSIST, opsErrorResult, parseGdscriptResult } from './shared.js';
 
@@ -57,8 +59,8 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           action: {
             type: 'string',
-            enum: ['snapshot', 'start', 'stop', 'get_data', 'get_active_processes', 'get_signal_connections'],
-            description: '操作类型',
+            enum: ['snapshot', 'start', 'stop', 'get_data', 'get_active_processes', 'get_signal_connections', 'capture_functions'],
+            description: '操作类型。capture_functions(P2,2026-09-11):函数级热点——需先 run_project(profiling=true) 起 spawn 会话,一次调用完成采样窗口+排名(引擎原生 profiler 流,等价编辑器 Profiler 面板;帧级 get_data 之外的函数级 self/total 热点+最慢帧 top30)',
           },
           target_fps: { type: 'number', description: '目标帧率，用于帧预算分析（get_data，默认 60）' },
           frame_count: { type: 'number', description: '采样帧数（get_data，默认 60）' },
@@ -70,6 +72,10 @@ export function getToolDefinitions(): Tool[] {
           leak_threshold_mb: { type: 'number', description: '内存泄漏嫌疑阈值 MB（get_data，默认 2.0）' },
           node_path: { type: 'string', description: '子树根节点路径（get_active_processes/get_signal_connections，默认 root）' },
           load_autoloads: { type: 'boolean', description: '是否加载 Autoload 上下文（默认 true）' },
+          seconds: { type: 'number', description: 'capture_functions: 采样窗口秒数(默认 3,上限 60;窗口从首帧真实数据起算,自动停)' },
+          top: { type: 'number', description: 'capture_functions: 返回热点行数(默认 20,上限 100,按 sort 排序)' },
+          sort: { type: 'string', description: 'capture_functions: 排序键(selfMs|totalMs|calls,默认 selfMs)' },
+          capture_limit: { type: 'number', description: 'capture_functions: 引擎每帧行数上限(默认 256,范围 16-512;越大覆盖函数越多开销越高)' },
         },
         required: ['action'],
       },
@@ -387,6 +393,29 @@ export async function handleTool(
     let code: string;
     let timeout: number = 30;
 
+    // P2 (2026-09-11) 函数级 profiling:不走 executeGdscript——DebuggerProfiler 在 TS 侧
+    // 解码引擎 debugger 流(--remote-debug 回拨,run_project(profiling=true) 时建立)。
+    if (action === 'capture_functions') {
+      const profiler = ctx.functionProfiler;
+      if (!profiler) {
+        return opsErrorResult('PROFILER_NOT_SPAWNED',
+          'capture_functions needs a profiling spawn: run_project with profiling=true first (the debugger channel only exists if --remote-debug was on the command line at launch; attached/already-running sessions cannot profile).');
+      }
+      const seconds = args.seconds !== undefined ? Number(args.seconds) : 3;
+      const top = args.top !== undefined ? Number(args.top) : 20;
+      const sort = (args.sort as string) ?? 'selfMs';
+      const captureLimit = args.capture_limit !== undefined ? Number(args.capture_limit) : 256;
+      try {
+        const result = await profiler.captureWindow(seconds, top, sort as 'selfMs' | 'totalMs' | 'calls', captureLimit);
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        if (err instanceof ProfilerError) {
+          return opsErrorResult(`PROFILER_${err.code.toUpperCase()}`, err.message);
+        }
+        throw err;
+      }
+    }
+
     switch (action) {
       case 'snapshot':
         code = genSnapshot();
@@ -462,6 +491,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
       start: 'read',
       stop: 'read',
       get_data: 'read',
+      capture_functions: 'read',
       get_active_processes: 'read',
       get_signal_connections: 'read',
     },

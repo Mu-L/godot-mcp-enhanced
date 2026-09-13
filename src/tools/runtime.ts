@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { DebuggerProfiler } from '../core/function-profiler.js';
 import { opsErrorResult } from './shared.js';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
+import { maybeWrapUntrusted } from '../core/untrusted-wrap.js';
 import { textResult, errorResult } from '../types.js';
 import { appendOutput, clearOutputBuffer, killProcess, forceKillTree, setProcessBusy, acquireProcessSlot, acquireShortRunningSlot, releaseShortRunningSlot, buildBusyErrorMessage, killOrphanGodotProcesses, registerSpawnedGodotPid, unregisterSpawnedGodotPid } from '../core/process-state.js';
 import { requireProjectPath, checkVersionMismatch, buildSafeEnv } from '../helpers.js';
@@ -86,6 +88,7 @@ export function getToolDefinitions(): Tool[] {
           project_path: { type: 'string', description: 'Godot 项目目录路径（可选，默认使用 GODOT_PROJECT_PATH 环境变量或当前目录）' },
           timeout: { type: 'number', description: '自动停止秒数（默认 30。游戏冷启动 >30s 的项目传更大值如 120；wait_for_bridge 时自动取 max(bridge_timeout+10, timeout) 防与 bridge 就绪 race）', default: 30 },
           wait_for_bridge: { type: 'boolean', default: false, description: 'true 时 spawn 后轮询 bridge 就绪(默认 false,向后兼容)' },
+          profiling: { type: 'boolean', default: false, description: 'true 时 spawn 前绑 debugger 端口并传 --remote-debug(函数级 profiling 前置;之后用 profiler 工具 action=capture_functions 采样;仅 spawn 模式,attach/已运行会话无 debugger 通道)' },
           bridge_timeout: { type: 'number', default: 10, description: 'wait_for_bridge 轮询总预算(秒,默认 10)' },
           test_script: { type: 'string', description: '测试脚本或目录路径（默认 res://test/）', default: 'res://test/' },
           quit_flag: { type: 'string', enum: ['gquit', 'gexit'], default: 'gquit', description: 'run_tests 的 GUT 退出标志。默认 gquit(GUT ≤9.5);GUT 9.6+ 移除 -gquit(报 Unknown arguments: -gquit)时切 gexit' },
@@ -164,9 +167,34 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       clearOutputBuffer();
       ctx.setProcessStartTime(Date.now());
 
-      // P1.1: spawn() 同步抛异常时,:178 的 'error' handler 尚未注册 → 必须主动释放槽,
-      // 否则 :140 acquireProcessSlot 获取的 busy 槽永久泄漏,后续 run_project 永远 busy。
+      // P2 (2026-09-11) 函数级 profiling:spawn 前绑端口(顺序关键——引擎启动后回拨),
+      // --remote-debug 必须在命令行上,attach/已运行会话无此通道。实例挂 ctx(长寿命,
+      // 进程 close 时清理),profiler 工具 capture_functions 从 ctx 读。
+      const profiling = args.profiling === true;
+      if (ctx.functionProfiler) {
+        ctx.functionProfiler.close();
+        ctx.functionProfiler = undefined;
+      }
       let proc: ChildProcess;
+      if (profiling) {
+        try {
+          const profiler = await DebuggerProfiler.create();
+          ctx.functionProfiler = profiler;
+          const dbgArgs = ['--path', p, '--debug', '--remote-debug', `tcp://127.0.0.1:${profiler.port}`];
+          proc = spawn(godot, dbgArgs, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: buildSafeEnv(),
+          });
+        } catch (err) {
+          setProcessBusy(false);
+          ctx.functionProfiler?.close();  // N-1(审查): spawn 同步抛异常时释放已绑端口
+          ctx.functionProfiler = undefined;
+          const msg = err instanceof Error ? err.message : String(err);
+          return textResult(`Error: failed to bind profiler debugger port: ${msg}`);
+        }
+      } else {
+      // P1.1: spawn() 同步抛异常时,'error' handler 尚未注册 → 必须主动释放槽,
+      // 否则 acquireProcessSlot 获取的 busy 槽永久泄漏,后续 run_project 永远 busy。
       try {
         proc = spawn(godot, ['--path', p, '--debug'], {
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -179,7 +207,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         appendOutput([`Spawn error: ${msg}`]);
         return textResult(`Error: failed to spawn Godot: ${msg}`);
       }
-
+      }
       proc.stdout?.on('data', (data: Buffer) => {
         appendOutput(data.toString().split('\n'));
       });
@@ -201,6 +229,11 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       proc.on('close', () => {
+        // P2: profiling 进程退出 → 关 debugger listener(捕获结果已可读,close 只释放 socket)
+        if (ctx.functionProfiler) {
+          ctx.functionProfiler.close();
+          ctx.functionProfiler = undefined;
+        }
         // Imp-4 (2026-06-24 审查): 守卫同 autoStopTimer(:169),避免进程被替换后误清新进程的 busy/running 状态
         if (ctx.runningProcess === proc) {
           setProcessBusy(false);
@@ -276,7 +309,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         total_lines: ctx.outputBuffer.length,
       };
       clearOutputBuffer();
-      return textResult(JSON.stringify(result, null, 2));
+      return textResult(maybeWrapUntrusted('runtime.stop_output', 'godot-process', JSON.stringify(result, null, 2)))
     }
 
     case 'get_debug_output': {
@@ -293,7 +326,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         prints: classified.prints.slice(-50),
         total_lines: ctx.outputBuffer.length,
       };
-      return textResult(JSON.stringify(result, null, 2));
+      // P1-1: 引擎/游戏输出 nonce 信封(prints/errors/warnings 含项目 print 任意文本,输出侧防注入)
+      return textResult(maybeWrapUntrusted('runtime.debug_output', 'godot-process', JSON.stringify(result, null, 2)));
     }
 
     case 'run_tests': {

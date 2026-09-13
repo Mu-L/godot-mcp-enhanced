@@ -21,7 +21,15 @@ describe('stdio client-disconnect shutdown', () => {
     // list, so inheriting it here makes the child [FATAL]-exit before it even
     // reaches the stdin wiring this test means to exercise. Strip it back off.
     const childEnv = { ...process.env, GODOT_MCP_NO_DASHBOARD: '1' };
-    delete childEnv.GODOT_MCP_UNRESTRICTED;
+    // Strip the full dangerousBypassFlags list (src/index.ts): any of these set
+    // without NODE_ENV=development makes the child [FATAL]-exit before it reaches
+    // the stdin wiring this test means to exercise. UNRESTRICTED leaks from
+    // test/setup.js; ALLOW_UNSAFE_CONFIRM et al. can leak from a developer's
+    // **user-level** environment (e.g. set permanently for local testing on
+    // Windows) — strip all of them so the test only depends on its own spawn.
+    for (const flag of ['GODOT_MCP_DISABLE_SAFETY', 'GODOT_MCP_UNRESTRICTED', 'GODOT_MCP_SANDBOX', 'GODOT_MCP_ALLOW_UNSAFE_CONFIRM']) {
+      delete childEnv[flag];
+    }
 
     const child = spawn('node', [serverPath], {
       stdio: ['pipe', 'pipe', 'pipe'],

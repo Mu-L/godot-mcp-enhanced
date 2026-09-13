@@ -6,3 +6,12 @@ run/main_scene="res://scenes/main.tscn"
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
+
+; P0-2 (2026-09-11): dual-key file logging off — concurrent instances share user://logs,
+; RotatedFileLogger rotate race makes abort look like engine_crashed (aigengame pit).
+; Base key defaults false, but the .pc feature-tag override defaults TRUE on desktop and
+; wins at startup — closing only the base key is a no-op.
+[debug]
+
+file_logging/enable_file_logging=false
+file_logging/enable_file_logging.pc=false

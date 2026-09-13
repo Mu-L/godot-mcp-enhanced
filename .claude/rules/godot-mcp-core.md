@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## 概述与架构
 
-godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
+godot-mcp-enhanced 提供 46 个 MCP 工具（271 个 action，权威数据见 docs/capability-matrix.md，由 `npm run build-matrix` 生成），通过三层架构操作 Godot：
 
 1. **Headless CLI** — 独立 Godot 进程执行 GDScript，适合文件读写和一次性验证
 2. **Editor WebSocket** — 连接运行中的编辑器插件，适合实时场景操作
@@ -73,6 +73,15 @@ godot-mcp-enhanced 提供 45 个 MCP 工具（248 个 action，权威数据见 d
 - **list_breakpoints**：列出当前活跃 tab 脚本的断点。
 - **⚠️ Phase 1 限制**：脚本必须在编辑器中打开且是当前活跃 tab。headless 模式返回 EDITOR_ONLY。
 
+### dap — DAP 断点调试（P9，TS 直连 editor DAP server）
+
+LuoxuanLove 移植：MCP server 直连 Godot editor 自带 DAP server（Debug Adapter Protocol，默认 127.0.0.1:6006）——引擎官方调试协议，比对标竞品"按图标找调试器按钮"的面板 hack 稳。与 `debug` 工具（editor 插件 EditorDebuggerPlugin 路径）并存互补；断点/单步调试优先用本工具。
+
+- **前置（一次性）**：editor 开启调试服务器——Editor Settings → Network → Debug Adapter（默认端口 6006）；launch 调试还需 Debug 菜单勾选 "Deploy with Remote Debug"。未开启时 `initialize` 报 DAP_UNAVAILABLE（附开启指引）。
+- **会话流（三段状态机，乱序拒）**：`initialize`（建 TCP + DAP 握手）→ `launch`（让 editor 启动调试会话；或 `attach`）→ `set_breakpoint`（可多次）→ `configuration_done`（断点下发完成）→ 断点命中后 `stack_trace` / `step_over` / `continue` / `pause`；`output` 收集调试输出；`disconnect`（可选 terminate_debuggee）/`terminate` 收尾。
+- **断点语义**：本地簿记 + `setBreakpoints` 全量重发（DAP 全量协议）；上限 512 sources × 256 lines；`list_breakpoints` 读本地簿记。source_path 接受 `res://`（须配 project_path 转绝对路径）或绝对路径。
+- **安全**：host 强制 loopback（127.0.0.1/localhost/::1；远程需 set_settings allow_remote_hosts 显式开）；DAP 响应经 sensitive-key 清洗（token/password/authorization/bearer 等键值 → [redacted]，防调试输出泄漏 secret）；超时上限 30s；会话上限 8。
+- **限制（诚实声明）**：只覆盖 GDScript（C# 断点需 .NET debugger，引擎 DAP scope）；`attach` 对 Godot DAP 支持有限（协议层透传，由 server 行为决定）；`stack_trace` 需暂停在断点；e2e 未覆盖真 editor（单测用 mock DAP server 覆盖协议层/状态机/清洗/上限，真 editor 路径手动验证）。
 ### engine — 实时 ClassDB 内省（editor-only）
 
 - **class_info**：查单个类的完整结构（属性/方法/信号/枚举/继承），默认 no_inherit=true 只看本类 own 成员。
@@ -128,3 +137,4 @@ Headless 模式下场景截图可能完全空白——headless 进程默认用 *
 - **add_node 无节点级冲突检测（吸收自 ai-kit enhanced-boundaries #5）**：`batch_add_nodes` 后再单独 `add_node` 加同名子节点不会报错，可能产生重复节点（尤其同父路径，Godot 加载时拒绝）。add 前先 `query_scene_tree` 查目标父下是否已有同名节点，走"query → 条件 add"模式。实现层（`src/tscn/tscn-editor-add.ts` `_addNodeInner`）无同级重名扫描；defects.md `addnode-no-duplicate-check`（OPEN）跟踪实现层修复。
 - **validate_scripts vs run_and_verify 可能不一致（吸收自 enhanced-boundaries #4）**：validate_scripts 跑 headless 验证器脚本（捕跨文件编译依赖），但不等于实跑场景（运行时动态行为/场景加载）。关键验证结论（如"脚本通过"）用 validate_scripts + run_and_verify 交叉确认，不一致时以 run_and_verify 实跑为准。
 - **load_skill 召回的是参考代码（吸收自 enhanced-boundaries #12）**：`load_skill` 检索第三方 skill 库（GodotPrompter / gd-agentic 等）召回的 scripts 是教学示例，非生产代码（可能含硬编码密钥 / null 崩溃 / 未验证模式）。复制到生产项目前必须人工审。
+- **未知参数被拒 + did-you-mean（P8, 2026-09-12）**：所有工具的顶层未声明参数（不在 inputSchema properties 中）一律拒绝——早期 additionalProperties 静默容忍已反转（regiellis 模式移植）；拼写接近时返回 did-you-mean 建议（Levenshtein 相似度 > 0.4，如 alpah → 想传 alpha?）。inputSchema 是参数 SSOT：handler 私下读取的键必须声明进 schema（CI `check:ssot-params` 审计声明面↔使用面零漂移，白名单 scripts/ssot-allowlist.json 记录有意例外；dispatcher 级公共键 `godot_path` 豁免——ToolDispatcher 对所有工具读它做 per-call Godot 二进制覆盖，~19 个未声明它的 headless 工具同样支持，P8 审查 B-1 清偿）；传错参数名会立刻报错而非被静默忽略。

@@ -1,51 +1,54 @@
 // test/core/module-loader-slim.test.ts
 // P2-12: slimSchema pass 直接单测（补 docs/reviews/2026-07-31-coverage-batch.md N-2 缺口）。
-//
+// P8-3 (2026-09-12) 语义反转: SLIM_CONFIG ui 条目移除——P8-2 unknown-param 拒绝上线后
+// "从 properties 移除但 handler 仍读"的 additionalProperties 约定失效,schema 不撒谎是
+// SSOT 防线前提。机制(空配置)保留作应急通道;本文件断言 P8 语义:ui 全键、无 slim hint、
+// registry 与 barrel 路径一致,slimSchema 对无配置工具原样返回。
 import type { Tool } from "@modelcontextprotocol/server";
 
-// 背景：slimSchema（src/module-loader.ts:191-224）在 registerAllModules 链路对超阈值
-// 工具瘦身——移除 action 专属参数、追加 description 提示。此前零直接单测；ui-tools.test.js
-// 直 import barrel 绕过 registerAllModules 后处理，读的是未 slim 的原始 schema，slim 回归无测试捕获。
-//
-// 本测试经 registry 查询 API 取 def（走 registerAllModules 包装的 getToolDefinitions），
-// 验证 slim 真在链路生效 + 全部分支行为正确。
 import { describe, it, expect } from 'vitest';
-import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES } from '../../src/module-loader.js';
+import { registerAllModules, slimSchema, SLIM_THRESHOLD_BYTES, SLIM_CONFIG } from '../../src/module-loader.js';
 import { getToolDefinition } from '../../src/core/tool-registry.js';
-// 直 import barrel —— 用于路径隔离断言（证明 registry 路径与 barrel 路径产出不同）
+// 直 import barrel —— 用于路径一致性断言
 import { getToolDefinitions as getUiDefsDirect } from '../../src/tools/ui-tools.js';
 
-// 代表性 removeProps（完整列表见 module-loader.ts:178-182，此处取每类一个做存在性断言）
-const REMOVED_REPRESENTATIVE = ['theme_action', 'theme_create_action', 'tree', 'ops'] as const;
+// P8-3 前曾属 removeProps 的代表性键（P2-11 完整列表），现应全部在 schema 里
+const KEPT_REPRESENTATIVE = ['theme_action', 'theme_create_action', 'tree', 'ops'] as const;
 
-describe('slimSchema pass（P2-11，超阈值工具瘦身）', () => {
-  it('ui 经 registry 后 properties 不含 removeProps（newProperties 分支）', () => {
+describe('slimSchema pass（P8-3 语义反转后：SLIM_CONFIG 空,ui 全键）', () => {
+  it('SLIM_CONFIG 无 ui 条目（P8-3 移除,机制保留为空配置）', () => {
+    expect(SLIM_CONFIG['ui']).toBeUndefined();
+  });
+
+  it('ui 经 registry 后 properties 含全部结构键（theme/tree/ops 不再被砍）', () => {
     registerAllModules();
     const ui = getToolDefinition('ui');
     expect(ui, 'ui tool 应注册').toBeDefined();
     const props = Object.keys(ui!.inputSchema.properties ?? {});
-    for (const removed of REMOVED_REPRESENTATIVE) {
+    for (const kept of KEPT_REPRESENTATIVE) {
       expect(
         props,
-        `${removed} 应被 slim 移除，剩余 props: ${props.join(', ')}`
-      ).not.toContain(removed);
+        `${kept} 应在 schema 里（P8-3: schema 是参数 SSOT,键不可砍;剩余 props: ${props.join(', ')}`
+      ).toContain(kept);
     }
+    expect(props.length, 'ui schema 恢复 39 键').toBeGreaterThanOrEqual(39);
   });
 
-  it('ui description 追加 descHint（def.description + config.descHint）', () => {
+  it('ui description 不再追加 additionalProperties 提示（slim hint 随条目移除消失）', () => {
     registerAllModules();
     const ui = getToolDefinition('ui');
-    expect(ui!.description).toContain('专属参数(additionalProperties)');
+    expect(ui!.description).not.toContain('专属参数(additionalProperties)');
   });
 
-  it('ui inputSchema 字节数 < SLIM_THRESHOLD_BYTES（瘦身触发条件反向验证）', () => {
+  it('ui inputSchema 超 SLIM_THRESHOLD_BYTES 也不再瘦身（无配置则原样返回）', () => {
     registerAllModules();
     const ui = getToolDefinition('ui');
     const schemaBytes = Buffer.byteLength(JSON.stringify(ui!.inputSchema), 'utf8');
+    // P8-3 后瘦身触发条件是"超阈值 **且** 有 SLIM_CONFIG 条目";ui 无条目 → 即使超阈值也不砍
     expect(
       schemaBytes,
-      `瘦身未生效：schema ${schemaBytes}B ≥ 阈值 ${SLIM_THRESHOLD_BYTES}B`
-    ).toBeLessThan(SLIM_THRESHOLD_BYTES);
+      'ui schema 字节数（预期超阈值——键不可砍,瘦身改走源描述人工压缩）'
+    ).toBeGreaterThanOrEqual(SLIM_THRESHOLD_BYTES);
   });
 
   it('ui inputSchema 结构完整：type/required 保留，required 引用的 prop 未被删', () => {
@@ -70,8 +73,8 @@ describe('slimSchema pass（P2-11，超阈值工具瘦身）', () => {
   });
 });
 
-describe('slim 路径隔离（防回归：直 import barrel 绕过 registerAllModules 后处理）', () => {
-  it('经 registry 的 ui def 比 直 import barrel 的 props 少（证明 slim 真在链路生效）', () => {
+describe('slim 路径一致性（P8-3 后：registry 与 barrel 产出一致）', () => {
+  it('经 registry 的 ui def 与 直 import barrel 的 props 相同（slim 不再改 ui）', () => {
     registerAllModules();
     const uiViaRegistry = getToolDefinition('ui');
     const uiViaBarrel = getUiDefsDirect().find(d => d.name === 'ui');
@@ -80,24 +83,18 @@ describe('slim 路径隔离（防回归：直 import barrel 绕过 registerAllMo
     const registryProps = Object.keys(uiViaRegistry!.inputSchema.properties ?? {});
     const barrelProps = Object.keys(uiViaBarrel!.inputSchema.properties ?? {});
 
-    // barrel 路径未经 slim，props 应更多
-    expect(
-      barrelProps.length,
-      `barrel props ${barrelProps.length} 应多于 registry props ${registryProps.length}（否则 slim 未生效）`
-    ).toBeGreaterThan(registryProps.length);
-    // barrel 仍含被 slim 移除的 prop（对照点）
+    // P2-11 时代 slim 只发生在 registry 路径（barrel 直 import 绕过后处理）→ 两路径 props 不同;
+    // P8-3 移除 ui 条目后两路径一致——若未来恢复 slim,此断言红是第一道防线
+    expect(registryProps.length, '两路径 props 数一致（slim 对 ui 不生效）').toBe(barrelProps.length);
+    expect(registryProps).toContain('theme_action');
     expect(barrelProps).toContain('theme_action');
-    expect(registryProps).not.toContain('theme_action');
   });
 });
 
-describe('slimSchema 边界分支（:216 removed.length===0 防御性 dead path）', () => {
-  // 该分支语义：配了 SLIM_CONFIG + 超阈值 + 有 properties，但 removeProps 与实际 properties 无交集。
-  // 当前 SLIM_CONFIG.ui.removeProps 与 ui 实际 props 完全匹配 → 生产路径不可达（防御性 dead path）。
-  // 用 fake def 直接调 slimSchema 触发，覆盖该分支防回归。
-  it(':216 removed.length===0 — 配了 SLIM_CONFIG + 超阈值，但 removeProps 与 properties 无交集 → 原样返回', () => {
-    // 构造 fake def：名字命中 SLIM_CONFIG（ui）但 properties 不含任何 removeProps。
-    // 用超大 padding 让 schema stringify 后超 SLIM_THRESHOLD_BYTES，越过 :196 阈值判断。
+describe('slimSchema 无配置分支（P8-3 后 SLIM_CONFIG 恒空,config 分支不可达）', () => {
+  it('无 SLIM_CONFIG 条目 + 超阈值 → 原样返回（!config return def）', () => {
+    // 构造 fake def 超阈值 schema,slimSchema 应原样返回（P8-3 后 SLIM_CONFIG 空,
+    // 所有工具都走此分支;removed.length===0 的 dead path 随空配置一并不可达）
     const padding = 'x'.repeat(SLIM_THRESHOLD_BYTES);
     const fakeDef: Tool = {
       name: 'ui',
@@ -106,15 +103,14 @@ describe('slimSchema 边界分支（:216 removed.length===0 防御性 dead path�
         type: 'object' as const,
         properties: {
           action: { type: 'string' },
-          someUnrelatedProp: { type: 'string', description: padding }, // 不在 removeProps 里
+          someUnrelatedProp: { type: 'string', description: padding },
         },
         required: ['action'],
       },
     };
     const result = slimSchema([fakeDef]);
     expect(result).toHaveLength(1);
-    // :216 命中：removed 为空 → 原样返回（description 无 descHint，properties 不变）
-    expect(result[0].description, '未追加 descHint（removed 为空走原样返回）').toBe('fake');
+    expect(result[0].description, '未追加 descHint（无配置走原样返回）').toBe('fake');
     expect(
       Object.keys(result[0].inputSchema.properties ?? {}),
       'properties 不变（未删除任何 prop）'

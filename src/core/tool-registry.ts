@@ -190,7 +190,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupDef> = {
   blender:     { description: 'Blender 建模', tools: ['blender'], requires: [] },
   multi_instance: { description: '多实例', tools: ['godot_list_instances', 'godot_select_instance'], requires: [] },
   asset: { description: '资源操作（asset-forge）', tools: ['asset'], requires: ['editor'] },
-  debug: { description: '调试器（断点管理）', tools: ['debug'], requires: ['editor'] },
+  debug: { description: '调试器（断点管理 + DAP 协议调试）', tools: ['debug', 'dap'], requires: ['editor'] },
   engine: { description: '引擎内省（实时 ClassDB）', tools: ['engine'], requires: ['editor'] },
   android: { description: 'Android deploy', tools: ['android'], requires: [] },
   selfupdate: { description: '自更新', tools: ['self_update'], requires: [] },

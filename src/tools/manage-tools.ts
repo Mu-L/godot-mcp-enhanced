@@ -12,14 +12,18 @@ import {
   TOOL_GROUPS,
   setActiveGroups,
   getActiveGroups,
+  getGroupForTool,
+  ALWAYS_ALLOWED as ALWAYS_ALLOWED_TOOLS,
   notifyToolsChanged,
   LEGACY_TOOL_MAP,
+  PROFILES,
+  getAllToolDefinitions,
 } from '../core/tool-registry.js';
 import { opsSuccess, opsError } from './shared.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const ACTIONS = ['list_groups', 'activate', 'deactivate', 'sync', 'reconnect', 'migrate'] as const;
+const ACTIONS = ['list_groups', 'discover', 'activate', 'deactivate', 'sync', 'reconnect', 'migrate'] as const;
 
 type ManageAction = (typeof ACTIONS)[number];
 
@@ -58,7 +62,7 @@ export function getToolDefinitions(): Tool[] {
       name: 'manage_tools',
       description:
         '动态管理工具组的启用/停用状态。始终可用，不可被禁用。' +
-        '支持 list_groups（列出所有组）、activate（启用组）、deactivate（停用组）、sync（同步连接状态）、reconnect（手动重连）。',
+        '支持 list_groups（列出所有组+profile 价格标签）、discover（关键词发现工具——全量 45 工具×action 搜索评分,返回匹配/所属组/激活态/激活指引,未激活组里的能力由此发现）、activate（启用组）、deactivate（停用组）、sync（同步连接状态）、reconnect（手动重连）。',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -71,6 +75,14 @@ export function getToolDefinitions(): Tool[] {
             type: 'array',
             items: { type: 'string' },
             description: '目标组名数组（activate/deactivate 时使用）',
+          },
+          query: {
+            type: 'string',
+            description: 'discover: 关键词(空格/逗号分词,大小写不敏感)。按工具名/action 名/组名/描述加权评分,返回 top 匹配与激活指引',
+          },
+          top: {
+            type: 'number',
+            description: 'discover: 返回条数上限(默认 8,最大 20)',
           },
         },
         required: ['action'],
@@ -90,6 +102,7 @@ export async function handleTool(
 
   switch (action) {
     case 'list_groups': return handleListGroups();
+    case 'discover': return handleDiscover(args);
     case 'activate': return handleActivate(args);
     case 'deactivate': return handleDeactivate(args);
     case 'sync': return handleSync();
@@ -98,6 +111,77 @@ export async function handleTool(
     default:
       return textResult(JSON.stringify(opsError('INVALID_ACTION', `Unknown action: ${action}`)));
   }
+}
+
+/**
+ * P5-1 (2026-09-11): discover 按需发现评分(上游报告 #9 / satellite discover_tools 模式)。
+ * 默认 basic profile 只 ships 25 工具,未激活组(engine/blender/android/asset/debug 等)里
+ * 的能力对 agent 不可见——discover 用关键词在全量 45 工具×action 名上搜索评分,返回匹配
+ * +所属组+激活态+激活指引(activate hint),让"能力可见性"不依赖全量 ships(省 token 的
+ * 另一半)。评分:工具名×5 > action 名×4 > 组名×3 > schema 属性描述×2 > 顶层描述×1,
+ * 每词累计,大小写不敏感。属性描述维度承重:P4 瘦身后 action 级能力词(如 game 的
+ * take_screenshot)只在 method/params 属性描述里,顶层描述用概览词("截图")。
+ */
+function handleDiscover(args: Record<string, unknown>): ToolResult {
+  const query = String(args.query ?? '').trim();
+  if (!query) {
+    return textResult(JSON.stringify(opsError('INVALID_PARAMS', 'discover requires a non-empty "query" (关键词,空格/逗号分词)')));
+  }
+  const top = Math.min(Math.max(Number(args.top) || 8, 1), 20);
+  const terms = query.split(/[\s,，]+/).filter(Boolean).map(t => t.toLowerCase());
+  const active = getActiveGroups();
+  const scored: Array<{ tool: string; group: string; active: boolean; score: number; matched: string[]; description: string; hint: string }> = [];
+  for (const def of getAllToolDefinitions()) {
+    // N-2(审查): ALWAYS_ALLOWED 工具(manage_tools/testing 等)不在 TOOL_GROUPS 反向映射里,
+    // 回填 'always-allowed'(它们常驻可用,无组概念)而非误导性的 'unknown'
+    const group = getGroupForTool(def.name) ?? (ALWAYS_ALLOWED_TOOLS.has(def.name) ? 'always-allowed' : 'unknown');
+    const actionEnum = extractActionEnum(def);
+    const propsDesc = extractPropsDescription(def);
+    let score = 0;
+    const matched = new Set<string>();
+    for (const term of terms) {
+      if (def.name.toLowerCase().includes(term)) { score += 5; matched.add(term); }
+      if (actionEnum.some(a => a.toLowerCase().includes(term))) { score += 4; matched.add(term); }
+      if (group.toLowerCase().includes(term)) { score += 3; matched.add(term); }
+      if (propsDesc.some(d => d.includes(term))) { score += 2; matched.add(term); }
+      if ((def.description ?? '').toLowerCase().includes(term)) { score += 1; matched.add(term); }
+    }
+    if (score <= 0) continue;
+    const isActive = active.has(group) || ALWAYS_ALLOWED_TOOLS.has(def.name);
+    scored.push({
+      tool: def.name,
+      group,
+      active: isActive,
+      score,
+      matched: [...matched],
+      description: (def.description ?? '').slice(0, 120),
+      hint: isActive ? '已激活,可直接调用' : `manage_tools activate ["${group}"] 后可用(再调用该工具)`,
+    });
+  }
+  scored.sort((a, b) => b.score - a.score || a.tool.localeCompare(b.tool));
+  return textResult(JSON.stringify(opsSuccess({
+    query: terms,
+    total_matched: scored.length,
+    results: scored.slice(0, top),
+  })));
+}
+
+/** inputSchema 各属性 description 的小写集合(评分第五维度;P4 瘦身后 action 级能力词在此)。 */
+function extractPropsDescription(def: Tool): string[] {
+  const props = (def.inputSchema as { properties?: Record<string, { description?: unknown }> }).properties;
+  if (!props) return [];
+  const out: string[] = [];
+  for (const p of Object.values(props)) {
+    if (typeof p?.description === 'string') out.push(p.description.toLowerCase());
+  }
+  return out;
+}
+
+/** 从 inputSchema 提取 action enum(getToolDefinitions 统一 action 字段;无 enum 返空)。 */
+function extractActionEnum(def: Tool): string[] {
+  const props = (def.inputSchema as { properties?: Record<string, { enum?: unknown }> }).properties;
+  const actionEnum = props?.action?.enum;
+  return Array.isArray(actionEnum) ? actionEnum.map(String) : [];
 }
 
 function handleListGroups(): ToolResult {
@@ -110,7 +194,34 @@ function handleListGroups(): ToolResult {
     requires: def.requires,
     toolCount: def.tools.length,
   }));
-  return textResult(JSON.stringify(opsSuccess({ groups })));
+  return textResult(JSON.stringify(opsSuccess({ groups, profiles: profilePriceTags() })));
+}
+
+/**
+ * P3-4 (2026-09-11, beckett doctor 模式): 每 profile 的 tools/list payload 实测字节与
+ * 近似 token——给 profile 选择加"价格标签"( BuildersGate 105k 基线的对照锚)。
+ * 必须 Buffer.byteLength(JSON 字符串): string.length 数的是 UTF-16 code unit,对中文描述
+ * (本 server 全量中文)少报 2/3 字节——beckett 实测 ~100 个非 ASCII 少报 ~200B 同款坑。
+ * 口径 = name + description + inputSchema 的 JSON 序列化字节(getAllToolDefinitions 返回
+ * registerAllModules 包装后的定义,即 slimSchema/injectTags 生效后的实际 ships 量)。
+ */
+export function profilePriceTags(): Array<{ name: string; tools: number; bytes: number; approxTokens: number }> {
+  const allDefs = getAllToolDefinitions();
+  return Object.entries(PROFILES).map(([name, groups]) => {
+    const toolNames = new Set<string>();
+    for (const g of groups) {
+      for (const t of TOOL_GROUPS[g]?.tools ?? []) toolNames.add(t);
+    }
+    const defs = allDefs.filter(t => toolNames.has(t.name));
+    const bytes = defs.reduce(
+      (sum, t) => sum + Buffer.byteLength(
+        JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema }),
+        'utf8',
+      ),
+      0,
+    );
+    return { name, tools: defs.length, bytes, approxTokens: Math.round(bytes / 4) };
+  });
 }
 
 function handleActivate(args: Record<string, unknown>): ToolResult {
@@ -201,6 +312,7 @@ export const TOOL_META: Record<string, { readonly: boolean; long_running: boolea
     long_running: false,
     actionRisks: {
       list_groups: 'read',
+      discover: 'read',
       sync: 'read',
       reconnect: 'read',
       migrate: 'read',

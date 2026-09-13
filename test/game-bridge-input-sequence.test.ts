@@ -31,7 +31,8 @@ describe('H1 game 工具 schema 描述', () => {
     expect(tool.inputSchema.properties.method.description).toContain('send_input_sequence');
     expect(tool.inputSchema.properties.params.description).toContain('timeline');
     expect(tool.inputSchema.properties.params.description).toContain('at_frame');
-    expect(tool.description).toContain('send_input_sequence');
+    // P4-1 瘦身后顶层用概览词;method 级宣传由 method/params 属性断言覆盖
+    expect(tool.description).toContain('模拟输入');
   });
 
   it('timeout 描述声明延迟响应自动放宽', () => {
