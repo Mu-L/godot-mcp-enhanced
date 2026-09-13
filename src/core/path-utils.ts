@@ -182,6 +182,14 @@ export function resolveWithinRoot(root: string, userPath: string): string {
   if (/^[A-Za-z]:(?:$|[^/])/.test(normalizedPath)) {
     throw new PathError('Path traversal detected');
   }
+  // CI Linux 失败修复(P2-6 后续, 2026-09-13): 带根 "C:/x" 在 Windows 走后续链
+  // (isAbsolute → 项目外拒/项目内放行),但 Linux 上 isAbsolute=false 被当相对路径
+  // join 进项目内放行("c:/evil.gd" 解析成 <root>/c:/evil.gd)——同一输入跨平台
+  // 判定漂移。"长得像 Windows 绝对路径但本平台不视为绝对"是形态歧义,显式拒;
+  // Windows 项目内绝对路径(isAbsolute=true)不受影响,行为零变化。
+  if (/^[A-Za-z]:\//.test(normalizedPath) && !isAbsolute(normalizedPath)) {
+    throw new PathError('Path traversal detected');
+  }
   // F-4: 段级精确匹配,避免误拒含 ".." 的合法文件名(my..file.txt、..hidden、foo/..bar)
   // 子串匹配会 over-block;第180行 realpath+relative 兜底仍保留作纵深防御
   const segments = normalizedPath.split('/');

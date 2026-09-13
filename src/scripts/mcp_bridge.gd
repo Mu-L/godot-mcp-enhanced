@@ -4214,15 +4214,24 @@ func _refresh_custom_slots(reason: String) -> void:
 				var path := "res://mcp_commands".path_join(file_name)
 				discovered[path] = true
 				var mtime := FileAccess.get_modified_time(path)
+				# CI 失败修复(HOT-c, 2026-09-13): get_modified_time 返回秒级 Unix 时间戳——
+				# 1 秒内两次保存(编辑器快速迭代常态)秒值相同,原 mtime 单比较静默丢 reload,
+				# 状态机停留旧 state(e2e 实证:HOT-b 写入与 HOT-c 写入同秒,state 停 loaded)。
+				# 补内容 md5 双比较:同秒任意内容变化可靠触发。开销可忽略(mcp_commands 文件
+				# 个位数 + 均为小脚本,300ms tick 周期下微秒-毫秒级)。
+				# ⚠️ FileAccess.get_file_size 是实例方法不可静态调(首版踩坑:Parse Error 挂
+				# autoload,check:gdscript 漏报此错误,手起游戏才暴露——审查盲区 1 二例)。
+				var content_hash := FileAccess.get_md5(path)
 				var slot: Dictionary = _custom_slots.get(path, {})
 				if slot.is_empty():
 					# ENV=0 冻结命令面(P8 审查 N-2 清偿):仅启动扫描(initialize)建新 slot;
 					# tick 发现的新文件不加载——否则"启动加载一次"名不副实(新增照样热加载)。
 					if hot_reload or reason == "initialize":
-						_custom_slots[path] = _create_custom_slot(path, mtime, reason)
+						_custom_slots[path] = _create_custom_slot(path, mtime, content_hash, reason)
 					continue
-				if hot_reload and int(slot.get("last_mtime", 0)) != mtime:
+				if hot_reload and (int(slot.get("last_mtime", 0)) != mtime or String(slot.get("last_hash", "")) != content_hash):
 					slot["last_mtime"] = mtime
+					slot["last_hash"] = content_hash
 					slot["pending_reload"] = true
 					slot["state"] = "reload_pending"
 					_custom_slots[path] = slot
@@ -4257,7 +4266,7 @@ func _refresh_custom_slots(reason: String) -> void:
 	_rebuild_custom_index()
 
 
-func _create_custom_slot(path: String, mtime: int, reason: String) -> Dictionary:
+func _create_custom_slot(path: String, mtime: int, content_hash: String, reason: String) -> Dictionary:
 	return {
 		"instance": null,
 		"commands": {},
@@ -4267,6 +4276,7 @@ func _create_custom_slot(path: String, mtime: int, reason: String) -> Dictionary
 		"pending_reload": true,
 		"removed_pending": false,
 		"last_mtime": mtime,
+		"last_hash": content_hash,
 		"last_error": null,
 		"last_reason": reason,
 	}

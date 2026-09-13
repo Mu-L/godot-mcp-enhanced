@@ -85,7 +85,10 @@ describe.skipIf(!hasGodot)('P2-1: 函数级 profiling 真引擎 e2e(短窗口)',
     const profiler = await DebuggerProfiler.create();
     try {
       const proc = spawn(GODOT_PATH, [
-        '--path', projectPath, '--debug',
+        // CI Linux 失败修复(2026-09-13): check job 无 DISPLAY(无 xvfb),窗口模式进程
+        // 起不来 → debugger socket 断连("Debugger disconnected")。--headless 下引擎
+        // 照跑帧(dummy renderer),profiling 采样不受影响,且本地/CI 行为一致。
+        '--path', projectPath, '--headless', '--debug',
         '--remote-debug', `tcp://127.0.0.1:${profiler.port}`,
       ], { stdio: 'ignore' });
       try {
