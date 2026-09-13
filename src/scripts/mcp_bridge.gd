@@ -2682,9 +2682,15 @@ func _cmd_monitor_start(params: Dictionary, pid: int) -> Variant:
 		return {"error": {"code": -3, "message": "Node not found: %s" % node_path}}
 
 	# I-11: filter out blocked property names
+	# M-EXPLAIN (2026-09-01): 同时点名被过滤属性(dropped_blocked),返回的 properties
+	# 改为实际监控列表(filtered_props)——修复此前返回原始请求列表导致的"谎报监控范围"。
 	var filtered_props: Array = []
+	var dropped_blocked: Array = []
 	for prop in properties:
-		if not _is_blocked_property(str(prop)):
+		if _is_blocked_property(str(prop)):
+			if not dropped_blocked.has(prop):
+				dropped_blocked.append(prop)
+		else:
 			filtered_props.append(prop)
 	if filtered_props.size() == 0:
 		return {"error": {"code": -7, "message": "All requested properties are blocked"}}
@@ -2719,15 +2725,56 @@ func _cmd_monitor_start(params: Dictionary, pid: int) -> Variant:
 	var result_dict: Dictionary = {
 		"monitoring": true,
 		"node_path": node_path,
-		"properties": properties,
+		"properties": filtered_props,
+		"dropped_blocked": dropped_blocked,
 		"interval_frames": interval,
 		# P0-3: 实际调度按游戏时间(60fps 基准换算);paused/freeze 期间游戏时间停走不采样
 		"interval_ms": interval_ms,
 		"scheduling": "game_time",
+		"max_samples": MONITOR_DEFAULT_MAX_SAMPLES,
 	}
 	if previous_samples.size() > 0:
 		result_dict["previous_samples"] = previous_samples
 	return result_dict
+
+
+# M-EXPLAIN (2026-09-01): monitor 数值摘要——让输出自己解释自己(对标 satelliteoflove
+# 05f721b:数值摘要说明 min/max 发生时刻)。诚实边界:
+# ① 仅标量数值属性(int/float;Vector/Color 经 _jsonify 已是 Dict,跳过不进摘要);
+# ② error 样本(node_lost 等)跳过;③ min/max 与既有极值相同时保留首次出现的时刻。
+func _monitor_summary(samples: Array, properties: Array) -> Dictionary:
+	var summary: Dictionary = {}
+	for prop in properties:
+		var key := str(prop)
+		var best: Dictionary = {}
+		for s in samples:
+			if not (s is Dictionary):
+				continue
+			var sd: Dictionary = s
+			if sd.has("error"):
+				continue
+			var values: Dictionary = sd.get("values", {})
+			if not values.has(key):
+				continue
+			var v: Variant = values[key]
+			if not (v is int or v is float):
+				continue
+			var frame := int(sd.get("frame", 0))
+			var time := float(sd.get("time", 0.0))
+			if best.is_empty():
+				best = {"min": v, "max": v, "min_at_frame": frame, "min_at_time": time, "max_at_frame": frame, "max_at_time": time}
+			else:
+				if v < best["min"]:
+					best["min"] = v
+					best["min_at_frame"] = frame
+					best["min_at_time"] = time
+				elif v > best["max"]:
+					best["max"] = v
+					best["max_at_frame"] = frame
+					best["max_at_time"] = time
+		if not best.is_empty():
+			summary[key] = best
+	return summary
 
 
 func _cmd_monitor_stop(pid: int) -> Variant:
@@ -2746,7 +2793,16 @@ func _cmd_monitor_stop(pid: int) -> Variant:
 		if reason != "":
 			msg = "Monitor stopped: %s" % reason
 		_monitor_states.erase(pid)
-		return {"monitoring": false, "samples": old_samples, "sample_count": old_samples.size(), "stopped_reason": reason, "message": msg}
+		return {
+			"monitoring": false,
+			"samples": old_samples,
+			"sample_count": old_samples.size(),
+			"stopped_reason": reason,
+			"interval_frames": int(ms.get("interval_frames", 0)),
+			"max_samples": int(ms.get("max_samples", 0)),
+			"summary": _monitor_summary(old_samples, ms.get("properties", [])),
+			"message": msg,
+		}
 	ms["active"] = false
 	# P0-3 (2026-09-11): stop 补采——游戏时间推进过(advanced_since_sample)但最后一次调度
 	# 采样没赶上时,stop 时补采终态,防最后一格读数丢失(freeze/游戏暂停下不补:游戏时间
@@ -2781,6 +2837,9 @@ func _cmd_monitor_stop(pid: int) -> Variant:
 		"sample_count": samples.size(),
 		"total_frames": Engine.get_process_frames(),
 		"duration_seconds": duration,
+		"interval_frames": int(ms.get("interval_frames", 0)),
+		"max_samples": int(ms.get("max_samples", 0)),
+		"summary": _monitor_summary(samples, ms.get("properties", [])),
 	}
 	if stopped_reason != "":
 		result_dict["stopped_reason"] = stopped_reason
@@ -2809,6 +2868,8 @@ func _cmd_monitor_poll(pid: int) -> Variant:
 		"node_path": str(ms["node_path"]),
 		"samples": samples,
 		"sample_count": samples.size(),
+		"interval_frames": int(ms.get("interval_frames", 0)),
+		"summary": _monitor_summary(samples, ms.get("properties", [])),
 	}
 
 

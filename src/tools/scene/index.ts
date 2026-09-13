@@ -2,7 +2,7 @@
 
 import { join, dirname } from 'path';
 import type { Tool } from "@modelcontextprotocol/server";
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import type { ToolContext, ToolResult } from '../../types.js';
 import { textResult, errorResult } from '../../types.js';
 import { maybeWrapUntrusted } from '../../core/untrusted-wrap.js';
@@ -218,8 +218,10 @@ export async function handleTool(
       const selfGuardC = pluginSelfPathGuard(absPath);
       if (selfGuardC) return selfGuardC;
       // Write back the modified .tscn
+      // A-ATOMIC (2026-09-01): 覆盖已存在的用户场景资产改走原子写(同目录 helpers.writeAtomic
+      // 此前已 import 却漏用;直写中断=半写 .tscn 损坏用户场景)
       if (result.scene) {
-        writeFileSync(absPath, result.scene, 'utf-8');
+        writeAtomic(absPath, result.scene);
       }
       // S1 (2026-06-23): BLOCKED_PROPS 命中时前置明确警告(避免"设 script 看似成功但未落盘"的静默失败)
       if (result.blockedProps && result.blockedProps.length > 0) {
@@ -312,8 +314,9 @@ export async function handleTool(
         const selfGuardQ2 = pluginSelfPathGuard(resolveWithinRoot(p, scriptRelPath));
         if (selfGuardQ2) return selfGuardQ2;
       }
-      try { ensureDir(sceneAbsPath); writeFileSync(sceneAbsPath, tscnContent, 'utf-8'); } catch (e: unknown) { return textResult(`Error writing scene: ${(e as Error).message}`); }
-      if (scriptRelPath && scriptContent) { const scriptAbsPath = resolveWithinRoot(p, scriptRelPath); if (!existsSync(scriptAbsPath)) { try { ensureDir(scriptAbsPath); writeFileSync(scriptAbsPath, scriptContent, 'utf-8'); } catch (e: unknown) { return textResult(`Scene created but script write failed: ${(e as Error).message}`); } } }
+      // A-ATOMIC (2026-09-01): 新建场景/脚本走原子写(直写中断=半写 .tscn/.gd 损坏用户资产)
+      try { ensureDir(sceneAbsPath); writeAtomic(sceneAbsPath, tscnContent); } catch (e: unknown) { return textResult(`Error writing scene: ${(e as Error).message}`); }
+      if (scriptRelPath && scriptContent) { const scriptAbsPath = resolveWithinRoot(p, scriptRelPath); if (!existsSync(scriptAbsPath)) { try { ensureDir(scriptAbsPath); writeAtomic(scriptAbsPath, scriptContent); } catch (e: unknown) { return textResult(`Scene created but script write failed: ${(e as Error).message}`); } } }
       const parts = [`Created scene: ${sceneRelPath}`, `Root: ${rootNodeName} [${rootNodeType}]`];
       if (scriptRelPath) parts.push(`Script: res://${scriptRelPath.replace(/\\/g, '/')}`);
       if (scriptRelPath && scriptContent) parts.push(`Script file created`);

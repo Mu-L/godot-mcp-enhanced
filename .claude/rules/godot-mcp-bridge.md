@@ -66,9 +66,9 @@ Game Bridge 是 MCP 服务端与**运行中的游戏**之间的 TCP 通信层。
 
 | action | 说明 |
 |--------|------|
-| `monitor_start` | 开始属性采样（node_path + properties + interval_frames）。P0-3(2026-09-11):interval_frames 为 60fps 基准标称帧数,实际按游戏时间毫秒调度(interval_ms=interval_frames*1000/60),帧率变化节奏不漂移;paused/freeze 期间游戏时间停走不采样;样本含 t_game_ms 游戏时间戳 |
-| `monitor_stop` | 停止采样，返回完整时间线 |
-| `monitor_poll` | 获取当前采样数据（不停止） |
+| `monitor_start` | 开始属性采样（node_path + properties + interval_frames）。P0-3(2026-09-11):interval_frames 为 60fps 基准标称帧数,实际按游戏时间毫秒调度(interval_ms=interval_frames*1000/60),帧率变化节奏不漂移;paused/freeze 期间游戏时间停走不采样;样本含 t_game_ms 游戏时间戳。M-EXPLAIN(2026-09-01):返回 properties=实际监控列表,被安全过滤的属性逐个点名进 dropped_blocked;上限 20 属性/500 样本 |
+| `monitor_stop` | 停止采样，返回完整时间线（附数值极值摘要 summary：min/max 及发生帧/时刻，仅数值属性） |
+| `monitor_poll` | 获取当前采样数据（不停止；同样附 summary 与 interval_frames） |
 
 ### 信号监听 — watch_start/stop/poll
 
@@ -217,13 +217,13 @@ game_write(method="call_method", params={ "path": "/root/Player", "method": "tak
 
 ```
 game(action="monitor_start", node_path="/root/Player", properties=["position", "health"], interval_frames=5)
-// → { monitoring: true, node_path: "/root/Player", properties: [...], interval_frames: 5 }
+// → { monitoring: true, node_path: "/root/Player", properties: [...], dropped_blocked: [], interval_frames: 5, max_samples: 500 }
 
 game(action="monitor_poll")
-// → { monitoring: true, samples: [{frame: 100, time: 1.667, t_game_ms: 1666.7, values: {position: {x:10,y:0}}}], sample_count: 1 }
+// → { monitoring: true, samples: [{frame: 100, time: 1.667, t_game_ms: 1666.7, values: {position: {x:10,y:0}}}], sample_count: 1, interval_frames: 5, summary: {...} }
 
 game(action="monitor_stop")
-// → { monitoring: false, samples: [...], sample_count: 30, duration_seconds: 2.5 }
+// → { monitoring: false, samples: [...], sample_count: 30, duration_seconds: 2.5, summary: {health: {min: 0, max: 100, min_at_frame: 120, ...}} }  // summary 仅数值属性；position 是 Vector(Dict) 不进摘要
 ```
 
 ### 信号监听

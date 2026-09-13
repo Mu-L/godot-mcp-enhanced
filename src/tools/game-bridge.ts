@@ -6,7 +6,8 @@
  * 不再需要 import tools 层;本文件保留 MCP 工具定义,并 re-export 客户端符号使既有消费方
  * (GodotServer/CLI/测试)import 路径零改动。
  */
-import { writeFileSync, readFileSync, existsSync, copyFileSync, unlinkSync, renameSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, copyFileSync, unlinkSync, readdirSync } from 'fs';
+import { writeFileAtomic } from '../core/fs-atomic.js';
 import { join, dirname } from 'path';
 import type { Tool } from "@modelcontextprotocol/server";
 import type { ToolContext, ToolResult } from '../types.js';
@@ -240,7 +241,7 @@ export function getToolDefinitions(): Tool[] {
           timeout: { type: 'number', description: 'game_query/game_write/game_input/game_wait: 超时时间（毫秒，默认 10000）。game_wait 的 timeout 用作整个轮询窗口的总预算（在窗口内反复探测直到条件成立）。send_input_sequence 延迟响应,timeout 自动放宽至 wall_budget+10s(上限 65000)' },
           interval_ms: { type: 'number', description: 'game_wait 专用：轮询探测间隔（毫秒，默认 200，范围 50-2000）。仅 wait_for_node/wait_for_property 生效', default: 200 },
           node_path: { type: 'string', description: 'monitor_start: 要监控的节点路径（如 /root/Player）' },
-          properties: { type: 'array', items: { type: 'string' }, description: 'monitor_start: 要监控的属性名列表（如 ["position", "health"]）' },
+          properties: { type: 'array', items: { type: 'string' }, description: 'monitor_start: 要监控的属性名列表（如 ["position", "health"]）;被安全过滤的属性会在返回 dropped_blocked 中逐个点名' },
           interval_frames: { type: 'number', description: 'monitor_start: 采样间隔(60fps 基准下的标称帧数,默认 10,最小 1,最大 300;实际按游戏时间毫秒调度,帧率变化节奏不漂移,paused/freeze 期间游戏时间停走不采样,样本含 t_game_ms 游戏时间戳)' },
           signal_name: { type: 'string', description: 'watch_start: 要监听的信号名（如 "pressed"、"health_changed"）' },
           max_events: { type: 'number', description: 'watch_start: 最大记录事件数（默认 1000，最大 5000）' },
@@ -537,9 +538,8 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         }
 
         // Atomic write: write to temp file then rename
-        const tmpPath = configPath + '.mcp-tmp';
-        writeFileSync(tmpPath, config, 'utf-8');
-        renameSync(tmpPath, configPath);
+        // A-ATOMIC 存量收口:走共享原子写(mode 保持+随机 tmp+Windows 锁定降级)
+        writeFileAtomic(configPath, config);
         return textResult(JSON.stringify({
           success: true,
           // A1: 端口自动避让(默认起始候选在 9081-9090 内 crypto 随机——竞态缓解,env GODOT_MCP_BRIDGE_PORT 可固定起点;实际端口见 instance registry + ping 响应 pid/project 指纹)
@@ -568,9 +568,7 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         // 双键清理:新键行 + 旧带前缀键行都移除
         const lines = config.split('\n').filter(line =>
           !line.startsWith(AUTOLOAD_KEY + '=') && !line.startsWith(AUTOLOAD_KEY_LEGACY + '='));
-        const tmpPath = configPath + '.mcp-tmp';
-        writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
-        renameSync(tmpPath, configPath);
+        writeFileAtomic(configPath, lines.join('\n'));  // A-ATOMIC 存量收口
 
         // A2 (2026-08-18 反馈): 仅当脚本内容与工具自带版本一致(工具托管拷贝)才删除;
         // 内容不同(项目自管/git tracked + 用户修改)则保留并提示,防 uninstall 删掉 tracked 文件。

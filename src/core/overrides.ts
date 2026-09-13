@@ -8,7 +8,8 @@
 // - MCP 工具 action(主入口):game_bridge 工具加 install_override/uninstall_override,agent 显式调用
 // - CLI flag(便捷):--overrides=<path> 指定默认 overrides,在 run_project 时自动注入
 
-import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { writeFileAtomicWithMode } from './fs-atomic.js';
 import { join, basename, extname } from 'path';
 import { isPathInAllowedRoots, describeAllowedRoots } from './path-utils.js';
 import { getLogger } from './logger.js';
@@ -180,10 +181,8 @@ export function installOverride(sourceScriptPath: string, projectRoot: string): 
     config += `\n[autoload]\n${autoloadEntry}\n`;
   }
 
-  // 原子写:tmp + rename(参考 game-bridge.ts:577-579)
-  const tmpPath = configPath + '.mcp-tmp';
-  writeFileSync(tmpPath, config, 'utf-8');
-  renameSync(tmpPath, configPath);
+  // 原子写(A-ATOMIC 存量收口:走共享 fs-atomic,替换原自写 tmp+rename)
+  writeFileAtomicWithMode(configPath, config);
 
   getLogger().info('overrides', `Override installed: ${entry.autoloadKey} → ${entry.destScriptName}`);
   return entry;
@@ -215,9 +214,7 @@ export function uninstallOverride(sourceScriptPath: string, projectRoot: string)
   // 移除 autoload 行(G-5: 新键行 + 旧带前缀键行都清)
   const lines = config.split('\n').filter(line =>
     !line.startsWith(entry.autoloadKey + '=') && !line.startsWith(legacyKey + '='));
-  const tmpPath = configPath + '.mcp-tmp';
-  writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
-  renameSync(tmpPath, configPath);
+  writeFileAtomicWithMode(configPath, lines.join('\n'));  // A-ATOMIC 存量收口
 
   // 删拷贝的脚本(参考 game-bridge.ts:606-609)
   if (existsSync(entry.destScriptPath)) {
@@ -259,9 +256,7 @@ export function uninstallAllOverrides(projectRoot: string): number {
     return 0;
   }
 
-  const tmpPath = configPath + '.mcp-tmp';
-  writeFileSync(tmpPath, kept.join('\n'), 'utf-8');
-  renameSync(tmpPath, configPath);
+  writeFileAtomicWithMode(configPath, kept.join('\n'));  // A-ATOMIC 存量收口
 
   // 删对应脚本(从 autoload 行解析脚本名)
   for (const line of removed) {

@@ -3,8 +3,7 @@
 import type { ToolResult } from '../../types.js';
 import { opsErrorResult } from '../shared.js';
 import { gdEscape, valueToGd } from '../shared.js';
-import { writeFileSync, renameSync, unlinkSync } from 'fs';
-import { getLogger } from '../../core/logger.js';
+import { writeFileAtomicWithMode } from '../../core/fs-atomic.js';
 
 export const ACTIONS = [
   'read_scene', 'create_scene', 'add_node', 'save_scene', 'load_sprite',
@@ -92,14 +91,9 @@ export const BLOCKED_PROPS = new Set([
   'instance',
 ]);
 
-/** Atomic file write: write to temp then rename. Uses temp+rename on all platforms (NTFS same-volume rename is atomic). */
+/** Atomic file write: write to temp then rename. Uses temp+rename on all platforms (NTFS same-volume rename is atomic).
+ * A-ATOMIC (2026-09-01): 实现上移合并至 src/core/fs-atomic.ts(三份重复实现的并集语义:
+ * mode 保持 + 随机 tmp 后缀 + Windows 锁定降级),此处保留签名薄委托,消费方零改动。 */
 export function writeAtomic(filePath: string, content: string): void {
-  const tmp = filePath + '.mcp-tmp';
-  writeFileSync(tmp, content, 'utf-8');
-  try {
-    renameSync(tmp, filePath);
-  } catch (e) {
-    try { unlinkSync(tmp); } catch (cleanupErr) { getLogger().debug('scene', `writeAtomic temp cleanup failed: ${cleanupErr instanceof Error ? cleanupErr.message : cleanupErr}`); }
-    throw e;
-  }
+  writeFileAtomicWithMode(filePath, content);
 }

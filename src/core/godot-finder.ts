@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync, statSync } from 'fs';
 import { join, sep, dirname } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
@@ -129,9 +129,20 @@ export function isGodotPathAllowed(candidatePath: string): boolean {
   return isAllowed;
 }
 
+/** G-CONF (2026-09-01): 路径指向目录的显式判定(对标 godot-ai 69ba29f「拒绝指向目录的 GODOT_BIN」)。
+ * 此前目录候选只会在 execFile 报 ENOENT/EACCES 后落进 debug 日志,用户可见的只剩含混的
+ * "Godot binary not found"。stat 失败(不存在/权限)返回 false,交回原有失败路径。 */
+function isDirectoryPath(p: string): boolean {
+  try { return statSync(p).isDirectory(); } catch { return false; }
+}
+
 /** Validate a candidate binary by running --version and checking for Godot signature. */
 export async function validateGodotBinary(candidatePath: string): Promise<boolean> {
   if (!isGodotPathAllowed(candidatePath)) return false;
+  if (isDirectoryPath(candidatePath)) {
+    getLogger().warn('godot-finder', `godot candidate is a directory, not an executable: ${candidatePath}`);
+    return false;
+  }
   try {
     const { stdout } = await execFileAsync(candidatePath, ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     return isGodotVersionSignature(stdout);
@@ -182,7 +193,7 @@ function findInDirectory(dir: string): string | null {
  * Try to resolve a project-specific Godot binary path.
  * Priority: .godot/mcp-godot.json > project.godot [godot_mcp] > .godot-version (godots)
  */
-async function tryProjectOverride(projectPath: string, tried: string[]): Promise<string | null> {
+async function tryProjectOverride(projectPath: string): Promise<string | null> {
   // A. Try .godot/mcp-godot.json
   const mcpConfigPath = join(projectPath, '.godot', 'mcp-godot.json');
   if (existsSync(mcpConfigPath)) {
@@ -192,11 +203,9 @@ async function tryProjectOverride(projectPath: string, tried: string[]): Promise
       if (config.godot_path) {
         const candidate = config.godot_path;
         if (existsSync(candidate) && await validateGodotBinary(candidate)) return candidate;
-        tried.push(`mcp-godot.json: ${candidate} (not found or failed validation)`);
       }
     } catch (err) {
       getLogger().debug('godot-finder', `mcp-godot.json parse error: ${err instanceof Error ? err.message : err}`);
-      tried.push(`mcp-godot.json: parse error`);
     }
   }
 
@@ -212,7 +221,6 @@ async function tryProjectOverride(projectPath: string, tried: string[]): Promise
         if (pathMatch?.[1]) {
           const candidate = pathMatch[1].trim();
           if (existsSync(candidate) && await validateGodotBinary(candidate)) return candidate;
-          tried.push(`project.godot [godot_mcp]: ${candidate} (not found or failed validation)`);
         }
       }
     } catch (err) {
@@ -229,9 +237,6 @@ async function tryProjectOverride(projectPath: string, tried: string[]): Promise
         const resolved = resolveGodotsVersion(versionSpec);
         if (resolved) {
           if (await validateGodotBinary(resolved)) return resolved;
-          tried.push(`godots version "${versionSpec}": ${resolved} (failed validation)`);
-        } else {
-          tried.push(`godots version "${versionSpec}": no matching binary found`);
         }
       }
     } catch (err) {
@@ -346,24 +351,29 @@ export async function findGodot(projectPath?: string): Promise<string> {
   if (cached && (cached === 'godot' || existsSync(cached)) && isGodotPathAllowed(cached)) return cached;
   _pathCache.delete(cacheKey);
 
-  const tried: string[] = [];
+  // N-4 (2026-09-01 审查): tried 诊断列表死代码清除——只 push 从不消费,不进任何
+  // 错误消息;失败原因的可读化由各分支自身的 warn/debug 日志承担(G-CONF 目录拒绝等)。
 
   // 2. Project-level overrides (only when projectPath is given)
   if (projectPath) {
-    const projectOverride = await tryProjectOverride(projectPath, tried);
+    const projectOverride = await tryProjectOverride(projectPath);
     if (projectOverride) { _pathCache.set(cacheKey, projectOverride); return projectOverride; }
   }
 
   // 3. Environment variable — validate the binary
   if (process.env.GODOT_PATH) {
     if (existsSync(process.env.GODOT_PATH)) {
+      // G-CONF (2026-09-01): 显式 env 配置指向目录 → 显性报错而非静默落入后续搜索链
+      // (fallback 到 registry/scoop 找到的版本会掩盖用户的配置错误);路径值不进
+      // client 消息(PII-safe),完整路径见 server 日志。
+      if (isDirectoryPath(process.env.GODOT_PATH)) {
+        getLogger().warn('godot-finder', `GODOT_PATH is a directory, not an executable: ${process.env.GODOT_PATH}`);
+        throw new InternalError('GODOT_PATH points to a directory, not an executable (set it to the Godot executable file path)');
+      }
       if (await validateGodotBinary(process.env.GODOT_PATH)) {
         _pathCache.set(cacheKey, process.env.GODOT_PATH);
         return process.env.GODOT_PATH;
       }
-      tried.push(`GODOT_PATH=${process.env.GODOT_PATH} (failed validation)`);
-    } else {
-      tried.push(`GODOT_PATH=${process.env.GODOT_PATH} (not found)`);
     }
   }
 
@@ -375,9 +385,6 @@ export async function findGodot(projectPath?: string): Promise<string> {
         _pathCache.set(cacheKey, candidate);
         return candidate;
       }
-      tried.push(`godot-paths.json: ${candidate} (failed validation)`);
-    } else {
-      tried.push(`godot-paths.json: ${candidate} (not found)`);
     }
   }
 
@@ -386,38 +393,32 @@ export async function findGodot(projectPath?: string): Promise<string> {
     const { stdout } = await execFileAsync('godot', ['--version'], { encoding: 'utf-8', timeout: 5000, env: buildSafeEnv() });
     if (isGodotVersionSignature(stdout)) {
       // PATH 解析的 'godot' 字面量在白名单启用时通常无法匹配绝对路径条目——
-      // 视为不可校验,记入 tried 让用户显式设 GODOT_PATH 或扩充白名单(含 PATH 目录)。
+      // 视为不可校验,跳过让用户显式设 GODOT_PATH 或扩充白名单(含 PATH 目录)。
       if (isGodotPathAllowed('godot')) {
         _pathCache.set(cacheKey, 'godot');
         return 'godot';
       }
-      tried.push('godot (PATH) rejected by GODOT_MCP_ALLOWED_GODOT_PATHS whitelist');
     }
-  } catch (err) { getLogger().debug('godot-finder', `PATH godot failed: ${err instanceof Error ? err.message : err}`); tried.push('godot (PATH)'); }
+  } catch (err) { getLogger().debug('godot-finder', `PATH godot failed: ${err instanceof Error ? err.message : err}`); }
 
   // 5. Windows-specific: Registry + Scoop
   if (process.platform === 'win32') {
     const registryResult = await findViaRegistry();
     if (registryResult) { _pathCache.set(cacheKey, registryResult); return registryResult; }
-    tried.push('Windows Registry');
 
     const scoopResult = await findViaScoop();
     if (scoopResult) { _pathCache.set(cacheKey, scoopResult); return scoopResult; }
-    tried.push('Scoop');
   }
 
   // 6. Platform-specific search
   if (process.platform === 'win32') {
     const allDirs = [...WINDOWS_SEARCH_DIRS, ...getUserSearchDirs(), ...getExtraSearchDirs()];
     for (const dir of allDirs) {
-      tried.push(`${dir}/Godot_v4*.exe`);
       const found = findInDirectory(dir);
       if (found && await validateGodotBinary(found)) { _pathCache.set(cacheKey, found); return found; }
-      if (found) tried.push(`${found} (failed --version validation)`);
     }
   } else {
     for (const candidate of POSIX_CANDIDATES) {
-      tried.push(candidate);
       if (existsSync(candidate) && await validateGodotBinary(candidate)) { _pathCache.set(cacheKey, candidate); return candidate; }
     }
   }

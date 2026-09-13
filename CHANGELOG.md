@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-09-13
+
+> **合并说明**:本段内容来自 2026-09-01 完成的「竞品启发加固批」(分支 feat/competitor-inspired-hardening,
+> 9 commits,审查报告 docs/reviews/2026-09-01-competitor-inspired-hardening.md 判定 SHIPPED WITH NITS)——
+> 当时因批次切换被搁置未合,2026-09-13 经冲突融合并入 master(与 P0-P10 后的 monitor 游戏时间调度/L-1
+> 缓冲落盘/FileGuard 语义融合)。版本判级:无新工具/新 action,属既有能力输出增强+内部加固,按 patch。
+> 规则模板(bridge.md monitor 条目)变更触发 bump 硬门禁,本批定版 0.33.1。
+
+### Added — bridge monitor 输出可解释性:dropped_blocked 点名 + 数值极值摘要(对标 satelliteoflove 2fb5f07/05f721b)
+
+- **动机**:satelliteoflove 3 天 11 版全打"输出自己解释自己",与 enhanced 工具族重叠度最高;复核 enhanced 现状发现 `monitor_start` 返回的 `properties` 用**原始请求列表**而非过滤后实际监控列表——被 BLOCKED_PROPERTIES 过滤的属性不点名不说明,返回还声称在监控它,比对手修前的"只报数量"更糟。
+- **改动**(`src/scripts/mcp_bridge.gd`):①返回 `properties` 改用 `filtered_props` + 新增 `dropped_blocked` 逐个点名(去重);②新增 `_monitor_summary`(数值属性 min/max 及发生帧/时刻;仅 int/float,Vector/Color 经 _jsonify 已是 Dict 跳过;error 样本跳过;同值极值保留首现),接入 `monitor_stop` 两个 return 与 `monitor_poll` active 分支;③start/stop 返回自述 `max_samples`/`interval_frames` 窗口;④`game` 工具描述与 `properties` 参数描述同步。push 模式单帧推送不带摘要(无累计语义,热路径开销考虑,poll 可得)。另固化 bridge 行协议 UTF-8 跨 chunk 免疫性质(对标 blender-mcp 3100b36 同款 bug 的防御证明:`raw.find(0x0A)` 字节切行 + 整行 `get_string_from_utf8` + 无效 UTF-8 主动断连)。
+- **验证**:契约测试 `test/monitor-explainability-contract.test.ts` 12/12(M 组 8 + U 组 4,正/负双向锚点);`npm run check:gdscript` errors=0;headless 真跑摘要算法 7/7 PASS(重复极值首现/非数值排除/error 跳过,Godot 4.6.3);game-bridge 44/44;全量 6165 passed。
+
+### Fixed — GODOT_PATH 指向目录:显性报错替代静默 fallback(对标 godot-ai 69ba29f)
+
+- **根因**:`findGodot` 的 env 分支此前对目录候选只在 `execFile` 报 ENOENT/EACCES 后落 debug 日志,用户可见的只剩含混的 "Godot binary not found",且静默落入 registry/scoop 搜索链会用别的 Godot 掩盖用户的配置错误。
+- **修复**(`src/core/godot-finder.ts`):新增 `isDirectoryPath`;`GODOT_PATH` 显式配置指向目录直接 throw(错误消息不含路径值,PII-safe;完整路径进 server 日志);`validateGodotBinary` 对目录候选 warn + 拒绝(不 spawn),覆盖 mcp-godot.json / godot-paths.json 候选。同批自查:configure 幂等续配天然满足(单次进程+json-config 原子写+isConfigured 幂等跳过,无 godot-ai daemon 竞态面);裸名解析不采纳(与白名单安全模型冲突);路径规范化已有 safeRealPath 白名单归一+版本签名双防线覆盖。
+- **验证**:`test/godot-finder.test.js` +2 例(目录 throw / validate 拒且不 spawn),48/48 绿。
+
+### Changed — 共享原子写上移 core + 高危覆盖点收口(对标官方 mcp servers 562feeb/642a911)
+
+- **动机**:全仓 94 处直接 `writeFileSync` 中,覆盖**已存在用户资产**的写入点非原子——`save_scene` 写回 .tscn 同目录已有 `writeAtomic` 却漏用直写;`edit_script` 三条路径直写 .gd(靠 validateAndRevert 兜"验证失败回滚",不兜进程崩溃窗口);而原子写实现已有 3 份重复(scene/helpers、project、json-config)。
+- **改动**:新增 `src/core/fs-atomic.ts`(三份实现的并集语义:mode 保持 + 随机 tmp 后缀防并发互踩 + 失败清理 + Windows 锁定降级直写),三处旧名薄委托/re-export 保兼容(消费方零改动;json-config 消费链 rename 失败语义从"直接抛"变"Windows 降级直写",已在其注释披露);接入 save_scene 写回、quick_scene 两处、edit_script 三条路径。**存量收口(同日第二批)**:scene-instance(detach 写回 .tscn)/translation-ops(translation_register 写 project.godot + write CSV)/game-bridge(install/uninstall 写 project.godot)/overrides(install/uninstall/uninstallAll 三处)全部迁到共享实现——覆盖用户资产的自写 tmp+rename 至此清零。
+- **验证**:`test/fs-atomic.test.ts` 4/4(tmp 编排/mode 保持/Windows 降级/非 Windows 抛出);scene/script/project 定向 180/180;回归门禁 `adapter-no-mode-preserve` 谓词跟随实现位置更新(core 实现+mode 保持+re-export 链+adapter 调用四要素),defects-fixed 136/136;存量收口批定向 139/139(godot-finder/scene-instance/translation/game-bridge/overrides);全量 6165 passed。
+
+### Changed — godot-finder tried 诊断列表死代码清除(审查 N-4)
+
+- **根因**:`findGodot` 内 `tried` 列表只 push 从不消费,不进任何错误消息与日志——纯死代码(22 处),且给人"失败诊断可追溯"的错觉;失败原因的可读化实际由各分支自身的 warn/debug 日志承担(G-CONF 目录拒绝等)。
+- **修复**:`tryProjectOverride` 签名去掉 tried 参数,全部 push 与声明删除,相关注释同步;行为零变化。
+- **验证**:定向 godot-finder 48/48 绿;lint 0 错;build 0 TS 错。
+
 ## [0.33.0] - 2026-09-13
 
 ### Fixed — 全仓功能审查修复批(2 BLOCKING+14 IMPORTANT+13 MINOR,22 修+10 备案)(docs/reviews/2026-09-12-全仓功能审查.md)
