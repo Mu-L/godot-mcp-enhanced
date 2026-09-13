@@ -364,13 +364,65 @@ describe('P9: dap 工具 — TS 直连 DAP server(LuoxuanLove 移植)', () => {
     expect(r.isError).toBe(false);
     expect(r.data.request).toBeTruthy();
     expect(Array.isArray(r.data.messages)).toBe(true);
-    // 失败路径(超时)也带 messages(server 不回)
-    const mock2 = await startMockDapServer(() => null);
+    // 失败路径(超时)也带 messages(server 不回)——全仓审查 I4 重写:原版直接对 mock2 调
+    // threads,实际命中 endpoint 守卫(DAP_INVALID_SESSION_STATE)而非超时路径,断言虚假。
+    // 修:先对 mock2 initialize 建独立会话(mock2 回 initialize 但不回 threads),再 threads
+    // 走真超时,显式断言 dap_timeout + messages 非空。
+    const mock2 = await startMockDapServer((req) => {
+      if (String(req.command) === 'initialize') {
+        return [{ seq: 1, type: 'response', request_seq: req.seq, success: true, command: 'initialize', body: {} }];
+      }
+      if (String(req.command) === 'disconnect') {
+        return [{ seq: 2, type: 'response', request_seq: req.seq, success: true, command: 'disconnect', body: {} }];
+      }
+      return null;  // threads 等其他命令不回 → 超时
+    });
     try {
-      const r2 = await call({ action: 'threads', port: mock2.port, timeout_ms: 250, include_raw: true });
+      await call({ action: 'initialize', port: mock2.port, session_id: 'mock2', timeout_ms: 2000 });
+      const r2 = await call({ action: 'threads', port: mock2.port, session_id: 'mock2', timeout_ms: 250, include_raw: true });
       expect(r2.isError).toBe(true);
-      // mock2 的会话与 default 不同 endpoint → 先 initialize 建会话再 threads
-    } finally { await mock2.close(); }
+      expect(r2.data.error_type).toBe('dap_timeout');
+      expect(Array.isArray(r2.data.messages)).toBe(true);
+    } finally {
+      // 全仓审查 I4 补注: server.close() 等所有连接结束才回调——成功 initialize 建立的
+      // client session 连接若不断开,mock2.close() 永悬(it 超时假象)。先 disconnect 销毁
+      // client socket 再关 server。
+      await call({ action: 'disconnect', port: mock2.port, session_id: 'mock2', timeout_ms: 1000, disconnect: true }).catch(() => {});
+      await mock2.close();
+    }
+  });
+
+  it('DAP-s(全仓审查 I1): 消息积压 200 条稳态后 output 收集仍拿到新消息(原 length 游标数学上恒空)', async () => {
+    // 刷 >MAX_MESSAGES_PER_SESSION(200) 条 output 事件形成 trim 稳态(每 push 即 shift,
+    // length 恒 ≤200),再在 output 请求窗口内刷新事件——修复前 length 游标 slice(200)
+    // 恒空数组;修复后按 __mcpSeq 过滤,窗口内新消息必须可见。
+    const mock = await startMockDapServer((req) => {
+      if (String(req.command) === 'initialize') {
+        return [{ seq: 1, type: 'response', request_seq: req.seq, success: true, command: 'initialize', body: {} }];
+      }
+      if (String(req.command) === 'disconnect') {
+        return [{ seq: 2, type: 'response', request_seq: req.seq, success: true, command: 'disconnect', body: {} }];
+      }
+      return null;
+    });
+    currentMock = mock;
+    await call({ action: 'initialize', port: mock.port, timeout_ms: 2000 });
+    // 稳态积压:205 条历史 output(不含 'fresh' 标记)
+    for (let i = 0; i < 205; i++) {
+      mock.send({ type: 'event', event: 'output', body: { category: 'stdout', i } });
+    }
+    await new Promise((res) => setTimeout(res, 300));  // 等 pump 消费 + trim 生效
+    // 窗口:output 请求发出后 150ms 再刷 3 条新 output('fresh' 标记)
+    setTimeout(() => {
+      for (let i = 0; i < 3; i++) {
+        mock.send({ type: 'event', event: 'output', body: { category: 'stdout', fresh: true, i } });
+      }
+    }, 150);
+    const out = await call({ action: 'output', port: mock.port, timeout_ms: 800 });
+    expect(out.isError).toBe(false);
+    expect(Array.isArray(out.data.outputs)).toBe(true);
+    const fresh = (out.data.outputs as Array<{ fresh?: boolean }>).filter((o) => o && o.fresh === true);
+    expect(fresh.length, '200 条稳态后窗口内新 output 必须可收集(修复前恒空)').toBe(3);
   });
 
   it('DAP-p(N-2 清偿): set_settings 同批次 {host: 非 loopback, allow_remote_hosts: true} 一次通过', async () => {

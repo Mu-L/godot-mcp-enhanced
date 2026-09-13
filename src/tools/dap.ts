@@ -60,7 +60,9 @@ const MAX_TIMEOUT_MS = 30000;
 const DEFAULT_SESSION_ID = 'default';
 const MAX_SESSIONS = 8;
 const MAX_MESSAGES_PER_SESSION = 200;
-const MAX_BUFFER_BYTES = 1048576;
+// 全仓审查 M6: buffer 上限须容纳 header(约 20-40B)+ body——原与 frame 同为 1MB,
+// 恰好 1MB 的合法帧会先被 buffer 上限误杀(报错还误导成 buffer 问题)。+4KB header 余量。
+const MAX_BUFFER_BYTES = 1048576 + 4096;
 const MAX_FRAME_BYTES = 1048576;
 const MAX_BREAKPOINT_SOURCES = 512;
 const MAX_BREAKPOINTS_PER_SOURCE = 256;
@@ -75,6 +77,10 @@ interface DapSession {
   socket: net.Socket;
   buffer: Buffer;
   messages: DapMessage[];
+  /** 单调消息计数(push 时自增,附到消息 __mcpSeq)——trim 的 shift 不影响它,
+   * _collectOutput 据此过滤窗口内新消息(全仓审查 I1:原 length 游标在 200 条稳态下
+   * 与 slice 起点数学互斥,积压满后 output 恒空)。 */
+  msgSeq: number;
   /** data pump 检出的致命错误(buffer/frame 超限)——事件路径无处返回,暂存后由 _readMessages 报出(审查 N-3 清偿)。 */
   pendingError: ToolResult | null;
   host: string;
@@ -397,7 +403,7 @@ async function _terminate(args: Record<string, unknown>): Promise<ToolResult> {
 }
 
 async function _setBreakpoint(args: Record<string, unknown>): Promise<ToolResult> {
-  const sourcePath = _sourcePath(args);
+  const sourcePath = _normalizeSourceKey(_sourcePath(args));
   if (!sourcePath) return dapErr('INVALID_PARAMS', 'dap set_breakpoint requires source_path');
   const line = Number(args.line ?? 0);
   if (!(line > 0)) return dapErr('INVALID_PARAMS', 'dap set_breakpoint requires line');
@@ -421,7 +427,7 @@ async function _setBreakpoint(args: Record<string, unknown>): Promise<ToolResult
 }
 
 async function _removeBreakpoint(args: Record<string, unknown>): Promise<ToolResult> {
-  const sourcePath = _sourcePath(args);
+  const sourcePath = _normalizeSourceKey(_sourcePath(args));
   if (!sourcePath) return dapErr('INVALID_PARAMS', 'dap remove_breakpoint requires source_path');
   const sessionId = _sessionId(args);
   const store = _breakpointStore(sessionId);
@@ -448,10 +454,14 @@ async function _collectOutput(args: Record<string, unknown>): Promise<ToolResult
   const sessionResult = await _ensureSession(args);
   if (!sessionResult.ok) return sessionResult.error!;
   const session = sessionResult.session!;
-  const messageStart = session.messages.length;
+  // 全仓审查 I1: 原用 messages.length 做游标,与 _trimMessages 的 200 上限数学互斥
+  // (稳态下 push 即 shift,length 恒 ≤200,slice(200) 恒空)——改用单调 __mcpSeq 过滤。
+  const lastSeq = session.msgSeq;
   const readError = await _readMessages(session, _timeoutMs(args), -1);
   if (readError) return readError;
-  const newMessages = session.messages.slice(messageStart);
+  const newMessages = session.messages.filter(
+    (m) => Number((m as Record<string, unknown>).__mcpSeq ?? 0) > lastSeq,
+  );
   const outputs: unknown[] = [];
   for (const message of newMessages) {
     if (message.type === 'event' && message.event === 'output') {
@@ -459,7 +469,10 @@ async function _collectOutput(args: Record<string, unknown>): Promise<ToolResult
     }
   }
   const data: Record<string, unknown> = { outputs: _sanitizeValue(outputs), session_id: session.id };
-  if (args.include_raw) data.messages = _sanitizeValue(newMessages);
+  if (args.include_raw) {
+    // 剥离 __mcpSeq 内部字段,不污染原始消息输出(复用 _stripSeq helper)
+    data.messages = _sanitizeValue(newMessages.map(_stripSeq));
+  }
   return dapOk(data);
 }
 
@@ -491,6 +504,11 @@ async function _sessionRequest(
   const sessionResult = await _ensureSession(args);
   if (!sessionResult.ok) return sessionResult.error!;
   const session = sessionResult.session!;
+  // 全仓审查 I2: 前置校验用的是断连前的旧 session(initialized=true),但 _ensureSession
+  // 已重建未握手新连接——立即拒,提示重新 initialize(而非把请求发到新连接报假超时)。
+  if (sessionResult.rebuilt && (options.requireInitialized || options.requireExisting)) {
+    return _sessionStateError(sessionId, 'initialize', 'DAP connection was lost and reconnected; re-run initialize before this action');
+  }
 
   const requestSeq = _sequence++;
   const request: DapMessage = { seq: requestSeq, type: 'request', command, arguments: arguments_ };
@@ -511,18 +529,31 @@ async function _sessionRequest(
   if (response.success !== true) {
     return _dapRequestError(`DAP request failed: ${String(response.message ?? command)}`, 'dap_response_failed', sessionId, command, args);
   }
-  const data: Record<string, unknown> = { session_id: sessionId, response: _sanitizeValue(response) };
+  const data: Record<string, unknown> = { session_id: sessionId, response: _sanitizeValue(_stripSeq(response)) };
   if (args.include_raw) {
     data.request = _sanitizeValue(request);
-    data.messages = _sanitizeValue(session.messages);
+    data.messages = _sanitizeValue(session.messages.map(_stripSeq));
   }
   return dapOk(data);
+}
+
+/** 全仓审查 I1 配套: 剥离附着的内部 __mcpSeq 字段——消息对象进任何输出
+ * (response/messages/outputs)前统一过此函数,不污染对客户端暴露的 DAP 数据。 */
+function _stripSeq(m: DapMessage): DapMessage {
+  const { __mcpSeq, ...rest } = m as Record<string, unknown> & { __mcpSeq?: number };
+  void __mcpSeq;
+  return rest as DapMessage;
 }
 
 interface EnsureSessionResult {
   ok: boolean;
   session?: DapSession;
   error?: ToolResult;
+  /** 全仓审查 I2: socket 断开后 _ensureSession 走 _closeSession 重建新连接(未握手)。
+   * 标记重建,让带前置(requireInitialized/requireExisting)的调用方立即拒——否则请求
+   * 会发到从未 initialize 的新连接(DAP 协议违规),报误导性 dap_timeout,且断点簿记
+   * 已被 _closeSession 静默清空。 */
+  rebuilt?: boolean;
 }
 
 async function _ensureSession(args: Record<string, unknown>): Promise<EnsureSessionResult> {
@@ -532,11 +563,15 @@ async function _ensureSession(args: Record<string, unknown>): Promise<EnsureSess
   const endpointError = _validateEndpoint(host, port);
   if (endpointError) return { ok: false, error: endpointError };
   const existing = _sessions.get(sessionId);
+  // 全仓审查 I2: 断连残留 session(endpoint 未变但 socket 非 open)被 _closeSession
+  // 重建——标记 rebuilt 让调用方的前置校验重新审视(新连接未 initialize)。
+  let rebuilt = false;
   if (existing) {
     if (existing.host === host && existing.port === port && existing.socket.readyState === 'open') {
       return { ok: true, session: existing };
     }
     _closeSession(sessionId);
+    rebuilt = true;
   }
   // 并发首连去重(审查 N-4 清偿,参照 bridge-client 串行化模式):同 session_id 的并发
   // 请求复用同一 in-flight Promise——防后完成者覆盖前者的 socket(泄漏到进程结束)。
@@ -550,6 +585,7 @@ async function _ensureSession(args: Record<string, unknown>): Promise<EnsureSess
       socket,
       buffer: Buffer.alloc(0),
       messages: [],
+      msgSeq: 0,
       pendingError: null,
       host,
       port,
@@ -560,7 +596,7 @@ async function _ensureSession(args: Record<string, unknown>): Promise<EnsureSess
       capabilities: {},
     };
     _rememberSession(sessionId, session);
-    return { ok: true, session };
+    return { ok: true, session, rebuilt };
   })();
   _connectInflight.set(inflightKey, connectPromise);
   try {
@@ -664,6 +700,9 @@ function _drainFrames(session: DapSession): void {
     try {
       const parsed = JSON.parse(bodyText) as DapMessage;
       if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
+        // 全仓审查 I1: 附单调 __mcpSeq(trim 的 shift 不影响),collectOutput 据此过滤
+        session.msgSeq += 1;
+        (parsed as Record<string, unknown>).__mcpSeq = session.msgSeq;
         session.messages.push(parsed);
         _trimMessages(session.messages);
       }
@@ -804,7 +843,9 @@ function _statusData(): Record<string, unknown> {
     configured: s.configured,
     launch_mode: s.launchMode,
     message_count: s.messages.length,
-    capabilities: { ...s.capabilities },
+    // 全仓审查 M5: capabilities 是全文件唯一未过清洗的 DAP 数据出口——远程/恶意 server
+    // 的 capabilities 内嵌 token/authorization 字段会裸吐,统一过 _sanitizeValue。
+    capabilities: _sanitizeValue(s.capabilities),
   }));
   let breakpointCount = 0;
   for (const store of _breakpoints.values()) {
@@ -861,6 +902,20 @@ function _sourcePath(args: Record<string, unknown>): string {
   return String(args.source_path ?? '').trim();
 }
 
+/** 全仓审查 I3 (2026-09-12): 断点簿记 key 规范化——绝对路径 resolve + Windows 小写 +
+ * 正斜杠统一。防 D:/a.gd 与 D:\a.gd(或大小写/./.. 变体)生成多份独立簿记:setBreakpoints
+ * 全量语义下仅最后写入生效而 list 显示全部(虚高),remove 匹配写法残留幽灵断点,
+ * 上限 256/512 被同文件多写法绕过。res:// 保持原样归一类。 */
+function _normalizeSourceKey(p: string): string {
+  if (p.startsWith('res://')) return p;
+  try {
+    const resolved = resolvePath(p);
+    return process.platform === 'win32' ? resolved.replaceAll('\\', '/').toLowerCase() : resolved;
+  } catch {
+    return p.replaceAll('\\', '/');
+  }
+}
+
 /** res:// 路径转绝对路径给 DAP(需 project_path 推导;绝对路径原样)。 */
 function _dapPath(path: string, args: Record<string, unknown>): string {
   if (path.startsWith('res://')) {
@@ -909,7 +964,7 @@ function _dapRequestError(message: string, errorType: string, sessionId: string,
   const details: Record<string, unknown> = { error_type: errorType, session_id: sessionId, command };
   if (args.include_raw) {
     const session = _sessions.get(sessionId);
-    if (session) details.messages = _sanitizeValue(session.messages);
+    if (session) details.messages = _sanitizeValue(session.messages.map(_stripSeq));
   }
   return dapErr('DAP_REQUEST_FAILED', message, details);
 }

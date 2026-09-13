@@ -47,6 +47,11 @@ import { needsImport, runImport } from './tools/import-check.js';
 const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // F-1: create_process 与 execute 功能等价(均可启动任意可执行文件),必须同等拦截
   { pattern: /OS\.(execute|shell_open|kill|set_restart_on_exit|crash|create_process)\b/, label: 'OS system command' },
+  // 全仓审查 I-2 (2026-09-12): cmdline 内省是标记窃取链第一环——OS.get_cmdline_args() 取回
+  // --script 传入的脚本绝对路径,配合变量首参 FileAccess.open(:59/:66 两条模式均不匹配变量)
+  // 读包装后脚本正文即可恢复 rndResult/rndError 随机 marker。与 I-1 不同,这不是公开契约
+  // (合法脚本无需自查命令行),拦截不破坏任何既有用法。
+  { pattern: /OS\.(get_cmdline_args|cmdline_user_args)\b/, label: 'OS cmdline introspection (marker recovery)' },
   // C-SEC-3: OS["execute"] 等索引访问把句点换成方括号,绕过上面的 OS.execute 正则
   { pattern: /\bOS\s*\[/, label: 'OS singleton indexed access (sandbox bypass)' },
   // C-SEC-4: OS 单例别名赋值绕过 —— var s = OS; s.execute("calc") 避开 /OS\.execute/ 字面量。
@@ -707,7 +712,10 @@ async function cleanupOldSessions(): Promise<void> {
       if (stat.isSymbolicLink()) continue;
       // A-02: 优先解析文件名中的时间戳；回退到 mtime（兼容旧格式目录）
       let dirAge: number;
-      const tsMatch = entry.match(/-(\d+)-$/);
+      // 全仓审查 M-1 (2026-09-12): mkdtemp 在前缀后追加 6 随机字符,目录名以随机后缀收尾,
+      // 原 /-(\d+)-$/ 要求"数字段+-"收尾永不匹配(A-02 文件名解析从未生效,恒走 mtime 兜底)。
+      // 改为前缀锚定提取时间戳段(引用 TMP_PREFIX 防常量漂移)。
+      const tsMatch = entry.match(new RegExp(`^${TMP_PREFIX}(\\d+)-`));
       if (tsMatch) {
         dirAge = now - parseInt(tsMatch[1]!);
       } else {
@@ -1102,6 +1110,12 @@ export async function executeGdscript(
 ): Promise<ExecuteGdscriptResult> {
   const { godotPath, projectPath, timeout = 30 } = options;
   let code = options.code;
+  // 全仓审查 I-1 处置记录 (2026-09-12): 曾按审查建议 scrub 用户代码中的 marker 固定常量,
+  // 实测撤销——固定常量 ___MCP_RESULT___/___MCP_ERROR___ 是 C-09 的**公开协议契约**(测试模板
+  // /helper/生成器统一"写常量、server replaceAll 换随机 marker",ui-layout 等 full-class
+  // 测试即依赖此机制),scrub 破坏契约致结构化输出解析全断。威胁模型重审:单脚本内的输出
+  // 控制权本属脚本作者(marker 防的是跨执行/重放伪造,非当次);execute 通道输出的注入防御
+  // 由 untrusted 信封(M-3)承担。审查发现降级为设计声明,不构成漏洞。
   let loadAutoloads = options.loadAutoloads ?? false;
   let autoloadDetected: string[] | undefined;
 

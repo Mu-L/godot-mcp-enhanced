@@ -362,7 +362,12 @@ func _handle_message(text: String, peer: WebSocketPeer) -> void:
 	var pid: int = peer.get_instance_id()
 
 	var parsed = JSON.parse_string(text)
-	if not parsed or not parsed.has("jsonrpc"):
+	# 全仓审查 GD I-5 (2026-09-12): 顶层标量 JSON("123"/1.5/"x")经 parse_string 返回
+	# int/float/String——无 has() 方法,原 `not parsed.has(...)` 触发运行时错误中断
+	# _handle_message → 外层 _process 当帧中断,同帧所有 peer 的 poll/heartbeat 跳过;
+	# 无需认证即可持续发送标量帧实质瘫痪 WS 服务。对齐 bridge 侧 _handle_message 的
+	# `not (parsed is Dictionary)` 正确写法(369-374 的 C3 修过 params 侧同源问题)。
+	if not (parsed is Dictionary) or not parsed.has("jsonrpc"):
 		peer.send_text(JSON.stringify({"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid JSON-RPC"}}))
 		return
 

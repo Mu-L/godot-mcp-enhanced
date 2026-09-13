@@ -393,11 +393,16 @@ func _process(delta: float) -> void:
 					nget = _cond_wrapper.get(prop, null)
 				if not _compare_values(nget, str(cdict["op"]), cdict["value"]):
 					all_met = false
-				if cond_error != "" or all_met or int(su_entry["frames_remaining"]) <= 0 or now_ms > int(su_entry["wall_deadline_ms"]):
-					if cond_error != "":
-						su_entry["_error"] = cond_error
-					su_entry["_met"] = all_met and cond_error == ""
-					su_completed.append(su_idx)
+			# 全仓审查 GD B-1 (2026-09-12): 完成判定移出 for cond 循环——原在循环体内致
+			# ① AND 语义破坏(首条件满足即 append 完成,后续条件未评估,predicate_met 谎报全满足)
+			# ② 同 su_idx 双 append(帧耗尽/多条件同帧满足时每条件命中一次)→ 消费循环倒序双
+			# remove:单 pending 时第二轮索引空数组越界中断 _process;多 pending 时误删相邻条目。
+			# 循环外判定保证每 entry 每帧至多一次 append。
+			if cond_error != "" or all_met or int(su_entry["frames_remaining"]) <= 0 or now_ms > int(su_entry["wall_deadline_ms"]):
+				if cond_error != "":
+					su_entry["_error"] = cond_error
+				su_entry["_met"] = all_met and cond_error == ""
+				su_completed.append(su_idx)
 		su_completed.reverse()
 		for su_idx in su_completed:
 			var su_entry: Dictionary = _control_step_until_pending[su_idx]
@@ -928,6 +933,16 @@ func _process_buffer_bytes(peer: StreamPeerTCP, pid: int) -> bool:
 		var line_bytes: PackedByteArray = raw.slice(0, nl_idx)
 		raw = raw.slice(nl_idx + 1)
 		if line_bytes.size() == 0:
+			# 全仓审查 GD I-4 (2026-09-12): 未认证 peer 的空行不是合法流量(auth 是单条
+			# JSON 行)——原无条件 continue,未认证 peer 每秒发 "\n" 即借 269 行"任何入站
+			# 数据刷新 idle 计时"无限续命,5 个此类连接占满 MAX_PEERS 且 60s 超时永不
+			# 触发,合法客户端被永久拒绝(打破"槽位占用均有界"声明)。未认证空行直接
+			# 断连;已认证 peer 的空行继续容忍(keepalive 惯例)。慢速散字节路径由
+			# MAX_MESSAGE_SIZE buffer 上限兜底(达 1MB 断连)。
+			if not _authenticated_peers.has(pid):
+				peer.disconnect_from_host()
+				_peer_buffers[key] = raw
+				return true
 			continue
 		var line := line_bytes.get_string_from_utf8()
 		if line == "" and line_bytes.size() > 0:
@@ -1143,7 +1158,7 @@ func _handle_message(raw: String, pid: int) -> String:
 		"playtest.restore":
 			result = _cmd_playtest_restore(params, pid)
 		"playtest.step":
-			result = _cmd_playtest_step(params)
+			result = _cmd_playtest_step(params, pid)
 		# G1 (2026-08-13) control-first satellite 层(附录 F.1)
 		"playtest.freeze":
 			result = _cmd_control_freeze(params, pid)
@@ -1360,6 +1375,12 @@ func _cmd_find_nodes(params: Dictionary) -> Dictionary:
 		# 锚点坐标不可信/不可见时测距无意义,且按偏移坐标测距可差分反推真实坐标。
 		if player_mode and _position_rule_state(near_anchor) != "":
 			return {"error": {"code": -11, "message": "near_node anchor position is under an agent_field_rule and cannot be used for ranging under observation_profile=player (anti distance-differencing)"}}
+		# 全仓审查 GD I-2 (2026-09-12): 锚点自身也须可观察——原只查 position 规则漏了
+		# private/级联隐藏节点:拿 private 节点当锚点可拿到它与各可观察节点的 distance,
+		# 每帧查询即差分追踪 private 节点位置轨迹(穿透 P7 存在性不泄露承诺)。
+		# 报错用 not found 语义(与 -8 同款),不泄露"存在但不可见"。
+		if player_mode and not _observable_in_player(near_anchor):
+			return {"error": {"code": -8, "message": "near_node anchor not found: %s" % near_node_path}}
 	var anchor_2d: Node2D = near_anchor as Node2D if near_anchor is Node2D else null
 	var anchor_3d: Node3D = near_anchor as Node3D if near_anchor is Node3D else null
 	# B-1(2026-09-11 审查): near 是排序型查询——traverse 的 max_results 截断发生在
@@ -1445,11 +1466,17 @@ func _cmd_collect_state(params: Dictionary) -> Variant:
 	var count := 0
 	var truncated := false
 	var stack: Array = [root]
+	# 全仓审查 GD I-3 (2026-09-12): 树遍历 freed 守卫——_mcp_state() 是 P10 唯一的用户
+	# 代码执行点,其内部直接 .free()(非 queue_free)树中节点会让后续 pop 拿到 freed 引用,
+	# get_children() 抛 "previously freed instance" 中断整次收集(result=null 静默丢全部
+	# 已收集状态)。跳过 freed 节点继续收集,保住部分结果。
 	while not stack.is_empty():
 		if count >= 256:
 			truncated = true  # P10 审查 N-2:静默截断会让两侧同截断产生 in_sync 假阴性——显式标记
 			break
 		var node: Node = stack.pop_back()
+		if node == null or not is_instance_valid(node):
+			continue  # 用户 _mcp_state() 内 free 的节点:跳过,收集继续
 		for child in node.get_children():
 			stack.append(child)
 		if node.has_method("_mcp_state"):
@@ -3400,11 +3427,16 @@ func _eval_structured_report(specs: Array, profile: String = "debug") -> Array:
 	return out
 
 
-func _cmd_playtest_step(params: Dictionary) -> Dictionary:
+func _cmd_playtest_step(params: Dictionary, pid: int) -> Dictionary:
 	# 2026-08-14 审查 D-6 修复：frozen 守卫——冻结中 step 的帧递减不感知 paused，
 	# 游戏未推进却返 success（假成功）。入口明确报错，引导先 unfreeze。
 	if _control_frozen:
 		return {"error": {"code": -1, "message": "game is frozen; unfreeze before stepping"}}
+	# 全仓审查 GD M-2 (2026-09-12): step 补 owner 互斥——seed/fixed_delta/snapshot/restore
+	# 均有,唯独 step 没有:owner A 确定性重放期间其他 peer 的 step 可推进帧破坏帧对齐。
+	# 对齐 playtest 域 owner 语义(:3417 seed 同款)。
+	if _playtest_owner_pid != -1 and _playtest_owner_pid != pid:
+		return {"error": {"code": -1, "message": "playtest session held by another session (owner_pid=%d)" % _playtest_owner_pid}}
 	# step 走延迟响应:_handle_message 返回哨兵字符串,_process_buffer_bytes 存 pending,
 	# _process 每帧递减 frames_remaining(I-2 修复:加入帧不递减,下一帧起计),到 0 时 push 响应。
 	# 非真 await physics_frame coroutine(bridge TCP 同步模型不支持),而是 _process 计数器轮询,
@@ -3518,14 +3550,12 @@ func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
 	# step_until:临时解 pause 开窗让游戏跑(若原 frozen,记 refreeze 完成时恢复)。
 	# _process 每帧求值 conditions,满足/帧尽/wall 超时 → push 响应 + (若 refreeze)re-freeze。
 	var refreeze: bool = _control_frozen
-	_control_owner_pid = pid
-	# 2026-08-14 审查 D-2 修复:开窗前若无有效保存则记录当前 paused(refreeze 周期已由
-	# freeze 保存;非 refreeze 周期此处保存的即游戏自身原值),供完成/断线还原点恢复。
-	if not _control_paused_saved_valid:
-		_control_paused_saved = get_tree().paused
-		_control_paused_saved_valid = true
 	# P2-2(审查 B-1 修正): report 校验必须在开窗副作用**之前**——校验失败直接返回 error,
 	# 若已开窗(refreeze 丢弃)则 freeze 永久丢失且调用方以为未生效。对齐 conditions 校验位置。
+	# 全仓审查 GD I-1 (2026-09-12): owner 抢注与 paused 原值保存同属开窗副作用——原在
+	# report/profile 校验之前执行,校验失败路径会 ① 抢注 owner(后续其他 peer 被"held by
+	# another session"拒) ② 残留过期 _control_paused_saved(peer 断线时还原到校验失败时刻
+	# 的 paused,游戏自身后开的暂停被重置)。随开窗一并移到全部校验之后。
 	var su_vr: Array = _validate_report_spec(params)
 	if not bool(su_vr[0]):
 		return su_vr[1]
@@ -3533,6 +3563,12 @@ func _cmd_control_step_until(params: Dictionary, pid: int) -> Dictionary:
 	var su_profile_res := _resolve_observation_profile(params)
 	if su_profile_res.has("error"):
 		return su_profile_res
+	_control_owner_pid = pid
+	# 2026-08-14 审查 D-2 修复:开窗前若无有效保存则记录当前 paused(refreeze 周期已由
+	# freeze 保存;非 refreeze 周期此处保存的即游戏自身原值),供完成/断线还原点恢复。
+	if not _control_paused_saved_valid:
+		_control_paused_saved = get_tree().paused
+		_control_paused_saved_valid = true
 	_control_frozen = false  # 临时解:让 _process 不维持 paused,游戏跑
 	get_tree().paused = false  # 开窗
 	return {"__playtest_control_step_until__": true, "conditions": validated, "max_frames": max_frames, "wall_budget_ms": wall_budget_ms, "refreeze": refreeze, "report": su_vr[1], "profile": str(su_profile_res["profile"])}
@@ -4363,6 +4399,16 @@ func _execute_custom_command(method: String, params: Dictionary) -> Variant:
 	slot["active_calls"] = int(slot.get("active_calls", 0)) + 1
 	_custom_slots[path] = slot
 	var result: Variant = callable.call(params)
+	# 全仓审查 GD I-6 (2026-09-12): 协程命令(内部 await)在首个 await 处挂起并立即返回
+	# GDScriptFunctionState——① active_calls 立即归零,quiesce 不覆盖仍在执行的协程,
+	# 下个 tick(≥300ms)热重载会释放其宿主实例,resume 时报 freed instance;
+	# ② FunctionState 流入响应被 JSON.stringify 成无意义字符串,agent 无有效诊断。
+	# 此处显式警告 + 阻止 FunctionState 流入响应(对齐内建 call_method 的协程检测先例
+	# :1845——注意必须用 get_class() 字符串比较,`is GDScriptFunctionState` 类型检查
+	# 在 Godot 4.x 会 Parse Error"Could not find type",autoload 直接挂掉)。
+	if result is Object and result.get_class() == "GDScriptFunctionState":
+		push_warning("[MCP Bridge] custom command '%s' is a coroutine (contains await); hot-reload quiesce does NOT cover it — make custom commands synchronous" % path)
+		result = {"error": "custom command is a coroutine (contains await); quiesce/hot-reload cannot cover coroutines — make it synchronous"}
 	slot = _custom_slots.get(path, slot)
 	slot["active_calls"] = maxi(0, int(slot.get("active_calls", 1)) - 1)
 	_custom_slots[path] = slot

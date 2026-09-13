@@ -990,6 +990,20 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
         loadAutoloads,
       });
 
+      // 全仓审查 M-3 (2026-09-12): 项目文件内容被用户 GDScript 读取后经 _mcp_output/print
+      // 回传,是 P1-1 声明威胁模型(项目文件内藏提示注入)的间接读通道——outputs 值与
+      // raw_output 过信封包装(对齐 workflow.ts dev_loop 的同款处理),execute 通道不再裸吐。
+      if (Array.isArray(result.outputs)) {
+        result.outputs = result.outputs.map((o) =>
+          o && typeof o === 'object'
+            ? { ...o, value: maybeWrapUntrusted('gdscript.execute', o.key || 'output', String(o.value ?? '')) }
+            : o,
+        );
+      }
+      if (typeof result.raw_output === 'string' && result.raw_output) {
+        result.raw_output = maybeWrapUntrusted('gdscript.execute', 'raw_output', result.raw_output);
+      }
+
       let output = JSON.stringify(result, null, 2);
       if (result.autoload_detected && result.autoload_detected.length > 0) {
         const names = result.autoload_detected.join(', ');
@@ -1121,10 +1135,15 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
       }
 
       // P1-2 FileGuard: 拒写插件自资产——整批原子检查(任一命中全拒,保持批量原子性)
+      // 全仓审查 B-1 (2026-09-12): project_replace 的批量写入曾绕过沙箱扫描——此处对每个
+      // .gd 落盘内容过 scanScriptSandboxOrThrow(script.ts:79 全仓约束:所有写 .gd 落盘前
+      // 必须过此扫描)。攻击路径与 SEC-P1-1 同构:replace 注入危险 API → run_project 即执行。
       if (!dryRun && pendingWrites.length > 0) {
         for (const pw of pendingWrites) {
           const selfGuardP = pluginSelfPathGuard(pw.filePath);
           if (selfGuardP) return selfGuardP;
+          const sandboxGuardP = scanScriptSandboxOrThrow(pw.finalContent, pw.filePath);
+          if (sandboxGuardP) return sandboxGuardP;
         }
       }
       // Phase 2: Best-effort atomic write — backup originals, write .tmp, rename with rollback

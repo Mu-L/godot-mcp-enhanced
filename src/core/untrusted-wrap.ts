@@ -31,7 +31,11 @@ export function untrustedEnabled(): boolean {
 export function wrapUntrusted(kind: string, source: string, body: string): string {
   const nonce = randomBytes(4).toString('hex');
   const scrubbed = body.replace(ENVELOPE_TAG_RE, '[scrubbed-envelope-tag]');
-  return `<untrusted-${nonce} kind="${kind}" source="${source}">\n${scrubbed}\n</untrusted-${nonce}>`;
+  // 全仓审查 M-4 (2026-09-12): kind/source 进属性域,含 " 时逃逸开标签属性
+  // (source 来自用户 GDScript 的 _mcp_output key,攻击者可控)——转义引号封死。
+  const safeKind = kind.replaceAll('"', '&quot;');
+  const safeSource = source.replaceAll('"', '&quot;');
+  return `<untrusted-${nonce} kind="${safeKind}" source="${safeSource}">\n${scrubbed}\n</untrusted-${nonce}>`;
 }
 
 /** 条件包装入口:开关关闭时原样返回(读通道调用点统一用这个)。 */

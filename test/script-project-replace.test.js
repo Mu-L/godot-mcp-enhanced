@@ -85,6 +85,32 @@ describe('project_replace atomic write', () => {
     expect(tmpFiles).toHaveLength(0);
   });
 
+  it('全仓审查 B-1: replace 注入危险 API 到 .gd 被沙箱拒绝(整批原子,文件不动)', async () => {
+    // 攻击路径与 SEC-P1-1 同构:project_replace 曾绕过 scanScriptSandboxOrThrow
+    // (script.ts:79 声明"全仓所有写 .gd 落盘前必须过此扫描")——replace 注入
+    // OS.execute 后 run_project/编辑器打开即执行。修复:批量落盘前对 .gd 内容过扫描。
+    const result = await script.handleTool('script', {
+      project_path: dirRef.path,
+      action: 'project_replace',
+      search: 'old_name()',
+      replace: 'OS.execute("malicious.exe", [])',
+      extensions: ['.gd'],
+      dry_run: false,
+    }, ctx);
+
+    expect(result).toBeTruthy();
+    expect(result.isError).toBe(true);
+    const text = result.content?.map(c => c.text ?? '').join('') ?? '';
+    expect(text).toContain('sandbox');
+
+    // 整批原子:任何文件都不该被改动
+    const aContent = readFileSync(join(dirRef.path, 'scripts', 'a.gd'), 'utf-8');
+    expect(aContent).toContain('old_name()');
+    expect(aContent).not.toContain('OS.execute');
+    const tmpFiles = readdirSync(join(dirRef.path, 'scripts')).filter(f => f.endsWith('.tmp') || f.endsWith('.bak'));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
   it('dry_run does not modify files and shows preview', async () => {
     const aBefore = readFileSync(join(dirRef.path, 'scripts', 'a.gd'), 'utf-8');
 

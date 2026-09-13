@@ -102,6 +102,9 @@ interface SyncSnapshot {
   count: number;
   game_time_ms: number;
   taken_at: number;
+  /** 全仓审查(2026-09-12): GD 侧 256 节点上限截断标志(P10 审查 N-2 产出,原 TS 消费侧
+   * 丢弃)——截断快照参与比对时结果不可信(两侧同截断→假阳性/不同截断→假阴性)。 */
+  truncated: boolean;
 }
 
 /** 内存快照表(进程生命周期;label → snapshot)。agent 断连重连不清——快照是比对原语不是会话态。 */
@@ -367,10 +370,20 @@ export async function pollWaitCondition(
 
   let last: BridgeResponse;
   for (;;) {
-    last = await probe();
-
-    // Hard errors abort immediately — never swallow a real failure as "not yet".
-    if (last.error) {
+    // 全仓审查(2026-09-12): probe **throw**(BridgeTimeoutError/BridgeNotConnectedError)
+    // 原样向上传播会烧掉整个等待预算——游戏主线程卡顿超过单次探测超时(interval×2,
+    // 默认 400ms)即立即失败,30s 总预算只消耗 0.4s,与"poll until budget runs out"
+    // 设计初衷相悖。视为"本轮探测不可用"继续下一轮:预算耗尽走正常 timed_out 路径,
+    // 断连场景下次 _ensureConnection 自动重连后可恢复探测。响应内 error 字段仍立即中止
+    // (game-bridge-wait.test.ts 锁定的既有语义,不放松)。
+    let probeErr: unknown = null;
+    try {
+      last = await probe();
+    } catch (e) {
+      probeErr = e;
+      last = {} as BridgeResponse;
+    }
+    if (probeErr === null && last.error) {
       return {
         ...(last.result as Record<string, unknown> | undefined),
         error: last.error,
@@ -378,9 +391,8 @@ export async function pollWaitCondition(
         elapsed_ms: Date.now() - startedAt,
       };
     }
-
     const result = (last.result ?? {}) as Record<string, unknown>;
-    const satisfied = isNode ? result.exists === true : result.match === true;
+    const satisfied = probeErr === null && (isNode ? result.exists === true : result.match === true);
     if (satisfied) {
       return { ...result, wait_completed: true, elapsed_ms: Date.now() - startedAt };
     }
@@ -863,13 +875,20 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (res.isError === true || parsed.error) {
             return res;
           }
+          const truncated = parsed.truncated === true;
           _syncSnapshots.set(label, {
             instances: (parsed.instances ?? {}) as Record<string, unknown>,
             count: Number(parsed.count ?? 0),
             game_time_ms: Number(parsed.game_time_ms ?? 0),
             taken_at: Date.now(),
+            truncated,
           });
-          return textResult(JSON.stringify({ label, count: parsed.count ?? 0, collected: parsed.collected ?? [] }, null, 2));
+          // 全仓审查: 透传截断标志并附警告——静默截断会让 compare 结果不可信(N-2 修复
+          // 的消费侧接线,原 GD 产出但 TS 丢弃)。
+          return textResult(JSON.stringify({
+            label, count: parsed.count ?? 0, collected: parsed.collected ?? [], truncated,
+            ...(truncated ? { warning: 'state collection hit the 256-node cap and was truncated; compare results will not cover all nodes' } : {}),
+          }, null, 2));
         }
         if (sub === 'compare') {
           const labelA = String(args.label_a ?? '').trim();
@@ -881,15 +900,21 @@ export async function handleTool(name: string, args: Record<string, unknown>, ct
           if (!snapB) return opsErrorResult('INVALID_PARAMS', `snapshot "${labelB}" not found (take it with sub_action=snapshot first)`);
           const tolerance = typeof args.tolerance === 'number' && args.tolerance >= 0 ? args.tolerance : 0.0001;
           const report = compareStates(snapA.instances, snapB.instances, tolerance);
+          // 全仓审查: 任一侧截断则比对结果不可信——显式标注 unreliable,防 agent 据此
+          // 做同步判定(同截断→in_sync 假阳性;不同截断→missing 假阴性)。
+          const truncatedA = snapA.truncated;
+          const truncatedB = snapB.truncated;
           return textResult(JSON.stringify({
             label_a: labelA, label_b: labelB, tolerance,
             game_time_a: snapA.game_time_ms, game_time_b: snapB.game_time_ms,
+            truncated_a: truncatedA, truncated_b: truncatedB,
+            ...(truncatedA || truncatedB ? { unreliable: true, warning: 'one or both snapshots were truncated at the 256-node cap; in_sync/missing fields do not cover all nodes' } : {}),
             ...report,
           }, null, 2));
         }
         if (sub === 'list') {
           const items = [..._syncSnapshots.entries()].map(([label, snap]) => ({
-            label, count: snap.count, game_time_ms: snap.game_time_ms, taken_at: new Date(snap.taken_at).toISOString(),
+            label, count: snap.count, game_time_ms: snap.game_time_ms, taken_at: new Date(snap.taken_at).toISOString(), truncated: snap.truncated,
           }));
           return textResult(JSON.stringify({ snapshots: items, total: items.length }, null, 2));
         }

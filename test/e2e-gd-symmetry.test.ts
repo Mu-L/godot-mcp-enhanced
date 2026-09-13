@@ -103,6 +103,29 @@ describe.skipIf(!hasGodot || !hasFixture || !RUN)('批 2 GD 对称性 e2e (L2)',
     expect(parsed.frames_elapsed ?? 0, '应耗尽全部帧而非立即满足').toBeGreaterThanOrEqual(30);
   });
 
+  it('审查GD-B1(全仓审查): 多条件 AND 语义——A 满足但 B 拒斥时 predicate_met=false 且帧耗尽', { timeout: 60_000 }, async () => {
+    // 原 GD 完成判定嵌在 for cond 循环体内:首条件满足即 append 完成,后续条件未评估,
+    // predicate_met=true 谎报全满足;且同 su_idx 双 append 致消费循环双 remove 越界。
+    // 修复:判定移出循环——全部条件评估后才判定。A(数值 0>=0)立即满足、
+    // B(String 'abc')白名单拒斥恒 false → AND 结果 false,应耗尽 30 帧。
+    const r = await callTool({
+      action: 'game_playtest', method: 'playtest.step_until',
+      params: {
+        conditions: [
+          { path: '/root/Main', property: 'rotation', op: '>=', value: 0 },
+          { path: '/root/Main', property: 'rotation', op: '>=', value: 'abc' },
+        ],
+        max_frames: 30, wall_budget_ms: 30000,
+      },
+      timeout: 40000,
+    });
+    expect(r.isError, `step_until errored: ${r.text.slice(0, 300)}`).toBe(false);
+    const parsed = JSON.parse(r.text) as { predicate_met?: boolean; frames_elapsed?: number; error?: string };
+    expect(parsed.error ?? '').toBe('');
+    expect(parsed.predicate_met, 'AND 语义:B 拒斥时不得因 A 满足谎报全满足').toBe(false);
+    expect(parsed.frames_elapsed ?? 0, '帧耗尽而非首条件满足即停').toBeGreaterThanOrEqual(30);
+  });
+
   it('审查G-1 正向回归: 数值条件值仍正常满足(白名单不误伤合法路径)', { timeout: 30_000 }, async () => {
     const r = await callTool({
       action: 'game_playtest', method: 'playtest.step_until',

@@ -39,6 +39,20 @@ describe('P10: sync_state — GD 源码契约', () => {
     expect(GD.includes('"truncated": truncated')).toBe(true);
   });
 
+  it('TS-b3(全仓审查): truncated 标志的 TS 消费侧接线(原 GD 产出但 TS 丢弃,N-2 只修了一半)', () => {
+    // snapshot 存储/透传警告/compare 标注 unreliable/list 透传——四点源码契约
+    const BRIDGE = readFileSync(resolve(__dirname, '..', 'src', 'tools', 'game-bridge.ts'), 'utf-8');
+    // SyncSnapshot 接口带 truncated 字段
+    expect(BRIDGE.includes('truncated: boolean')).toBe(true);
+    // snapshot 存储读 parsed.truncated
+    expect(BRIDGE.includes('parsed.truncated === true')).toBe(true);
+    // snapshot 返回透传 + 截断警告
+    expect(BRIDGE.includes('collected: parsed.collected ?? [], truncated')).toBe(true);
+    // compare 任一侧截断 → unreliable 标注
+    expect(BRIDGE.includes('truncated_a: truncatedA, truncated_b: truncatedB')).toBe(true);
+    expect(BRIDGE.includes('unreliable: true')).toBe(true);
+  });
+
   it('GD-b: 防爆量上限(256 节点/深度 8)+ Object 递归降级 str()', () => {
     expect(GD.includes('count >= 256')).toBe(true);
     expect(GD.includes('depth > 8')).toBe(true);
