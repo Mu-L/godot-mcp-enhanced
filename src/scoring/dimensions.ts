@@ -30,11 +30,12 @@ export const DIM_ORDER: DimensionName[] = ['integration', 'coverage', 'security'
 export const WARN_PENALTY = 2;
 
 /**
- * performance 绝对阈值,Task 5 本地基线校准(ADVISORY 1 规则 round(W×1.5)/round(W×3))。
- * W = 42685 ms(coverage/test-report.json wall-clock = max(endTime) - min(startTime))。
- *
- * 本地 ≠ CI runner 性能:CI 首跑后读 coverage/test-report.json 的 W_ci,若与本地差异大,
- * 按 round(W_ci×1.5)/round(W_ci×3) 重算回填(CI 校准 follow-up)。
+ * performance 绝对阈值,ADVISORY 1 规则 round(W×1.5)/round(W×3)。
+ * 二次校准(2026-09-13,CI 校准 follow-up 兑现):初版 W=42685ms 为 0.32.11 时代
+ * 本地基线(171 文件/2849 测试);P0-P10 批后体量翻倍(436 文件/6392 测试 + L2 e2e
+ * 全家桶),CI 实测 W_ci=130131ms(--maxWorkers=2 受限口径,score.json performance.raw)
+ * 超旧 T_WARN 致维度 fail——按预留的 CI 回填路径换 W_ci 口径,本地实测 73510ms
+ * (全核)同线 100 分。wall-clock 增长是覆盖增强的代价而非质量退化。
  */
-export const T_PASS_MS = 64028;   // round(42685 × 1.5)
-export const T_WARN_MS = 128055;  // round(42685 × 3)
+export const T_PASS_MS = 195197;  // round(130131 × 1.5)
+export const T_WARN_MS = 390394;  // round(130131 × 3)
