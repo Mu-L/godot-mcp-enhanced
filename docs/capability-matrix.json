@@ -1,5 +1,5 @@
 {
-  "version": "0.33.0",
+  "version": "0.33.1",
   "tools": [
     {
       "name": "analysis",
@@ -2229,7 +2229,7 @@
             "items": {
               "type": "string"
             },
-            "description": "monitor_start: 要监控的属性名列表（如 [\"position\", \"health\"]）"
+            "description": "monitor_start: 要监控的属性名列表（如 [\"position\", \"health\"]）;被安全过滤的属性会在返回 dropped_blocked 中逐个点名"
           },
           "interval_frames": {
             "type": "number",
@@ -2386,8 +2386,8 @@
       },
       "size": {
         "descBytes": 393,
-        "schemaBytes": 7557,
-        "totalBytes": 7950
+        "schemaBytes": 7626,
+        "totalBytes": 8019
       },
       "annotations": {
         "readOnlyHint": false,
